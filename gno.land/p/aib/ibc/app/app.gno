@@ -13,6 +13,7 @@ type IBCApp interface {
 	// This callback is provided with the source and destination IDs, the signer,
 	// the packet sequence and the packet data for this specific application.
 	OnSendPacket(
+		cur realm,
 		banker banker.Banker,
 		sourceClient string,
 		destinationClient string,
@@ -22,6 +23,7 @@ type IBCApp interface {
 
 	// OnRecvPacket is executed when a packet is received from receiving chain.
 	OnRecvPacket(
+		cur realm,
 		sourceClient string,
 		destinationClient string,
 		sequence uint64,
@@ -31,6 +33,7 @@ type IBCApp interface {
 	// OnTimeoutPacket is executed when a packet has timed out on the receiving
 	// chain.
 	OnTimeoutPacket(
+		cur realm,
 		sourceClient string,
 		destinationClient string,
 		sequence uint64,
@@ -39,6 +42,7 @@ type IBCApp interface {
 
 	// OnAcknowledgementPacket is executed when a packet gets acknowledged.
 	OnAcknowledgementPacket(
+		cur realm,
 		sourceClient string,
 		destinationClient string,
 		sequence uint64,

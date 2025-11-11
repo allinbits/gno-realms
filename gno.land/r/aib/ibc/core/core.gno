@@ -86,7 +86,7 @@ func SendPacket(cur realm, banker banker.Banker, msg types.MsgSendPacket) (seque
 	for _, payload := range msg.Payloads {
 		app := store.route(payload.SourcePort)
 		err := app.OnSendPacket(
-			banker, msg.SourceClient, c.counterpartyClientID, sequence, payload,
+			cross, banker, msg.SourceClient, c.counterpartyClientID, sequence, payload,
 		)
 		if err != nil {
 			panic(ufmt.Sprintf(
@@ -191,8 +191,8 @@ func Acknowledgement(cur realm, msg types.MsgAcknowledgement) types.ResponseResu
 			ack = types.UniversalErrorAcknowledgement()
 		}
 		err := app.OnAcknowledgementPacket(
-			msg.Packet.SourceClient, c.counterpartyClientID, msg.Packet.Sequence,
-			ack, payload,
+			cross, msg.Packet.SourceClient, c.counterpartyClientID,
+			msg.Packet.Sequence, ack, payload,
 		)
 		if err != nil {
 			panic(ufmt.Sprintf(

@@ -7,6 +7,7 @@ import (
 	"chain/banker"
 	"chain/runtime"
 	"crypto/sha256"
+	"testing"
 	"time"
 
 	tmtesting "gno.land/p/aib/ibc/lightclient/tendermint/testing"
@@ -17,6 +18,9 @@ import (
 )
 
 // OnSendPacket: success with IBC token
+// TODO not working since chain.Coins validation doesnt accept ibc coins
+// TODO not possible to mint tokens without the realm path prefix
+// try something like bank.IssueCoin(runtime.CurrentRealm().Address(), "uatone", 100) ?
 func main() {
 	var (
 		chainID        = "chain-id-2"
@@ -28,11 +32,7 @@ func main() {
 	clientID := core.CreateClient(cross, clientState, consensusState)
 	core.RegisterCounterparty(cross, clientID, [][]byte{[]byte("prefix1"), []byte("prefix2")}, "07-tendermint-2")
 
-	banker := banker.NewBanker(banker.BankerTypeOriginSend)
-	// TODO not possible to mint tokens without the realm path prefix
-	// bank.IssueCoin(runtime.CurrentRealm().Address(), "uatone", 100)
-
-	signer := runtime.OriginCaller()
+	signer := runtime.CurrentRealm().Address()
 	payload := transfer.FungibleTokenPacketData{
 		Denom:    "transfer/07-tendermint-2/uatone",
 		Amount:   "100",
@@ -53,22 +53,23 @@ func main() {
 		},
 	}
 
-	ibcCoreAddr := chain.PackageAddress("gno.land/r/aib/ibc/core")
+	banker := banker.NewBanker(banker.BankerTypeOriginSend)
+	testing.SetOriginCaller(signer)
 	transferAppAddr := chain.PackageAddress("gno.land/r/aib/ibc/apps/transfer")
-	println("r/aib/ibc/core balance before SendPacket:", banker.GetCoins(ibcCoreAddr))
+	println("signer balance before SendPacket:", banker.GetCoins(signer))
 	println("transferAppAddr balance before SendPacket:", banker.GetCoins(transferAppAddr))
 
 	core.SendPacket(cross, banker, packet)
 
-	println("\nr/aib/ibc/core balance after SendPacket:", banker.GetCoins(ibcCoreAddr))
+	println("\nsigner balance after SendPacket:", banker.GetCoins(signer))
 	println("transferAppAddr balance after SendPacket:", banker.GetCoins(transferAppAddr))
 }
 
 // Output:
-// r/aib/ibc/core balance before SendPacket: 100ugnot
+// signer balance before SendPacket: 100ugnot
 // transferAppAddr balance before SendPacket:
 //
-// r/aib/ibc/core balance after SendPacket:
+// signer balance after SendPacket:
 // transferAppAddr balance after SendPacket: 100ugnot
 
 // Events:

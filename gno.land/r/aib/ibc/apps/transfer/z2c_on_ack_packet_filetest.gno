@@ -6,6 +6,7 @@ import (
 	"chain/banker"
 	"chain/runtime"
 	"encoding/hex"
+	"testing"
 	"time"
 
 	tmtesting "gno.land/p/aib/ibc/lightclient/tendermint/testing"
@@ -30,7 +31,7 @@ func main() {
 	clientID := core.CreateClient(cross, clientState, consensusState)
 	core.RegisterCounterparty(cross, clientID, [][]byte{[]byte("iavlStoreKey"), []byte("prefix2")}, counterpartyID)
 
-	signer := runtime.OriginCaller()
+	signer := runtime.CurrentRealm().Address()
 	payload := transfer.FungibleTokenPacketData{
 		Denom:    "ugnot",
 		Amount:   "100",
@@ -52,7 +53,7 @@ func main() {
 		},
 	}
 	banker := banker.NewBanker(banker.BankerTypeOriginSend)
-
+	testing.SetOriginCaller(signer)
 	// Send the packet
 	sequence := core.SendPacket(cross, banker, sendPacket)
 	// Acknowledge the packet

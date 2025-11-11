@@ -6,6 +6,7 @@ import (
 	"chain/banker"
 	"chain/runtime"
 	"crypto/sha256"
+	"testing"
 	"time"
 
 	tmtesting "gno.land/p/aib/ibc/lightclient/tendermint/testing"
@@ -27,7 +28,7 @@ func main() {
 	clientID := core.CreateClient(cross, clientState, consensusState)
 	core.RegisterCounterparty(cross, clientID, [][]byte{[]byte("prefix1"), []byte("prefix2")}, "07-tendermint-2")
 
-	signer := runtime.OriginCaller()
+	signer := runtime.CurrentRealm().Address()
 	payload := transfer.FungibleTokenPacketData{
 		Denom:    "ugnot",
 		Amount:   "100",
@@ -48,9 +49,10 @@ func main() {
 		},
 	}
 	banker := banker.NewBanker(banker.BankerTypeOriginSend)
+	testing.SetOriginCaller(signer)
 
 	core.SendPacket(cross, banker, packet)
 }
 
 // Error:
-// spendLimit 10ugnot exceeded for coins 100ugnot
+// cannot send "100ugnot", limit "10ugnot" exceeded with "" already spent

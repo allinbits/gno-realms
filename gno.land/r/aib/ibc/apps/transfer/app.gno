@@ -35,6 +35,7 @@ var _ app.IBCApp = &App{}
 
 // Implements app.IBCApp
 func (a *App) OnSendPacket(
+	_ realm,
 	banker banker.Banker,
 	sourceClient string,
 	destinationClient string,
@@ -116,6 +117,7 @@ func (a *App) OnSendPacket(
 
 // Implements app.IBCApp
 func (a *App) OnRecvPacket(
+	_ realm,
 	sourceClient string,
 	destinationClient string,
 	sequence uint64,
@@ -126,6 +128,7 @@ func (a *App) OnRecvPacket(
 
 // Implements app.IBCApp
 func (a *App) OnTimeoutPacket(
+	_ realm,
 	sourceClient string,
 	destinationClient string,
 	sequence uint64,
@@ -136,6 +139,7 @@ func (a *App) OnTimeoutPacket(
 
 // Implements app.IBCApp
 func (a *App) OnAcknowledgementPacket(
+	_ realm,
 	sourceClient string,
 	destinationClient string,
 	sequence uint64,

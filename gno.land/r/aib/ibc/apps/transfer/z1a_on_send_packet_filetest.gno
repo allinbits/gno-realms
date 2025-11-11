@@ -7,6 +7,7 @@ import (
 	"chain/banker"
 	"chain/runtime"
 	"crypto/sha256"
+	"testing"
 	"time"
 
 	tmtesting "gno.land/p/aib/ibc/lightclient/tendermint/testing"
@@ -28,7 +29,7 @@ func main() {
 	clientID := core.CreateClient(cross, clientState, consensusState)
 	core.RegisterCounterparty(cross, clientID, [][]byte{[]byte("prefix1"), []byte("prefix2")}, "07-tendermint-2")
 
-	signer := runtime.OriginCaller()
+	signer := runtime.CurrentRealm().Address()
 	payload := transfer.FungibleTokenPacketData{
 		Denom:    "ugnot",
 		Amount:   "100",
@@ -49,22 +50,23 @@ func main() {
 		},
 	}
 	banker := banker.NewBanker(banker.BankerTypeOriginSend)
-	ibcCoreAddr := chain.PackageAddress("gno.land/r/aib/ibc/core")
+	testing.SetOriginCaller(signer)
+	// TODO move address in ibctesting
 	transferAppAddr := chain.PackageAddress("gno.land/r/aib/ibc/apps/transfer")
-	println("r/aib/ibc/core balance before SendPacket:", banker.GetCoins(ibcCoreAddr))
+	println("signer balance before SendPacket:", banker.GetCoins(signer))
 	println("transferAppAddr balance before SendPacket:", banker.GetCoins(transferAppAddr))
 
 	core.SendPacket(cross, banker, packet)
 
-	println("\nr/aib/ibc/core balance after SendPacket:", banker.GetCoins(ibcCoreAddr))
+	println("\nsigner balance after SendPacket:", banker.GetCoins(signer))
 	println("transferAppAddr balance after SendPacket:", banker.GetCoins(transferAppAddr))
 }
 
 // Output:
-// r/aib/ibc/core balance before SendPacket: 100ugnot
+// signer balance before SendPacket: 100ugnot
 // transferAppAddr balance before SendPacket:
 //
-// r/aib/ibc/core balance after SendPacket:
+// signer balance after SendPacket:
 // transferAppAddr balance after SendPacket: 100ugnot
 
 // Events:
@@ -108,7 +110,7 @@ func main() {
 //       },
 //       {
 //         "key": "encoded_packet_hex",
-//         "value": "0801120f30372d74656e6465726d696e742d311a0f30372d74656e6465726d696e742d3220e2a1d8cc042a790a087472616e7366657212087472616e736665721a0769637332302d3122166170706c69636174696f6e2f782d70726f746f6275662a420a0575676e6f7412033130301a28673177796d75343764726872306b7571323039386d3739326c797467746a326e797837377972736d220a61746f6e653175736572"
+//         "value": "0801120f30372d74656e6465726d696e742d311a0f30372d74656e6465726d696e742d3220e2a1d8cc042a790a087472616e7366657212087472616e736665721a0769637332302d3122166170706c69636174696f6e2f782d70726f746f6275662a420a0575676e6f7412033130301a286731676a73386e6664726435357a33787539676a6361746e6a3239766b7775797834666671786439220a61746f6e653175736572"
 //       }
 //     ],
 //     "pkg_path": "gno.land/r/aib/ibc/core"
@@ -118,7 +120,7 @@ func main() {
 //     "attrs": [
 //       {
 //         "key": "sender",
-//         "value": "g1wymu47drhr0kuq2098m792lytgtj2nyx77yrsm"
+//         "value": "g1gjs8nfdrd55z3xu9gjcatnj29vkwuyx4ffqxd9"
 //       },
 //       {
 //         "key": "receiver",
