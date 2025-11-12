@@ -18,9 +18,6 @@ import (
 )
 
 // OnSendPacket: success with IBC token
-// TODO not working since chain.Coins validation doesnt accept ibc coins
-// TODO not possible to mint tokens without the realm path prefix
-// try something like bank.IssueCoin(runtime.CurrentRealm().Address(), "uatone", 100) ?
 func main() {
 	var (
 		chainID        = "chain-id-2"
