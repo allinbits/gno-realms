@@ -127,7 +127,7 @@ func main() {
 	res := core.Acknowledgement(cross, ackPacket)
 
 	println("\nack res:", res)
-	println("\nsigner balance after SendPacket:", banker.GetCoins(signer))
+	println("\nsigner balance after Acknowledgement:", banker.GetCoins(signer))
 	println("transferAppAddr balance after Acknowledgement:", banker.GetCoins(transferAppAddr))
 }
 
@@ -140,7 +140,7 @@ func main() {
 //
 // ack res: (2 gno.land/p/aib/ibc/types.ResponseResultType)
 //
-// signer balance after SendPacket: 100ugnot
+// signer balance after Acknowledgement: 100ugnot
 // transferAppAddr balance after Acknowledgement:
 
 // Events:

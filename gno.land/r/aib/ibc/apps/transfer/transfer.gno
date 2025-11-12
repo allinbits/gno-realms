@@ -4,7 +4,6 @@ import (
 	"chain"
 	"chain/banker"
 	"chain/runtime"
-	"crypto/bech32"
 
 	"gno.land/p/nt/ufmt"
 )
@@ -43,14 +42,11 @@ func unescrowCoin(sender string, token Token) error {
 	// Send back the amount from escrow address back to sender
 	var (
 		from   = runtime.CurrentRealm().Address()
+		to     = address(sender)
 		amount = chain.NewCoins(coin)
 		banker = banker.NewBanker(banker.BankerTypeRealmSend)
 	)
-	_, to, err := bech32.Decode(sender)
-	if err != nil {
-		return ufmt.Errorf("sender address %s conversion error: %v", sender, err)
-	}
-	banker.SendCoins(from, address(to), amount)
+	banker.SendCoins(from, to, amount)
 
 	// TODO track escrowed coins by denom/client in store?
 
