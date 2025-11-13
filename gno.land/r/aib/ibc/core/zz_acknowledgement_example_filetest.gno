@@ -9,7 +9,6 @@ import (
 	"gno.land/r/aib/ibc/core"
 )
 
-// Acknowledgement success
 func main() {
 	// Acknowledge the packet
 	ackPacket := types.MsgAcknowledgement{
@@ -55,7 +54,7 @@ func main() {
 					"00", nil),
 			},
 		},
-		ProofHeight: types.NewHeight(1, 2000), //TODO update
+		ProofHeight: types.NewHeight(1, 2000), // TODO update
 	}
 
 	res := core.Acknowledgement(cross, ackPacket)
