@@ -136,10 +136,8 @@ func Acknowledgement(cur realm, msg types.MsgAcknowledgement) types.ResponseResu
 		// and consuming unnecessary fees.
 		return types.RESPONSE_NOOP
 	}
-
 	packetCommitment := types.CommitPacket(msg.Packet)
-
-	// verify we sent the packet and haven't cleared it out yet
+	// ensure integrity of commitment
 	if !bytes.Equal(commitment, packetCommitment) {
 		h1, h2 := hex.EncodeToString(packetCommitment), hex.EncodeToString(commitment)
 		panic(ufmt.Sprintf(
@@ -233,6 +231,24 @@ func Timeout(cur realm, msg types.MsgTimeout) types.ResponseResultType {
 	if proofTimestamp < msg.Packet.TimeoutTimestamp {
 		panic(ufmt.Errorf("proof timestamp: %d, timeout timestamp: %d",
 			proofTimestamp, msg.Packet.TimeoutTimestamp))
+	}
+
+	commitment := c.getPacketCommitment(msg.Packet.Sequence)
+	if len(commitment) == 0 {
+		// This error indicates that the timeout has already been relayed or there
+		// is a misconfigured relayer attempting to prove a timeout for a packet
+		// never sent. Core IBC will treat this error as a no-op in order to
+		// prevent an entire relay transaction from failing and consuming
+		// unnecessary fees.
+		return types.RESPONSE_NOOP
+	}
+	packetCommitment := types.CommitPacket(msg.Packet)
+	// ensure integrity of commitment
+	if !bytes.Equal(commitment, packetCommitment) {
+		h1, h2 := hex.EncodeToString(packetCommitment), hex.EncodeToString(commitment)
+		panic(ufmt.Sprintf(
+			"commitment bytes are not equal: got (%v), expected (%v)", h1, h2,
+		))
 	}
 	// TODO
 

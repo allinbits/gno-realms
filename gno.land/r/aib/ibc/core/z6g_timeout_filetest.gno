@@ -11,7 +11,7 @@ import (
 	"gno.land/r/aib/ibc/core"
 )
 
-// Acknowledgement commitment mismatch
+// Timeout commitment mismatch
 func main() {
 	var (
 		chainID        = "chain-id-2"
@@ -44,8 +44,8 @@ func main() {
 	}
 	sequence := core.SendPacket(cross, nil, sendPacket)
 
-	// Acknowledge the packet
-	ackPacket := types.MsgAcknowledgement{
+	// Timeout the packet
+	timeoutPacket := types.MsgTimeout{
 		Packet: types.Packet{
 			Sequence:          sequence,
 			SourceClient:      clientID,
@@ -55,16 +55,13 @@ func main() {
 			TimeoutTimestamp: 1,
 			Payloads:         sendPacket.Payloads,
 		},
-		Acknowledgement: types.Acknowledgement{
-			AppAcknowledgements: [][]byte{[]byte("ack")},
-		},
-		ProofAcked: []ics23.CommitmentProof_Exist{{
-			Exist: &ics23.ExistenceProof{},
+		ProofUnreceived: []ics23.CommitmentProof_Nonexist{{
+			Nonexist: &ics23.NonExistenceProof{},
 		}},
 		ProofHeight: trustedHeight,
 	}
 
-	core.Acknowledgement(cross, ackPacket)
+	core.Timeout(cross, timeoutPacket)
 }
 
 // Error:
