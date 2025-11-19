@@ -250,6 +250,23 @@ func Timeout(cur realm, msg types.MsgTimeout) types.ResponseResultType {
 			"commitment bytes are not equal: got (%v), expected (%v)", h1, h2,
 		))
 	}
+
+	// Verify packet receipt absence
+	var (
+		key        = host.PacketReceiptKey(msg.Packet.DestinationClient, msg.Packet.Sequence)
+		merklePath = types.BuildMerklePath(c.counterpartyMerklePrefix, key)
+	)
+	if err := c.lightClient.VerifyNonMembership(
+		msg.ProofHeight, msg.ProofUnreceived, merklePath,
+	); err != nil {
+		panic(ufmt.Sprintf(
+			"failed packet receipt absence verification for client (%s): %v",
+			clientID, err,
+		))
+	}
+
+	c.deletePacketCommitment(msg.Packet.Sequence)
+
 	// TODO
 
 	return types.RESPONSE_FAILURE

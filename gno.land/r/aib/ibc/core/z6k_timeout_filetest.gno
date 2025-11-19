@@ -1,0 +1,112 @@
+package main
+
+import (
+	"testing"
+	"time"
+
+	"gno.land/p/aib/ibc/lightclient/tendermint"
+	tmtesting "gno.land/p/aib/ibc/lightclient/tendermint/testing"
+	"gno.land/p/aib/ibc/types"
+	"gno.land/p/aib/ics23"
+	appstesting "gno.land/r/aib/ibc/apps/testing"
+	"gno.land/r/aib/ibc/core"
+)
+
+// Timeout invalid proof
+func main() {
+	var (
+		chainID       = "atomone-1"
+		trustedHeight = types.NewHeight(1, 2)
+		clientState   = tmtesting.NewClientState(chainID, trustedHeight)
+		apphash       = tmtesting.GenHash("apphash-1")
+		// priv=8a6cAbQSpDbebmcTEhCMPhhr/SkL/2pizo60yzHRkN9Uyk7RHOZm7g4xW+yeJh147/Z4/6HXF6gBwcFNkLsZ/A==
+		val1 = tendermint.NewValidator("9DIBYr64rywKO3Kk6+743xDHcEU=",
+			"VMpO0RzmZu4OMVvsniYdeO/2eP+h1xeoAcHBTZC7Gfw=", 2)
+		// priv=nWg6ETc62tyxd94lh8fFaQnZKaAW6vlS0L/4lfseJuI14ZXUKp7AZROkflLFVF+SBg4wJVfzgzIKyWq3D066+g==
+		val2 = tendermint.NewValidator("y+naL3ubs9q1bXrY9+uRxY9c+J8=",
+			"NeGV1CqewGUTpH5SxVRfkgYOMCVX84MyCslqtw9Ouvo=", 3)
+		valset         = tendermint.NewValset(val1, val2)
+		consensusState = tmtesting.GenConsensusState(time.Now(), apphash, valset.Hash())
+		counterpartyID = "07-tendermint-42"
+	)
+	clientID := core.CreateClient(cross, clientState, consensusState)
+	core.RegisterCounterparty(cross, clientID, [][]byte{[]byte("prefix1"), []byte("prefix2")}, counterpartyID)
+	// Register app
+	var (
+		app       = appstesting.NewApp(cross)
+		appPortID = "app"
+	)
+	core.RegisterApp(cross, appPortID, app)
+	// Send a packet
+	sendPacket := types.MsgSendPacket{
+		SourceClient:     clientID,
+		TimeoutTimestamp: uint64(time.Now().Add(10 * time.Minute).Unix()),
+		Payloads: []types.Payload{{
+			SourcePort:      appPortID,
+			DestinationPort: "destinationPort",
+			Encoding:        "application/json",
+			Value:           []byte("{}"),
+			Version:         "v1",
+		}},
+	}
+	sequence := core.SendPacket(cross, nil, sendPacket)
+	// Change block time to after the timeout
+	ctx := testing.GetContext()
+	ctx.Time = time.Now().Add(12 * time.Minute)
+	testing.SetContext(ctx)
+	// Update client with the a block created after the timeout
+	// NOTE: signature generated thanks to github.com/tbruyelle/sdktools/mproto
+	apphash = tmtesting.GenHash("apphash-5")
+	var (
+		newHeight     = trustedHeight.RevisionHeight + 10
+		newTimestamp  = consensusState.Timestamp.Add(12 * time.Minute)
+		blockhash     = tmtesting.B64Dec("NpiImIJoaSaIucwNs5cqpgMsL/8wxEPYC3P0jA5aQSI=")
+		parsethash    = tmtesting.B64Dec("QqzwnLzvixIcUz+hPeUQjDV6NaLkFRKXACCxJIrBHzw=")
+		consensushash = tmtesting.B64Dec("JIS7qLmeUx4aP2QiNi59PuuZqDJRGZaKNV8FwJ7t1As=")
+		trustedValset = tendermint.NewValset(val1, val2)
+		signatures    = []tendermint.CommitSig{
+			{
+				BlockIDFlag:      tendermint.BlockIDFlagCommit,
+				ValidatorAddress: valset.Validators[0].Address,
+				Timestamp:        tmtesting.ToTime("2025-09-25T07:55:57.306746166Z"),
+				Signature:        tmtesting.B64Dec("p2bXgxs9MZU0HLNm2iNUYSo+Oo7fWlVgT8W3LqlrgPCM6kvGYx1v54fRjTPeSb6GXd0DCjR0/gm/A8jwu05TCQ=="),
+			},
+			{
+				BlockIDFlag:      tendermint.BlockIDFlagCommit,
+				ValidatorAddress: valset.Validators[1].Address,
+				Timestamp:        tmtesting.ToTime("2025-09-25T07:55:57.306746166Z"),
+				Signature:        tmtesting.B64Dec("zkQ5PauBXFhnCV4QaJmW/IY3XWFzURXJYAnv4iAez652Gg/h09iLuabD2S7baFkALpgK1Kt2MoSQY2CRkMumDg=="),
+			},
+		}
+		msgHeader = tendermint.NewMsgHeader(
+			chainID, newTimestamp, apphash, blockhash, parsethash, consensushash,
+			newHeight, trustedHeight, valset, trustedValset, signatures,
+		)
+	)
+	core.UpdateClient(cross, clientID, msgHeader)
+
+	// Timeout the packet
+	timeoutPacket := types.MsgTimeout{
+		Packet: types.Packet{
+			Sequence:          sequence,
+			SourceClient:      clientID,
+			DestinationClient: counterpartyID,
+			TimeoutTimestamp:  sendPacket.TimeoutTimestamp,
+			Payloads:          sendPacket.Payloads,
+		},
+		ProofUnreceived: []ics23.CommitmentProof_Nonexist{
+			{
+				Nonexist: &ics23.NonExistenceProof{},
+			},
+			{
+				Nonexist: &ics23.NonExistenceProof{},
+			},
+		},
+		ProofHeight: msgHeader.GetHeight(),
+	}
+
+	core.Timeout(cross, timeoutPacket)
+}
+
+// Error:
+// failed packet receipt absence verification for client (07-tendermint-1): could not calculate root for proof index 0, merkle tree is likely empty. nonexistence proof has empty Left and Right proof

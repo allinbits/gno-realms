@@ -135,23 +135,46 @@ func (tm *TMLightClient) VerifyMembership(height types.Height,
 
 // Implements lightclient.Interface
 func (tm *TMLightClient) VerifyNonMembership(height types.Height,
-	proof []ics23.CommitmentProof_Nonexist, path types.MerklePath) error {
+	proofs []ics23.CommitmentProof_Nonexist, path types.MerklePath) error {
 	if tm.ClientState.LatestHeight.LT(height) {
 		return ufmt.Errorf(
 			"client state height < proof height (%d < %d), please ensure the client has been updated", tm.ClientState.LatestHeight, height,
 		)
 	}
+	if len(tm.ClientState.ProofSpecs) != len(proofs) {
+		return ufmt.Errorf(
+			"length of specs: %d not equal to length of proof: %d",
+			len(tm.ClientState.ProofSpecs), len(proofs),
+		)
+	}
+	if len(path.KeyPath) != len(proofs) {
+		return ufmt.Errorf(
+			"path length %d not same as proof %d", len(path.KeyPath), len(proofs),
+		)
+	}
 
-	cs, found := tm.GetConsensusState(height)
+	consState, found := tm.GetConsensusState(height)
 	if !found {
 		return ufmt.Errorf("please ensure the proof was constructed against a height that exists on the client")
 	}
-	_ = cs
-	/*
-		TODO
-			return merkleProof.VerifyNonMembership(cs.ProofSpecs, consensusState.GetRoot(), merklePath, value)
-	*/
-	panic("not implemented")
+	_ = consState
+	// VerifyNonMembership will verify the absence of key in lowest subtree, and
+	// then chain inclusion proofs of all subroots up to final root.
+	if proofs[0].Nonexist == nil {
+		return ufmt.Errorf("commitment proof must be non-existence proof for verifying non-membership")
+	}
+	subroot, err := proofs[0].Nonexist.Calculate()
+	if err != nil {
+		return ufmt.Errorf("could not calculate root for proof index 0, merkle tree is likely empty. %v", err)
+	}
+
+	key := path.KeyPath[len(path.KeyPath)-1]
+	if err := proofs[0].Nonexist.Verify(tm.ClientState.ProofSpecs[0], subroot, key); err != nil {
+		return ufmt.Errorf("failed to verify non-membership proof with key %s: %v", string(key), err)
+	}
+
+	panic("TODO")
+	// return tm.verifyChainedMembershipProof(consState.Root.Hash, proofs, path, subroot, 1)
 }
 
 // Implements lightclient.Interface
