@@ -2,12 +2,12 @@ module aibgno
 
 go 1.25.3
 
-replace github.com/gnolang/gno => github.com/allinbits/gno v0.0.0-20251112152254-1e7f4cbbae25
+replace github.com/gnolang/gno => github.com/allinbits/gno v0.0.0-20251121152932-8e9540f383eb
 
 tool (
 	github.com/gnolang/gno/contribs/gnodev
-	github.com/gnolang/gno/gnovm/cmd/gno
 	github.com/gnolang/gno/gno.land/cmd/gnokey
+	github.com/gnolang/gno/gnovm/cmd/gno
 )
 
 require (
