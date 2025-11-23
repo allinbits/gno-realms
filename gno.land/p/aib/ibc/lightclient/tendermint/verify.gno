@@ -196,7 +196,7 @@ func (tm TMLightClient) verifyCommit(
 // want to start the membership proof chaining from index 1 with value being
 // the lowest subroot
 func (tm TMLightClient) verifyChainedMembershipProof(root []byte,
-	proofs []ics23.CommitmentProof_Exist, keys types.MerklePath, value []byte,
+	proofs []ics23.CommitmentProof, keys types.MerklePath, value []byte,
 	index int) error {
 	var (
 		specs   = tm.ClientState.ProofSpecs
@@ -210,7 +210,13 @@ func (tm TMLightClient) verifyChainedMembershipProof(root []byte,
 	// check that lowest proof root equals final root
 	subroot = value
 	for i := index; i < len(proofs); i++ {
-		subroot, err = proofs[i].Exist.Calculate()
+		// verify membership of the proof at this index with appropriate key and
+		// value
+		exist := proofs[i].GetExist()
+		if exist == nil {
+			return ufmt.Errorf("commitment proof must be existence proof for verifying membership")
+		}
+		subroot, err = exist.Calculate()
 		if err != nil {
 			return ufmt.Errorf("could not calculate proof root at index %d, merkle tree may be empty. %v", i, err)
 		}
@@ -220,9 +226,7 @@ func (tm TMLightClient) verifyChainedMembershipProof(root []byte,
 		// highest
 		key := keys.KeyPath[len(keys.KeyPath)-1-i]
 
-		// verify membership of the proof at this index with appropriate key and
-		// value
-		if err := proofs[i].Exist.Verify(specs[i], subroot, key, value); err != nil {
+		if err := exist.Verify(specs[i], subroot, key, value); err != nil {
 			return ufmt.Errorf("failed to verify membership proof at index %d: %v", i, err)
 		}
 		// Set value to subroot so that we verify next proof in chain commits to

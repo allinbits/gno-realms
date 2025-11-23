@@ -77,8 +77,8 @@ func main() {
 		// KEY 6961766c53746f72654b6579 "iavlStoreKey"
 		// VAL 54676b16cfa5413e302b0dff767d1da811440b383608c7d8ab6a1b3647821f1d
 		// 1 LEAF PREFIX 00
-		ProofAcked: []ics23.CommitmentProof_Exist{
-			{
+		ProofAcked: []ics23.CommitmentProof{
+			ics23.CommitmentProof_Exist{
 				// iavl proof
 				Exist: ibctesting.NewExistenceProof(ics23.IavlSpec(),
 					[]byte("prefix207-tendermint-42\x03\x00\x00\x00\x00\x00\x00\x00\x01"),
@@ -91,7 +91,7 @@ func main() {
 					},
 				),
 			},
-			{
+			ics23.CommitmentProof_Exist{
 				// rootmulti proof
 				Exist: ibctesting.NewExistenceProof(ics23.IavlSpec(),
 					[]byte("iavlStoreKey"), "54676b16cfa5413e302b0dff767d1da811440b383608c7d8ab6a1b3647821f1d",

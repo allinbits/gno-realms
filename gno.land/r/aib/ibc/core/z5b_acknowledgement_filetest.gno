@@ -51,7 +51,7 @@ func main() {
 			DestinationClient: "",
 			Payloads:          sendPacket.Payloads,
 		},
-		ProofAcked:  []ics23.CommitmentProof_Exist{},
+		ProofAcked:  []ics23.CommitmentProof{},
 		ProofHeight: trustedHeight,
 	}
 

@@ -96,9 +96,11 @@ func main() {
 			TimeoutTimestamp:  sendPacket.TimeoutTimestamp,
 			Payloads:          sendPacket.Payloads,
 		},
-		ProofUnreceived: []ics23.CommitmentProof_Nonexist{{
-			Nonexist: &ics23.NonExistenceProof{},
-		}},
+		ProofUnreceived: []ics23.CommitmentProof{
+			ics23.CommitmentProof_Nonexist{
+				Nonexist: &ics23.NonExistenceProof{},
+			},
+		},
 		ProofHeight: msgHeader.GetHeight(),
 	}
 

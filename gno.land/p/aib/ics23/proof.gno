@@ -7,9 +7,19 @@ import (
 	"gno.land/p/nt/ufmt"
 )
 
+type CommitmentProof interface {
+	GetExist() *ExistenceProof
+	GetNonexist() *NonExistenceProof
+}
+
 type CommitmentProof_Exist struct {
 	Exist *ExistenceProof
 }
+
+var _ CommitmentProof = CommitmentProof_Exist{}
+
+func (c CommitmentProof_Exist) GetExist() *ExistenceProof       { return c.Exist }
+func (c CommitmentProof_Exist) GetNonexist() *NonExistenceProof { return nil }
 
 // ExistenceProof takes a key and a value and a set of steps to perform on it.
 // The result of peforming all these steps will provide a "root hash", which can
@@ -165,6 +175,11 @@ func (p *ExistenceProof) calculate(spec *ProofSpec) (CommitmentRoot, error) {
 type CommitmentProof_Nonexist struct {
 	Nonexist *NonExistenceProof
 }
+
+var _ CommitmentProof = CommitmentProof_Nonexist{}
+
+func (c CommitmentProof_Nonexist) GetExist() *ExistenceProof       { return nil }
+func (c CommitmentProof_Nonexist) GetNonexist() *NonExistenceProof { return c.Nonexist }
 
 // NonExistenceProof takes a proof of two neighbors, one left of the desired key,
 // one right of the desired key. If both proofs are valid AND they are neighbors,

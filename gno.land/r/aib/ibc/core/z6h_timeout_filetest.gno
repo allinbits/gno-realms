@@ -46,9 +46,11 @@ func main() {
 				Version:         "v1",
 			}},
 		},
-		ProofUnreceived: []ics23.CommitmentProof_Nonexist{{
-			Nonexist: &ics23.NonExistenceProof{},
-		}},
+		ProofUnreceived: []ics23.CommitmentProof{
+			ics23.CommitmentProof_Nonexist{
+				Nonexist: &ics23.NonExistenceProof{},
+			},
+		},
 		ProofHeight: trustedHeight,
 	}
 

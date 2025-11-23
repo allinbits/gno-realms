@@ -105,7 +105,7 @@ func (tm *TMLightClient) UpdateState(clientMsg lightclient.ClientMessage) []type
 
 // Implements lightclient.Interface
 func (tm *TMLightClient) VerifyMembership(height types.Height,
-	proofs []ics23.CommitmentProof_Exist, path types.MerklePath,
+	proofs []ics23.CommitmentProof, path types.MerklePath,
 	value []byte) error {
 	if tm.ClientState.LatestHeight.LT(height) {
 		return ufmt.Errorf(
@@ -135,7 +135,7 @@ func (tm *TMLightClient) VerifyMembership(height types.Height,
 
 // Implements lightclient.Interface
 func (tm *TMLightClient) VerifyNonMembership(height types.Height,
-	proofs []ics23.CommitmentProof_Nonexist, path types.MerklePath) error {
+	proofs []ics23.CommitmentProof, path types.MerklePath) error {
 	if tm.ClientState.LatestHeight.LT(height) {
 		return ufmt.Errorf(
 			"client state height < proof height (%d < %d), please ensure the client has been updated", tm.ClientState.LatestHeight, height,
@@ -157,24 +157,24 @@ func (tm *TMLightClient) VerifyNonMembership(height types.Height,
 	if !found {
 		return ufmt.Errorf("please ensure the proof was constructed against a height that exists on the client")
 	}
-	_ = consState
 	// VerifyNonMembership will verify the absence of key in lowest subtree, and
 	// then chain inclusion proofs of all subroots up to final root.
-	if proofs[0].Nonexist == nil {
+	nonexist := proofs[0].GetNonexist()
+	if nonexist == nil {
 		return ufmt.Errorf("commitment proof must be non-existence proof for verifying non-membership")
 	}
-	subroot, err := proofs[0].Nonexist.Calculate()
+	subroot, err := nonexist.Calculate()
 	if err != nil {
 		return ufmt.Errorf("could not calculate root for proof index 0, merkle tree is likely empty. %v", err)
 	}
 
 	key := path.KeyPath[len(path.KeyPath)-1]
-	if err := proofs[0].Nonexist.Verify(tm.ClientState.ProofSpecs[0], subroot, key); err != nil {
+	if err := nonexist.Verify(tm.ClientState.ProofSpecs[0], subroot, key); err != nil {
 		return ufmt.Errorf("failed to verify non-membership proof with key %s: %v", string(key), err)
 	}
 
-	panic("TODO")
-	// return tm.verifyChainedMembershipProof(consState.Root.Hash, proofs, path, subroot, 1)
+	// Verify chained membership proof starting from index 1 with value = subroot
+	return tm.verifyChainedMembershipProof(consState.Root.Hash, proofs, path, subroot, 1)
 }
 
 // Implements lightclient.Interface

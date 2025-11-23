@@ -62,7 +62,7 @@ type MsgRecvPacket struct {
 type MsgAcknowledgement struct {
 	Packet          Packet
 	Acknowledgement Acknowledgement
-	ProofAcked      []ics23.CommitmentProof_Exist
+	ProofAcked      []ics23.CommitmentProof
 	ProofHeight     Height
 }
 
@@ -72,8 +72,8 @@ func (msg *MsgAcknowledgement) ValidateBasic() error {
 		return errors.New("cannot submit an empty acknowledgement proof")
 	}
 	for i, proof := range msg.ProofAcked {
-		if proof.Exist == nil {
-			return ufmt.Errorf("invalid commitment proof #%d: proof.Exist is nil", i)
+		if proof.GetExist() == nil {
+			return ufmt.Errorf("invalid commitment proof #%d: proof.GetExists() is nil", i)
 		}
 	}
 
@@ -162,18 +162,13 @@ func (a *AppAcknowledgement) UnmarshalJSON(bz []byte) error {
 // MsgTimeout receives timed-out packet
 type MsgTimeout struct {
 	Packet          Packet
-	ProofUnreceived []ics23.CommitmentProof_Nonexist
+	ProofUnreceived []ics23.CommitmentProof
 	ProofHeight     Height
 }
 
 func (msg *MsgTimeout) ValidateBasic() error {
 	if len(msg.ProofUnreceived) == 0 {
 		return errors.New("cannot submit an empty timeout proof")
-	}
-	for i, proof := range msg.ProofUnreceived {
-		if proof.Nonexist == nil {
-			return ufmt.Errorf("invalid commitment proof #%d: proof.NonExit is nil", i)
-		}
 	}
 	return msg.Packet.ValidateBasic()
 }
