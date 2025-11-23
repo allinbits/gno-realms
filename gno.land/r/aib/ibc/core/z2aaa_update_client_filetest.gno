@@ -39,7 +39,9 @@ func main() {
 		consensushash = testing.B64Dec("JIS7qLmeUx4aP2QiNi59PuuZqDJRGZaKNV8FwJ7t1As=")
 		trustedValset = tendermint.NewValset(val1, val2)
 		trustedHeight = clientState.LatestHeight
-		signatures    = []tendermint.CommitSig{
+		// NOTE: signatures generated thanks to:
+		// ./cmd/gen-block-signatures -privkeys=8a6cAbQSpDbebmcTEhCMPhhr/SkL/2pizo60yzHRkN9Uyk7RHOZm7g4xW+yeJh147/Z4/6HXF6gBwcFNkLsZ/A==,nWg6ETc62tyxd94lh8fFaQnZKaAW6vlS0L/4lfseJuI14ZXUKp7AZROkflLFVF+SBg4wJVfzgzIKyWq3D066+g==
+		signatures = []tendermint.CommitSig{
 			{
 				BlockIDFlag:      tendermint.BlockIDFlagCommit,
 				ValidatorAddress: valset.Validators[0].Address,

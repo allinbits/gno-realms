@@ -41,7 +41,7 @@ func main() {
 		trustedHeight   = clientState.LatestHeight
 		commitTimestamp = tmtesting.ToTime("2025-09-25T07:55:57.306746166Z")
 		// NOTE: signatures generated thanks to:
-		// go run ./cmd/gen-block-signatures -privkeys=8a6cAbQSpDbebmcTEhCMPhhr/SkL/2pizo60yzHRkN9Uyk7RHOZm7g4xW+yeJh147/Z4/6HXF6gBwcFNkLsZ/A==,nWg6ETc62tyxd94lh8fFaQnZKaAW6vlS0L/4lfseJuI14ZXUKp7AZROkflLFVF+SBg4wJVfzgzIKyWq3D066+g==
+		// ./cmd/gen-block-signatures -privkeys=8a6cAbQSpDbebmcTEhCMPhhr/SkL/2pizo60yzHRkN9Uyk7RHOZm7g4xW+yeJh147/Z4/6HXF6gBwcFNkLsZ/A==,nWg6ETc62tyxd94lh8fFaQnZKaAW6vlS0L/4lfseJuI14ZXUKp7AZROkflLFVF+SBg4wJVfzgzIKyWq3D066+g==
 		signatures = []tendermint.CommitSig{
 			{
 				BlockIDFlag:      tendermint.BlockIDFlagCommit,
