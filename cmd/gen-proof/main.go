@@ -25,8 +25,8 @@ func main() {
 	exist := flag.Bool("exist", true, "produce an existence or non-existence proof")
 	flag.Parse()
 
-	if flag.NArg() != 4 {
-		fmt.Println("Usage: gen-proof MERKLE_PREFIX CLIENT_ID TYPE APP_ACK")
+	if flag.NArg() != 3 {
+		fmt.Println("Usage: gen-proof -exist=true MERKLE_PREFIX CLIENT_ID TYPE [APP_ACK]")
 		os.Exit(1)
 	}
 	var (
@@ -122,17 +122,17 @@ func genProofCode(key, value []byte) string {
 	tmpl := `
 {{define "existenceProof" -}}
 &ics23.ExistenceProof{
-      Key:   []byte("{{str .GetExist.Key}}"),
-      Value: []byte("{{str .GetExist.Value}}"),
+      Key:   []byte("{{str .Key}}"),
+      Value: []byte("{{str .Value}}"),
       Leaf: &ics23.LeafOp{
         Hash:         specs.LeafSpec.Hash,
         PrehashKey:   specs.LeafSpec.PrehashKey,
         PrehashValue: specs.LeafSpec.PrehashValue,
         Length:       specs.LeafSpec.Length,
-        Prefix:       []byte("{{str .GetExist.Leaf.Prefix}}"),
+        Prefix:       []byte("{{str .Leaf.Prefix}}"),
       },
       Path: []*ics23.InnerOp{
-        {{range .GetExist.Path -}}
+        {{range .Path -}}
         {
           Hash:   specs.InnerSpec.Hash,
           Prefix: []byte("{{str .Prefix}}"),
@@ -148,14 +148,29 @@ specs := ics23.IavlSpec()
 proofAcked := []ics23.CommitmentProof{
 
   // iavl proof
+	{{- with index .Proofs 0}}
+	{{- with .GetExist }}
   ics23.CommitmentProof_Exist{
-    Exist: {{template "existenceProof" index .Proofs 0}}
+    Exist: {{template "existenceProof" .}}
   },
+	{{- end}}
+	{{- with .GetNonexist}}
+  ics23.CommitmentProof_Nonexist{
+    Nonexist: &ics23.NonExistenceProof{
+			Key: []byte("{{str .Key}}"),
+			Left: {{template "existenceProof" .Left}}
+			Right: {{template "existenceProof" .Right}}
+		},
+  },
+	{{- end}}
+	{{- end}}
 
   // rootmulti proof
+	{{- with index .Proofs 1}}
   ics23.CommitmentProof_Exist{
-    Exist: {{template "existenceProof" index .Proofs 1}}
+    Exist: {{template "existenceProof" index .GetExist}}
   },
+	{{- end}}
 
 }
 `
