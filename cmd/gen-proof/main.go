@@ -55,12 +55,16 @@ func main() {
 		os.Exit(1)
 	}
 
+	fmt.Println(genProofCode(key, value))
+}
+
+func genProofCode(key, value []byte) string {
 	db := dbm.NewMemDB()
 	store := rootmulti.NewStore(db, log.NewNopLogger(), metrics.NewNoOpMetrics())
 	iavlStoreKey := storetypes.NewKVStoreKey("iavlStoreKey")
 
 	store.MountStoreWithDB(iavlStoreKey, storetypes.StoreTypeIAVL, nil)
-	err = store.LoadVersion(0)
+	err := store.LoadVersion(0)
 	if err != nil {
 		panic(err)
 	}
@@ -135,9 +139,11 @@ proofAcked := []ics23.CommitmentProof{
       },
     },
   },
-  {{end}}
+  {{- end}}
+
   // rootmulti proof
   {{- template "proof" index .Proofs 1}}
+
 }
 `
 
@@ -157,7 +163,8 @@ proofAcked := []ics23.CommitmentProof{
 	if err != nil {
 		panic(err)
 	}
-	err = t.Execute(os.Stdout, map[string]any{
+	var sb strings.Builder
+	err = t.Execute(&sb, map[string]any{
 		"Root":   cid.Hash,
 		"Proofs": proofs,
 		"Args":   "'" + strings.Join(flag.Args(), "' '") + "'",
@@ -165,4 +172,5 @@ proofAcked := []ics23.CommitmentProof{
 	if err != nil {
 		panic(err)
 	}
+	return sb.String()
 }
