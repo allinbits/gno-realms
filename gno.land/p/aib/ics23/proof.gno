@@ -116,7 +116,7 @@ func (m *InnerOp) GetPrefix() []byte {
 
 // Verify does all checks to ensure this proof proves this key, value -> root
 // and matches the spec.
-func (p *ExistenceProof) Verify(spec *ProofSpec, root CommitmentRoot, key []byte, value []byte) error {
+func (p *ExistenceProof) Verify(spec *ProofSpec, root, key, value []byte) error {
 	if err := p.CheckAgainstSpec(spec); err != nil {
 		return err
 	}
@@ -142,11 +142,11 @@ func (p *ExistenceProof) Verify(spec *ProofSpec, root CommitmentRoot, key []byte
 // Calculate determines the root hash that matches the given proof.
 // You must validate the result is what you have in a header.
 // Returns error if the calculations cannot be performed.
-func (p *ExistenceProof) Calculate() (CommitmentRoot, error) {
+func (p *ExistenceProof) Calculate() ([]byte, error) {
 	return p.calculate(nil)
 }
 
-func (p *ExistenceProof) calculate(spec *ProofSpec) (CommitmentRoot, error) {
+func (p *ExistenceProof) calculate(spec *ProofSpec) ([]byte, error) {
 	if p.Leaf == nil {
 		return nil, errors.New("existence Proof needs defined LeafOp")
 	}
@@ -193,7 +193,7 @@ type NonExistenceProof struct {
 // Calculate determines the root hash that matches the given nonexistence proof.
 // You must validate the result is what you have in a header.
 // Returns error if the calculations cannot be performed.
-func (p *NonExistenceProof) Calculate() (CommitmentRoot, error) {
+func (p *NonExistenceProof) Calculate() ([]byte, error) {
 	// A Nonexist proof may have left or right proof nil
 	switch {
 	case p.Left != nil:
@@ -251,7 +251,7 @@ func keyForComparison(spec *ProofSpec, key []byte) []byte {
 
 // Verify does all checks to ensure the proof has valid non-existence proofs,
 // and they ensure the given key is not in the CommitmentState
-func (p *NonExistenceProof) Verify(spec *ProofSpec, root CommitmentRoot, key []byte) error {
+func (p *NonExistenceProof) Verify(spec *ProofSpec, root, key []byte) error {
 	// ensure the existence proofs are valid
 	var leftKey, rightKey []byte
 	if p.Left != nil {
