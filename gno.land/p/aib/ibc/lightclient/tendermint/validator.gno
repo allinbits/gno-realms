@@ -8,9 +8,9 @@ import (
 )
 
 type ValidatorSet struct {
-	Validators       []*Validator `json:"validators,omitempty"`
-	Proposer         *Validator   `json:"proposer,omitempty"`
-	TotalVotingPower int64        `json:"total_voting_power,omitempty"`
+	Validators       []*Validator
+	Proposer         *Validator
+	TotalVotingPower int64
 }
 
 func NewValset(vals ...*Validator) *ValidatorSet {
@@ -49,10 +49,10 @@ func (vals *ValidatorSet) GetByAddress(address []byte) (index int32, val *Valida
 }
 
 type Validator struct {
-	Address          []byte `json:"address,omitempty"`
-	PubKey           []byte `json:"pub_key"`
-	VotingPower      int64  `json:"voting_power,omitempty"`
-	ProposerPriority int64  `json:"proposer_priority,omitempty"`
+	Address          []byte
+	PubKey           []byte
+	VotingPower      int64
+	ProposerPriority int64
 }
 
 func NewValidator(addr, pubkey string, vp int64) *Validator {

@@ -27,15 +27,15 @@ type Packet struct {
 	// number corresponds to the order of sends and receives, where a Packet
 	// with an earlier sequence number must be sent and received before a Packet
 	// with a later sequence number.
-	Sequence uint64 `json:"sequence,omitempty"`
+	Sequence uint64
 	// identifies the sending client on the sending chain.
-	SourceClient string `json:"source_client,omitempty"`
+	SourceClient string
 	// identifies the receiving client on the receiving chain.
-	DestinationClient string `json:"destination_client,omitempty"`
+	DestinationClient string
 	// timeout timestamp in seconds after which the packet times out.
-	TimeoutTimestamp uint64 `json:"timeout_timestamp,omitempty"`
+	TimeoutTimestamp uint64
 	// a list of payloads, each one for a specific application.
-	Payloads []Payload `json:"payloads"`
+	Payloads []Payload
 }
 
 // NewPacket constructs a new packet.
@@ -118,15 +118,15 @@ func (p Packet) ProtoMarshal() (buf []byte) {
 
 type Payload struct {
 	// specifies the source port of the packet.
-	SourcePort string `json:"source_port,omitempty"`
+	SourcePort string
 	// specifies the destination port of the packet.
-	DestinationPort string `json:"destination_port,omitempty"`
+	DestinationPort string
 	// version of the specified application.
-	Version string `json:"version,omitempty"`
+	Version string
 	// the encoding used for the provided value.
-	Encoding string `json:"encoding,omitempty"`
+	Encoding string
 	// the raw bytes for the payload.
-	Value []byte `json:"value,omitempty"`
+	Value []byte
 }
 
 // NewPayload constructs a new Payload
@@ -193,9 +193,9 @@ func (p Payload) ProtoMarshal() []byte {
 // RecvPacketResult speecifies the status of a packet as well as the acknowledgement bytes.
 type RecvPacketResult struct {
 	// status of the packet
-	Status PacketStatus `json:"status,omitempty"`
+	Status PacketStatus
 	// acknowledgement of the packet
-	Acknowledgement []byte `json:"acknowledgement,omitempty"`
+	Acknowledgement []byte
 }
 
 // Acknowledgement contains a list of all ack results associated with a single packet.
@@ -205,5 +205,5 @@ type RecvPacketResult struct {
 // If the receive is not successful, the acknowledgement will contain a single app acknowledgment
 // which will be a constant error acknowledgment as defined by the IBC v2 protocol.
 type Acknowledgement struct {
-	AppAcknowledgements [][]byte `json:"app_acknowledgements,omitempty"`
+	AppAcknowledgements [][]byte
 }

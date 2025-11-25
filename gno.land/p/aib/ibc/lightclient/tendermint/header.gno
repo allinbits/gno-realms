@@ -23,11 +23,11 @@ import (
 // hash to TrustedConsensusState.NextValidatorsHash since that is the last
 // trusted validator set at the TrustedHeight.
 type MsgHeader struct {
-	Header            *Header       `json:"header,omitempty"`
-	Commit            *Commit       `json:"commit,omitempty"`
-	ValidatorSet      *ValidatorSet `json:"validator_set,omitempty"`
-	TrustedHeight     types.Height  `json:"trusted_height"`
-	TrustedValidators *ValidatorSet `json:"trusted_validators,omitempty"`
+	Header            *Header
+	Commit            *Commit
+	ValidatorSet      *ValidatorSet
+	TrustedHeight     types.Height
+	TrustedValidators *ValidatorSet
 }
 
 func NewMsgHeader(chainID string, timestamp time.Time,
@@ -158,8 +158,8 @@ func (h MsgHeader) GetHeight() types.Height {
 // Misbehaviour is a wrapper over two conflicting Headers
 // that implements Misbehaviour interface expected by ICS-02
 type Misbehaviour struct {
-	Header1 *MsgHeader `json:"header_1,omitempty"`
-	Header2 *MsgHeader `json:"header_2,omitempty"`
+	Header1 *MsgHeader
+	Header2 *MsgHeader
 }
 
 // Implements lightclient.ClientMessage
@@ -174,40 +174,39 @@ func (m Misbehaviour) ValidateBasic() error {
 }
 
 // Header defines the structure of a block header.
-// TODO remove json tags everywhere
 type Header struct {
 	// basic block info
-	Version Consensus `json:"version"`
-	ChainID string    `json:"chain_id,omitempty"`
-	Height  uint64    `json:"height,omitempty"`
-	Time    time.Time `json:"time"`
+	Version Consensus
+	ChainID string
+	Height  uint64
+	Time    time.Time
 
 	// prev block info
-	LastBlockID BlockID `json:"last_block_id"`
+	LastBlockID BlockID
 
 	// hashes of block data
 	// commit info from validators from the last block
-	LastCommitHash []byte `json:"last_commit_hash,omitempty"`
+	LastCommitHash []byte
 	// transactions
-	DataHash []byte `json:"data_hash,omitempty"`
+	DataHash []byte
 
 	// hashes from the app output form the preb block
 	// validators for the current block
-	ValidatorsHash []byte `json:"validators_hash,omitempty"`
+	ValidatorsHash []byte
 	// validators for the next block
-	NextValidatorsHash []byte `json:"next_validators_hash,omitempty"`
+	NextValidatorsHash []byte
 	// consensus params for the current block
-	ConsensusHash []byte `json:"consensus_hash,omitempty"`
+	ConsensusHash []byte
 	// state afterx txs from the previous block
-	AppHash []byte `json:"app_hash,omitempty"`
+	AppHash []byte
 	// root hash of all results from the txs from the previous block
-	LastResultsHash []byte `json:"last_results_hash,omitempty"`
+	LastResultsHash []byte
 
 	// consensus info
 	// evidence included in the block
-	EvidenceHash []byte `json:"evidence_hash,omitempty"`
+	EvidenceHash []byte
 	//original proposer of the block
-	ProposerAddress []byte `json:"proposer_address,omitempty"`
+	ProposerAddress []byte
 }
 
 const (
@@ -300,10 +299,10 @@ func (h Header) Expired(trustingPeriod time.Duration) error {
 
 // Commit contains the evidence that a block was committed by a set of validators.
 type Commit struct {
-	Height     uint64      `json:"height,omitempty"`
-	Round      int32       `json:"round,omitempty"`
-	BlockID    BlockID     `json:"block_id"`
-	Signatures []CommitSig `json:"signatures"`
+	Height     uint64
+	Round      int32
+	BlockID    BlockID
+	Signatures []CommitSig
 }
 
 func (c *Commit) BytesToSign(chainID string, valIdx int) []byte {
@@ -341,10 +340,10 @@ func (c *Commit) ValidateBasic() error {
 
 // CommitSig is a part of the Vote included in a Commit.
 type CommitSig struct {
-	BlockIDFlag      BlockIDFlag `json:"block_id_flag,omitempty"`
-	ValidatorAddress []byte      `json:"validator_address,omitempty"`
-	Timestamp        time.Time   `json:"timestamp"`
-	Signature        []byte      `json:"signature,omitempty"`
+	BlockIDFlag      BlockIDFlag
+	ValidatorAddress []byte
+	Timestamp        time.Time
+	Signature        []byte
 }
 
 // ValidateBasic performs basic validation.
@@ -399,8 +398,8 @@ const (
 
 // BlockID
 type BlockID struct {
-	Hash          []byte        `json:"hash,omitempty"`
-	PartSetHeader PartSetHeader `json:"part_set_header"`
+	Hash          []byte
+	PartSetHeader PartSetHeader
 }
 
 // Equals returns true if the BlockID matches the given BlockID
@@ -429,8 +428,8 @@ func (blockID BlockID) ValidateBasic() error {
 
 // PartsetHeader
 type PartSetHeader struct {
-	Total uint32 `json:"total,omitempty"`
-	Hash  []byte `json:"hash,omitempty"`
+	Total uint32
+	Hash  []byte
 }
 
 func (psh PartSetHeader) IsZero() bool {
@@ -454,6 +453,6 @@ func (psh PartSetHeader) ValidateBasic() error {
 // including all blockchain data structures and the rules of the application's
 // state transition machine.
 type Consensus struct {
-	Block uint64 `json:"block,omitempty"`
-	App   uint64 `json:"app,omitempty"`
+	Block uint64
+	App   uint64
 }

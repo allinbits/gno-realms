@@ -16,21 +16,21 @@ import (
 // ClientState from Tendermint tracks the current validator set, latest height,
 // and a possible frozen height.
 type ClientState struct {
-	ChainID    string   `json:"chain_id,omitempty"`
-	TrustLevel Fraction `json:"trust_level"`
+	ChainID    string
+	TrustLevel Fraction
 	// duration of the period since the LatestTimestamp during which the
 	// submitted headers are valid for upgrade
-	TrustingPeriod time.Duration `json:"trusting_period"`
+	TrustingPeriod time.Duration
 	// duration of the staking unbonding period
-	UnbondingPeriod time.Duration `json:"unbonding_period"`
+	UnbondingPeriod time.Duration
 	// defines how much new (untrusted) header's Time can drift into the future.
-	MaxClockDrift time.Duration `json:"max_clock_drift"`
+	MaxClockDrift time.Duration
 	// Block height when the client was frozen due to a misbehaviour
-	FrozenHeight types.Height `json:"frozen_height"`
+	FrozenHeight types.Height
 	// Latest height the client was updated to
-	LatestHeight types.Height `json:"latest_height"`
+	LatestHeight types.Height
 	// Proof specifications used in verifying counterparty state
-	ProofSpecs []*ics23.ProofSpec `json:"proof_specs,omitempty"`
+	ProofSpecs []*ics23.ProofSpec
 
 	// Path at which next upgraded client will be committed.
 	// Each element corresponds to the key for a single CommitmentProof in the
@@ -39,7 +39,7 @@ type ClientState struct {
 	// under `{upgradepath}/{upgradeHeight}/consensusState` For SDK chains using
 	// the default upgrade module, upgrade_path should be []string{"upgrade",
 	// "upgradedIBCState"}`
-	UpgradePath []string `json:"upgrade_path,omitempty"`
+	UpgradePath []string
 }
 
 func NewClientState(chainID string, trustLevel Fraction,
@@ -59,8 +59,8 @@ func NewClientState(chainID string, trustLevel Fraction,
 }
 
 type Fraction struct {
-	Numerator   uint64 `json:"numerator,omitempty"`
-	Denominator uint64 `json:"denominator,omitempty"`
+	Numerator   uint64
+	Denominator uint64
 }
 
 func NewFraction(numerator, denominator uint64) Fraction {
@@ -77,10 +77,10 @@ var DefaultTrustLevel = NewFraction(1, 3)
 type ConsensusState struct {
 	// timestamp that corresponds to the block height in which the ConsensusState
 	// was stored.
-	Timestamp time.Time `json:"timestamp"`
+	Timestamp time.Time
 	// commitment root (i.e app hash)
-	Root               MerkleRoot `json:"root"`
-	NextValidatorsHash []byte     `json:"next_validator_hash,omitempty"`
+	Root               MerkleRoot
+	NextValidatorsHash []byte
 
 	processedTime   time.Time
 	processedHeight types.Height
@@ -93,7 +93,7 @@ func (cs ConsensusState) Equal(other ConsensusState) bool {
 }
 
 type MerkleRoot struct {
-	Hash []byte `json:"hash,omitempty"`
+	Hash []byte
 }
 
 func NewMerkleRoot(hash []byte) MerkleRoot {
