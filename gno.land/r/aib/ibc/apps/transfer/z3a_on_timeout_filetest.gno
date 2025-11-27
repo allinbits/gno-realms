@@ -1,6 +1,11 @@
+// PKGPATH: gno.land/r/aib/main
+// SEND: 100ugnot
 package main
 
 import (
+	"chain"
+	"chain/banker"
+	"chain/runtime"
 	"encoding/hex"
 	"testing"
 	"time"
@@ -9,17 +14,17 @@ import (
 	tmtesting "gno.land/p/aib/ibc/lightclient/tendermint/testing"
 	"gno.land/p/aib/ibc/types"
 	"gno.land/p/aib/ics23"
-	appstesting "gno.land/r/aib/ibc/apps/testing"
+	"gno.land/r/aib/ibc/apps/transfer"
 	"gno.land/r/aib/ibc/core"
 )
 
-// Timeout success
+// OnTimeout: success
 func main() {
 	var (
 		chainID       = "atomone-1"
 		trustedHeight = types.NewHeight(1, 2)
 		clientState   = tmtesting.NewClientState(chainID, trustedHeight)
-		apphash       = tmtesting.GenHash("apphash-1")
+		apphash, _    = hex.DecodeString("a119217258843545bc79dd7df4c050c6c2a21b1de7c132dd065fd7463f743e2d")
 		// priv=8a6cAbQSpDbebmcTEhCMPhhr/SkL/2pizo60yzHRkN9Uyk7RHOZm7g4xW+yeJh147/Z4/6HXF6gBwcFNkLsZ/A==
 		val1 = tendermint.NewValidator("9DIBYr64rywKO3Kk6+743xDHcEU=",
 			"VMpO0RzmZu4OMVvsniYdeO/2eP+h1xeoAcHBTZC7Gfw=", 2)
@@ -32,25 +37,38 @@ func main() {
 	)
 	clientID := core.CreateClient(cross, clientState, consensusState)
 	core.RegisterCounterparty(cross, clientID, [][]byte{[]byte("iavlStoreKey"), []byte("prefix2")}, counterpartyID)
-	// Register app
-	var (
-		app       = appstesting.NewApp(cross)
-		appPortID = "app"
-	)
-	core.RegisterApp(cross, appPortID, app)
-	// Send a packet
+
+	signer := runtime.CurrentRealm().Address()
+	payload := transfer.FungibleTokenPacketData{
+		Denom:    "ugnot",
+		Amount:   "100",
+		Sender:   signer.String(),
+		Receiver: "atone1user",
+	}
+	payloadBz := payload.ProtoMarshal()
 	sendPacket := types.MsgSendPacket{
 		SourceClient:     clientID,
 		TimeoutTimestamp: uint64(time.Now().Add(10 * time.Minute).Unix()),
-		Payloads: []types.Payload{{
-			SourcePort:      appPortID,
-			DestinationPort: "destinationPort",
-			Encoding:        "application/json",
-			Value:           []byte("{}"),
-			Version:         "v1",
-		}},
+		Payloads: []types.Payload{
+			{
+				SourcePort:      transfer.PortID,
+				DestinationPort: transfer.PortID,
+				Encoding:        transfer.EncodingProtobuf,
+				Value:           payloadBz,
+				Version:         transfer.V1,
+			},
+		},
 	}
-	sequence := core.SendPacket(cross, nil, sendPacket)
+	banker := banker.NewBanker(banker.BankerTypeOriginSend)
+	testing.SetOriginCaller(signer)
+	transferAppAddr := chain.PackageAddress("gno.land/r/aib/ibc/apps/transfer")
+	println("signer balance before SendPacket:", banker.GetCoins(signer))
+	println("transferAppAddr balance before SendPacket:", banker.GetCoins(transferAppAddr))
+	// Send the packet
+	sequence := core.SendPacket(cross, banker, sendPacket)
+	println("\nsigner balance after SendPacket:", banker.GetCoins(signer))
+	println("transferAppAddr balance after SendPacket:", banker.GetCoins(transferAppAddr))
+
 	// Change block time to after the timeout
 	ctx := testing.GetContext()
 	ctx.Time = time.Now().Add(12 * time.Minute)
@@ -88,7 +106,6 @@ func main() {
 	core.UpdateClient(cross, clientID, msgHeader)
 
 	// Timeout the packet
-	// Generate the non-existence proof
 	specs := ics23.IavlSpec()
 	// Generate the proof that no RecvPacket have been received by the
 	// counterparty chain.
@@ -184,81 +201,22 @@ func main() {
 
 	res := core.Timeout(cross, timeoutPacket)
 
-	println("res:", res)
-	println("\n----------- assert render clients/07-tendermint-1/packet_commitments")
-	println(core.Render("clients/" + clientID + "/packet_commitments"))
-	println("\n----------- app report")
-	println(app.Report())
-
-	// assert NOOP response (res=1) if timeout is resubmitted
-	res = core.Timeout(cross, timeoutPacket)
-
-	println("res:", res)
-	println("\n----------- app report")
-	println(app.Report())
+	println("\nack res:", res)
+	println("\nsigner balance after Timeout:", banker.GetCoins(signer))
+	println("transferAppAddr balance after Timeout:", banker.GetCoins(transferAppAddr))
 }
 
 // Output:
-// res: (2 gno.land/p/aib/ibc/types.ResponseResultType)
+// signer balance before SendPacket: 100ugnot
+// transferAppAddr balance before SendPacket:
 //
-// ----------- assert render clients/07-tendermint-1/packet_commitments
-// []
+// signer balance after SendPacket:
+// transferAppAddr balance after SendPacket: 100ugnot
 //
-// ----------- app report
-// balance:
-// OnSendPacket (1)
-// - sourceClient: 07-tendermint-1
-// - destinationClient: 07-tendermint-42
-// - sequence: 1
-// - payload:
-//   - sourcePort: app
-//   - destinationPort: destinationPort
-//   - version: v1
-//   - encoding: application/json
-//   - value: {}
+// ack res: (2 gno.land/p/aib/ibc/types.ResponseResultType)
 //
-// OnRecvPacket (0)
-// OnTimeoutPacket (1)
-// - sourceClient: 07-tendermint-1
-// - destinationClient: 07-tendermint-42
-// - sequence: 1
-// - payload:
-//   - sourcePort: app
-//   - destinationPort: destinationPort
-//   - version: v1
-//   - encoding: application/json
-//   - value: {}
-//
-// OnAcknowledgementPacket (0)
-//
-// res: (1 gno.land/p/aib/ibc/types.ResponseResultType)
-//
-// ----------- app report
-// balance:
-// OnSendPacket (1)
-// - sourceClient: 07-tendermint-1
-// - destinationClient: 07-tendermint-42
-// - sequence: 1
-// - payload:
-//   - sourcePort: app
-//   - destinationPort: destinationPort
-//   - version: v1
-//   - encoding: application/json
-//   - value: {}
-//
-// OnRecvPacket (0)
-// OnTimeoutPacket (1)
-// - sourceClient: 07-tendermint-1
-// - destinationClient: 07-tendermint-42
-// - sequence: 1
-// - payload:
-//   - sourcePort: app
-//   - destinationPort: destinationPort
-//   - version: v1
-//   - encoding: application/json
-//   - value: {}
-//
-// OnAcknowledgementPacket (0)
+// signer balance after Timeout: 100ugnot
+// transferAppAddr balance after Timeout:
 
 // Events:
 // [
@@ -301,10 +259,36 @@ func main() {
 //       },
 //       {
 //         "key": "encoded_packet_hex",
-//         "value": "0801120f30372d74656e6465726d696e742d311a1030372d74656e6465726d696e742d343220aa8ad8cc042a300a03617070120f64657374696e6174696f6e506f72741a02763122106170706c69636174696f6e2f6a736f6e2a027b7d"
+//         "value": "0801120f30372d74656e6465726d696e742d311a1030372d74656e6465726d696e742d343220aa8ad8cc042a790a087472616e7366657212087472616e736665721a0769637332302d3122166170706c69636174696f6e2f782d70726f746f6275662a420a0575676e6f7412033130301a286731676a73386e6664726435357a33787539676a6361746e6a3239766b7775797834666671786439220a61746f6e653175736572"
 //       }
 //     ],
 //     "pkg_path": "gno.land/r/aib/ibc/core"
+//   },
+//   {
+//     "type": "ibc_transfer",
+//     "attrs": [
+//       {
+//         "key": "sender",
+//         "value": "g1gjs8nfdrd55z3xu9gjcatnj29vkwuyx4ffqxd9"
+//       },
+//       {
+//         "key": "receiver",
+//         "value": "atone1user"
+//       },
+//       {
+//         "key": "denom",
+//         "value": "ugnot"
+//       },
+//       {
+//         "key": "amount",
+//         "value": "100"
+//       },
+//       {
+//         "key": "memo",
+//         "value": ""
+//       }
+//     ],
+//     "pkg_path": "gno.land/r/aib/ibc/apps/transfer"
 //   },
 //   {
 //     "type": "update_client",
@@ -345,9 +329,31 @@ func main() {
 //       },
 //       {
 //         "key": "encoded_packet_hex",
-//         "value": "0801120f30372d74656e6465726d696e742d311a1030372d74656e6465726d696e742d343220aa8ad8cc042a300a03617070120f64657374696e6174696f6e506f72741a02763122106170706c69636174696f6e2f6a736f6e2a027b7d"
+//         "value": "0801120f30372d74656e6465726d696e742d311a1030372d74656e6465726d696e742d343220aa8ad8cc042a790a087472616e7366657212087472616e736665721a0769637332302d3122166170706c69636174696f6e2f782d70726f746f6275662a420a0575676e6f7412033130301a286731676a73386e6664726435357a33787539676a6361746e6a3239766b7775797834666671786439220a61746f6e653175736572"
 //       }
 //     ],
 //     "pkg_path": "gno.land/r/aib/ibc/core"
+//   },
+//   {
+//     "type": "timeout",
+//     "attrs": [
+//       {
+//         "key": "receiver",
+//         "value": "g1gjs8nfdrd55z3xu9gjcatnj29vkwuyx4ffqxd9"
+//       },
+//       {
+//         "key": "denom",
+//         "value": "ugnot"
+//       },
+//       {
+//         "key": "amount",
+//         "value": "100"
+//       },
+//       {
+//         "key": "memo",
+//         "value": ""
+//       }
+//     ],
+//     "pkg_path": "gno.land/r/aib/ibc/apps/transfer"
 //   }
 // ]
