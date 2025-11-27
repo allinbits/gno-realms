@@ -433,6 +433,14 @@ func (blockID BlockID) ValidateBasic() error {
 	return nil
 }
 
+func (b BlockID) ProtoMarshal() (bz []byte) {
+	if len(b.Hash) > 0 {
+		bz = proto.AppendLengthDelimited(bz, 1, b.Hash)
+	}
+	// TODO append parSetHeader
+	return bz
+}
+
 // PartsetHeader
 type PartSetHeader struct {
 	Total uint32
@@ -454,6 +462,16 @@ func (psh PartSetHeader) ValidateBasic() error {
 		return ufmt.Errorf("wrong parSetHeader Hash: %v", err)
 	}
 	return nil
+}
+
+func (psh PartSetHeader) ProtoMarshal() (bz []byte) {
+	if psh.Total > 0 {
+		bz = proto.AppendVarint(bz, 1, uint64(psh.Total))
+	}
+	if len(psh.Hash) > 0 {
+		bz = proto.AppendLengthDelimited(bz, 2, psh.Hash)
+	}
+	return bz
 }
 
 // Consensus captures the consensus rules for processing a block in the blockchain,

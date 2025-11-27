@@ -54,9 +54,9 @@ func TimeMarshal(t time.Time) []byte {
 		nanos   = int32(t.Nanosecond())
 	)
 	// Field 1: seconds (int64 - varint)
-	buf = AppendVarint(_buf, 1, uint64(seconds))
+	buf = AppendVarint(buf, 1, uint64(seconds))
 	// Field 2: nanos (int32 - varint)
-	buf = AppendVarint(_buf, 2, uint64(nanos))
+	buf = AppendVarint(buf, 2, uint64(nanos))
 	return buf
 }
 
