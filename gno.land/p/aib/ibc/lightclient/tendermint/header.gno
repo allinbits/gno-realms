@@ -289,6 +289,27 @@ func (h *Header) Hash() []byte {
 		vbz = proto.AppendVarint(vbz, 2, uint64(h.Version.Block))
 	}
 	tbz := proto.TimeMarshal(h.Time)
+	bbz := h.LastBlockID.ProtoMarshal()
+
+	_, _ = tbz, bbz
+	/*
+		return merkle.HashFromByteSlices([][]byte{
+			hbz,
+			cdcEncode(h.ChainID),
+			cdcEncode(h.Height),
+			pbt,
+			bzbi,
+			cdcEncode(h.LastCommitHash),
+			cdcEncode(h.DataHash),
+			cdcEncode(h.ValidatorsHash),
+			cdcEncode(h.NextValidatorsHash),
+			cdcEncode(h.ConsensusHash),
+			cdcEncode(h.AppHash),
+			cdcEncode(h.LastResultsHash),
+			cdcEncode(h.EvidenceHash),
+			cdcEncode(h.ProposerAddress),
+		})
+	*/
 
 	return nil
 }
@@ -315,8 +336,7 @@ type Commit struct {
 func (c *Commit) BytesToSign(chainID string, valIdx int) []byte {
 	return VoteBytesToSign(
 		chainID, int64(c.Height), int64(c.Round),
-		c.BlockID.Hash, c.BlockID.PartSetHeader.Total,
-		c.BlockID.PartSetHeader.Hash, c.Signatures[valIdx].BlockIDFlag,
+		c.BlockID, c.Signatures[valIdx].BlockIDFlag,
 		c.Signatures[valIdx].Timestamp,
 	)
 }
@@ -437,7 +457,7 @@ func (b BlockID) ProtoMarshal() (bz []byte) {
 	if len(b.Hash) > 0 {
 		bz = proto.AppendLengthDelimited(bz, 1, b.Hash)
 	}
-	// TODO append parSetHeader
+	bz = proto.AppendLengthDelimited(bz, 2, b.PartSetHeader.ProtoMarshal())
 	return bz
 }
 

@@ -16,9 +16,7 @@ import (
 func VoteBytesToSign(
 	chainID string,
 	height, round int64,
-	blockIDHash []byte,
-	partSetTotal uint32,
-	partSetHash []byte,
+	blockID BlockID,
 	blockIDFlag BlockIDFlag,
 	timestamp time.Time,
 ) []byte {
@@ -35,7 +33,7 @@ func VoteBytesToSign(
 
 	// Field 4: block_id (CanonicalBlockID - length-delimited)
 	if blockIDFlag == BlockIDFlagCommit {
-		buf = appendCanonicalBlockID(buf, 4, blockIDHash, partSetTotal, partSetHash)
+		buf = proto.AppendLengthDelimited(buf, 4, blockID.ProtoMarshal())
 	}
 
 	// Field 5: timestamp (google.protobuf.Timestamp - length-delimited)
@@ -49,30 +47,4 @@ func VoteBytesToSign(
 	buf = append(binary.AppendUvarint(nil, uint64(length)), buf...)
 
 	return buf
-}
-
-// appendCanonicalBlockID serializes a CanonicalBlockID message
-func appendCanonicalBlockID(buf []byte, fieldNum int, hash []byte, partSetTotal uint32, partSetHash []byte) []byte {
-	var _buf []byte
-
-	// Field 1: hash (bytes)
-	_buf = proto.AppendLengthDelimited(_buf, 1, hash)
-
-	// Field 2: part_set_header (CanonicalPartSetHeader - embedded message)
-	_buf = appendCanonicalPartSetHeader(_buf, 2, partSetTotal, partSetHash)
-
-	return proto.AppendLengthDelimited(buf, fieldNum, _buf)
-}
-
-// appendCanonicalPartSetHeader serializes a CanonicalPartSetHeader message
-func appendCanonicalPartSetHeader(buf []byte, fieldNum int, total uint32, hash []byte) []byte {
-	var _buf []byte
-
-	// Field 1: total (uint32 - varint)
-	_buf = proto.AppendVarint(_buf, 1, uint64(total))
-
-	// Field 2: hash (bytes)
-	_buf = proto.AppendLengthDelimited(_buf, 2, hash)
-
-	return proto.AppendLengthDelimited(buf, fieldNum, _buf)
 }
