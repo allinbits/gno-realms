@@ -286,8 +286,10 @@ func (h *Header) Hash() []byte {
 		vbz = proto.AppendVarint(vbz, 1, uint64(h.Version.App))
 	}
 	if h.Version.Block != 0 {
-		vbz = proto.AppendVarint(vbz, 1, uint64(h.Version.Block))
+		vbz = proto.AppendVarint(vbz, 2, uint64(h.Version.Block))
 	}
+	tbz := proto.TimeMarshal(h.Time)
+
 	return nil
 }
 
