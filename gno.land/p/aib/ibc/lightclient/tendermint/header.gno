@@ -2,9 +2,11 @@ package tendermint
 
 import (
 	"bytes"
+	"encoding/hex"
 	"errors"
 	"time"
 
+	"gno.land/p/aib/encoding/proto"
 	"gno.land/p/aib/ibc/lightclient"
 	"gno.land/p/aib/ibc/types"
 	"gno.land/p/nt/ufmt"
@@ -104,13 +106,10 @@ func (h *MsgHeader) ValidateBasic() error {
 	if h.Header.Height != h.Commit.Height {
 		return ufmt.Errorf("header and commit height mismatch: %d vs %d", h.Header.Height, h.Commit.Height)
 	}
-	// TODO(tb): computing the block hash from header is difficult in Gno because
-	// it requires to use protobuf and other merkle libraries, we need to ensure
-	// that this check is really necessary in terms of security.
-	// if hhash, chash := h.Header.Hash(), h.Commit.BlockID.Hash; !bytes.Equal(hhash, chash) {
-	// cs, hs := hex.EncodeToString(chash), hex.EncodeToString(hhash)
-	// return ufmt.Errorf("commit signs block %q, header is block %q", cs, hs)
-	// }
+	if hhash, chash := h.Header.Hash(), h.Commit.BlockID.Hash; !bytes.Equal(hhash, chash) {
+		cs, hs := hex.EncodeToString(chash), hex.EncodeToString(hhash)
+		return ufmt.Errorf("expected BlockID#Hash and Header#Hash to be the same, got %q != %q", cs, hs)
+	}
 
 	// TrustedHeight is less than Header for updates and misbehaviour
 	if h.TrustedHeight.GTE(h.GetHeight()) {
@@ -282,7 +281,13 @@ func (h *Header) Hash() []byte {
 	if h == nil || len(h.ValidatorsHash) == 0 {
 		return nil
 	}
-	// TODO Use a source of bytes that is not protobuf
+	var vbz []byte
+	if h.Version.App != 0 {
+		vbz = proto.AppendVarint(vbz, 1, uint64(h.Version.App))
+	}
+	if h.Version.Block != 0 {
+		vbz = proto.AppendVarint(vbz, 1, uint64(h.Version.Block))
+	}
 	return nil
 }
 
