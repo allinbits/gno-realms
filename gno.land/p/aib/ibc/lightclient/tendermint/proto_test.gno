@@ -390,9 +390,7 @@ func testVotesBytesToSign(t *testing.T, msg *tendermint.MsgHeader, expectedBytes
 	for idx, val := range msg.ValidatorSet.Validators {
 		bz := tendermint.VoteBytesToSign(
 			msg.Header.ChainID, int64(msg.Commit.Height), int64(msg.Commit.Round),
-			msg.Commit.BlockID.Hash, msg.Commit.BlockID.PartSetHeader.Total,
-			msg.Commit.BlockID.PartSetHeader.Hash,
-			msg.Commit.Signatures[idx].BlockIDFlag,
+			msg.Commit.BlockID, msg.Commit.Signatures[idx].BlockIDFlag,
 			msg.Commit.Signatures[idx].Timestamp,
 		)
 		if h := hex.EncodeToString(bz); h != expectedBytesToSign[idx] {
