@@ -10,6 +10,7 @@ import (
 	"gno.land/p/aib/encoding/proto"
 	"gno.land/p/aib/ibc/lightclient"
 	"gno.land/p/aib/ibc/types"
+	"gno.land/p/aib/merkle"
 	"gno.land/p/nt/ufmt"
 )
 
@@ -282,37 +283,22 @@ func (h *Header) Hash() []byte {
 	if h == nil || len(h.ValidatorsHash) == 0 {
 		return nil
 	}
-	var vbz []byte
-	if h.Version.App != 0 {
-		vbz = proto.AppendVarint(vbz, 1, uint64(h.Version.App))
-	}
-	if h.Version.Block != 0 {
-		vbz = proto.AppendVarint(vbz, 2, uint64(h.Version.Block))
-	}
-	tbz := proto.TimeMarshal(h.Time)
-	bbz := h.LastBlockID.ProtoMarshal()
-
-	_, _ = tbz, bbz
-	/*
-		return merkle.HashFromByteSlices([][]byte{
-			hbz,
-			cdcEncode(h.ChainID),
-			cdcEncode(h.Height),
-			pbt,
-			bzbi,
-			cdcEncode(h.LastCommitHash),
-			cdcEncode(h.DataHash),
-			cdcEncode(h.ValidatorsHash),
-			cdcEncode(h.NextValidatorsHash),
-			cdcEncode(h.ConsensusHash),
-			cdcEncode(h.AppHash),
-			cdcEncode(h.LastResultsHash),
-			cdcEncode(h.EvidenceHash),
-			cdcEncode(h.ProposerAddress),
-		})
-	*/
-
-	return nil
+	return merkle.HashFromByteSlices([][]byte{
+		h.Version.ProtoMarshal(),
+		proto.AppendLengthDelimited(nil, 0, []byte(h.ChainID)),
+		cdcEncode(h.Height),
+		proto.TimeMarshal(h.Time),
+		h.LastBlockID.ProtoMarshal(),
+		cdcEncode(h.LastCommitHash),
+		cdcEncode(h.DataHash),
+		cdcEncode(h.ValidatorsHash),
+		cdcEncode(h.NextValidatorsHash),
+		cdcEncode(h.ConsensusHash),
+		cdcEncode(h.AppHash),
+		cdcEncode(h.LastResultsHash),
+		cdcEncode(h.EvidenceHash),
+		cdcEncode(h.ProposerAddress),
+	})
 }
 
 func (h Header) Expired(trustingPeriod time.Duration) error {
@@ -487,7 +473,7 @@ func (b BlockID) ProtoMarshal() (bz []byte) {
 		bz = proto.AppendLengthDelimited(bz, 1, b.Hash)
 	}
 	bz = proto.AppendLengthDelimited(bz, 2, b.PartSetHeader.ProtoMarshal())
-	return bz
+	return
 }
 
 // PartsetHeader
@@ -520,7 +506,7 @@ func (psh PartSetHeader) ProtoMarshal() (bz []byte) {
 	if len(psh.Hash) > 0 {
 		bz = proto.AppendLengthDelimited(bz, 2, psh.Hash)
 	}
-	return bz
+	return
 }
 
 // Consensus captures the consensus rules for processing a block in the blockchain,
@@ -529,4 +515,14 @@ func (psh PartSetHeader) ProtoMarshal() (bz []byte) {
 type Consensus struct {
 	Block uint64
 	App   uint64
+}
+
+func (c Consensus) ProtoMarshal() (bz []byte) {
+	if c.App != 0 {
+		bz = proto.AppendVarint(bz, 1, uint64(c.App))
+	}
+	if c.Block != 0 {
+		bz = proto.AppendVarint(bz, 2, uint64(c.Block))
+	}
+	return
 }
