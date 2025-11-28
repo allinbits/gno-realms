@@ -2,6 +2,7 @@ package tendermint
 
 import (
 	"bytes"
+	"encoding/binary"
 	"encoding/hex"
 	"errors"
 	"time"
@@ -333,12 +334,40 @@ type Commit struct {
 	Signatures []CommitSig
 }
 
+// BytesToSign returns the bytes-to-sign for a validator's vote.
+// These bytes are produced from a protobuf marshaled type [CanonicalVote][1].
+// Since proto is not available in Gno, the function tries to generate these
+// bytes manually, using the same logic as protobuf.
+//
+// [1]: https://buf.build/tendermint/tendermint/docs/main:tendermint.types#tendermint.types.CanonicalVote
 func (c *Commit) BytesToSign(chainID string, valIdx int) []byte {
-	return VoteBytesToSign(
-		chainID, int64(c.Height), int64(c.Round),
-		c.BlockID, c.Signatures[valIdx].BlockIDFlag,
-		c.Signatures[valIdx].Timestamp,
-	)
+	var buf []byte
+
+	// Field 1: type (SignedMsgType - varint)
+	buf = proto.AppendVarint(buf, 1, 2) // type precommit
+
+	// Field 2: height (sfixed64 - fixed64)
+	buf = proto.AppendFixed64(buf, 2, uint64(c.Height))
+
+	// Field 3: round (sfixed64 - fixed64)
+	buf = proto.AppendFixed64(buf, 3, uint64(c.Round))
+
+	// Field 4: block_id (CanonicalBlockID - length-delimited)
+	if c.Signatures[valIdx].BlockIDFlag == BlockIDFlagCommit {
+		buf = proto.AppendLengthDelimited(buf, 4, c.BlockID.ProtoMarshal())
+	}
+
+	// Field 5: timestamp (google.protobuf.Timestamp - length-delimited)
+	buf = proto.AppendTime(buf, 5, c.Signatures[valIdx].Timestamp)
+
+	// Field 6: chain_id (string - length-delimited)
+	buf = proto.AppendLengthDelimited(buf, 6, []byte(chainID))
+
+	// Prefix with total length
+	length := len(buf)
+	buf = append(binary.AppendUvarint(nil, uint64(length)), buf...)
+
+	return buf
 }
 
 // ValidateBasic performs basic validation that doesn't involve state data.
