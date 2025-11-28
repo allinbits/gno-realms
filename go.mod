@@ -2,7 +2,10 @@ module aibgno
 
 go 1.25.3
 
-replace github.com/gnolang/gno => github.com/allinbits/gno v0.0.0-20251128123344-b23a6fcafe97
+replace (
+	github.com/gnolang/gno => github.com/allinbits/gno v0.0.0-20251128123344-b23a6fcafe97
+	github.com/gnolang/gno/contribs/gnodev => github.com/allinbits/gno/contribs/gnodev v0.0.0-20251128123344-b23a6fcafe97
+)
 
 tool (
 	github.com/gnolang/gno/contribs/gnodev
@@ -44,7 +47,7 @@ require (
 	github.com/fsnotify/fsnotify v1.7.0 // indirect
 	github.com/getsentry/sentry-go v0.27.0 // indirect
 	github.com/gnolang/gno v0.2.0 // indirect
-	github.com/gnolang/gno/contribs/gnodev v0.0.0-20251105144934-ceb2330801d6 // indirect
+	github.com/gnolang/gno/contribs/gnodev v0.0.0-20251127092746-53fd1928eb26 // indirect
 	github.com/go-logfmt/logfmt v0.6.0 // indirect
 	github.com/go-logr/logr v1.4.2 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect

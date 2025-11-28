@@ -13,6 +13,8 @@ github.com/alecthomas/repr v0.4.0 h1:GhI2A8MACjfegCPVq9f1FLvIBS+DrQ2KQBFZP1iFzXc
 github.com/alecthomas/repr v0.4.0/go.mod h1:Fr0507jx4eOXV7AlPV6AVZLYrLIuIeSOWtW57eE/O/4=
 github.com/allinbits/gno v0.0.0-20251128123344-b23a6fcafe97 h1:uPGVXkVNNl/LAHLpbTw4G9uNyTJVZ8Yev8I8gtnCbwM=
 github.com/allinbits/gno v0.0.0-20251128123344-b23a6fcafe97/go.mod h1:HFxg7s2sqFtjTP5F7BjewpWKMS8RSe1JwZe19jLwme0=
+github.com/allinbits/gno/contribs/gnodev v0.0.0-20251128123344-b23a6fcafe97 h1:vq/R3rkGVUSkKh6vPwk4r+xZGhs7GUV3XM3ekrD+iFY=
+github.com/allinbits/gno/contribs/gnodev v0.0.0-20251128123344-b23a6fcafe97/go.mod h1:aHnhfI52rx6u5ldVgk3v/ZspgWmaGiaFB937dFhifgo=
 github.com/aymanbagabas/go-osc52/v2 v2.0.1 h1:HwpRHbFMcZLEVr42D4p7XBqjyuxQH5SMiErDT4WkJ2k=
 github.com/aymanbagabas/go-osc52/v2 v2.0.1/go.mod h1:uYgXzlJ7ZpABp8OJ+exZzJJhRNQ2ASbcXHWsFqH8hp8=
 github.com/bendory/conway-hebrew-calendar v0.0.0-20210829020739-dcc34210ce9b h1:AqcWTgnij9lTMsvc21uXU38gVQyzsb4i1YDRJja+auc=
@@ -115,8 +117,6 @@ github.com/fsnotify/fsnotify v1.7.0 h1:8JEhPFa5W2WU7YfeZzPNqzMP6Lwt7L2715Ggo0nos
 github.com/fsnotify/fsnotify v1.7.0/go.mod h1:40Bi/Hjc2AVfZrqy+aj+yEI+/bRxZnMJyTJwOpGvigM=
 github.com/getsentry/sentry-go v0.27.0 h1:Pv98CIbtB3LkMWmXi4Joa5OOcwbmnX88sF5qbK3r3Ps=
 github.com/getsentry/sentry-go v0.27.0/go.mod h1:lc76E2QywIyW8WuBnwl8Lc4bkmQH4+w1gwTf25trprY=
-github.com/gnolang/gno/contribs/gnodev v0.0.0-20251105144934-ceb2330801d6 h1:fRnev7w17Mj/oI6xPuaiwmU6OkfRcpGQjDYCP249s+I=
-github.com/gnolang/gno/contribs/gnodev v0.0.0-20251105144934-ceb2330801d6/go.mod h1:aHnhfI52rx6u5ldVgk3v/ZspgWmaGiaFB937dFhifgo=
 github.com/go-errors/errors v1.4.2 h1:J6MZopCL4uSllY1OfXM374weqZFFItUbrImctkmUxIA=
 github.com/go-errors/errors v1.4.2/go.mod h1:sIVyrIiJhuEF+Pj9Ebtd6P/rEYROXFi3BopGUQ5a5Og=
 github.com/go-logfmt/logfmt v0.6.0 h1:wGYYu3uicYdqXVgoYbvnkrPVXkuLM1p1ifugDMEdRi4=

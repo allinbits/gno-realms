@@ -18,3 +18,5 @@ test:
 update-fork:
 	go mod edit -replace  github.com/gnolang/gno=github.com/allinbits/gno@ibc-fork
 	go mod tidy
+	go mod edit -replace  github.com/gnolang/gno/contribs/gnodev=github.com/allinbits/gno/contribs/gnodev@ibc-fork
+	go mod tidy
