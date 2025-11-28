@@ -9,7 +9,7 @@ ifdef GNOROOT
 endif
 
 gnodev:
-	go tool gnodev -resolver root=. \
+	go tool gnodev -empty-blocks -resolver root=. \
 		-resolver root=$(shell go tool gno env GNOROOT)/examples
 
 test: 
