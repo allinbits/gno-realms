@@ -49,7 +49,7 @@ func NewMsgHeader(chainID string, timestamp time.Time,
 			Height:  height,
 			Time:    timestamp,
 			LastBlockID: BlockID{
-				Hash: blockhash,
+				Hash: blockhash, //FIXME should be different than blockhash
 				PartSetHeader: PartSetHeader{
 					Total: 1,
 					Hash:  parsethash,
@@ -285,19 +285,19 @@ func (h *Header) Hash() []byte {
 	}
 	return merkle.HashFromByteSlices([][]byte{
 		h.Version.ProtoMarshal(),
-		proto.AppendLengthDelimited(nil, 0, []byte(h.ChainID)),
-		cdcEncode(h.Height),
+		proto.AppendLengthDelimited(nil, 1, []byte(h.ChainID)),
+		proto.AppendVarint(nil, 1, h.Height),
 		proto.TimeMarshal(h.Time),
 		h.LastBlockID.ProtoMarshal(),
-		cdcEncode(h.LastCommitHash),
-		cdcEncode(h.DataHash),
-		cdcEncode(h.ValidatorsHash),
-		cdcEncode(h.NextValidatorsHash),
-		cdcEncode(h.ConsensusHash),
-		cdcEncode(h.AppHash),
-		cdcEncode(h.LastResultsHash),
-		cdcEncode(h.EvidenceHash),
-		cdcEncode(h.ProposerAddress),
+		proto.AppendLengthDelimited(nil, 1, h.LastCommitHash),
+		proto.AppendLengthDelimited(nil, 1, h.DataHash),
+		proto.AppendLengthDelimited(nil, 1, h.ValidatorsHash),
+		proto.AppendLengthDelimited(nil, 1, h.NextValidatorsHash),
+		proto.AppendLengthDelimited(nil, 1, h.ConsensusHash),
+		proto.AppendLengthDelimited(nil, 1, h.AppHash),
+		proto.AppendLengthDelimited(nil, 1, h.LastResultsHash),
+		proto.AppendLengthDelimited(nil, 1, h.EvidenceHash),
+		proto.AppendLengthDelimited(nil, 1, h.ProposerAddress),
 	})
 }
 
@@ -518,11 +518,11 @@ type Consensus struct {
 }
 
 func (c Consensus) ProtoMarshal() (bz []byte) {
-	if c.App != 0 {
-		bz = proto.AppendVarint(bz, 1, uint64(c.App))
-	}
 	if c.Block != 0 {
-		bz = proto.AppendVarint(bz, 2, uint64(c.Block))
+		bz = proto.AppendVarint(bz, 1, c.Block)
+	}
+	if c.App != 0 {
+		bz = proto.AppendVarint(bz, 2, c.App)
 	}
 	return
 }

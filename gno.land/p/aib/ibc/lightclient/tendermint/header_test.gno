@@ -13,6 +13,7 @@ import (
 	"gno.land/p/aib/ibc/lightclient"
 	"gno.land/p/aib/ibc/lightclient/tendermint"
 	"gno.land/p/aib/ibc/types"
+	"gno.land/p/nt/uassert"
 )
 
 func TestMsgHeaderValidateBasic(t *testing.T) {
@@ -248,6 +249,13 @@ func TestMsgHeaderValidateBasic(t *testing.T) {
 			},
 			expectedError: "Invalid commit -- wrong set size: 2 vs 1",
 		},
+		{
+			name: "commit.blockid.hash != header.hash()",
+			malleate: func() {
+				msg.Commit.BlockID.Hash = hash([]byte{})
+			},
+			expectedError: `expected BlockID#Hash and Header#Hash to be the same, got "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855" != "0910ea1fdc0ee3e62c1628569f7b00013e455d782657a72c3509f517b935a8a2"`,
+		},
 	}
 
 	if lightclient.Tendermint != msg.ClientType() {
@@ -305,6 +313,7 @@ func TestMsgHeaderValidateBasic(t *testing.T) {
 				chainID, newTimestamp, apphash, blockhash, parsethash, consensushash,
 				newHeight, trustedHeight, valset, trustedValset, signatures,
 			)
+			msg.Commit.BlockID.Hash = msg.Header.Hash() // set expected hash
 			tc.malleate()
 
 			err := msg.ValidateBasic()
@@ -318,6 +327,79 @@ func TestMsgHeaderValidateBasic(t *testing.T) {
 					t.Errorf("expected error %s, got %s", tc.expectedError, err)
 				}
 			}
+		})
+	}
+}
+
+func TestHeaderHash(t *testing.T) {
+	tests := []struct {
+		desc         string
+		header       *tendermint.Header
+		expectedHash string // hex encoded
+	}{
+		{
+			desc: "generates expected hash",
+			header: &tendermint.Header{
+				Version: tendermint.Consensus{Block: 1, App: 2},
+				ChainID: "chainId",
+				Height:  3,
+				Time:    time.Date(2019, 10, 13, 16, 14, 44, 0, time.UTC),
+				LastBlockID: tendermint.BlockID{
+					Hash: make([]byte, sha256.Size),
+					PartSetHeader: tendermint.PartSetHeader{
+						Total: 6,
+						Hash:  make([]byte, sha256.Size),
+					},
+				},
+				LastCommitHash:     hash([]byte("last_commit_hash")),
+				DataHash:           hash([]byte("data_hash")),
+				ValidatorsHash:     hash([]byte("validators_hash")),
+				NextValidatorsHash: hash([]byte("next_validators_hash")),
+				ConsensusHash:      hash([]byte("consensus_hash")),
+				AppHash:            hash([]byte("app_hash")),
+				LastResultsHash:    hash([]byte("last_results_hash")),
+				EvidenceHash:       hash([]byte("evidence_hash")),
+				ProposerAddress:    hash([]byte("proposer_address"))[:20],
+			},
+			expectedHash: "f740121f553b5418c3efbd343c2dbfe9e007bb67b0d020a0741374bab65242a4",
+		},
+		{
+			desc:         "nil header yields nil",
+			header:       nil,
+			expectedHash: "",
+		},
+		{
+			desc: "nil ValidatorsHash yields nil",
+			header: &tendermint.Header{
+				Version: tendermint.Consensus{Block: 1, App: 2},
+				ChainID: "chainId",
+				Height:  3,
+				Time:    time.Date(2019, 10, 13, 16, 14, 44, 0, time.UTC),
+				LastBlockID: tendermint.BlockID{
+					Hash: make([]byte, sha256.Size),
+					PartSetHeader: tendermint.PartSetHeader{
+						Total: 6,
+						Hash:  make([]byte, sha256.Size),
+					},
+				},
+				LastCommitHash:     hash([]byte("last_commit_hash")),
+				DataHash:           hash([]byte("data_hash")),
+				ValidatorsHash:     nil,
+				NextValidatorsHash: hash([]byte("next_validators_hash")),
+				ConsensusHash:      hash([]byte("consensus_hash")),
+				AppHash:            hash([]byte("app_hash")),
+				LastResultsHash:    hash([]byte("last_results_hash")),
+				EvidenceHash:       hash([]byte("evidence_hash")),
+				ProposerAddress:    hash([]byte("proposer_address"))[:20],
+			},
+			expectedHash: "",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.desc, func(t *testing.T) {
+			h := tt.header.Hash()
+
+			uassert.Equal(t, tt.expectedHash, hex.EncodeToString(h))
 		})
 	}
 }
@@ -756,6 +838,10 @@ func genBytes(prefix string, size int) []byte {
 }
 
 func genHash(prefix string) []byte {
-	bz := sha256.Sum256(genBytes(prefix, 64))
-	return bz[:]
+	return hash(genBytes(prefix, 64))
+}
+
+func hash(bz []byte) []byte {
+	h := sha256.Sum256(bz)
+	return h[:]
 }
