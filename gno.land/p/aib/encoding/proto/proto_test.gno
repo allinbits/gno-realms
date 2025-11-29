@@ -4,7 +4,6 @@ import (
 	"testing"
 
 	"gno.land/p/nt/uassert"
-	"gno.land/p/nt/ufmt"
 )
 
 func TestAppendLengthDelimited(t *testing.T) {
@@ -16,13 +15,11 @@ func TestAppendLengthDelimited(t *testing.T) {
 func TestAppendVarint(t *testing.T) {
 	bz := AppendVarint(nil, 1, 42)
 
-	ufmt.Printf("%q\n", string(bz))
-	uassert.Equal(t, "\n\vhello world", string(bz))
+	uassert.Equal(t, "\b*", string(bz))
 }
 
 func TestAppendFixed64(t *testing.T) {
 	bz := AppendFixed64(nil, 1, 42)
 
-	ufmt.Printf("%q\n", string(bz))
-	uassert.Equal(t, "\n\vhello world", string(bz))
+	uassert.Equal(t, "\t*\x00\x00\x00\x00\x00\x00\x00", string(bz))
 }
