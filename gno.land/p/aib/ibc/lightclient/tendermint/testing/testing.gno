@@ -10,6 +10,56 @@ import (
 	"gno.land/p/aib/ics23"
 )
 
+func NewMsgHeader(chainID string, timestamp time.Time,
+	apphash []byte, height uint64, trustedHeight types.Height,
+	valset, trustedValset *tendermint.ValidatorSet,
+	signatures []tendermint.CommitSig) *tendermint.MsgHeader {
+	header := &tendermint.Header{
+		Version: tendermint.Consensus{
+			Block: tendermint.BlockProtocol,
+			App:   0,
+		},
+		ChainID: chainID,
+		Height:  height,
+		Time:    timestamp,
+		LastBlockID: tendermint.BlockID{
+			Hash: Hash("last_block_hash"),
+			PartSetHeader: tendermint.PartSetHeader{
+				Total: 1,
+				Hash:  Hash("last_block_parset_hash"),
+			},
+		},
+		LastCommitHash:     Hash("last_commit_hash"),
+		DataHash:           Hash("data_hash"),
+		ValidatorsHash:     valset.Hash(),
+		NextValidatorsHash: trustedValset.Hash(),
+		ConsensusHash:      Hash("consensus_hash"),
+		AppHash:            apphash,
+		LastResultsHash:    Hash("last_result_hash"),
+		EvidenceHash:       Hash("evidence_hash"),
+		ProposerAddress:    valset.Proposer.Address,
+	}
+
+	return &tendermint.MsgHeader{
+		Header: header,
+		Commit: &tendermint.Commit{
+			Height: height,
+			Round:  0,
+			BlockID: tendermint.BlockID{
+				Hash: header.Hash(), // compute expected block hash
+				PartSetHeader: tendermint.PartSetHeader{
+					Total: 1,
+					Hash:  Hash("block_parset_hash"),
+				},
+			},
+			Signatures: signatures,
+		},
+		ValidatorSet:      valset,
+		TrustedHeight:     trustedHeight,
+		TrustedValidators: trustedValset,
+	}
+}
+
 func NewClientState(chainID string, height types.Height) tendermint.ClientState {
 	return tendermint.ClientState{
 		ChainID:         chainID,
@@ -46,14 +96,12 @@ func GenConsensusState(timestamp time.Time, apphash, valsethash []byte) tendermi
 	}
 }
 
+// TODO remove?
 func GenMsgHeader(chainID string, timestamp time.Time, apphash []byte,
 	height uint64, trustedHeight types.Height,
 	valset, trustedValset *tendermint.ValidatorSet) *tendermint.MsgHeader {
 	var (
-		blockhash     = GenHash("blockhash")
-		parsethash    = GenHash("parsethash")
-		consensushash = GenHash("consensushash")
-		signatures    = []tendermint.CommitSig{
+		signatures = []tendermint.CommitSig{
 			{
 				BlockIDFlag:      tendermint.BlockIDFlagCommit,
 				ValidatorAddress: valset.Validators[0].Address,
@@ -68,35 +116,24 @@ func GenMsgHeader(chainID string, timestamp time.Time, apphash []byte,
 			},
 		}
 	)
-	return tendermint.NewMsgHeader(chainID, timestamp,
-		apphash, blockhash, parsethash, consensushash,
-		height, trustedHeight, valset, trustedValset, signatures,
-	)
+	return NewMsgHeader(chainID, timestamp, apphash, height, trustedHeight,
+		valset, trustedValset, signatures)
 }
 
-func GenAddr(prefix string) []byte {
-	return GenBytes(prefix, tendermint.AddressSize)
+func GenAddr(seed string) []byte {
+	return Hash(seed)[:tendermint.AddressSize]
 }
 
-func GenSignature(prefix string) []byte {
-	return GenBytes(prefix, tendermint.MaxSignatureSize)
+func GenSignature(seed string) []byte {
+	return Hash(seed)[:tendermint.MaxSignatureSize]
 }
 
-func GenPubkey(prefix string) []byte {
-	return GenBytes(prefix, 32)
+func GenPubkey(seed string) []byte {
+	return Hash(seed)[:32]
 }
 
-func GenBytes(prefix string, size int) []byte {
-	bz := []byte(prefix)
-	// suffix with zeros to make it size bytes long
-	for len(bz) < size {
-		bz = append(bz, 0)
-	}
-	return bz
-}
-
-func GenHash(prefix string) []byte {
-	bz := sha256.Sum256(GenBytes(prefix, 64))
+func Hash(s string) []byte {
+	bz := sha256.Sum256([]byte(s))
 	return bz[:]
 }
 

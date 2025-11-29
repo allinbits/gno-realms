@@ -252,9 +252,9 @@ func TestMsgHeaderValidateBasic(t *testing.T) {
 		{
 			name: "commit.blockid.hash != header.hash()",
 			malleate: func() {
-				msg.Commit.BlockID.Hash = hash([]byte{})
+				msg.Commit.BlockID.Hash = hash("")
 			},
-			expectedError: `expected BlockID#Hash and Header#Hash to be the same, got "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855" != "0910ea1fdc0ee3e62c1628569f7b00013e455d782657a72c3509f517b935a8a2"`,
+			expectedError: `expected BlockID#Hash and Header#Hash to be the same, got "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855" != "36cdbcf511859f792189a4bb915d9231f504f86989a0596c188bf9ced2d03551"`,
 		},
 	}
 
@@ -290,10 +290,7 @@ func TestMsgHeaderValidateBasic(t *testing.T) {
 				}
 				trustedValset = tendermint.NewValset(trustedval1, trustedval2)
 				trustedHeight = types.NewHeight(0, 1)
-				apphash       = genHash("apphash")
-				blockhash     = genHash("blockhash")
-				parsethash    = genHash("parsethash")
-				consensushash = genHash("consensushash")
+				apphash       = hash("apphash")
 				signatures    = []tendermint.CommitSig{
 					{
 						BlockIDFlag:      tendermint.BlockIDFlagCommit,
@@ -309,11 +306,10 @@ func TestMsgHeaderValidateBasic(t *testing.T) {
 					},
 				}
 			)
-			msg = tendermint.NewMsgHeader(
-				chainID, newTimestamp, apphash, blockhash, parsethash, consensushash,
-				newHeight, trustedHeight, valset, trustedValset, signatures,
+			msg = newMsgHeader(
+				chainID, newTimestamp, apphash, newHeight, trustedHeight, valset,
+				trustedValset, signatures,
 			)
-			msg.Commit.BlockID.Hash = msg.Header.Hash() // set expected hash
 			tc.malleate()
 
 			err := msg.ValidateBasic()
@@ -351,15 +347,15 @@ func TestHeaderHash(t *testing.T) {
 						Hash:  make([]byte, sha256.Size),
 					},
 				},
-				LastCommitHash:     hash([]byte("last_commit_hash")),
-				DataHash:           hash([]byte("data_hash")),
-				ValidatorsHash:     hash([]byte("validators_hash")),
-				NextValidatorsHash: hash([]byte("next_validators_hash")),
-				ConsensusHash:      hash([]byte("consensus_hash")),
-				AppHash:            hash([]byte("app_hash")),
-				LastResultsHash:    hash([]byte("last_results_hash")),
-				EvidenceHash:       hash([]byte("evidence_hash")),
-				ProposerAddress:    hash([]byte("proposer_address"))[:20],
+				LastCommitHash:     hash("last_commit_hash"),
+				DataHash:           hash("data_hash"),
+				ValidatorsHash:     hash("validators_hash"),
+				NextValidatorsHash: hash("next_validators_hash"),
+				ConsensusHash:      hash("consensus_hash"),
+				AppHash:            hash("app_hash"),
+				LastResultsHash:    hash("last_results_hash"),
+				EvidenceHash:       hash("evidence_hash"),
+				ProposerAddress:    genAddr("proposer_address"),
 			},
 			expectedHash: "f740121f553b5418c3efbd343c2dbfe9e007bb67b0d020a0741374bab65242a4",
 		},
@@ -382,15 +378,15 @@ func TestHeaderHash(t *testing.T) {
 						Hash:  make([]byte, sha256.Size),
 					},
 				},
-				LastCommitHash:     hash([]byte("last_commit_hash")),
-				DataHash:           hash([]byte("data_hash")),
+				LastCommitHash:     hash("last_commit_hash"),
+				DataHash:           hash("data_hash"),
 				ValidatorsHash:     nil,
-				NextValidatorsHash: hash([]byte("next_validators_hash")),
-				ConsensusHash:      hash([]byte("consensus_hash")),
-				AppHash:            hash([]byte("app_hash")),
-				LastResultsHash:    hash([]byte("last_results_hash")),
-				EvidenceHash:       hash([]byte("evidence_hash")),
-				ProposerAddress:    hash([]byte("proposer_address"))[:20],
+				NextValidatorsHash: hash("next_validators_hash"),
+				ConsensusHash:      hash("consensus_hash"),
+				AppHash:            hash("app_hash"),
+				LastResultsHash:    hash("last_results_hash"),
+				EvidenceHash:       hash("evidence_hash"),
+				ProposerAddress:    genAddr("proposer_address"),
 			},
 			expectedHash: "",
 		},
@@ -560,11 +556,50 @@ func TestCommitBytesToSign(t *testing.T) {
 					Signature:        b64Dec("Q5E6Kjma00n/T98rC9qJmoB6JTGFX/IB+mDVs4Wd1h0eJ8fabY/6oI8zdoU6/7W6VR6wjpHyWBsJrpGT6C0LCg=="),
 				},
 			}
+			header = &tendermint.Header{
+				Version: tendermint.Consensus{
+					Block: tendermint.BlockProtocol,
+					App:   0,
+				},
+				ChainID: chainID,
+				Height:  height,
+				Time:    timestamp,
+				LastBlockID: tendermint.BlockID{
+					Hash: blockhash,
+					PartSetHeader: tendermint.PartSetHeader{
+						Total: 1,
+						Hash:  parsethash,
+					},
+				},
+				LastCommitHash:     hash("last_commit_hash"),
+				DataHash:           hash("data_hash"),
+				ValidatorsHash:     valset.Hash(),
+				NextValidatorsHash: trustedValset.Hash(),
+				ConsensusHash:      consensushash,
+				AppHash:            apphash,
+				LastResultsHash:    hash("last_result_hash"),
+				EvidenceHash:       hash("evidence_hash"),
+				ProposerAddress:    valset.Proposer.Address,
+			}
 
-			msg = tendermint.NewMsgHeader(
-				chainID, timestamp, apphash, blockhash, parsethash, consensushash,
-				height, types.Height{}, valset, trustedValset, signatures,
-			)
+			msg = &tendermint.MsgHeader{
+				Header: header,
+				Commit: &tendermint.Commit{
+					Height: height,
+					Round:  0,
+					BlockID: tendermint.BlockID{
+						Hash: blockhash,
+						PartSetHeader: tendermint.PartSetHeader{
+							Total: 1,
+							Hash:  parsethash,
+						},
+					},
+					Signatures: signatures,
+				},
+				ValidatorSet:      valset,
+				TrustedHeight:     types.Height{},
+				TrustedValidators: trustedValset,
+			}
 
 			// expectedBytesToSign are computed from cometbft/types.Commit.VoteSignBytes() function
 			expectedBytesToSign = []string{
@@ -762,11 +797,50 @@ func TestCommitBytesToSign(t *testing.T) {
 					Signature:        b64Dec("thHpLNT6555JHoNr10iBpp8NJemRMPKMwnV4QDL6gLpaYChqrQND+8K4hQrC8Ld2IAuIT92ZHFWOmoVH9bIcBw=="),
 				},
 			}
+			header = &tendermint.Header{
+				Version: tendermint.Consensus{
+					Block: tendermint.BlockProtocol,
+					App:   0,
+				},
+				ChainID: chainID,
+				Height:  height,
+				Time:    timestamp,
+				LastBlockID: tendermint.BlockID{
+					Hash: blockhash,
+					PartSetHeader: tendermint.PartSetHeader{
+						Total: 1,
+						Hash:  parsethash,
+					},
+				},
+				LastCommitHash:     hash("last_commit_hash"),
+				DataHash:           hash("data_hash"),
+				ValidatorsHash:     valset.Hash(),
+				NextValidatorsHash: trustedValset.Hash(),
+				ConsensusHash:      consensushash,
+				AppHash:            apphash,
+				LastResultsHash:    hash("last_result_hash"),
+				EvidenceHash:       hash("evidence_hash"),
+				ProposerAddress:    valset.Proposer.Address,
+			}
 
-			msg = tendermint.NewMsgHeader(
-				chainID, timestamp, apphash, blockhash, parsethash, consensushash,
-				height, types.Height{}, valset, trustedValset, signatures,
-			)
+			msg = &tendermint.MsgHeader{
+				Header: header,
+				Commit: &tendermint.Commit{
+					Height: height,
+					Round:  0,
+					BlockID: tendermint.BlockID{
+						Hash: blockhash,
+						PartSetHeader: tendermint.PartSetHeader{
+							Total: 1,
+							Hash:  parsethash,
+						},
+					},
+					Signatures: signatures,
+				},
+				ValidatorSet:      valset,
+				TrustedHeight:     types.Height{},
+				TrustedValidators: trustedValset,
+			}
 
 			// expectedBytesToSign are computed from cometbft/types.Commit.VoteSignBytes() function
 			expectedBytesToSign = []string{
@@ -816,32 +890,69 @@ func toTime(s string) time.Time {
 	return t
 }
 
-func genAddr(prefix string) []byte {
-	return genBytes(prefix, tendermint.AddressSize)
+func genAddr(seed string) []byte {
+	return hash(seed)[:tendermint.AddressSize]
 }
 
-func genSignature(prefix string) []byte {
-	return genBytes(prefix, tendermint.MaxSignatureSize)
+func genSignature(seed string) []byte {
+	return hash(seed)[:tendermint.MaxSignatureSize]
 }
 
-func genPubkey(prefix string) []byte {
-	return genBytes(prefix, 32)
+func genPubkey(seed string) []byte {
+	return hash(seed)[:32]
 }
 
-func genBytes(prefix string, size int) []byte {
-	bz := []byte(prefix)
-	// suffix with zeros to make it size bytes long
-	for len(bz) < size {
-		bz = append(bz, 0)
-	}
-	return bz
-}
-
-func genHash(prefix string) []byte {
-	return hash(genBytes(prefix, 64))
-}
-
-func hash(bz []byte) []byte {
-	h := sha256.Sum256(bz)
+func hash(s string) []byte {
+	h := sha256.Sum256([]byte(s))
 	return h[:]
+}
+
+func newMsgHeader(chainID string, timestamp time.Time,
+	apphash []byte, height uint64, trustedHeight types.Height,
+	valset, trustedValset *tendermint.ValidatorSet,
+	signatures []tendermint.CommitSig) *tendermint.MsgHeader {
+	header := &tendermint.Header{
+		Version: tendermint.Consensus{
+			Block: tendermint.BlockProtocol,
+			App:   0,
+		},
+		ChainID: chainID,
+		Height:  height,
+		Time:    timestamp,
+		LastBlockID: tendermint.BlockID{
+			Hash: hash("last_block_hash"),
+			PartSetHeader: tendermint.PartSetHeader{
+				Total: 1,
+				Hash:  hash("last_block_parset_hash"),
+			},
+		},
+		LastCommitHash:     hash("last_commit_hash"),
+		DataHash:           hash("data_hash"),
+		ValidatorsHash:     valset.Hash(),
+		NextValidatorsHash: trustedValset.Hash(),
+		ConsensusHash:      hash("consensus_hash"),
+		AppHash:            apphash,
+		LastResultsHash:    hash("last_result_hash"),
+		EvidenceHash:       hash("evidence_hash"),
+		ProposerAddress:    valset.Proposer.Address,
+	}
+
+	return &tendermint.MsgHeader{
+		Header: header,
+		Commit: &tendermint.Commit{
+			Height: height,
+			Round:  0,
+			BlockID: tendermint.BlockID{
+				Hash: header.Hash(), // compute expected block hash
+				PartSetHeader: tendermint.PartSetHeader{
+					Total: 1,
+					Hash:  hash("block_parset_hash"),
+				},
+			},
+			Signatures: signatures,
+		},
+		ValidatorSet:      valset,
+		TrustedHeight:     trustedHeight,
+		TrustedValidators: trustedValset,
+	}
 }

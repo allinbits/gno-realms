@@ -34,55 +34,6 @@ type MsgHeader struct {
 	TrustedValidators *ValidatorSet
 }
 
-func NewMsgHeader(chainID string, timestamp time.Time,
-	apphash, blockhash, parsethash, consensushash []byte,
-	height uint64, trustedHeight types.Height,
-	valset, trustedValset *ValidatorSet,
-	signatures []CommitSig) *MsgHeader {
-	return &MsgHeader{
-		Header: &Header{
-			Version: Consensus{
-				Block: BlockProtocol,
-				App:   0,
-			},
-			ChainID: chainID,
-			Height:  height,
-			Time:    timestamp,
-			LastBlockID: BlockID{
-				Hash: blockhash, //FIXME should be different than blockhash
-				PartSetHeader: PartSetHeader{
-					Total: 1,
-					Hash:  parsethash,
-				},
-			},
-			LastCommitHash:     apphash, //FIXME
-			DataHash:           apphash, //FIXME
-			ValidatorsHash:     valset.Hash(),
-			NextValidatorsHash: trustedValset.Hash(),
-			ConsensusHash:      consensushash,
-			AppHash:            apphash,
-			LastResultsHash:    nil, //FIXME?
-			EvidenceHash:       nil, //FIXME?
-			ProposerAddress:    valset.Proposer.Address,
-		},
-		Commit: &Commit{
-			Height: height,
-			Round:  0,
-			BlockID: BlockID{
-				Hash: blockhash,
-				PartSetHeader: PartSetHeader{
-					Total: 1,
-					Hash:  parsethash,
-				},
-			},
-			Signatures: signatures,
-		},
-		ValidatorSet:      valset,
-		TrustedHeight:     trustedHeight,
-		TrustedValidators: trustedValset,
-	}
-}
-
 // Implements lightclient.ClientMessage
 func (*MsgHeader) ClientType() string {
 	return lightclient.Tendermint
