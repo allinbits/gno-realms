@@ -2,6 +2,7 @@ package tendermint
 
 import (
 	"bytes"
+	"encoding/base64"
 	"encoding/binary"
 	"encoding/hex"
 	"errors"
@@ -279,6 +280,10 @@ type Commit struct {
 // [1]: https://buf.build/tendermint/tendermint/docs/main:tendermint.types#tendermint.types.CanonicalVote
 func (c *Commit) BytesToSign(chainID string, valIdx int) []byte {
 	var buf []byte
+	println("XX", c.Height, c.Round, c.BlockID.PartSetHeader.Total,
+		base64.StdEncoding.EncodeToString(c.BlockID.Hash),
+		base64.StdEncoding.EncodeToString(c.BlockID.PartSetHeader.Hash),
+	)
 
 	// Field 1: type (SignedMsgType - varint)
 	buf = proto.AppendVarint(buf, 1, 2) // type precommit

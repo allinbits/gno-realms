@@ -78,11 +78,11 @@ func main() {
 	// ./cmd/gen-block-signatures -privkeys=8a6cAbQSpDbebmcTEhCMPhhr/SkL/2pizo60yzHRkN9Uyk7RHOZm7g4xW+yeJh147/Z4/6HXF6gBwcFNkLsZ/A==,nWg6ETc62tyxd94lh8fFaQnZKaAW6vlS0L/4lfseJuI14ZXUKp7AZROkflLFVF+SBg4wJVfzgzIKyWq3D066+g==
 	apphash, _ = hex.DecodeString("82ea91f259352674360c621c4b0a1975cc076e3792b6d22a8bfbe8e7f7d0d2d7")
 	var (
-		newHeight     = trustedHeight.RevisionHeight + 10
-		newTimestamp  = consensusState.Timestamp.Add(12 * time.Minute)
-		blockhash     = tmtesting.B64Dec("NpiImIJoaSaIucwNs5cqpgMsL/8wxEPYC3P0jA5aQSI=")
-		parsethash    = tmtesting.B64Dec("QqzwnLzvixIcUz+hPeUQjDV6NaLkFRKXACCxJIrBHzw=")
-		consensushash = tmtesting.B64Dec("JIS7qLmeUx4aP2QiNi59PuuZqDJRGZaKNV8FwJ7t1As=")
+		newHeight    = trustedHeight.RevisionHeight + 10
+		newTimestamp = consensusState.Timestamp.Add(12 * time.Minute)
+		// blockhash     = tmtesting.B64Dec("NpiImIJoaSaIucwNs5cqpgMsL/8wxEPYC3P0jA5aQSI=")
+		// parsethash    = tmtesting.B64Dec("QqzwnLzvixIcUz+hPeUQjDV6NaLkFRKXACCxJIrBHzw=")
+		// consensushash = tmtesting.B64Dec("JIS7qLmeUx4aP2QiNi59PuuZqDJRGZaKNV8FwJ7t1As=")
 		trustedValset = tendermint.NewValset(val1, val2)
 		signatures    = []tendermint.CommitSig{
 			{
@@ -98,9 +98,9 @@ func main() {
 				Signature:        tmtesting.B64Dec("zkQ5PauBXFhnCV4QaJmW/IY3XWFzURXJYAnv4iAez652Gg/h09iLuabD2S7baFkALpgK1Kt2MoSQY2CRkMumDg=="),
 			},
 		}
-		msgHeader = tendermint.NewMsgHeader(
-			chainID, newTimestamp, apphash, blockhash, parsethash, consensushash,
-			newHeight, trustedHeight, valset, trustedValset, signatures,
+		msgHeader = tmtesting.NewMsgHeader(
+			chainID, newTimestamp, apphash, newHeight, trustedHeight, valset,
+			trustedValset, signatures,
 		)
 	)
 	core.UpdateClient(cross, clientID, msgHeader)

@@ -4,7 +4,7 @@ import (
 	"time"
 
 	"gno.land/p/aib/ibc/lightclient/tendermint"
-	"gno.land/p/aib/ibc/lightclient/tendermint/testing"
+	tmtesting "gno.land/p/aib/ibc/lightclient/tendermint/testing"
 	"gno.land/p/aib/ibc/types"
 	"gno.land/r/aib/ibc/core"
 )
@@ -15,8 +15,8 @@ func main() {
 	var (
 		chainID     = "atomone-1"
 		height      = uint64(2)
-		clientState = testing.NewClientState(chainID, types.NewHeight(1, height))
-		apphash     = testing.GenHash("apphash-2")
+		clientState = tmtesting.NewClientState(chainID, types.NewHeight(1, height))
+		apphash     = tmtesting.Hash("apphash-2")
 		// priv=8a6cAbQSpDbebmcTEhCMPhhr/SkL/2pizo60yzHRkN9Uyk7RHOZm7g4xW+yeJh147/Z4/6HXF6gBwcFNkLsZ/A==
 		val1 = tendermint.NewValidator("9DIBYr64rywKO3Kk6+743xDHcEU=",
 			"VMpO0RzmZu4OMVvsniYdeO/2eP+h1xeoAcHBTZC7Gfw=", 2)
@@ -24,40 +24,39 @@ func main() {
 		val2 = tendermint.NewValidator("y+naL3ubs9q1bXrY9+uRxY9c+J8=",
 			"NeGV1CqewGUTpH5SxVRfkgYOMCVX84MyCslqtw9Ouvo=", 3)
 		valset         = tendermint.NewValset(val1, val2)
-		consensusState = testing.GenConsensusState(time.Now(), apphash, valset.Hash())
+		consensusState = tmtesting.GenConsensusState(time.Now(), apphash, valset.Hash())
 	)
 	clientID := core.CreateClient(cross, clientState, consensusState)
 	core.RegisterCounterparty(cross, clientID, [][]byte{[]byte("iavlStoreKey"), []byte("prefix2")}, "07-tendermint-2")
 
 	// Update clientID with height=5
-	apphash = testing.GenHash("apphash-5")
+	apphash = tmtesting.Hash("apphash-5")
 	var (
-		newHeight     = uint64(5)
-		newTimestamp  = consensusState.Timestamp.Add(time.Minute)
-		blockhash     = testing.B64Dec("NpiImIJoaSaIucwNs5cqpgMsL/8wxEPYC3P0jA5aQSI=")
-		parsethash    = testing.B64Dec("QqzwnLzvixIcUz+hPeUQjDV6NaLkFRKXACCxJIrBHzw=")
-		consensushash = testing.B64Dec("JIS7qLmeUx4aP2QiNi59PuuZqDJRGZaKNV8FwJ7t1As=")
+		newHeight    = uint64(5)
+		newTimestamp = consensusState.Timestamp.Add(time.Minute)
+		// blockhash     = tmtesting.B64Dec("NpiImIJoaSaIucwNs5cqpgMsL/8wxEPYC3P0jA5aQSI=")
+		// parsethash    = tmtesting.B64Dec("QqzwnLzvixIcUz+hPeUQjDV6NaLkFRKXACCxJIrBHzw=")
+		// consensushash = tmtesting.B64Dec("JIS7qLmeUx4aP2QiNi59PuuZqDJRGZaKNV8FwJ7t1As=")
 		trustedValset = tendermint.NewValset(val1, val2)
 		trustedHeight = clientState.LatestHeight
 		signatures    = []tendermint.CommitSig{
 			{
 				BlockIDFlag:      tendermint.BlockIDFlagCommit,
 				ValidatorAddress: valset.Validators[0].Address,
-				Timestamp:        testing.ToTime("2025-09-25T07:55:57.306746166Z"),
-				Signature:        testing.B64Dec("dXO4Y8p5cKwubGLT0vkSVu4UpJRfrocMVeD02r9FP6w+WzOT2WIars/BJH1xvIM0x9MutOF6utFbqwi9YFQ+CA=="),
+				Timestamp:        tmtesting.ToTime("2025-09-25T07:55:57.306746166Z"),
+				Signature:        tmtesting.B64Dec("dXO4Y8p5cKwubGLT0vkSVu4UpJRfrocMVeD02r9FP6w+WzOT2WIars/BJH1xvIM0x9MutOF6utFbqwi9YFQ+CA=="),
 			},
 			{
 				BlockIDFlag:      tendermint.BlockIDFlagCommit,
 				ValidatorAddress: valset.Validators[1].Address,
-				Timestamp:        testing.ToTime("2025-09-25T07:55:57.306746166Z"),
-				Signature:        testing.B64Dec("TwSjd4gWQExpna4o7WmfgjuhVr3gWD14dcxEez7kxt9Fd3eUChDOj/lGFNkllLJvX3lcSuHtsRK2KPsIfRaKBQ=="),
+				Timestamp:        tmtesting.ToTime("2025-09-25T07:55:57.306746166Z"),
+				Signature:        tmtesting.B64Dec("TwSjd4gWQExpna4o7WmfgjuhVr3gWD14dcxEez7kxt9Fd3eUChDOj/lGFNkllLJvX3lcSuHtsRK2KPsIfRaKBQ=="),
 			},
 		}
 
-		msgHeader = tendermint.NewMsgHeader(
-			chainID, newTimestamp, apphash, blockhash, parsethash, consensushash,
-			newHeight, trustedHeight, valset, trustedValset, signatures,
-		)
+		msgHeader = tmtesting.NewMsgHeader(
+			chainID, newTimestamp, apphash, newHeight, trustedHeight, valset,
+			trustedValset, signatures)
 	)
 
 	core.UpdateClient(cross, clientID, msgHeader)
@@ -70,13 +69,13 @@ func main() {
 	// Second Update with height older than clientState.LatestHeight
 	newHeight = 3
 	newTimestamp = newTimestamp.Add(time.Minute)
-	apphash = testing.GenHash("apphash-3")
+	apphash = tmtesting.Hash("apphash-3")
 	// update signatures since height have change
-	signatures[0].Signature = testing.B64Dec("iY9QJIgtUz6AKym75cfycieAOLiO8Y7z12ndOYoEkCAXTba+1r4pt7lTuk+RyhOex9q8wye7kMN1DAF25wL1DQ==")
-	signatures[1].Signature = testing.B64Dec("Dl1baBptDCLku0Ra4IpkA7u0dV1EW5Jh9Ev/iSLcGbIWfn/rABZ3JLGy5sMNu3Xt1aR0StSvzZ/1HQS8IUWbDg==")
-	msgHeader = tendermint.NewMsgHeader(
-		chainID, newTimestamp, apphash, blockhash, parsethash, consensushash,
-		newHeight, trustedHeight, valset, trustedValset, signatures,
+	signatures[0].Signature = tmtesting.B64Dec("iY9QJIgtUz6AKym75cfycieAOLiO8Y7z12ndOYoEkCAXTba+1r4pt7lTuk+RyhOex9q8wye7kMN1DAF25wL1DQ==")
+	signatures[1].Signature = tmtesting.B64Dec("Dl1baBptDCLku0Ra4IpkA7u0dV1EW5Jh9Ev/iSLcGbIWfn/rABZ3JLGy5sMNu3Xt1aR0StSvzZ/1HQS8IUWbDg==")
+	msgHeader = tmtesting.NewMsgHeader(
+		chainID, newTimestamp, apphash, newHeight, trustedHeight, valset,
+		trustedValset, signatures,
 	)
 
 	core.UpdateClient(cross, clientID, msgHeader)

@@ -38,8 +38,8 @@ func main() {
 			chainID          = "atomone-1"
 			round      int64 = 0
 			timestamp        = toTime("2025-09-25T07:55:57.306746166Z")
-			blockhash        = b64Dec("NpiImIJoaSaIucwNs5cqpgMsL/8wxEPYC3P0jA5aQSI=")
-			parsethash       = b64Dec("QqzwnLzvixIcUz+hPeUQjDV6NaLkFRKXACCxJIrBHzw=")
+			blockhash        = b64Dec("k9TcNAOVmzwiKh8cV6rgnBq4sWwDTaV6fPE6bSk8Qeg=")
+			parsethash       = b64Dec("EFyo+pytQSBioZCew+q09sXCreheJhaouHEQ7CWYulA=")
 			vote             = cmtproto.CanonicalVote{
 				Type:   types.PrecommitType,
 				Height: *height,
