@@ -28,13 +28,13 @@ func main() {
 		newTimestamp  = consensusState.Timestamp.Add(time.Minute)
 		trustedValset = valset
 		trustedHeight = clientState.LatestHeight
-		msgHeader     = testing.GenMsgHeader(
-			chainID, newTimestamp, apphash[:],
-			newHeight, trustedHeight, valset, trustedValset,
-		)
 	)
 	// Alter chainID (same revision number)
-	msgHeader.Header.ChainID = "other-chain-id-2"
+	chainID = "other-chain-id-2"
+	msgHeader := testing.GenMsgHeader(
+		chainID, newTimestamp, apphash[:],
+		newHeight, trustedHeight, valset, trustedValset,
+	)
 
 	core.UpdateClient(cross, clientID, msgHeader)
 }
