@@ -34,9 +34,9 @@ func main() {
 	// go run -C ./cmd/gen-block-signatures . -apphash-seed=apphash-3 -chainid=atomone-1 -header-time-shift=1 -height=5 -privkeys=8a6cAbQSpDbebmcTEhCMPhhr/SkL/2pizo60yzHRkN9Uyk7RHOZm7g4xW+yeJh147/Z4/6HXF6gBwcFNkLsZ/A==,nWg6ETc62tyxd94lh8fFaQnZKaAW6vlS0L/4lfseJuI14ZXUKp7AZROkflLFVF+SBg4wJVfzgzIKyWq3D066+g==
 	{
 		var (
+			newHeight       = height + 3 // non-adjacent heigth 5
 			apphash         = tmtesting.Hash("apphash-3")
 			commitTimestamp = tmtesting.ToTime("2025-09-25T07:55:57.306746166Z")
-			newHeight       = height + 3 // non-adjacent heigth 5
 			newTimestamp    = consensusState.Timestamp.Add(time.Minute * time.Duration(1))
 			trustedValset   = tendermint.NewValset(val1, val2)
 			trustedHeight   = clientState.LatestHeight

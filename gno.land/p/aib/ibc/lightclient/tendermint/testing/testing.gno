@@ -97,7 +97,7 @@ func GenConsensusState(timestamp time.Time, apphash, valsethash []byte) tendermi
 	}
 }
 
-// TODO remove?
+// TODO rename to GenSignature and update
 func GenMsgHeader(chainID string, timestamp time.Time, apphash []byte,
 	height uint64, trustedHeight types.Height,
 	valset, trustedValset *tendermint.ValidatorSet) *tendermint.MsgHeader {
