@@ -104,13 +104,13 @@ func genSignaturesCode(privs []ed25519.PrivKey, chainID, apphashSeed string, hei
 		apphash = tmtesting.Hash("{{.ApphashSeed}}")
 		{{range $i, $v := .Vals -}}
 		// priv={{b64 (index $.Privs $i)}}
-		val{{$i}} = tendermint.NewValidator("{{b64 $v.PubKey.Address}}", "{{b64 $v.PubKey}}", 1)
+		val{{inc $i}} = tendermint.NewValidator("{{b64 $v.PubKey.Address}}", "{{b64 $v.PubKey}}", 1)
 		{{end -}}
-		valset = tendermint.NewValset({{range $i, $v := .Vals}}val{{$i}},{{end}})
+		valset = tendermint.NewValset({{range $i, $v := .Vals}}val{{inc $i}},{{end}})
 		commitTimestamp = tmtesting.ToTime("2025-09-25T07:55:57.306746166Z")
 		newHeight       = uint64({{.Height}})
 		newTimestamp    = consensusState.Timestamp.Add(time.Minute * time.Duration({{.HeaderTimeShift}}))
-		trustedValset   = tendermint.NewValset({{range $i, $v := .Vals}}val{{$i}},{{end}})
+		trustedValset   = tendermint.NewValset({{range $i, $v := .Vals}}val{{inc $i}},{{end}})
 		trustedHeight   = clientState.LatestHeight
 	
 		signatures = []tendermint.CommitSig{
@@ -133,6 +133,7 @@ func genSignaturesCode(privs []ed25519.PrivKey, chainID, apphashSeed string, hei
 }
 `
 	t, err := template.New("").Funcs(template.FuncMap{
+		"inc": func(i int) int { return i + 1 },
 		"b64": func(bz []byte) string {
 			return base64.StdEncoding.EncodeToString(bz)
 		},
