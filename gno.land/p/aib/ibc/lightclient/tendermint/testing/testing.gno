@@ -26,7 +26,7 @@ func NewMsgHeader(chainID string, timestamp time.Time,
 			Hash: Hash("last_block_hash"),
 			PartSetHeader: tendermint.PartSetHeader{
 				Total: 1,
-				Hash:  Hash("last_block_parset_hash"),
+				Hash:  Hash("last_block_partset_hash"),
 			},
 		},
 		LastCommitHash:     Hash("last_commit_hash"),
@@ -35,9 +35,9 @@ func NewMsgHeader(chainID string, timestamp time.Time,
 		NextValidatorsHash: trustedValset.Hash(),
 		ConsensusHash:      Hash("consensus_hash"),
 		AppHash:            apphash,
-		LastResultsHash:    Hash("last_result_hash"),
+		LastResultsHash:    Hash("last_results_hash"),
 		EvidenceHash:       Hash("evidence_hash"),
-		ProposerAddress:    valset.Proposer.Address,
+		ProposerAddress:    valset.Validators[0].Address,
 	}
 
 	return &tendermint.MsgHeader{
@@ -49,7 +49,7 @@ func NewMsgHeader(chainID string, timestamp time.Time,
 				Hash: header.Hash(), // compute expected block hash
 				PartSetHeader: tendermint.PartSetHeader{
 					Total: 1,
-					Hash:  Hash("block_parset_hash"),
+					Hash:  Hash("block_partset_hash"),
 				},
 			},
 			Signatures: signatures,

@@ -60,6 +60,7 @@ func (h *MsgHeader) ValidateBasic() error {
 	if h.Header.Height != h.Commit.Height {
 		return ufmt.Errorf("header and commit height mismatch: %d vs %d", h.Header.Height, h.Commit.Height)
 	}
+	println("HEADER HASH", hex.EncodeToString(h.Header.Hash()))
 	if hhash, chash := h.Header.Hash(), h.Commit.BlockID.Hash; !bytes.Equal(hhash, chash) {
 		cs, hs := hex.EncodeToString(chash), hex.EncodeToString(hhash)
 		return ufmt.Errorf("expected BlockID#Hash and Header#Hash to be the same, got %q != %q", cs, hs)

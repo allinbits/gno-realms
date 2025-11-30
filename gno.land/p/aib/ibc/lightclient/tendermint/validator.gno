@@ -2,9 +2,10 @@ package tendermint
 
 import (
 	"bytes"
-	"crypto/sha256"
 	"encoding/base64"
 	"encoding/binary"
+
+	"gno.land/p/aib/merkle"
 )
 
 type ValidatorSet struct {
@@ -26,15 +27,11 @@ func NewValset(vals ...*Validator) *ValidatorSet {
 }
 
 func (vals ValidatorSet) Hash() []byte {
-	var bz []byte
-	for _, v := range vals.Validators {
-		bz = append(bz, v.Bytes()...)
+	bzs := make([][]byte, len(vals.Validators))
+	for i, val := range vals.Validators {
+		bzs[i] = val.Bytes()
 	}
-	// TODO: ibc-go returns a merkle hash, ensure we can just use a simple hash
-	// -> see p/demo/merkle
-	// return merkle.HashFromByteSlices(bzs)
-	h := sha256.Sum256(bz)
-	return h[:]
+	return merkle.HashFromByteSlices(bzs)
 }
 
 // GetByAddress returns an index of the validator with address and validator

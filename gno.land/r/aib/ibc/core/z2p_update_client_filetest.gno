@@ -19,10 +19,10 @@ func main() {
 		apphash     = tmtesting.Hash("apphash-2")
 		// priv=8a6cAbQSpDbebmcTEhCMPhhr/SkL/2pizo60yzHRkN9Uyk7RHOZm7g4xW+yeJh147/Z4/6HXF6gBwcFNkLsZ/A==
 		val1 = tendermint.NewValidator("9DIBYr64rywKO3Kk6+743xDHcEU=",
-			"VMpO0RzmZu4OMVvsniYdeO/2eP+h1xeoAcHBTZC7Gfw=", 2)
+			"VMpO0RzmZu4OMVvsniYdeO/2eP+h1xeoAcHBTZC7Gfw=", 1)
 		// priv=nWg6ETc62tyxd94lh8fFaQnZKaAW6vlS0L/4lfseJuI14ZXUKp7AZROkflLFVF+SBg4wJVfzgzIKyWq3D066+g==
 		val2 = tendermint.NewValidator("y+naL3ubs9q1bXrY9+uRxY9c+J8=",
-			"NeGV1CqewGUTpH5SxVRfkgYOMCVX84MyCslqtw9Ouvo=", 3)
+			"NeGV1CqewGUTpH5SxVRfkgYOMCVX84MyCslqtw9Ouvo=", 1)
 		valset         = tendermint.NewValset(val1, val2)
 		consensusState = tmtesting.GenConsensusState(time.Now(), apphash, valset.Hash())
 	)
@@ -43,13 +43,13 @@ func main() {
 				BlockIDFlag:      tendermint.BlockIDFlagCommit,
 				ValidatorAddress: valset.Validators[0].Address,
 				Timestamp:        commitTimestamp,
-				Signature:        tmtesting.B64Dec("KsKcm/IdY38+IpA2AZdlZrlx83AD1IWDLv6BO/ddSVSlOHhPxxEGnod5x6Dma9RDNErBkzExymD5ccXQiDBICQ=="),
+				Signature:        tmtesting.B64Dec("XNKL40tgPqp1PM4k/hV1VYTUo86+D5Tp9yezet0CLaALp4N/UMPePZVZs63t0N0jHTmajh/Dz9sdqZP1msArBQ=="),
 			},
 			{
 				BlockIDFlag:      tendermint.BlockIDFlagCommit,
 				ValidatorAddress: valset.Validators[1].Address,
 				Timestamp:        commitTimestamp,
-				Signature:        tmtesting.B64Dec("r8mJetO1w3Lc3VDeOFxwYForho0sKGjXNlnyJrcTj0m7Vb71edSh8vrWsv4uMuo3y+Sd3D5Jx8UJEDq0ELuHBw=="),
+				Signature:        tmtesting.B64Dec("NEEueH+/cO8USOMU1YPcQv9A9ltxYgn5b1RjPtvFmMCep94zrKdfu9ZjSeHpmIYDRmp+tl3lceUeXU3Yjb4vAQ=="),
 			},
 		}
 
@@ -58,6 +58,7 @@ func main() {
 			trustedValset, signatures,
 		)
 	)
+	println("TS", msgHeader.Header.Time)
 	core.UpdateClient(cross, clientID, msgHeader)
 
 	// Update with conflicting header
