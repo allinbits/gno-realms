@@ -2,7 +2,6 @@ package tendermint
 
 import (
 	"bytes"
-	"encoding/base64"
 	"encoding/binary"
 	"encoding/hex"
 	"errors"
@@ -60,7 +59,6 @@ func (h *MsgHeader) ValidateBasic() error {
 	if h.Header.Height != h.Commit.Height {
 		return ufmt.Errorf("header and commit height mismatch: %d vs %d", h.Header.Height, h.Commit.Height)
 	}
-	println("HEADER HASH", hex.EncodeToString(h.Header.Hash()))
 	if hhash, chash := h.Header.Hash(), h.Commit.BlockID.Hash; !bytes.Equal(hhash, chash) {
 		cs, hs := hex.EncodeToString(chash), hex.EncodeToString(hhash)
 		return ufmt.Errorf("expected BlockID#Hash and Header#Hash to be the same, got %q != %q", cs, hs)
@@ -236,7 +234,7 @@ func (h *Header) Hash() []byte {
 	if h == nil || len(h.ValidatorsHash) == 0 {
 		return nil
 	}
-	return merkle.HashFromByteSlices([][]byte{
+	bz := merkle.HashFromByteSlices([][]byte{
 		h.Version.ProtoMarshal(),
 		proto.AppendLengthDelimited(nil, 1, []byte(h.ChainID)),
 		proto.AppendVarint(nil, 1, h.Height),
@@ -252,6 +250,24 @@ func (h *Header) Hash() []byte {
 		proto.AppendLengthDelimited(nil, 1, h.EvidenceHash),
 		proto.AppendLengthDelimited(nil, 1, h.ProposerAddress),
 	})
+	// For debugging purposes:
+	// hex := hex.EncodeToString
+	// println("VERSION", hex(h.Version.ProtoMarshal()))
+	// println("CHAIN", hex(proto.AppendLengthDelimited(nil, 1, []byte(h.ChainID))))
+	// println("HEIGHT", hex(proto.AppendVarint(nil, 1, h.Height)))
+	// println("TIME", hex(proto.TimeMarshal(h.Time)))
+	// println("LAST", hex(h.LastBlockID.ProtoMarshal()))
+	// println("COMMITHASH", hex(proto.AppendLengthDelimited(nil, 1, h.LastCommitHash)))
+	// println("DATAHASH", hex(proto.AppendLengthDelimited(nil, 1, h.DataHash)))
+	// println("VALHASH", hex(proto.AppendLengthDelimited(nil, 1, h.ValidatorsHash)))
+	// println("NEXTVALHASH", hex(proto.AppendLengthDelimited(nil, 1, h.NextValidatorsHash)))
+	// println("CONSHASH", hex(proto.AppendLengthDelimited(nil, 1, h.ConsensusHash)))
+	// println("APPHASH", hex(proto.AppendLengthDelimited(nil, 1, h.AppHash)))
+	// println("RES", hex(proto.AppendLengthDelimited(nil, 1, h.LastResultsHash)))
+	// println("EV", hex(proto.AppendLengthDelimited(nil, 1, h.EvidenceHash)))
+	// println("PROP", hex(proto.AppendLengthDelimited(nil, 1, h.ProposerAddress)))
+	// println("MERKLE", hex(bz))
+	return bz
 }
 
 func (h Header) Expired(trustingPeriod time.Duration) error {
@@ -281,10 +297,6 @@ type Commit struct {
 // [1]: https://buf.build/tendermint/tendermint/docs/main:tendermint.types#tendermint.types.CanonicalVote
 func (c *Commit) BytesToSign(chainID string, valIdx int) []byte {
 	var buf []byte
-	println("XX", c.Height, c.Round, c.BlockID.PartSetHeader.Total,
-		base64.StdEncoding.EncodeToString(c.BlockID.Hash),
-		base64.StdEncoding.EncodeToString(c.BlockID.PartSetHeader.Hash),
-	)
 
 	// Field 1: type (SignedMsgType - varint)
 	buf = proto.AppendVarint(buf, 1, 2) // type precommit
