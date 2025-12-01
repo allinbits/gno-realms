@@ -46,19 +46,23 @@ func AppendLengthDelimited(buf []byte, fieldNum int, bz []byte) []byte {
 	return append(buf, bz...)
 }
 
-// AppendTime appends a google.protobuf.Timestamp field.
-func AppendTime(buf []byte, fieldNum int, t time.Time) []byte {
+// TimeMarshal returns a proto marshalled time.
+func TimeMarshal(t time.Time) []byte {
 	var (
-		_buf    []byte
+		buf     []byte
 		seconds = t.Unix()
 		nanos   = int32(t.Nanosecond())
 	)
 	// Field 1: seconds (int64 - varint)
-	_buf = AppendVarint(_buf, 1, uint64(seconds))
+	buf = AppendVarint(buf, 1, uint64(seconds))
 	// Field 2: nanos (int32 - varint)
-	_buf = AppendVarint(_buf, 2, uint64(nanos))
+	buf = AppendVarint(buf, 2, uint64(nanos))
+	return buf
+}
 
-	return AppendLengthDelimited(buf, fieldNum, _buf)
+// AppendTime appends a google.protobuf.Timestamp field.
+func AppendTime(buf []byte, fieldNum int, t time.Time) []byte {
+	return AppendLengthDelimited(buf, fieldNum, TimeMarshal(t))
 }
 
 // AppendTag appends a protobuf tag (field number and wire type)

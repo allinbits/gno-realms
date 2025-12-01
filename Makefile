@@ -13,7 +13,9 @@ gnodev:
 		-resolver root=$(shell go tool gno env GNOROOT)/examples
 
 test: 
-	go tool gno test -v ./gno.land/...
+	go tool gno test ./gno.land/...
+	go test -C ./cmd/gen-block-signatures
+	go test -C ./cmd/gen-proof
 
 update-fork:
 	go mod edit -replace  github.com/gnolang/gno=github.com/allinbits/gno@ibc-fork

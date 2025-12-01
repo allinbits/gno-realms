@@ -9,7 +9,7 @@ import (
 	"gno.land/r/aib/ibc/core"
 )
 
-// UpdateClient success with adjacent height
+// UpdateClient blockID.Hash and Header.Hash mismatch
 func main() {
 	// CreateClient and RegisterCounterparty
 	var (
@@ -19,10 +19,10 @@ func main() {
 		apphash     = tmtesting.Hash("apphash-2")
 		// priv=8a6cAbQSpDbebmcTEhCMPhhr/SkL/2pizo60yzHRkN9Uyk7RHOZm7g4xW+yeJh147/Z4/6HXF6gBwcFNkLsZ/A==
 		val1 = tendermint.NewValidator("9DIBYr64rywKO3Kk6+743xDHcEU=",
-			"VMpO0RzmZu4OMVvsniYdeO/2eP+h1xeoAcHBTZC7Gfw=", 1)
+			"VMpO0RzmZu4OMVvsniYdeO/2eP+h1xeoAcHBTZC7Gfw=", 2)
 		// priv=nWg6ETc62tyxd94lh8fFaQnZKaAW6vlS0L/4lfseJuI14ZXUKp7AZROkflLFVF+SBg4wJVfzgzIKyWq3D066+g==
 		val2 = tendermint.NewValidator("y+naL3ubs9q1bXrY9+uRxY9c+J8=",
-			"NeGV1CqewGUTpH5SxVRfkgYOMCVX84MyCslqtw9Ouvo=", 1)
+			"NeGV1CqewGUTpH5SxVRfkgYOMCVX84MyCslqtw9Ouvo=", 3)
 		valset         = tendermint.NewValset(val1, val2)
 		consensusState = tmtesting.GenConsensusState(time.Now(), apphash, valset.Hash())
 	)
@@ -61,57 +61,11 @@ func main() {
 				trustedValset, signatures,
 			)
 		)
+		msgHeader.Commit.BlockID.Hash = tmtesting.Hash("other hash")
+
 		core.UpdateClient(cross, clientID, msgHeader)
 	}
-
-	println("----------- assert render clients")
-	println(core.Render("clients"))
-	println("----------- assert render clients/07-tendermint-1/consensus_states")
-	println(core.Render("clients/" + clientID + "/consensus_states"))
 }
 
-// Output:
-// ----------- assert render clients
-// [{"id":"07-tendermint-1","type":"07-tendermint","creator":"g1wymu47drhr0kuq2098m792lytgtj2nyx77yrsm","status":"Active","counterparty_client_id":"07-tendermint-2","counterparty_merke_prefix":["iavlStoreKey","prefix2"],"client_state":{"chain_id":"atomone-1","latest_height":{"revision_number":1,"revision_height":3},"frozen_height":{"revision_number":0,"revision_height":0},"trust_level":{"numerator":1,"denominator":3},"trusting_period":3600,"unbonding_period":10800,"max_clock_drift":3600,"upgrade_path":[]},"last_consensus_state":{"height":{"revision_number":1,"revision_height":3},"timestamp":1234567950,"root":"m9afpc+PXaYRHdGC7FkrzuzRNn8ONC1xRCzYYAPRCU8=","next_validators_hash":"OJfJuH6dfiZI2d0uAxqamqfIVqV4c4oEAZigvJ8UqFQ="}}]
-// ----------- assert render clients/07-tendermint-1/consensus_states
-// [{"height":{"revision_number":1,"revision_height":2},"timestamp":1234567890,"root":"YAdxKyKDg+tUQc5Dli2fYkJ2imznqbJ+UDfQ7y0QNlM=","next_validators_hash":"OJfJuH6dfiZI2d0uAxqamqfIVqV4c4oEAZigvJ8UqFQ="},{"height":{"revision_number":1,"revision_height":3},"timestamp":1234567950,"root":"m9afpc+PXaYRHdGC7FkrzuzRNn8ONC1xRCzYYAPRCU8=","next_validators_hash":"OJfJuH6dfiZI2d0uAxqamqfIVqV4c4oEAZigvJ8UqFQ="}]
-
-// Events:
-// [
-//   {
-//     "type": "create_client",
-//     "attrs": [
-//       {
-//         "key": "client_id",
-//         "value": "07-tendermint-1"
-//       },
-//       {
-//         "key": "client_type",
-//         "value": "07-tendermint"
-//       },
-//       {
-//         "key": "consensus_heights",
-//         "value": "1/2"
-//       }
-//     ],
-//     "pkg_path": "gno.land/r/aib/ibc/core"
-//   },
-//   {
-//     "type": "update_client",
-//     "attrs": [
-//       {
-//         "key": "client_id",
-//         "value": "07-tendermint-1"
-//       },
-//       {
-//         "key": "client_type",
-//         "value": "07-tendermint"
-//       },
-//       {
-//         "key": "consensus_heights",
-//         "value": "1/3"
-//       }
-//     ],
-//     "pkg_path": "gno.land/r/aib/ibc/core"
-//   }
-// ]
+// Error:
+// expected BlockID#Hash and Header#Hash to be the same, got "aad9a74f487dfccef6f80cfae921f559edf9ab9b9246686cbd32a9825325639f" != "b68a342c6770741e9e70fdc24bb54cddf2442e2cf8461da50919ff0765bc8ea3"

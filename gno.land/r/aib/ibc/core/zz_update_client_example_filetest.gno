@@ -1,41 +1,36 @@
 package main
 
 import (
-	"crypto/sha256"
 	"time"
 
 	"gno.land/p/aib/ibc/lightclient/tendermint"
-	"gno.land/p/aib/ibc/lightclient/tendermint/testing"
+	tmtesting "gno.land/p/aib/ibc/lightclient/tendermint/testing"
 	"gno.land/p/aib/ibc/types"
 	"gno.land/r/aib/ibc/core"
 )
 
 func main() {
 	var (
-		clientID      = "07-tendermint-1"                  // XXX update
-		chainID       = "chain-id-2"                       // XXX update
-		timestamp     = time.Now()                         // XXX update
-		blockhash     = sha256.Sum256([]byte("block-5"))   // XXX update
-		parsethash    = sha256.Sum256([]byte("parset"))    // XXX update
-		consensushash = sha256.Sum256([]byte("consensus")) // XXX update
-		apphash       = sha256.Sum256([]byte("apphash"))   // XXX update
-		height        = types.Height{2, 5}                 // XXX update
-		valset        = &tendermint.ValidatorSet{          // XXX update
+		clientID  = "07-tendermint-1"         // XXX update
+		chainID   = "chain-id-2"              // XXX update
+		timestamp = time.Now()                // XXX update
+		height    = types.Height{2, 5}        // XXX update
+		valset    = &tendermint.ValidatorSet{ // XXX update
 			Validators: []*tendermint.Validator{
 				{
-					Address:     testing.GenAddr("val1"),
-					PubKey:      testing.GenPubkey("val1_pubkey"),
+					Address:     tmtesting.GenAddr("val1"),
+					PubKey:      tmtesting.GenPubkey("val1_pubkey"),
 					VotingPower: 2,
 				},
 				{
-					Address:     testing.GenAddr("val2"),
-					PubKey:      testing.GenPubkey("val2_pubkey"),
+					Address:     tmtesting.GenAddr("val2"),
+					PubKey:      tmtesting.GenPubkey("val2_pubkey"),
 					VotingPower: 3,
 				},
 			},
 			Proposer: &tendermint.Validator{
-				Address:     testing.GenAddr("val1"),
-				PubKey:      testing.GenPubkey("val1_pubkey"),
+				Address:     tmtesting.GenAddr("val1"),
+				PubKey:      tmtesting.GenPubkey("val1_pubkey"),
 				VotingPower: 2,
 			},
 			TotalVotingPower: 5,
@@ -44,19 +39,19 @@ func main() {
 		trustedValset = &tendermint.ValidatorSet{ // XXX update
 			Validators: []*tendermint.Validator{
 				{
-					Address:     testing.GenAddr("val1"),
-					PubKey:      testing.GenPubkey("val1_pubkey"),
+					Address:     tmtesting.GenAddr("val1"),
+					PubKey:      tmtesting.GenPubkey("val1_pubkey"),
 					VotingPower: 2,
 				},
 				{
-					Address:     testing.GenAddr("val2"),
-					PubKey:      testing.GenPubkey("val2_pubkey"),
+					Address:     tmtesting.GenAddr("val2"),
+					PubKey:      tmtesting.GenPubkey("val2_pubkey"),
 					VotingPower: 3,
 				},
 			},
 			Proposer: &tendermint.Validator{
-				Address:     testing.GenAddr("val1"),
-				PubKey:      testing.GenPubkey("val1_pubkey"),
+				Address:     tmtesting.GenAddr("val1"),
+				PubKey:      tmtesting.GenPubkey("val1_pubkey"),
 				VotingPower: 2,
 			},
 			TotalVotingPower: 5,
@@ -71,42 +66,42 @@ func main() {
 				Height:  height.RevisionHeight,
 				Time:    timestamp,
 				LastBlockID: tendermint.BlockID{
-					Hash: blockhash[:],
+					Hash: tmtesting.Hash("last_block_hash"),
 					PartSetHeader: tendermint.PartSetHeader{
 						Total: 2,
-						Hash:  parsethash[:],
+						Hash:  tmtesting.Hash("last_block_partset_header_hash"),
 					},
 				},
-				LastCommitHash:     apphash[:], //FIXME
-				DataHash:           apphash[:], //FIXME
+				LastCommitHash:     tmtesting.Hash("last_commit_hash"), //XXX update
+				DataHash:           tmtesting.Hash("data_hash"),        //XXX update
 				ValidatorsHash:     valset.Hash(),
 				NextValidatorsHash: valset.Hash(),
-				ConsensusHash:      consensushash[:],
-				AppHash:            apphash[:],
-				LastResultsHash:    nil,                         //FIXME?
-				EvidenceHash:       nil,                         //FIXME?
-				ProposerAddress:    testing.GenAddr("proposer"), // XXX update
+				ConsensusHash:      tmtesting.Hash("consensus_hash"),    // XXX update
+				AppHash:            tmtesting.Hash("app_hash"),          // XXX update
+				LastResultsHash:    tmtesting.Hash("last_results_hash"), //XXX update
+				EvidenceHash:       tmtesting.Hash("evidence_hash"),     //XXX update
+				ProposerAddress:    tmtesting.GenAddr("proposer"),       // XXX update
 			},
 			Commit: &tendermint.Commit{
 				Height: height.RevisionHeight,
 				Round:  1,
 				BlockID: tendermint.BlockID{
-					Hash: blockhash[:],
+					Hash: tmtesting.Hash("last_block_partset_header_hash"), //XXX update
 					PartSetHeader: tendermint.PartSetHeader{
 						Total: 5,
-						Hash:  parsethash[:], //FIXME
+						Hash:  tmtesting.Hash("last_block_partset_header_hash"), //XXX update
 					},
 				},
 				Signatures: []tendermint.CommitSig{
 					{
 						BlockIDFlag:      tendermint.BlockIDFlagCommit,
-						ValidatorAddress: testing.GenAddr("val1"),          // XXX update
-						Signature:        testing.GenSignature("valsign1"), // XXX update
+						ValidatorAddress: tmtesting.GenAddr("val1"),          // XXX update
+						Signature:        tmtesting.GenSignature("valsign1"), // XXX update
 					},
 					{
 						BlockIDFlag:      tendermint.BlockIDFlagCommit,
-						ValidatorAddress: testing.GenAddr("val2"),          // XXX update
-						Signature:        testing.GenSignature("valsign2"), // XXX update
+						ValidatorAddress: tmtesting.GenAddr("val2"),          // XXX update
+						Signature:        tmtesting.GenSignature("valsign2"), // XXX update
 					},
 				},
 			},
@@ -119,4 +114,4 @@ func main() {
 }
 
 // Error:
-// client 07-tendermint-1 not found
+// expected BlockID#Hash and Header#Hash to be the same, got "b40edd05fbc1dba702520fbf71142c39ebe97400a1806a842a7c54f6d97fb519" != "fb33f6107d92ab1b8e8d3b2ad622f64a06bff39d10f2cb7257b3cc327fa7107e"

@@ -22,9 +22,9 @@ func main() {
 	clientID := core.CreateClient(cross, clientState, consensusState)
 	core.RegisterCounterparty(cross, clientID, [][]byte{[]byte("iavlStoreKey"), []byte("prefix2")}, "07-tendermint-2")
 
-	// Update clientID
+	// Update clientID with height older than trusted height
 	var (
-		newHeight     = clientState.LatestHeight.RevisionHeight + 1
+		newHeight     = clientState.LatestHeight.RevisionHeight - 1
 		newTimestamp  = consensusState.Timestamp.Add(time.Minute)
 		trustedValset = valset
 		trustedHeight = clientState.LatestHeight
@@ -33,9 +33,6 @@ func main() {
 			newHeight, trustedHeight, valset, trustedValset,
 		)
 	)
-	// Alter height
-	msgHeader.Header.Height = trustedHeight.RevisionHeight - 1
-	msgHeader.Commit.Height = msgHeader.Header.Height
 
 	core.UpdateClient(cross, clientID, msgHeader)
 }

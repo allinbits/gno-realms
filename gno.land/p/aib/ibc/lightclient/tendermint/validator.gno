@@ -2,9 +2,10 @@ package tendermint
 
 import (
 	"bytes"
-	"crypto/sha256"
 	"encoding/base64"
-	"encoding/binary"
+
+	"gno.land/p/aib/encoding/proto"
+	"gno.land/p/aib/merkle"
 )
 
 type ValidatorSet struct {
@@ -26,15 +27,11 @@ func NewValset(vals ...*Validator) *ValidatorSet {
 }
 
 func (vals ValidatorSet) Hash() []byte {
-	var bz []byte
-	for _, v := range vals.Validators {
-		bz = append(bz, v.Bytes()...)
+	bzs := make([][]byte, len(vals.Validators))
+	for i, val := range vals.Validators {
+		bzs[i] = val.Bytes()
 	}
-	// TODO: ibc-go returns a merkle hash, ensure we can just use a simple hash
-	// -> see p/demo/merkle
-	// return merkle.HashFromByteSlices(bzs)
-	h := sha256.Sum256(bz)
-	return h[:]
+	return merkle.HashFromByteSlices(bzs)
 }
 
 // GetByAddress returns an index of the validator with address and validator
@@ -71,12 +68,14 @@ func NewValidator(addr, pubkey string, vp int64) *Validator {
 	}
 }
 
-// Bytes returns a bytes representation of v, composed as follow:
-// 32bytes: Pubkey
-// varint: VotingPower
-// TODO implement manual proto just like Vote ?
+// Bytes computes the unique encoding of a validator with a given voting power.
+// These are the bytes that gets hashed in consensus. It excludes address as
+// its redundant with the pubkey.This also excludes ProposerPriority which
+// changes every round.
+// Proto ref: https://buf.build/tendermint/tendermint/docs/main:tendermint.types#tendermint.types.SimpleValidator
 func (v Validator) Bytes() (bz []byte) {
-	bz = append(bz, v.PubKey...)
-	bz = binary.AppendVarint(bz, v.VotingPower)
+	pkBz := proto.AppendLengthDelimited(nil, 1, v.PubKey)
+	bz = proto.AppendLengthDelimited(bz, 1, pkBz)
+	bz = proto.AppendVarint(bz, 2, uint64(v.VotingPower))
 	return
 }

@@ -2,11 +2,15 @@ package tendermint
 
 import (
 	"bytes"
+	"encoding/binary"
+	"encoding/hex"
 	"errors"
 	"time"
 
+	"gno.land/p/aib/encoding/proto"
 	"gno.land/p/aib/ibc/lightclient"
 	"gno.land/p/aib/ibc/types"
+	"gno.land/p/aib/merkle"
 	"gno.land/p/nt/ufmt"
 )
 
@@ -28,55 +32,6 @@ type MsgHeader struct {
 	ValidatorSet      *ValidatorSet
 	TrustedHeight     types.Height
 	TrustedValidators *ValidatorSet
-}
-
-func NewMsgHeader(chainID string, timestamp time.Time,
-	apphash, blockhash, parsethash, consensushash []byte,
-	height uint64, trustedHeight types.Height,
-	valset, trustedValset *ValidatorSet,
-	signatures []CommitSig) *MsgHeader {
-	return &MsgHeader{
-		Header: &Header{
-			Version: Consensus{
-				Block: BlockProtocol,
-				App:   0,
-			},
-			ChainID: chainID,
-			Height:  height,
-			Time:    timestamp,
-			LastBlockID: BlockID{
-				Hash: blockhash,
-				PartSetHeader: PartSetHeader{
-					Total: 1,
-					Hash:  parsethash,
-				},
-			},
-			LastCommitHash:     apphash, //FIXME
-			DataHash:           apphash, //FIXME
-			ValidatorsHash:     valset.Hash(),
-			NextValidatorsHash: trustedValset.Hash(),
-			ConsensusHash:      consensushash,
-			AppHash:            apphash,
-			LastResultsHash:    nil, //FIXME?
-			EvidenceHash:       nil, //FIXME?
-			ProposerAddress:    valset.Proposer.Address,
-		},
-		Commit: &Commit{
-			Height: height,
-			Round:  0,
-			BlockID: BlockID{
-				Hash: blockhash,
-				PartSetHeader: PartSetHeader{
-					Total: 1,
-					Hash:  parsethash,
-				},
-			},
-			Signatures: signatures,
-		},
-		ValidatorSet:      valset,
-		TrustedHeight:     trustedHeight,
-		TrustedValidators: trustedValset,
-	}
 }
 
 // Implements lightclient.ClientMessage
@@ -104,13 +59,10 @@ func (h *MsgHeader) ValidateBasic() error {
 	if h.Header.Height != h.Commit.Height {
 		return ufmt.Errorf("header and commit height mismatch: %d vs %d", h.Header.Height, h.Commit.Height)
 	}
-	// TODO(tb): computing the block hash from header is difficult in Gno because
-	// it requires to use protobuf and other merkle libraries, we need to ensure
-	// that this check is really necessary in terms of security.
-	// if hhash, chash := h.Header.Hash(), h.Commit.BlockID.Hash; !bytes.Equal(hhash, chash) {
-	// cs, hs := hex.EncodeToString(chash), hex.EncodeToString(hhash)
-	// return ufmt.Errorf("commit signs block %q, header is block %q", cs, hs)
-	// }
+	if hhash, chash := h.Header.Hash(), h.Commit.BlockID.Hash; !bytes.Equal(hhash, chash) {
+		cs, hs := hex.EncodeToString(chash), hex.EncodeToString(hhash)
+		return ufmt.Errorf("expected BlockID#Hash and Header#Hash to be the same, got %q != %q", cs, hs)
+	}
 
 	// TrustedHeight is less than Header for updates and misbehaviour
 	if h.TrustedHeight.GTE(h.GetHeight()) {
@@ -282,8 +234,40 @@ func (h *Header) Hash() []byte {
 	if h == nil || len(h.ValidatorsHash) == 0 {
 		return nil
 	}
-	// TODO Use a source of bytes that is not protobuf
-	return nil
+	bz := merkle.HashFromByteSlices([][]byte{
+		h.Version.ProtoMarshal(),
+		proto.AppendLengthDelimited(nil, 1, []byte(h.ChainID)),
+		proto.AppendVarint(nil, 1, h.Height),
+		proto.TimeMarshal(h.Time),
+		h.LastBlockID.ProtoMarshal(),
+		proto.AppendLengthDelimited(nil, 1, h.LastCommitHash),
+		proto.AppendLengthDelimited(nil, 1, h.DataHash),
+		proto.AppendLengthDelimited(nil, 1, h.ValidatorsHash),
+		proto.AppendLengthDelimited(nil, 1, h.NextValidatorsHash),
+		proto.AppendLengthDelimited(nil, 1, h.ConsensusHash),
+		proto.AppendLengthDelimited(nil, 1, h.AppHash),
+		proto.AppendLengthDelimited(nil, 1, h.LastResultsHash),
+		proto.AppendLengthDelimited(nil, 1, h.EvidenceHash),
+		proto.AppendLengthDelimited(nil, 1, h.ProposerAddress),
+	})
+	// For debugging purposes:
+	// hex := hex.EncodeToString
+	// println("VERSION", hex(h.Version.ProtoMarshal()))
+	// println("CHAIN", hex(proto.AppendLengthDelimited(nil, 1, []byte(h.ChainID))))
+	// println("HEIGHT", hex(proto.AppendVarint(nil, 1, h.Height)))
+	// println("TIME", hex(proto.TimeMarshal(h.Time)))
+	// println("LAST", hex(h.LastBlockID.ProtoMarshal()))
+	// println("COMMITHASH", hex(proto.AppendLengthDelimited(nil, 1, h.LastCommitHash)))
+	// println("DATAHASH", hex(proto.AppendLengthDelimited(nil, 1, h.DataHash)))
+	// println("VALHASH", hex(proto.AppendLengthDelimited(nil, 1, h.ValidatorsHash)))
+	// println("NEXTVALHASH", hex(proto.AppendLengthDelimited(nil, 1, h.NextValidatorsHash)))
+	// println("CONSHASH", hex(proto.AppendLengthDelimited(nil, 1, h.ConsensusHash)))
+	// println("APPHASH", hex(proto.AppendLengthDelimited(nil, 1, h.AppHash)))
+	// println("RES", hex(proto.AppendLengthDelimited(nil, 1, h.LastResultsHash)))
+	// println("EV", hex(proto.AppendLengthDelimited(nil, 1, h.EvidenceHash)))
+	// println("PROP", hex(proto.AppendLengthDelimited(nil, 1, h.ProposerAddress)))
+	// println("MERKLE", hex(bz))
+	return bz
 }
 
 func (h Header) Expired(trustingPeriod time.Duration) error {
@@ -305,13 +289,40 @@ type Commit struct {
 	Signatures []CommitSig
 }
 
+// BytesToSign returns the bytes-to-sign for a validator's vote.
+// These bytes are produced from a protobuf marshaled type [CanonicalVote][1].
+// Since proto is not available in Gno, the function tries to generate these
+// bytes manually, using the same logic as protobuf.
+//
+// [1]: https://buf.build/tendermint/tendermint/docs/main:tendermint.types#tendermint.types.CanonicalVote
 func (c *Commit) BytesToSign(chainID string, valIdx int) []byte {
-	return VoteBytesToSign(
-		chainID, int64(c.Height), int64(c.Round),
-		c.BlockID.Hash, c.BlockID.PartSetHeader.Total,
-		c.BlockID.PartSetHeader.Hash, c.Signatures[valIdx].BlockIDFlag,
-		c.Signatures[valIdx].Timestamp,
-	)
+	var buf []byte
+
+	// Field 1: type (SignedMsgType - varint)
+	buf = proto.AppendVarint(buf, 1, 2) // type precommit
+
+	// Field 2: height (sfixed64 - fixed64)
+	buf = proto.AppendFixed64(buf, 2, uint64(c.Height))
+
+	// Field 3: round (sfixed64 - fixed64)
+	buf = proto.AppendFixed64(buf, 3, uint64(c.Round))
+
+	// Field 4: block_id (CanonicalBlockID - length-delimited)
+	if c.Signatures[valIdx].BlockIDFlag == BlockIDFlagCommit {
+		buf = proto.AppendLengthDelimited(buf, 4, c.BlockID.ProtoMarshal())
+	}
+
+	// Field 5: timestamp (google.protobuf.Timestamp - length-delimited)
+	buf = proto.AppendTime(buf, 5, c.Signatures[valIdx].Timestamp)
+
+	// Field 6: chain_id (string - length-delimited)
+	buf = proto.AppendLengthDelimited(buf, 6, []byte(chainID))
+
+	// Prefix with total length
+	length := len(buf)
+	buf = append(binary.AppendUvarint(nil, uint64(length)), buf...)
+
+	return buf
 }
 
 // ValidateBasic performs basic validation that doesn't involve state data.
@@ -426,6 +437,14 @@ func (blockID BlockID) ValidateBasic() error {
 	return nil
 }
 
+func (b BlockID) ProtoMarshal() (bz []byte) {
+	if len(b.Hash) > 0 {
+		bz = proto.AppendLengthDelimited(bz, 1, b.Hash)
+	}
+	bz = proto.AppendLengthDelimited(bz, 2, b.PartSetHeader.ProtoMarshal())
+	return
+}
+
 // PartsetHeader
 type PartSetHeader struct {
 	Total uint32
@@ -449,10 +468,30 @@ func (psh PartSetHeader) ValidateBasic() error {
 	return nil
 }
 
+func (psh PartSetHeader) ProtoMarshal() (bz []byte) {
+	if psh.Total > 0 {
+		bz = proto.AppendVarint(bz, 1, uint64(psh.Total))
+	}
+	if len(psh.Hash) > 0 {
+		bz = proto.AppendLengthDelimited(bz, 2, psh.Hash)
+	}
+	return
+}
+
 // Consensus captures the consensus rules for processing a block in the blockchain,
 // including all blockchain data structures and the rules of the application's
 // state transition machine.
 type Consensus struct {
 	Block uint64
 	App   uint64
+}
+
+func (c Consensus) ProtoMarshal() (bz []byte) {
+	if c.Block != 0 {
+		bz = proto.AppendVarint(bz, 1, c.Block)
+	}
+	if c.App != 0 {
+		bz = proto.AppendVarint(bz, 2, c.App)
+	}
+	return
 }

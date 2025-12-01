@@ -179,7 +179,7 @@ func (tm TMLightClient) verifyCommit(
 	}
 
 	if got, needed := talliedVotingPower, votingPowerNeeded; got <= needed {
-		return ufmt.Errorf("not enough voting power, got %v, needed %v", got, needed)
+		return ufmt.Errorf("not enough voting power, got %v, needed >%v", got, needed)
 	}
 
 	return nil

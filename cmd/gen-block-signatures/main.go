@@ -1,74 +1,203 @@
 package main
 
 import (
+	"crypto/sha256"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/hex"
 	"flag"
 	"fmt"
 	"strings"
+	"text/template"
 	"time"
 
 	cmtproto "github.com/cometbft/cometbft/api/cometbft/types/v1"
+	cmtversion "github.com/cometbft/cometbft/api/cometbft/version/v1"
 	"github.com/cometbft/cometbft/crypto/ed25519"
 	"github.com/cometbft/cometbft/libs/protoio"
 	"github.com/cometbft/cometbft/types"
+	"github.com/cometbft/cometbft/version"
 )
 
 func main() {
 	var (
-		privkeysStr = flag.String("privkeys", "", "base64 encoded private key (sep by comma)")
-		height      = flag.Int64("height", 1, "height of the block")
+		chainID         = flag.String("chainid", "atomone-1", "")
+		height          = flag.Int64("height", 1, "height of the block")
+		privkeysStr     = flag.String("privkeys", "", "base64 encoded private key (sep by comma)")
+		apphashSeed     = flag.String("apphash-seed", "", "will be hashed to create the apphash")
+		apphashHex      = flag.String("apphash-hex", "", "hex encoded apphash")
+		headerTimeShift = flag.Int64("header-time-shift", 0, "number of minutes to add to the default gno time (2009-02-13) for the header timestamp")
 	)
 	flag.Parse()
-	var privks []ed25519.PrivKey
+	var privs []ed25519.PrivKey
 	if *privkeysStr != "" {
 		for s := range strings.SplitSeq(*privkeysStr, ",") {
-			privks = append(privks, ed25519.PrivKey(b64Dec(s)))
+			priv := ed25519.PrivKey(b64Dec(s))
+			privs = append(privs, priv)
 		}
 	} else {
-		privks = append(privks, ed25519.GenPrivKey())
+		priv := ed25519.GenPrivKey()
+		privs = append(privs, priv)
 	}
-	for i, privk := range privks {
-		fmt.Printf("validator #%d:\n", i)
-		fmt.Printf("\taddress:%s\n", base64.StdEncoding.EncodeToString(privk.PubKey().Address()))
-		fmt.Printf("\tpubkey:%s\n", base64.StdEncoding.EncodeToString(privk.PubKey().Bytes()))
-		fmt.Printf("\tprivkey:%s\n", base64.StdEncoding.EncodeToString(privk.Bytes()))
 
-		var (
-			chainID          = "atomone-1"
-			round      int64 = 0
-			timestamp        = toTime("2025-09-25T07:55:57.306746166Z")
-			blockhash        = b64Dec("NpiImIJoaSaIucwNs5cqpgMsL/8wxEPYC3P0jA5aQSI=")
-			parsethash       = b64Dec("QqzwnLzvixIcUz+hPeUQjDV6NaLkFRKXACCxJIrBHzw=")
-			vote             = cmtproto.CanonicalVote{
-				Type:   types.PrecommitType,
-				Height: *height,
-				Round:  round,
-				BlockID: &cmtproto.CanonicalBlockID{
-					Hash: blockhash,
-					PartSetHeader: cmtproto.CanonicalPartSetHeader{
-						Total: 1,
-						Hash:  parsethash,
-					},
+	fmt.Println(genSignaturesCode(privs, *chainID, *apphashSeed, *apphashHex, *height, *headerTimeShift))
+}
+
+func genSignaturesCode(privs []ed25519.PrivKey, chainID, apphashSeed, apphashHex string, height, headerTimeShift int64) string {
+	var apphash []byte
+	if apphashHex != "" {
+		var err error
+		apphash, err = hex.DecodeString(apphashHex)
+		if err != nil {
+			panic(err)
+		}
+	} else {
+		apphash = hash(apphashSeed)
+	}
+	// create vals from privs
+	var vals []*types.Validator
+	for _, priv := range privs {
+		vals = append(vals, types.NewValidator(priv.PubKey(), 1))
+	}
+	var (
+		valset          = types.ValidatorSet{Validators: vals}
+		round           = int64(0)
+		commitTimestamp = toTime("2025-09-25T07:55:57.306746166Z")
+		headerTimestamp = time.Unix(1234567890, 0).Add(time.Minute * time.Duration(headerTimeShift))
+		header          = types.Header{
+			Version: cmtversion.Consensus{
+				Block: version.BlockProtocol,
+				App:   0,
+			},
+			ChainID: chainID,
+			Height:  height,
+			Time:    headerTimestamp,
+			LastBlockID: types.BlockID{
+				Hash: hash("last_block_hash"),
+				PartSetHeader: types.PartSetHeader{
+					Total: 1,
+					Hash:  hash("last_block_partset_hash"),
 				},
-				Timestamp: timestamp,
-				ChainID:   chainID,
-			}
-		)
-		bz, err := protoio.MarshalDelimited(&vote)
-		if err != nil {
-			panic(err)
+			},
+			LastCommitHash:     hash("last_commit_hash"),
+			DataHash:           hash("data_hash"),
+			ValidatorsHash:     valset.Hash(),
+			NextValidatorsHash: valset.Hash(),
+			ConsensusHash:      hash("consensus_hash"),
+			AppHash:            apphash,
+			LastResultsHash:    hash("last_results_hash"),
+			EvidenceHash:       hash("evidence_hash"),
+			ProposerAddress:    valset.Validators[0].Address,
 		}
-
-		signature, err := privk.Sign(bz)
-		if err != nil {
-			panic(err)
+		vote = cmtproto.CanonicalVote{
+			Type:   types.PrecommitType,
+			Height: height,
+			Round:  round,
+			BlockID: &cmtproto.CanonicalBlockID{
+				Hash: header.Hash(),
+				PartSetHeader: cmtproto.CanonicalPartSetHeader{
+					Total: 1,
+					Hash:  hash("block_partset_hash"),
+				},
+			},
+			Timestamp: commitTimestamp,
+			ChainID:   chainID,
 		}
-
-		bz, _ = json.MarshalIndent(vote, "\t", "  ")
-		fmt.Printf("\tvote: %s\n", string(bz))
-		fmt.Printf("\tsignature: %s\n", base64.StdEncoding.EncodeToString(signature))
+	)
+	bytesToSign, err := protoio.MarshalDelimited(&vote)
+	if err != nil {
+		panic(err)
 	}
+
+	tmpl := `
+// NOTE code generated by:
+// go run -C ./cmd/gen-block-signatures . {{flags}}
+{
+	var (
+		{{with .ApphashHex -}}
+		apphash, _ = hex.DecodeString("{{.}}")
+		{{- else -}}
+		apphash  = tmtesting.Hash("{{.ApphashSeed}}")
+		{{- end}}
+		{{range $i, $v := .Vals -}}
+		// priv={{b64 (index $.Privs $i)}}
+		val{{inc $i}} = tendermint.NewValidator("{{b64 $v.PubKey.Address}}", "{{b64 $v.PubKey}}", 1)
+		{{end -}}
+		valset = tendermint.NewValset({{range $i, $v := .Vals}}val{{inc $i}},{{end}})
+		commitTimestamp = tmtesting.ToTime("2025-09-25T07:55:57.306746166Z")
+		newHeight       = uint64({{.Height}})
+		newTimestamp    = consensusState.Timestamp.Add(time.Minute * time.Duration({{.HeaderTimeShift}}))
+		trustedValset   = tendermint.NewValset({{range $i, $v := .Vals}}val{{inc $i}},{{end}})
+		trustedHeight   = clientState.LatestHeight
+	
+		signatures = []tendermint.CommitSig{
+			{{- range $i, $v := .Vals}}
+			{
+				BlockIDFlag:      tendermint.BlockIDFlagCommit,
+				ValidatorAddress: valset.Validators[{{$i}}].Address,
+				Timestamp:        commitTimestamp,
+				Signature:        {{bytes (sign $i $.BytesToSign)}},
+			},
+			{{- end}}
+		}
+	
+		msgHeader = tmtesting.NewMsgHeader(
+			chainID, newTimestamp, apphash, newHeight, trustedHeight, valset,
+			trustedValset, signatures,
+		)
+	)
+	core.UpdateClient(cross, clientID, msgHeader)
+}
+`
+	t, err := template.New("").Funcs(template.FuncMap{
+		"inc": func(i int) int { return i + 1 },
+		"b64": func(bz []byte) string {
+			return base64.StdEncoding.EncodeToString(bz)
+		},
+		"hex": func(bz []byte) string {
+			return fmt.Sprintf("%x", bz)
+		},
+		"bytes": func(bz []byte) string {
+			hex := fmt.Sprintf("%x", bz)
+			var bytesStr string
+			for i := 0; i < len(hex); i += 2 {
+				bytesStr += "\\x" + hex[i:i+2]
+			}
+			return "[]byte(\"" + bytesStr + "\")"
+		},
+		"sign": func(idx int, bz []byte) []byte {
+			signature, err := privs[idx].Sign(bz)
+			if err != nil {
+				panic(err)
+			}
+			return signature
+		},
+		"flags": func() string {
+			var s strings.Builder
+			flag.VisitAll(func(f *flag.Flag) {
+				if f.Value.String() != "" {
+					fmt.Fprintf(&s, "-%s=%s ", f.Name, f.Value)
+				}
+			})
+			return s.String()
+		},
+	}).Parse(tmpl)
+	if err != nil {
+		panic(err)
+	}
+	var sb strings.Builder
+	err = t.Execute(&sb, map[string]any{
+		"Privs":           privs,
+		"BytesToSign":     bytesToSign,
+		"Vals":            vals,
+		"ApphashHex":      apphashHex,
+		"ApphashSeed":     apphashSeed,
+		"Height":          height,
+		"HeaderTimeShift": headerTimeShift,
+	})
+	if err != nil {
+		panic(err)
+	}
+	return sb.String()
 }
 
 func b64Dec(s string) []byte {
@@ -85,4 +214,9 @@ func toTime(s string) time.Time {
 		panic(err)
 	}
 	return t
+}
+
+func hash(s string) []byte {
+	bz := sha256.Sum256([]byte(s))
+	return bz[:]
 }
