@@ -126,7 +126,8 @@ func GenAddr(seed string) []byte {
 }
 
 func GenSignature(seed string) []byte {
-	return Hash(seed)[:tendermint.MaxSignatureSize]
+	h := Hash(seed)
+	return append(h, Hash(string(h))...) // 32x2=64 bytes
 }
 
 func GenPubkey(seed string) []byte {

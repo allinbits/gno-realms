@@ -3,6 +3,7 @@ package main
 import (
 	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"flag"
 	"fmt"
 	"strings"
@@ -23,6 +24,7 @@ func main() {
 		height          = flag.Int64("height", 1, "height of the block")
 		privkeysStr     = flag.String("privkeys", "", "base64 encoded private key (sep by comma)")
 		apphashSeed     = flag.String("apphash-seed", "", "will be hashed to create the apphash")
+		apphashHex      = flag.String("apphash-hex", "", "hex encoded apphash")
 		headerTimeShift = flag.Int64("header-time-shift", 0, "number of minutes to add to the default gno time (2009-02-13) for the header timestamp")
 	)
 	flag.Parse()
@@ -36,10 +38,21 @@ func main() {
 		priv := ed25519.GenPrivKey()
 		privs = append(privs, priv)
 	}
-	fmt.Println(genSignaturesCode(privs, *chainID, *apphashSeed, *height, *headerTimeShift))
+
+	fmt.Println(genSignaturesCode(privs, *chainID, *apphashSeed, *apphashHex, *height, *headerTimeShift))
 }
 
-func genSignaturesCode(privs []ed25519.PrivKey, chainID, apphashSeed string, height, headerTimeShift int64) string {
+func genSignaturesCode(privs []ed25519.PrivKey, chainID, apphashSeed, apphashHex string, height, headerTimeShift int64) string {
+	var apphash []byte
+	if apphashHex != "" {
+		var err error
+		apphash, err = hex.DecodeString(apphashHex)
+		if err != nil {
+			panic(err)
+		}
+	} else {
+		apphash = hash(apphashSeed)
+	}
 	// create vals from privs
 	var vals []*types.Validator
 	for _, priv := range privs {
@@ -49,7 +62,6 @@ func genSignaturesCode(privs []ed25519.PrivKey, chainID, apphashSeed string, hei
 		valset          = types.ValidatorSet{Validators: vals}
 		round           = int64(0)
 		commitTimestamp = toTime("2025-09-25T07:55:57.306746166Z")
-		apphash         = hash(apphashSeed)
 		headerTimestamp = time.Unix(1234567890, 0).Add(time.Minute * time.Duration(headerTimeShift))
 		header          = types.Header{
 			Version: cmtversion.Consensus{
@@ -101,7 +113,11 @@ func genSignaturesCode(privs []ed25519.PrivKey, chainID, apphashSeed string, hei
 // go run -C ./cmd/gen-block-signatures . {{flags}}
 {
 	var (
-		apphash = tmtesting.Hash("{{.ApphashSeed}}")
+		{{with .ApphashHex -}}
+		apphash, _ = hex.DecodeString("{{.}}")
+		{{- else -}}
+		apphash  = tmtesting.Hash("{{.ApphashSeed}}")
+		{{- end}}
 		{{range $i, $v := .Vals -}}
 		// priv={{b64 (index $.Privs $i)}}
 		val{{inc $i}} = tendermint.NewValidator("{{b64 $v.PubKey.Address}}", "{{b64 $v.PubKey}}", 1)
@@ -158,7 +174,9 @@ func genSignaturesCode(privs []ed25519.PrivKey, chainID, apphashSeed string, hei
 		"flags": func() string {
 			var s strings.Builder
 			flag.VisitAll(func(f *flag.Flag) {
-				fmt.Fprintf(&s, "-%s=%s ", f.Name, f.Value)
+				if f.Value.String() != "" {
+					fmt.Fprintf(&s, "-%s=%s ", f.Name, f.Value)
+				}
 			})
 			return s.String()
 		},
@@ -171,6 +189,7 @@ func genSignaturesCode(privs []ed25519.PrivKey, chainID, apphashSeed string, hei
 		"Privs":           privs,
 		"BytesToSign":     bytesToSign,
 		"Vals":            vals,
+		"ApphashHex":      apphashHex,
 		"ApphashSeed":     apphashSeed,
 		"Height":          height,
 		"HeaderTimeShift": headerTimeShift,
