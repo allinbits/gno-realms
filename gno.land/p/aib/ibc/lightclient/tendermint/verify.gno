@@ -115,7 +115,7 @@ func checkTrustedHeader(msg *MsgHeader, consensusState *ConsensusState) error {
 	if !bytes.Equal(consensusState.NextValidatorsHash, tvalHash) {
 		h1, h2 := hex.EncodeToString(consensusState.NextValidatorsHash), hex.EncodeToString(tvalHash)
 		return ufmt.Errorf(
-			"trusted validators does not hash to latest trusted validators. Expected: %q, got: %q",
+			"trusted validators do not hash to latest trusted validators. Expected: %q, got: %q",
 			h1, h2,
 		)
 	}

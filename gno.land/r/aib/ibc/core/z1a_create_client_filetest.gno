@@ -12,9 +12,10 @@ import (
 // CreateClient success
 func main() {
 	var (
-		chainID        = "chain-id-2"
-		clientState    = testing.NewClientState(chainID, types.NewHeight(2, 2))
-		apphash        = sha256.Sum256([]byte("apphash"))
+		chainID     = "chain-id-2"
+		clientState = testing.NewClientState(chainID, types.NewHeight(2, 2))
+		apphash     = sha256.Sum256([]byte("apphash"))
+		// TODO rename to trustedValset (all filetest)
 		valset         = testing.GenValset()
 		consensusState = testing.GenConsensusState(time.Now(), apphash[:], valset.Hash())
 	)

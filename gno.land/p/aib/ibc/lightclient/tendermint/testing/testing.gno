@@ -12,7 +12,7 @@ import (
 
 func NewMsgHeader(chainID string, timestamp time.Time,
 	apphash []byte, height uint64, trustedHeight types.Height,
-	valset, trustedValset *tendermint.ValidatorSet,
+	valset, nextValset, trustedValset *tendermint.ValidatorSet,
 	signatures []tendermint.CommitSig) *tendermint.MsgHeader {
 	header := &tendermint.Header{
 		Version: tendermint.Consensus{
@@ -32,7 +32,7 @@ func NewMsgHeader(chainID string, timestamp time.Time,
 		LastCommitHash:     Hash("last_commit_hash"),
 		DataHash:           Hash("data_hash"),
 		ValidatorsHash:     valset.Hash(),
-		NextValidatorsHash: trustedValset.Hash(),
+		NextValidatorsHash: nextValset.Hash(),
 		ConsensusHash:      Hash("consensus_hash"),
 		AppHash:            apphash,
 		LastResultsHash:    Hash("last_results_hash"),
@@ -100,7 +100,7 @@ func GenConsensusState(timestamp time.Time, apphash, valsethash []byte) tendermi
 // TODO rename to GenSignature and update
 func GenMsgHeader(chainID string, timestamp time.Time, apphash []byte,
 	height uint64, trustedHeight types.Height,
-	valset, trustedValset *tendermint.ValidatorSet) *tendermint.MsgHeader {
+	valset, nextValset, trustedValset *tendermint.ValidatorSet) *tendermint.MsgHeader {
 	var (
 		signatures = []tendermint.CommitSig{
 			{
@@ -118,7 +118,7 @@ func GenMsgHeader(chainID string, timestamp time.Time, apphash []byte,
 		}
 	)
 	return NewMsgHeader(chainID, timestamp, apphash, height, trustedHeight,
-		valset, trustedValset, signatures)
+		valset, nextValset, trustedValset, signatures)
 }
 
 func GenAddr(seed string) []byte {
@@ -131,7 +131,7 @@ func GenSignature(seed string) []byte {
 }
 
 func GenPubkey(seed string) []byte {
-	return Hash(seed)[:32]
+	return Hash(seed) //pubkey len is 32 bytes
 }
 
 func Hash(s string) []byte {

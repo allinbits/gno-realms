@@ -38,7 +38,7 @@ func main() {
 			commitTimestamp = tmtesting.ToTime("2025-09-25T07:55:57.306746166Z")
 			newHeight       = height + 1 // adjacent height
 			newTimestamp    = consensusState.Timestamp.Add(time.Minute * time.Duration(1))
-			trustedValset   = tendermint.NewValset(val1, val2)
+			nextValset      = tendermint.NewValset(val1, val2)
 			trustedHeight   = clientState.LatestHeight
 
 			signatures = []tendermint.CommitSig{
@@ -58,7 +58,7 @@ func main() {
 
 			msgHeader = tmtesting.NewMsgHeader(
 				chainID, newTimestamp, apphash, newHeight, trustedHeight, valset,
-				trustedValset, signatures,
+				nextValset, valset, signatures,
 			)
 		)
 
