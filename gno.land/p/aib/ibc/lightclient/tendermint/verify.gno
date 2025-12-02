@@ -51,7 +51,6 @@ func (tm *TMLightClient) verifyHeader(msg *MsgHeader) error {
 	}
 
 	if !untrustedHeader.Time.After(trustedHeader.Time) {
-		// TODO write test
 		return ufmt.Errorf(
 			"expected new header time %v to be after old header time %v",
 			untrustedHeader.Time, trustedHeader.Time,
