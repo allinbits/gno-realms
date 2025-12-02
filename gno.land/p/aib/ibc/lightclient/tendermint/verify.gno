@@ -58,7 +58,6 @@ func (tm *TMLightClient) verifyHeader(msg *MsgHeader) error {
 	}
 
 	if !untrustedHeader.Time.Before(now.Add(tm.ClientState.MaxClockDrift)) {
-		// TODO write test
 		return ufmt.Errorf(
 			"new header has a time from the future %v (now: %v; max clock drift: %v)",
 			untrustedHeader.Time, now, tm.ClientState.MaxClockDrift,
