@@ -89,7 +89,7 @@ func (tm *TMLightClient) verifyHeader(msg *MsgHeader) error {
 			votingPowerNeeded = trustedValset.TotalVotingPower *
 				int64(tl.Numerator) / int64(tl.Denominator)
 		)
-		if err := tm.verifyCommit(trustedValset, msg.Commit, votingPowerNeeded, true, false); err != nil {
+		if err := tm.verifyCommit(trustedValset, msg.Commit, votingPowerNeeded, false); err != nil {
 			return ufmt.Errorf("check trusted validators VP>%d: %v", votingPowerNeeded, err)
 		}
 	}
@@ -98,7 +98,7 @@ func (tm *TMLightClient) verifyHeader(msg *MsgHeader) error {
 	// NOTE: this should always be the last check because untrustedValset can be
 	// intentionally made very large to DOS the light client.
 	votingPowerNeeded := untrustedValset.TotalVotingPower * 2 / 3
-	err := tm.verifyCommit(untrustedValset, msg.Commit, votingPowerNeeded, false, true)
+	err := tm.verifyCommit(untrustedValset, msg.Commit, votingPowerNeeded, true)
 	if err != nil {
 		return ufmt.Errorf("check untrusted validators VP>%d: %v", votingPowerNeeded, err)
 	}
@@ -129,7 +129,6 @@ func (tm TMLightClient) verifyCommit(
 	vals *ValidatorSet,
 	commit *Commit,
 	votingPowerNeeded int64,
-	countAllSignatures bool, // TODO remove, is always false
 	lookUpByIndex bool,
 ) error {
 	var (
@@ -181,16 +180,14 @@ func (tm TMLightClient) verifyCommit(
 		talliedVotingPower += val.VotingPower
 
 		// check if we have enough signatures and can thus exit early
-		if !countAllSignatures && talliedVotingPower > votingPowerNeeded {
+		if talliedVotingPower > votingPowerNeeded {
 			return nil
 		}
 	}
-
-	if got, needed := talliedVotingPower, votingPowerNeeded; got <= needed {
-		return ufmt.Errorf("not enough voting power, got %v, needed >%v", got, needed)
-	}
-
-	return nil
+	return ufmt.Errorf(
+		"not enough voting power, got %v, needed >%v",
+		talliedVotingPower, votingPowerNeeded,
+	)
 }
 
 // verifyChainedMembershipProof takes a list of proofs and specs and verifies
