@@ -62,7 +62,6 @@ func genSignaturesCode(privs []ed25519.PrivKey, chainID, apphashSeed, apphashHex
 	}
 	var (
 		valset          = types.ValidatorSet{Validators: vals}
-		round           = int64(0)
 		commitTimestamp = toTime("2025-09-25T07:55:57.306746166Z")
 		headerTimestamp = time.Unix(1234567890, 0).Add(time.Minute * time.Duration(headerTimeShift))
 		header          = types.Header{
@@ -93,7 +92,7 @@ func genSignaturesCode(privs []ed25519.PrivKey, chainID, apphashSeed, apphashHex
 		vote = cmtproto.CanonicalVote{
 			Type:   types.PrecommitType,
 			Height: height,
-			Round:  round,
+			Round:  0,
 			BlockID: &cmtproto.CanonicalBlockID{
 				Hash: header.Hash(),
 				PartSetHeader: cmtproto.CanonicalPartSetHeader{

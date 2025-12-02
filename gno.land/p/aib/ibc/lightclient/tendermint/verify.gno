@@ -129,7 +129,7 @@ func (tm TMLightClient) verifyCommit(
 	vals *ValidatorSet,
 	commit *Commit,
 	votingPowerNeeded int64,
-	countAllSignatures bool,
+	countAllSignatures bool, // TODO remove, is always false
 	lookUpByIndex bool,
 ) error {
 	var (

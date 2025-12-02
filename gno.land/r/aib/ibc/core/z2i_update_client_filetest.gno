@@ -9,7 +9,8 @@ import (
 	"gno.land/r/aib/ibc/core"
 )
 
-// UpdateClient fails on non-adjacent height because trusted valset VP<=1/3
+// UpdateClient fails on non-adjacent height because trusted valset has no VP
+// in commit signatures.
 func main() {
 	// CreateClient and RegisterCounterparty
 	var (
