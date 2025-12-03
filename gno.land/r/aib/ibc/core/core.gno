@@ -71,7 +71,7 @@ func SendPacket(cur realm, banker banker.Banker, msg types.MsgSendPacket) (seque
 	}
 
 	// set the packet commitment
-	c.setPacketCommitment(packet)
+	c.setPacketCommitment(sequence, packet)
 
 	// emit events
 	chain.Emit(types.EventTypeSendPacket,
@@ -128,6 +128,33 @@ func RecvPacket(cur realm, msg types.MsgRecvPacket) types.ResponseResultType {
 			currentTimestamp, msg.Packet.TimeoutTimestamp,
 		))
 	}
+
+	// REPLAY PROTECTION: Packet receipts will indicate that a packet has already
+	// been received.
+	// Packet receipts must not be pruned, unless it has been marked stale by the
+	// increase of the recvStartSequence. TODO check relevancy of comment
+	if c.hasPacketReceipt(msg.Packet.Sequence) {
+		// This error indicates that the packet has already been relayed. Core IBC
+		// will treat this error as a no-op in order to prevent an entire relay
+		// transaction from failing and consuming unnecessary fees.
+		return types.RESPONSE_NOOP
+	}
+
+	// Verify existence of the commitment bytes in the proofs.
+	var (
+		key        = host.PacketCommitmentKey(msg.Packet.SourceClient, msg.Packet.Sequence)
+		merklePath = types.BuildMerklePath(c.counterpartyMerklePrefix, key)
+		value      = types.CommitPacket(msg.Packet)
+	)
+	if err := c.lightClient.VerifyMembership(
+		msg.ProofHeight, msg.ProofCommitment, merklePath, value,
+	); err != nil {
+		panic(ufmt.Sprintf(
+			"failed packet commitment verification for client (%s): %v",
+			clientID, err,
+		))
+	}
+
 	panic("not implemented")
 	// return types.RESPONSE_FAILURE
 }

@@ -23,6 +23,8 @@ func Render(path string) string {
 	router.HandleFunc("clients/{id}/consensus_states/{revision_number}/{revision_height}", RenderClientConsensusState)
 	router.HandleFunc("clients/{id}/next_sequence_send", RenderClientNextSequenceSend)
 	router.HandleFunc("clients/{id}/packet_commitments", RenderClientPacketCommitments)
+	router.HandleFunc("clients/{id}/packet_receipts", RenderClientPacketReceipts)
+	router.HandleFunc("clients/{id}/packet_acknowledgements", RenderClientPacketAcknowledgements)
 	return router.Render(path)
 }
 
@@ -113,6 +115,7 @@ func RenderClientNextSequenceSend(w *mux.ResponseWriter, r *mux.Request) {
 	w.Write(ufmt.Sprintf(`{"next_sequence_send": %d}"`, int64(c.sendSeq)+1))
 }
 
+// TODO use common function for RenderClientPacket*
 func RenderClientPacketCommitments(w *mux.ResponseWriter, r *mux.Request) {
 	id := r.GetVar("id")
 	c := store.getClient(id)
@@ -122,6 +125,46 @@ func RenderClientPacketCommitments(w *mux.ResponseWriter, r *mux.Request) {
 	}
 	var nodes []*json.Node
 	c.packetCommitmentsBySeq.Iterate("", "", func(key string, v any) bool {
+		// TODO paginate
+		id, _ := seqid.FromBinary(key)
+		nodes = append(nodes, json.ObjectNode("", map[string]*json.Node{
+			"sequence": json.StringNode("", id.String()),
+			"data":     json.StringNode("", base64.StdEncoding.EncodeToString(v.([]byte))),
+		}))
+		return false
+	})
+	renderNode(w, json.ArrayNode("", nodes))
+}
+
+func RenderClientPacketReceipts(w *mux.ResponseWriter, r *mux.Request) {
+	id := r.GetVar("id")
+	c := store.getClient(id)
+	if c == nil {
+		renderNode(w, nodeErrorClientNotFound(id))
+		return
+	}
+	var nodes []*json.Node
+	c.packetReceiptsBySeq.Iterate("", "", func(key string, v any) bool {
+		// TODO paginate
+		id, _ := seqid.FromBinary(key)
+		nodes = append(nodes, json.ObjectNode("", map[string]*json.Node{
+			"sequence": json.StringNode("", id.String()),
+			"data":     json.StringNode("", base64.StdEncoding.EncodeToString(v.([]byte))),
+		}))
+		return false
+	})
+	renderNode(w, json.ArrayNode("", nodes))
+}
+
+func RenderClientPacketAcknowledgements(w *mux.ResponseWriter, r *mux.Request) {
+	id := r.GetVar("id")
+	c := store.getClient(id)
+	if c == nil {
+		renderNode(w, nodeErrorClientNotFound(id))
+		return
+	}
+	var nodes []*json.Node
+	c.packetAcknowledgementsBySeq.Iterate("", "", func(key string, v any) bool {
 		// TODO paginate
 		id, _ := seqid.FromBinary(key)
 		nodes = append(nodes, json.ObjectNode("", map[string]*json.Node{

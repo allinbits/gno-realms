@@ -10,7 +10,7 @@ import (
 	"gno.land/r/aib/ibc/core"
 )
 
-// Acknowledgement proof height doesn't exist in client's trusted heights.
+// Acknowledgement invalid proof
 func main() {
 	var (
 		chainID        = "chain-id-2"
@@ -63,7 +63,7 @@ func main() {
 				Exist: &ics23.ExistenceProof{},
 			},
 		},
-		ProofHeight: types.NewHeight(2, 1),
+		ProofHeight: trustedHeight,
 	}
 
 	res := core.Acknowledgement(cross, ackPacket)
@@ -72,4 +72,4 @@ func main() {
 }
 
 // Error:
-// failed packet acknowledgement verification for client (07-tendermint-1): please ensure the proof was constructed against a height that exists on the client
+// failed packet acknowledgement verification for client (07-tendermint-1): could not calculate proof root at index 0, merkle tree may be empty. existence Proof needs defined LeafOp
