@@ -92,4 +92,4 @@ func main() {
 }
 
 // Error:
-// client clientID not found
+// invalid Payload #0: payload value cannot be empty
