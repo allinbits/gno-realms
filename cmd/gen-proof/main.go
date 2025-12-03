@@ -22,10 +22,11 @@ import (
 )
 
 func main() {
+	// TODO exist could be set automatically by the presence of the value or not (4th argument)
 	exist := flag.Bool("exist", true, "produce an existence or non-existence proof")
 	flag.Parse()
 
-	if flag.NArg() != 3 {
+	if flag.NArg() < 3 || flag.NArg() > 4 {
 		fmt.Println("Usage: gen-proof -exist=true MERKLE_PREFIX CLIENT_ID TYPE [APP_ACK]")
 		os.Exit(1)
 	}
