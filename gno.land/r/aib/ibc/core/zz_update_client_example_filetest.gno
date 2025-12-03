@@ -95,13 +95,15 @@ func main() {
 				Signatures: []tendermint.CommitSig{
 					{
 						BlockIDFlag:      tendermint.BlockIDFlagCommit,
-						ValidatorAddress: tmtesting.GenAddr("val1"),          // XXX update
-						Signature:        tmtesting.GenSignature("valsign1"), // XXX update
+						ValidatorAddress: tmtesting.GenAddr("val1"),                          // XXX update
+						Signature:        tmtesting.GenSignature("valsign1"),                 // XXX update
+						Timestamp:        tmtesting.ToTime("2025-09-25T07:55:57.306746166Z"), //XXX update
 					},
 					{
 						BlockIDFlag:      tendermint.BlockIDFlagCommit,
-						ValidatorAddress: tmtesting.GenAddr("val2"),          // XXX update
-						Signature:        tmtesting.GenSignature("valsign2"), // XXX update
+						ValidatorAddress: tmtesting.GenAddr("val2"),                          // XXX update
+						Signature:        tmtesting.GenSignature("valsign2"),                 // XXX update
+						Timestamp:        tmtesting.ToTime("2025-09-25T07:55:57.306746166Z"), //XXX update
 					},
 				},
 			},
