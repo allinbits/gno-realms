@@ -71,8 +71,8 @@ func (c *client) setPacketCommitment(sequence uint64, packet types.Packet) {
 	c.packetCommitmentsBySeq.Set(seqid.ID(sequence).Binary(), commitment)
 
 	// store in params, so it is provable by the counterparty
-	// The param key will be:
-	// "vm:gno.land/r/aib/ibc/core:" + clientID + "1" + sequence
+	// The key will be: (abci path=.store/main/key)
+	// "/pv/vm:gno.land/r/aib/ibc/core:" + clientID + "1" + sequence
 	key := host.PacketCommitmentKey(c.id, sequence)
 	// TODO find a way to assert this write in tests (difficult since params does
 	// not expose getters)
@@ -102,8 +102,8 @@ func (c *client) setPacketReceipt(sequence uint64) {
 	c.packetReceiptsBySeq.Set(seqid.ID(sequence).Binary(), value)
 
 	// store in params, so it is provable by the counterparty
-	// The param key will be:
-	// "vm:gno.land/r/aib/ibc/core:" + clientID + "2" + sequence
+	// The key will be: (abci path=.store/main/key)
+	// "/pv/vm:gno.land/r/aib/ibc/core:" + clientID + "2" + sequence
 	key := host.PacketReceiptKey(c.id, sequence)
 	// TODO find a way to assert this write in tests (difficult since params does
 	// not expose getters)
@@ -142,8 +142,8 @@ func (c *client) setPacketAcknowledgement(sequence uint64, ackHash []byte) {
 	c.packetAcknowledgementsBySeq.Set(seqid.ID(sequence).Binary(), ackHash)
 
 	// store in params, so it is provable by the counterparty
-	// The param key will be:
-	// "vm:gno.land/r/aib/ibc/core:" + clientID + "2" + sequence
+	// The key will be: (abci path=.store/main/key)
+	// "/pv/vm:gno.land/r/aib/ibc/core:" + clientID + "3" + sequence
 	key := host.PacketAcknowledgementKey(c.id, sequence)
 	// TODO find a way to assert this write in tests (difficult since params does
 	// not expose getters)
