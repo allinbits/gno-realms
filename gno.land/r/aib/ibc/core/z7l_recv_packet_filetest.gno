@@ -31,6 +31,10 @@ func main() {
 		app       = appstesting.NewApp(cross)
 		appPortID = "appID"
 	)
+	app.SetOnRecvPacketReturn(types.RecvPacketResult{
+		Status:          types.PacketStatus_Success,
+		Acknowledgement: []byte{},
+	})
 	core.RegisterApp(cross, appPortID, app)
 
 	// Receive the packet

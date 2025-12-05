@@ -179,7 +179,7 @@ func RecvPacket(cur realm, msg types.MsgRecvPacket) types.ResponseResultType {
 	for i, payload := range msg.Packet.Payloads {
 		app := store.route(payload.DestinationPort)
 		res := app.OnRecvPacket(
-			cross, msg.Packet.SourceClient, c.counterpartyClientID,
+			cross, msg.Packet.SourceClient, msg.Packet.DestinationClient,
 			msg.Packet.Sequence, payload,
 		)
 		if res.Status == types.PacketStatus_Failure {
@@ -313,7 +313,7 @@ func Acknowledgement(cur realm, msg types.MsgAcknowledgement) types.ResponseResu
 			ack = types.UniversalErrorAcknowledgement()
 		}
 		err := app.OnAcknowledgementPacket(
-			cross, msg.Packet.SourceClient, c.counterpartyClientID,
+			cross, msg.Packet.SourceClient, msg.Packet.DestinationClient,
 			msg.Packet.Sequence, ack, payload,
 		)
 		if err != nil {
@@ -404,7 +404,7 @@ func Timeout(cur realm, msg types.MsgTimeout) types.ResponseResultType {
 	for i, payload := range msg.Packet.Payloads {
 		app := store.route(payload.SourcePort)
 		err := app.OnTimeoutPacket(
-			cross, msg.Packet.SourceClient, c.counterpartyClientID,
+			cross, msg.Packet.SourceClient, msg.Packet.DestinationClient,
 			msg.Packet.Sequence, payload,
 		)
 		if err != nil {

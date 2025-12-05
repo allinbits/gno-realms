@@ -87,7 +87,14 @@ func (a *App) OnRecvPacket(
 			Sequence:          sequence,
 			Payload:           payload,
 		})
-	return a.Calls.OnRecvPacketReturn
+	// NOTE return a copy of the result to avoid annoying gno errors like
+	// "illegal conversion of readonly or externally stored value"
+	res := types.RecvPacketResult{
+		Status:          a.Calls.OnRecvPacketReturn.Status,
+		Acknowledgement: make([]byte, len(a.Calls.OnRecvPacketReturn.Acknowledgement)),
+	}
+	copy(res.Acknowledgement, a.Calls.OnRecvPacketReturn.Acknowledgement)
+	return res
 }
 
 func (a *App) SetOnRecvPacketReturn(res types.RecvPacketResult) {
