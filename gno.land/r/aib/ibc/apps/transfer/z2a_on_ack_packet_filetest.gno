@@ -25,8 +25,8 @@ func main() {
 		clientState   = tmtesting.NewClientState(chainID, trustedHeight)
 		// NOTE this apphash was provided by the gen-proof command below.
 		apphash, _     = hex.DecodeString("6f64efa36d97452b4555efc37596b7fc36ca80dff8a1784ca8fbf45a102e8e27")
-		valset         = tmtesting.GenValset()
-		consensusState = tmtesting.GenConsensusState(time.Now(), apphash, valset.Hash())
+		trustedValset  = tmtesting.GenValset()
+		consensusState = tmtesting.GenConsensusState(time.Now(), apphash, trustedValset.Hash())
 		counterpartyID = "07-tendermint-42"
 	)
 	clientID := core.CreateClient(cross, clientState, consensusState)
@@ -39,7 +39,6 @@ func main() {
 		Sender:   signer.String(),
 		Receiver: "atone1user",
 	}
-	payloadBz := payload.ProtoMarshal()
 	sendPacket := types.MsgSendPacket{
 		SourceClient:     clientID,
 		TimeoutTimestamp: uint64(time.Now().Add(time.Hour).Unix()),
@@ -48,7 +47,7 @@ func main() {
 				SourcePort:      transfer.PortID,
 				DestinationPort: transfer.PortID,
 				Encoding:        transfer.EncodingProtobuf,
-				Value:           payloadBz,
+				Value:           payload.ProtoMarshal(),
 				Version:         transfer.V1,
 			},
 		},

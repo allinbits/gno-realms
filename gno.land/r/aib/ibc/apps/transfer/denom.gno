@@ -68,6 +68,16 @@ func (d Denom) Path() string {
 	return sb.String()
 }
 
+// HasPrefix returns true if the first element of the trace of the denom
+// matches the provided portId and clientId.
+func (d Denom) HasPrefix(portID, clientID string) bool {
+	// if the denom is native, then it is not prefixed by any port/channel pair
+	if d.IsNative() {
+		return false
+	}
+	return d.Trace[0].PortId == portID && d.Trace[0].ClientId == clientID
+}
+
 // Hash returns the hex bytes of the SHA256 hash of the Denom fields using the
 // following formula:
 //
@@ -87,6 +97,11 @@ func (d Denom) IBCDenom() string {
 
 	return ufmt.Sprintf("%s/%s", denomPrefix,
 		strings.ToUpper(hex.EncodeToString(d.Hash())))
+}
+
+func (d Denom) MarshalJSON() []byte {
+	// TODO
+	return []byte("TODO")
 }
 
 // ExtractDenomFromPath returns the denom from the full path.
@@ -139,8 +154,8 @@ type Hop struct {
 }
 
 // NewHop creates a Hop with the given port ID and channel ID.
-func NewHop(portID, channelID string) Hop {
-	return Hop{portID, channelID}
+func NewHop(portID, clientID string) Hop {
+	return Hop{portID, clientID}
 }
 
 // ValidateBasic performs a basic validation of the Hop fields.

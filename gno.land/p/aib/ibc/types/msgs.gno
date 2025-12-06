@@ -111,8 +111,25 @@ func NewErrorAppAcknowledgement() AppAcknowledgement {
 	return AppAcknowledgement{Response: AppAcknowledgementResponse{Error: "error"}}
 }
 
+func NewResultAppAcknowledgement(result []byte) AppAcknowledgement {
+	return AppAcknowledgement{
+		Response: AppAcknowledgementResponse{
+			Result: result,
+		},
+	}
+}
+
 func (a AppAcknowledgement) Success() bool {
 	return a.Response.Error == ""
+}
+
+func (a *AppAcknowledgement) MarshalJSON() []byte {
+	// TODO handle when error is filled
+	node := json.ObjectNode("", map[string]*json.Node{
+		"result": json.StringNode("result", "bar"),
+	})
+	bz, _ := json.Marshal(node)
+	return bz
 }
 
 func (a *AppAcknowledgement) UnmarshalJSON(bz []byte) error {

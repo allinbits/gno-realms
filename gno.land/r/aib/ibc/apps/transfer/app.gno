@@ -5,6 +5,7 @@ import (
 	"chain"
 	"chain/banker"
 	"chain/runtime"
+	"strconv"
 	"strings"
 
 	"gno.land/p/aib/ibc/app"
@@ -101,7 +102,114 @@ func (a *App) OnRecvPacket(
 	sequence uint64,
 	payload types.Payload,
 ) types.RecvPacketResult {
-	panic("transfer.OnRecvPacket not implemented")
+	// TODO add parameter to disable the app
+	// TODO add parameter to block receiver addr
+
+	// Enforce that the source and destination portIDs are the same and equal to
+	// the transfer portID.
+	// Enforce that the source and destination clientIDs are also in the clientID
+	// format that transfer expects: {clientid}-{sequence}.
+	// This is necessary for IBC v2 since the portIDs (and thus the
+	// application-application connection) is not prenegotiated by the channel
+	// handshake.
+	// This restriction can be removed in a future where the trace hop on receive
+	// commits to **both** the source and destination portIDs rather than just
+	// the destination port.
+	if payload.SourcePort != PortID || payload.DestinationPort != PortID {
+		return types.RecvPacketResult{Status: types.PacketStatus_Failure}
+	}
+	if !types.IsValidClientID(sourceClient) || !types.IsValidClientID(destinationClient) {
+		return types.RecvPacketResult{Status: types.PacketStatus_Failure}
+	}
+	if payload.Version != V1 {
+		return types.RecvPacketResult{Status: types.PacketStatus_Failure}
+	}
+	if payload.Encoding != EncodingProtobuf {
+		return types.RecvPacketResult{Status: types.PacketStatus_Failure}
+	}
+
+	var (
+		data       FungibleTokenPacketData
+		token      Token
+		ackErr     error
+		ack        = types.NewResultAppAcknowledgement([]byte{byte(1)})
+		recvResult = types.RecvPacketResult{
+			Status:          types.PacketStatus_Success,
+			Acknowledgement: ack.MarshalJSON(),
+		}
+	)
+	// we are explicitly wrapping this emit event call in an anonymous function
+	// so that the packet data is evaluated after it has been assigned a value.
+	defer func() {
+		attrs := []string{
+			AttributeKeySender, data.Sender,
+			AttributeKeyReceiver, data.Receiver,
+			AttributeKeyDenom, token.Denom.Path(),
+			AttributeKeyAmount, token.Amount,
+			AttributeKeyMemo, data.Memo,
+			AttributeKeyAckSuccess, strconv.FormatBool(ack.Success()),
+		}
+		if ackErr != nil {
+			attrs = append(attrs,
+				[]string{AttributeKeyAckError, ackErr.Error()}...,
+			)
+		}
+		chain.Emit(EventTypeTransfer, attrs...)
+	}()
+
+	data, token, ackErr = unmarshalPayload(payload.Value)
+	if ackErr != nil {
+		return types.RecvPacketResult{Status: types.PacketStatus_Failure}
+	}
+	// This is the prefix that would have been prefixed to the denomination
+	// on sender chain IF and only if the token originally came from the
+	// receiving chain.
+	//
+	// NOTE: We use SourcePort and SourceChannel here, because the counterparty
+	// chain would have prefixed with DestPort and DestChannel when originally
+	// receiving this token.
+	if token.Denom.HasPrefix(payload.SourcePort, sourceClient) {
+		panic("TODO handle when token is an IBC denom")
+	} else {
+		// sender chain is the source, mint vouchers
+
+		// since SendPacket did not prefix the denomination, we must add the destination port and channel to the trace
+		trace := []Hop{NewHop(payload.DestinationPort, destinationClient)}
+		token.Denom.Trace = append(trace, token.Denom.Trace...)
+
+		// TODO store denom
+		// if !k.HasDenom(ctx, token.Denom.Hash()) {
+		// k.SetDenom(ctx, token.Denom)
+		// }
+		voucherDenom := token.Denom.IBCDenom()
+		// TODO store denom metata
+		// if !k.BankKeeper.HasDenomMetaData(ctx, voucherDenom) {
+		// k.SetDenomMetadata(ctx, token.Denom)
+		// }
+
+		chain.Emit(EventTypeDenom,
+			AttributeKeyDenomHash, string(token.Denom.Hash()),
+			AttributeKeyDenom, string(token.Denom.MarshalJSON()),
+		)
+
+		// mint new tokens if the source of the transfer is the same chain
+		banker := banker.NewBanker(banker.BankerTypeRealmIssue)
+		realmAddr := runtime.CurrentRealm().Address()
+		var amount int64
+		amount, ackErr = strconv.ParseInt(token.Amount, 10, 64)
+		if ackErr != nil {
+			return types.RecvPacketResult{Status: types.PacketStatus_Failure}
+		}
+		banker.IssueCoin(realmAddr, voucherDenom, amount)
+
+		// send to receiver
+		banker.SendCoins(realmAddr, address(data.Receiver), chain.Coins{{
+			Denom:  voucherDenom,
+			Amount: amount,
+		}})
+	}
+
+	return recvResult
 }
 
 // OnAcknowledgementPacket responds to the success or failure of a packet
