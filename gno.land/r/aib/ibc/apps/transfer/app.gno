@@ -154,7 +154,7 @@ func (a *App) OnRecvPacket(
 				[]string{AttributeKeyAckError, ackErr.Error()}...,
 			)
 		}
-		chain.Emit(EventTypeTransfer, attrs...)
+		chain.Emit(EventTypePacket, attrs...)
 	}()
 
 	data, token, ackErr = unmarshalPayload(payload.Value)
