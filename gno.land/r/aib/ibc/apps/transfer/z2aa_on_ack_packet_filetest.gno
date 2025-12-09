@@ -287,7 +287,7 @@ func main() {
 //     "attrs": [
 //       {
 //         "key": "error",
-//         "value": "error"
+//         "value": "receive packet failed"
 //       }
 //     ],
 //     "pkg_path": "gno.land/r/aib/ibc/apps/transfer"

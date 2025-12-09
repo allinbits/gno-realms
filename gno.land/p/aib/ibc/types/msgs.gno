@@ -107,8 +107,8 @@ type AppAcknowledgementResponse struct {
 	Error  string
 }
 
-func NewErrorAppAcknowledgement() AppAcknowledgement {
-	return AppAcknowledgement{Response: AppAcknowledgementResponse{Error: "error"}}
+func NewErrorAppAcknowledgement(err error) AppAcknowledgement {
+	return AppAcknowledgement{Response: AppAcknowledgementResponse{Error: err.Error()}}
 }
 
 func NewResultAppAcknowledgement(result []byte) AppAcknowledgement {

@@ -6,6 +6,7 @@ import (
 	"chain/banker"
 	"chain/runtime"
 	"encoding/hex"
+	"errors"
 	"strconv"
 	"strings"
 
@@ -160,6 +161,7 @@ func (a *App) OnRecvPacket(
 
 	data, token, ackErr = unmarshalPayload(payload.Value)
 	if ackErr != nil {
+		ack = types.NewErrorAppAcknowledgement(ackErr)
 		return types.RecvPacketResult{Status: types.PacketStatus_Failure}
 	}
 	// This is the prefix that would have been prefixed to the denomination
@@ -194,6 +196,7 @@ func (a *App) OnRecvPacket(
 		var amount int64
 		amount, ackErr = strconv.ParseInt(token.Amount, 10, 64)
 		if ackErr != nil {
+			ack = types.NewErrorAppAcknowledgement(ackErr)
 			return types.RecvPacketResult{Status: types.PacketStatus_Failure}
 		}
 		banker.IssueCoin(realmAddr, voucherDenom, amount)
@@ -223,10 +226,11 @@ func (a *App) OnAcknowledgementPacket(
 	payload types.Payload,
 ) error {
 	var ack types.AppAcknowledgement
-	// construct an error acknowledgement if the acknowledgement bytes are the sentinel error acknowledgement so we can use the shared transfer logic
+	// Construct an error acknowledgement if the acknowledgement bytes are the
+	// sentinel error acknowledgement so we can use the shared transfer logic
 	if bytes.Equal(acknowledgement, types.UniversalErrorAcknowledgement()) {
 		// the specific error does not matter
-		ack = types.NewErrorAppAcknowledgement()
+		ack = types.NewErrorAppAcknowledgement(errors.New("receive packet failed"))
 	} else {
 		if err := ack.UnmarshalJSON(acknowledgement); err != nil {
 			return ufmt.Errorf("cannot unmarshal ICS-20 transfer packet acknowledgement: %v", err)
