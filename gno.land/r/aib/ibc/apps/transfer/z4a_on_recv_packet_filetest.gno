@@ -121,9 +121,145 @@ func main() {
 
 	println("\nack res:", res)
 	println("\nreceiver balance after RecvPacket:", banker.GetCoins(receiver))
+	println("\n----------- assert render /denoms")
+	println(transfer.Render("denoms"))
+	println("\n----------- assert render /denoms/ibc/CAEF9CA8CE6C302D73A831A49E34E59149D3A9AD96CCEBDFBF62F6D5710D92D8")
+	println(transfer.Render("denoms/ibc/CAEF9CA8CE6C302D73A831A49E34E59149D3A9AD96CCEBDFBF62F6D5710D92D8"))
 }
 
 // Output:
 // Payload proto: Cgd1cGhvdG9uEgMxMDAaCmF0b25lMXVzZXIiKGcxd2Zqa3hldGZ3ZWpoeWg2bHRhMDQ3aDZsdGEwNDdoNmxsbTgyeWw=
+//
 // receiver balance before RecvPacket:
-// receiver balance after RecvPacket:
+//
+// ack res: (2 gno.land/p/aib/ibc/types.ResponseResultType)
+//
+// receiver balance after RecvPacket: 100ibc/CAEF9CA8CE6C302D73A831A49E34E59149D3A9AD96CCEBDFBF62F6D5710D92D8
+//
+// ----------- assert render /denoms
+// [{"base":"ibc/CAEF9CA8CE6C302D73A831A49E34E59149D3A9AD96CCEBDFBF62F6D5710D92D8","display":"transfer/07-tendermint-1/uphoton","symbol":"UPHOTON","description":"IBC token from transfer/07-tendermint-1/uphoton"}]
+//
+// ----------- assert render /denoms/ibc/CAEF9CA8CE6C302D73A831A49E34E59149D3A9AD96CCEBDFBF62F6D5710D92D8
+// {"base":"ibc/CAEF9CA8CE6C302D73A831A49E34E59149D3A9AD96CCEBDFBF62F6D5710D92D8","display":"transfer/07-tendermint-1/uphoton","symbol":"UPHOTON","description":"IBC token from transfer/07-tendermint-1/uphoton"}
+
+// Events:
+// [
+//   {
+//     "type": "create_client",
+//     "attrs": [
+//       {
+//         "key": "client_id",
+//         "value": "07-tendermint-1"
+//       },
+//       {
+//         "key": "client_type",
+//         "value": "07-tendermint"
+//       },
+//       {
+//         "key": "consensus_heights",
+//         "value": "2/2"
+//       }
+//     ],
+//     "pkg_path": "gno.land/r/aib/ibc/core"
+//   },
+//   {
+//     "type": "recv_packet",
+//     "attrs": [
+//       {
+//         "key": "packet_source_client",
+//         "value": "07-tendermint-42"
+//       },
+//       {
+//         "key": "packet_dest_client",
+//         "value": "07-tendermint-1"
+//       },
+//       {
+//         "key": "packet_sequence",
+//         "value": "1"
+//       },
+//       {
+//         "key": "packet_timeout_timestamp",
+//         "value": "1234571490"
+//       },
+//       {
+//         "key": "encoded_packet_hex",
+//         "value": "0801121030372d74656e6465726d696e742d34321a0f30372d74656e6465726d696e742d3120e2a1d8cc042a7b0a087472616e7366657212087472616e736665721a0769637332302d3122166170706c69636174696f6e2f782d70726f746f6275662a440a077570686f746f6e12033130301a0a61746f6e6531757365722228673177666a6b7865746677656a687968366c746130343768366c746130343768366c6c6d3832796c"
+//       }
+//     ],
+//     "pkg_path": "gno.land/r/aib/ibc/core"
+//   },
+//   {
+//     "type": "denomination",
+//     "attrs": [
+//       {
+//         "key": "denom_hash",
+//         "value": "caef9ca8ce6c302d73a831a49e34e59149d3a9ad96ccebdfbf62f6d5710d92d8"
+//       },
+//       {
+//         "key": "denom",
+//         "value": "TODO"
+//       }
+//     ],
+//     "pkg_path": "gno.land/r/aib/ibc/apps/transfer"
+//   },
+//   {
+//     "type": "fungible_token_packet",
+//     "attrs": [
+//       {
+//         "key": "sender",
+//         "value": "atone1user"
+//       },
+//       {
+//         "key": "receiver",
+//         "value": "g1wfjkxetfwejhyh6lta047h6lta047h6llm82yl"
+//       },
+//       {
+//         "key": "denom",
+//         "value": "transfer/07-tendermint-1/uphoton"
+//       },
+//       {
+//         "key": "amount",
+//         "value": "100"
+//       },
+//       {
+//         "key": "memo",
+//         "value": ""
+//       },
+//       {
+//         "key": "success",
+//         "value": "true"
+//       }
+//     ],
+//     "pkg_path": "gno.land/r/aib/ibc/apps/transfer"
+//   },
+//   {
+//     "type": "acknowledge_packet",
+//     "attrs": [
+//       {
+//         "key": "packet_source_client",
+//         "value": "07-tendermint-42"
+//       },
+//       {
+//         "key": "packet_dest_client",
+//         "value": "07-tendermint-1"
+//       },
+//       {
+//         "key": "packet_sequence",
+//         "value": "1"
+//       },
+//       {
+//         "key": "packet_timeout_timestamp",
+//         "value": "1234571490"
+//       },
+//       {
+//         "key": "encoded_packet_hex",
+//         "value": "0801121030372d74656e6465726d696e742d34321a0f30372d74656e6465726d696e742d3120e2a1d8cc042a7b0a087472616e7366657212087472616e736665721a0769637332302d3122166170706c69636174696f6e2f782d70726f746f6275662a440a077570686f746f6e12033130301a0a61746f6e6531757365722228673177666a6b7865746677656a687968366c746130343768366c746130343768366c6c6d3832796c"
+//       },
+//       {
+//         "key": "encoded_acknowledgement_hex",
+//         "value": "0a107b22726573756c74223a22626172227d"
+//       }
+//     ],
+//     "pkg_path": "gno.land/r/aib/ibc/core"
+//   }
+// ]

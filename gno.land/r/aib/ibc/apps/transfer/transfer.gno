@@ -52,7 +52,3 @@ func unescrowCoin(sender string, token Token) error {
 
 	return nil
 }
-
-func Render(_ string) string {
-	return "hello transfer app"
-}

@@ -5,6 +5,7 @@ import (
 	"chain"
 	"chain/banker"
 	"chain/runtime"
+	"encoding/hex"
 	"strconv"
 	"strings"
 
@@ -177,18 +178,13 @@ func (a *App) OnRecvPacket(
 		trace := []Hop{NewHop(payload.DestinationPort, destinationClient)}
 		token.Denom.Trace = append(trace, token.Denom.Trace...)
 
-		// TODO store denom
-		// if !k.HasDenom(ctx, token.Denom.Hash()) {
-		// k.SetDenom(ctx, token.Denom)
-		// }
 		voucherDenom := token.Denom.IBCDenom()
-		// TODO store denom metata
-		// if !k.BankKeeper.HasDenomMetaData(ctx, voucherDenom) {
-		// k.SetDenomMetadata(ctx, token.Denom)
-		// }
+		if !hasDenomMetadata(voucherDenom) {
+			setDenomMetadata(voucherDenom, token.Denom)
+		}
 
 		chain.Emit(EventTypeDenom,
-			AttributeKeyDenomHash, string(token.Denom.Hash()),
+			AttributeKeyDenomHash, hex.EncodeToString(token.Denom.Hash()),
 			AttributeKeyDenom, string(token.Denom.MarshalJSON()),
 		)
 
