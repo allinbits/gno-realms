@@ -8,6 +8,7 @@ import (
 	"gno.land/p/aib/ibc/lightclient"
 	"gno.land/p/aib/ibc/lightclient/tendermint"
 	"gno.land/p/aib/ibc/types"
+	"gno.land/p/aib/jsonpage"
 	"gno.land/p/nt/avl"
 	"gno.land/p/nt/mux"
 	"gno.land/p/nt/seqid"
@@ -48,14 +49,7 @@ func RenderApps(w *mux.ResponseWriter, r *mux.Request) {
 }
 
 func RenderClients(w *mux.ResponseWriter, r *mux.Request) {
-	var nodes []*json.Node
-	store.clientByID.Iterate("", "", func(_ string, v any) bool {
-		// TODO paginate
-		c := v.(*client)
-		nodes = append(nodes, c.Render())
-		return false
-	})
-	renderNode(w, json.ArrayNode("", nodes))
+	renderNode(w, jsonpage.Render(store.clientByID, r, nil))
 }
 
 func RenderClient(w *mux.ResponseWriter, r *mux.Request) {
@@ -65,7 +59,7 @@ func RenderClient(w *mux.ResponseWriter, r *mux.Request) {
 		renderNode(w, nodeErrorClientNotFound(id))
 		return
 	}
-	renderNode(w, c.Render())
+	renderNode(w, c.RenderJSON())
 }
 
 func RenderClientConsensusStates(w *mux.ResponseWriter, r *mux.Request) {
@@ -75,7 +69,7 @@ func RenderClientConsensusStates(w *mux.ResponseWriter, r *mux.Request) {
 		renderNode(w, nodeErrorClientNotFound(id))
 		return
 	}
-	renderNode(w, c.RenderConsensusStates())
+	renderNode(w, c.RenderConsensusStates(r))
 }
 
 func RenderClientConsensusState(w *mux.ResponseWriter, r *mux.Request) {
@@ -161,7 +155,8 @@ func renderCommitments(w *mux.ResponseWriter, tree *avl.Tree) {
 	renderNode(w, json.ArrayNode("", nodes))
 }
 
-func (c *client) Render() *json.Node {
+// Implements jsonpage.JSONRenderer
+func (c *client) RenderJSON() *json.Node {
 	m := map[string]*json.Node{
 		"id":                     json.StringNode("", c.id),
 		"type":                   json.StringNode("", c.typ),
@@ -192,22 +187,18 @@ func (c *client) Render() *json.Node {
 			m["last_consensus_state"] = renderConsensusState(lc.LatestHeight(), lastConsState)
 		}
 	}
-
 	return json.ObjectNode("", m)
 }
 
-func (c *client) RenderConsensusStates() *json.Node {
+func (c *client) RenderConsensusStates(r *mux.Request) *json.Node {
 	switch c.typ {
 	case lightclient.Tendermint:
 		lc := c.lightClient.(*tendermint.TMLightClient)
-		var nodes []*json.Node
-		lc.ConsensusStateByHeight.Iterate("", "", func(key string, v any) bool {
+		return jsonpage.Render(lc.ConsensusStateByHeight, r, func(k string, v any) *json.Node {
 			cs := v.(*tendermint.ConsensusState)
-			height, _ := types.ParseHeight(key)
-			nodes = append(nodes, renderConsensusState(height, cs))
-			return false
+			height, _ := types.ParseHeight(k)
+			return renderConsensusState(height, cs)
 		})
-		return json.ArrayNode("", nodes)
 	}
 	return nodeError("unhandled client type %s", c.typ)
 }
