@@ -217,7 +217,7 @@ func RecvPacket(cur realm, msg types.MsgRecvPacket) types.ResponseResultType {
 	c.setPacketAcknowledgement(msg.Packet.Sequence, types.CommitAcknowledgement(ack))
 
 	// Emit other events related to the ack
-	chain.Emit(types.EventTypeAcknowledgePacket,
+	chain.Emit(types.EventTypeWriteAck,
 		types.AttributeKeySrcClient, msg.Packet.SourceClient,
 		types.AttributeKeyDstClient, msg.Packet.DestinationClient,
 		types.AttributeKeySequence, ufmt.Sprintf("%d", msg.Packet.Sequence),

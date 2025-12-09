@@ -222,7 +222,7 @@ func main() {
 //     "pkg_path": "gno.land/r/aib/ibc/core"
 //   },
 //   {
-//     "type": "acknowledge_packet",
+//     "type": "write_acknowledgement",
 //     "attrs": [
 //       {
 //         "key": "packet_source_client",
