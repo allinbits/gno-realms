@@ -3,6 +3,7 @@ package core
 import (
 	"encoding/base64"
 	"strconv"
+	"strings"
 	"time"
 
 	"gno.land/p/aib/ibc/lightclient"
@@ -27,6 +28,7 @@ func Render(path string) string {
 	router.HandleFunc("clients/{id}/packet_commitments", RenderClientPacketCommitments)
 	router.HandleFunc("clients/{id}/packet_receipts", RenderClientPacketReceipts)
 	router.HandleFunc("clients/{id}/packet_acknowledgements", RenderClientPacketAcknowledgements)
+	router.HandleFunc("clients/{id}/unreceived_packets", RenderClientUnreceivedPackets)
 	return router.Render(path)
 }
 
@@ -145,6 +147,35 @@ func RenderClientPacketAcknowledgements(w *mux.ResponseWriter, r *mux.Request) {
 		return
 	}
 	renderCommitments(w, c.packetAcknowledgementsBySeq)
+}
+
+// RenderClientUnreceivedPackets returns, given a list of sequences, the
+// sequences for which no counterparty packet commitments have been received.
+// This is done by checking if a receipt exists on this chain for the packet
+// sequence.
+func RenderClientUnreceivedPackets(w *mux.ResponseWriter, r *mux.Request) {
+	id := r.GetVar("id")
+	c := store.getClient(id)
+	if c == nil {
+		renderNode(w, nodeErrorClientNotFound(id))
+		return
+	}
+	seqs := strings.Split(strings.TrimSpace(r.Query.Get("sequences")), ",")
+	var unreceivedSeqs []*json.Node
+	for _, seq := range seqs {
+		seqi, err := strconv.ParseUint(seq, 10, 64)
+		if err != nil {
+			renderNode(w, nodeError(ufmt.Sprintf("invalid sequence %q: %v", seq, err)))
+			return
+		}
+		if !c.hasPacketReceipt(seqi) {
+			unreceivedSeqs = append(unreceivedSeqs, json.StringNode("", seq))
+		}
+	}
+	renderNode(w, json.ObjectNode("", map[string]*json.Node{
+		"height":               renderHeight(types.GetSelfHeight()),
+		"unreceived_sequences": json.ArrayNode("", unreceivedSeqs),
+	}))
 }
 
 func renderCommitments(w *mux.ResponseWriter, tree *avl.Tree) {

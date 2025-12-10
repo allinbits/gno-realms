@@ -128,6 +128,9 @@ func main() {
 	println("res:", res)
 	println("\n----------- app report")
 	println(app.Report())
+
+	println("\n----------- assert render clients/07-tendermint-1/unreceived_packets")
+	println(core.Render("clients/" + clientID + "/unreceived_packets?sequences=1,2,3"))
 }
 
 // Output:
@@ -174,6 +177,10 @@ func main() {
 //
 // OnTimeoutPacket (0)
 // OnAcknowledgementPacket (0)
+//
+//
+// ----------- assert render clients/07-tendermint-1/unreceived_packets
+// {"height":{"revision_number":0,"revision_height":123},"unreceived_sequences":["2","3"]}
 
 // Events:
 // [
