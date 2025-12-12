@@ -24,6 +24,7 @@ func refundPacketToken(sourcePort, sourceClient, sender string, token Token) err
 		banker := banker.NewBanker(banker.BankerTypeRealmIssue)
 		banker.IssueCoin(from, coin.Denom, coin.Amount)
 		banker.SendCoins(from, to, amount)
+		// TODO track in store ?
 	} else {
 		if err := unescrowCoin(sender, coin); err != nil {
 			return err

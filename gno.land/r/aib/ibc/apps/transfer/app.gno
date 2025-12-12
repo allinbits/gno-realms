@@ -205,7 +205,25 @@ func (a *App) OnRecvPacket(
 	// chain would have prefixed with DestPort and DestClient when originally
 	// receiving this token.
 	if token.Denom.HasPrefix(payload.SourcePort, sourceClient) {
-		panic("TODO handle when token is an IBC denom")
+		// sender chain is not the source, unescrow tokens
+
+		// remove prefix added by sender chain
+		token.Denom.Trace = token.Denom.Trace[1:]
+		var transferAmount int64
+		transferAmount, ackErr = token.AmountInt64()
+		if ackErr != nil {
+			ack = types.NewErrorAppAcknowledgement(ackErr)
+			return types.RecvPacketResult{Status: types.PacketStatus_Failure}
+		}
+
+		coin := chain.NewCoin(token.Denom.IBCDenom(), transferAmount)
+
+		ackErr = unescrowCoin(data.Receiver, coin)
+		if ackErr != nil {
+			ack = types.NewErrorAppAcknowledgement(ackErr)
+			return types.RecvPacketResult{Status: types.PacketStatus_Failure}
+		}
+
 	} else {
 		// sender chain is the source, mint vouchers
 
