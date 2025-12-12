@@ -81,6 +81,23 @@ func (a *App) OnSendPacket(
 		return ufmt.Errorf("invalid FungibleTokenPacketData: sender %s is different from signer %s", data.Sender, signer)
 	}
 
+	// TODO review comment: maybe not relevant in a pure IBCv2 impl.
+	//
+	// Enforce that the base denom does not contain any slashes
+	// Since IBC v2 packets will no longer have channel identifiers, we cannot
+	// rely on the channel format to easily divide the trace from the base
+	// denomination in ICS20 v1 packets.
+	// The simplest way to prevent any potential issues from arising is to simply
+	// disallow any slashes in the base denomination.
+	// This prevents such denominations from being sent with IBCV v2 packets,
+	// however we can still support them in IBC v1 packets.
+	// If we enforce that IBC v2 packets are sent with ICS20 v2 and above
+	// versions that separate the trace from the base denomination in the packet
+	// data, then we can remove this restriction.
+	if strings.Contains(token.Denom.Base, "/") {
+		return ufmt.Errorf("base denomination %s cannot contain slashes for IBC v2 packet", token.Denom.Base)
+	}
+
 	if err := escrowCoin(banker, token); err != nil {
 		return err
 	}
@@ -312,23 +329,7 @@ func unmarshalPayload(bz []byte) (FungibleTokenPacketData, Token, error) {
 	if err := data.ValidateBasic(); err != nil {
 		return data, Token{}, ufmt.Errorf("invalid FungibleTokenPacketData: %v", err)
 	}
-	// TODO review comment: maybe not relevant in a pure IBCv2 impl.
-	//
-	// Enforce that the base denom does not contain any slashes
-	// Since IBC v2 packets will no longer have channel identifiers, we cannot
-	// rely on the channel format to easily divide the trace from the base
-	// denomination in ICS20 v1 packets.
-	// The simplest way to prevent any potential issues from arising is to simply
-	// disallow any slashes in the base denomination.
-	// This prevents such denominations from being sent with IBCV v2 packets,
-	// however we can still support them in IBC v1 packets.
-	// If we enforce that IBC v2 packets are sent with ICS20 v2 and above
-	// versions that separate the trace from the base denomination in the packet
-	// data, then we can remove this restriction.
 	denom := ExtractDenomFromPath(data.Denom)
-	if strings.Contains(denom.Base, "/") {
-		return data, Token{}, ufmt.Errorf("base denomination %s cannot contain slashes for IBC v2 packet", denom.Base)
-	}
 	token := Token{Denom: denom, Amount: data.Amount}
 	return data, token, nil
 }
