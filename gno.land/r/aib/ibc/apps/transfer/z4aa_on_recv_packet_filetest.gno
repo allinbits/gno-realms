@@ -49,7 +49,7 @@ func main() {
 		Receiver: receiver.String(),
 	}
 	payloadBz := payload.ProtoMarshal()
-	// TODO this base64 value is used in payload.value in the gen-proof command below.
+	// NOTE this base64 value is used in payload.value in the gen-proof command below.
 	println("Payload proto:", base64.StdEncoding.EncodeToString(payloadBz))
 
 	// Generate the proof of existence of the packet commitment for the
