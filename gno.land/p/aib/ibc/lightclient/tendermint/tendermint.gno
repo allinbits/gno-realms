@@ -13,7 +13,13 @@ import (
 
 type TMLightClient struct {
 	ClientState            *ClientState
-	ConsensusStateByHeight avl.Tree // key: height, value: *ConsensusState
+	ConsensusStateByHeight *avl.Tree // height:*ConsensusState
+}
+
+func NewTMLightClient() *TMLightClient {
+	return &TMLightClient{
+		ConsensusStateByHeight: avl.NewTree(),
+	}
 }
 
 var _ lightclient.Interface = (*TMLightClient)(nil)

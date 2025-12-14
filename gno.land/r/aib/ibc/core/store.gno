@@ -172,7 +172,7 @@ func (cs *Store) addClient(typ string, creator address) *client {
 	}
 	switch typ {
 	case lightclient.Tendermint:
-		c.lightClient = &tendermint.TMLightClient{}
+		c.lightClient = tendermint.NewTMLightClient()
 	default:
 		panic("unhandled light client type " + typ)
 	}

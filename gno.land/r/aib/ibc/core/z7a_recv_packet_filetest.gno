@@ -137,10 +137,10 @@ func main() {
 // res: (2 gno.land/p/aib/ibc/types.ResponseResultType)
 //
 // ----------- assert render clients/07-tendermint-1/packet_receipts
-// [{"sequence":"1","data":"Ag=="}]
+// {"items":[{"sequence":"1","data":"Ag=="}],"page":1,"total":1}
 //
 // ----------- assert render clients/07-tendermint-1/packet_acknowledgements
-// [{"sequence":"1","data":"1VweDPBIAzwFFDq7yxEn1x+nFqDTbfioZ8D2GCwn5EU="}]
+// {"items":[{"sequence":"1","data":"1VweDPBIAzwFFDq7yxEn1x+nFqDTbfioZ8D2GCwn5EU="}],"page":1,"total":1}
 //
 // ----------- app report
 // balance:

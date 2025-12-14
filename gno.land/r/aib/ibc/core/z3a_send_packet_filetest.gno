@@ -120,7 +120,7 @@ func main() {
 // returned sequence: 2
 // next sequence: {"next_sequence_send": 3}"
 // ----------- assert render clients/07-tendermint-1/packet_commitments
-// [{"sequence":"1","data":"IrnGu6pyeXzbWlH2gsUv6cZlxEZjTGa5OfMKACFYs4E="},{"sequence":"2","data":"IrnGu6pyeXzbWlH2gsUv6cZlxEZjTGa5OfMKACFYs4E="}]
+// {"items":[{"sequence":"1","data":"IrnGu6pyeXzbWlH2gsUv6cZlxEZjTGa5OfMKACFYs4E="},{"sequence":"2","data":"IrnGu6pyeXzbWlH2gsUv6cZlxEZjTGa5OfMKACFYs4E="}],"page":1,"total":1}
 
 // Events:
 // [
