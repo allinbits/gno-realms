@@ -74,18 +74,14 @@ func (c *client) setPacketCommitment(sequence uint64, packet types.Packet) {
 	// The key will be: (abci path=.store/main/key)
 	// "/pv/vm:gno.land/r/aib/ibc/core:" + clientID + "1" + sequence
 	key := host.PacketCommitmentKey(c.id, sequence)
-	// TODO find a way to assert this write in tests (difficult since params does
-	// not expose getters)
-	params.SetBytes(string(key), commitment)
+	setChainParam(key, commitment)
 }
 
 func (c *client) deletePacketCommitment(sequence uint64) {
 	c.packetCommitmentsBySeq.Remove(seqid.ID(sequence).Binary())
 
 	key := host.PacketCommitmentKey(c.id, sequence)
-	// TODO find a way to assert this write in tests (difficult since params does
-	// not expose getters)
-	params.SetBytes(string(key), nil)
+	setChainParam(key, nil)
 }
 
 // hasPacketReceipt returns true if the packet receipt exists, otherwise false.
@@ -105,18 +101,14 @@ func (c *client) setPacketReceipt(sequence uint64) {
 	// The key will be: (abci path=.store/main/key)
 	// "/pv/vm:gno.land/r/aib/ibc/core:" + clientID + "2" + sequence
 	key := host.PacketReceiptKey(c.id, sequence)
-	// TODO find a way to assert this write in tests (difficult since params does
-	// not expose getters)
-	params.SetBytes(string(key), value)
+	setChainParam(key, value)
 }
 
 func (c *client) deletePacketReceipt(sequence uint64) {
 	c.packetReceiptsBySeq.Remove(seqid.ID(sequence).Binary())
 
 	key := host.PacketReceiptKey(c.id, sequence)
-	// TODO find a way to assert this write in tests (difficult since params does
-	// not expose getters)
-	params.SetBytes(string(key), nil)
+	setChainParam(key, nil)
 }
 
 // hasPacketAcknowledgement checks if the packet ack hash is already on the
@@ -145,18 +137,20 @@ func (c *client) setPacketAcknowledgement(sequence uint64, ackHash []byte) {
 	// The key will be: (abci path=.store/main/key)
 	// "/pv/vm:gno.land/r/aib/ibc/core:" + clientID + "3" + sequence
 	key := host.PacketAcknowledgementKey(c.id, sequence)
-	// TODO find a way to assert this write in tests (difficult since params does
-	// not expose getters)
-	params.SetBytes(string(key), ackHash)
+	setChainParam(key, ackHash)
 }
 
 func (c *client) deletePacketAcknowledgement(sequence uint64) {
 	c.packetAcknowledgementsBySeq.Remove(seqid.ID(sequence).Binary())
 
 	key := host.PacketAcknowledgementKey(c.id, sequence)
+	setChainParam(key, nil)
+}
+
+func setChainParam(key, value []byte) {
 	// TODO find a way to assert this write in tests (difficult since params does
 	// not expose getters)
-	params.SetBytes(string(key), nil)
+	params.SetBytes(string(key), value)
 }
 
 func (cs *Store) addClient(typ string, creator address) *client {
