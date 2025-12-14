@@ -41,4 +41,4 @@ func main() {
 }
 
 // Error:
-// send packet failed for app transfer: decoding FungibleTokenPacketData: unexpected wire type 3 for field 15
+// send packet failed for payload #0 app "transfer": decoding FungibleTokenPacketData: unexpected wire type 3 for field 15

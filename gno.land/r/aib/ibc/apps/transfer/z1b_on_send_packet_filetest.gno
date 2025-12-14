@@ -41,4 +41,4 @@ func main() {
 }
 
 // Error:
-// send packet failed for app transfer: invalid ICS20 version: expected ics20-1, got v1
+// send packet failed for payload #0 app "transfer": invalid ICS20 version: expected ics20-1, got v1

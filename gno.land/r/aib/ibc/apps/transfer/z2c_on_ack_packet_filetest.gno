@@ -131,4 +131,4 @@ func main() {
 }
 
 // Error:
-// acknowledgement packet failed for app transfer: cannot unmarshal ICS-20 transfer packet acknowledgement: invalid token
+// acknowledgement packet failed for payload #0 app "transfer": cannot unmarshal ICS-20 transfer packet acknowledgement: invalid token

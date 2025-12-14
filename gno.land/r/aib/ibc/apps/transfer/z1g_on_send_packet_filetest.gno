@@ -41,4 +41,4 @@ func main() {
 }
 
 // Error:
-// send packet failed for app transfer: payload port ID is invalid: expected transfer, got sourcePort: transfer destPort: destinationPort
+// send packet failed for payload #0 app "transfer": payload port ID is invalid: expected transfer, got sourcePort: transfer destPort: destinationPort

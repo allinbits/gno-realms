@@ -83,15 +83,14 @@ func SendPacket(cur realm, banker banker.Banker, msg types.MsgSendPacket) (seque
 	)
 
 	// Invoke registed app OnSendPacket() for each payload.SourcePort.
-	for _, payload := range msg.Payloads {
+	for i, payload := range msg.Payloads {
 		app := store.route(payload.SourcePort)
 		err := app.OnSendPacket(
 			cross, banker, msg.SourceClient, c.counterpartyClientID, sequence, payload,
 		)
 		if err != nil {
-			// TODO add payload index
 			panic(ufmt.Sprintf(
-				"send packet failed for app %s: %v", payload.SourcePort, err,
+				"send packet failed for payload #%d app %q: %v", i, payload.SourcePort, err,
 			))
 		}
 	}
@@ -196,7 +195,7 @@ func RecvPacket(cur realm, msg types.MsgRecvPacket) types.ResponseResultType {
 		// acknowledgement
 		if bytes.Equal(res.Acknowledgement, types.UniversalErrorAcknowledgement()) {
 			panic(ufmt.Sprintf(
-				"callback error for payload #%d (%s): application acknowledgement cannot be sentinel error acknowledgement",
+				"callback error for payload #%d app %q: application acknowledgement cannot be sentinel error acknowledgement",
 				i, payload.DestinationPort,
 			))
 		}
@@ -318,8 +317,8 @@ func Acknowledgement(cur realm, msg types.MsgAcknowledgement) types.ResponseResu
 		)
 		if err != nil {
 			panic(ufmt.Sprintf(
-				"acknowledgement packet failed for app %s: %v",
-				payload.SourcePort, err,
+				"acknowledgement packet failed for payload #%d app %q: %v",
+				i, payload.SourcePort, err,
 			))
 		}
 	}
@@ -409,7 +408,7 @@ func Timeout(cur realm, msg types.MsgTimeout) types.ResponseResultType {
 		)
 		if err != nil {
 			panic(ufmt.Sprintf(
-				"timeout packet failed for payload #%d app %s: %v",
+				"timeout packet failed for payload #%d app %q: %v",
 				i, payload.SourcePort, err,
 			))
 		}

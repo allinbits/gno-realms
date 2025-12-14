@@ -47,4 +47,4 @@ func main() {
 }
 
 // Error:
-// send packet failed for app transfer: invalid FungibleTokenPacketData: sender g1user is different from signer g1wymu47drhr0kuq2098m792lytgtj2nyx77yrsm
+// send packet failed for payload #0 app "transfer": invalid FungibleTokenPacketData: sender g1user is different from signer g1wymu47drhr0kuq2098m792lytgtj2nyx77yrsm

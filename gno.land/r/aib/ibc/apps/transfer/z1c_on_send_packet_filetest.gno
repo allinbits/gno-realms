@@ -41,4 +41,4 @@ func main() {
 }
 
 // Error:
-// send packet failed for app transfer: invalid encoding: expected application/x-protobuf, got application/json
+// send packet failed for payload #0 app "transfer": invalid encoding: expected application/x-protobuf, got application/json

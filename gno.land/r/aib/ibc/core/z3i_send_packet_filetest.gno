@@ -47,4 +47,4 @@ func main() {
 }
 
 // Error:
-// send packet failed for app app1: app error
+// send packet failed for payload #0 app "app1": app error

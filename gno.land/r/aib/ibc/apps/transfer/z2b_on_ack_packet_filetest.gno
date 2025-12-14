@@ -133,4 +133,4 @@ func main() {
 }
 
 // Error:
-// acknowledgement packet failed for app transfer: cannot pass in a custom error acknowledgement with IBC v2
+// acknowledgement packet failed for payload #0 app "transfer": cannot pass in a custom error acknowledgement with IBC v2
