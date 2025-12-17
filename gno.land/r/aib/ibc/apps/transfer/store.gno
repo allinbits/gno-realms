@@ -4,16 +4,18 @@ import (
 	"gno.land/p/nt/avl"
 )
 
-var denomsByBase *avl.Tree // ibcDenom:Denom
+var (
+	denoms *avl.Tree // ibcDenom:Denom
+)
 
 func init() {
-	denomsByBase = avl.NewTree()
+	denoms = avl.NewTree()
 }
 
 func hasDenomMetadata(voucherDenom string) bool {
-	return denomsByBase.Has(voucherDenom)
+	return denoms.Has(voucherDenom)
 }
 
 func setDenomMetadata(denom Denom) {
-	denomsByBase.Set(denom.IBCDenom(), denom)
+	denoms.Set(denom.IBCDenom(), denom)
 }

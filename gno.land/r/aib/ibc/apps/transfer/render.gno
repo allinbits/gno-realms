@@ -22,12 +22,12 @@ func RenderHome(w *mux.ResponseWriter, r *mux.Request) {
 }
 
 func RenderDenoms(w *mux.ResponseWriter, r *mux.Request) {
-	renderNode(w, jsonpage.Render(denomsByBase, r, nil))
+	renderNode(w, jsonpage.Render(denoms, r, nil))
 }
 
 func RenderDenom(w *mux.ResponseWriter, r *mux.Request) {
 	denom := "ibc/" + r.GetVar("hash")
-	d, ok := denomsByBase.Get(denom)
+	d, ok := denoms.Get(denom)
 	if !ok {
 		renderNode(w, nodeError(ufmt.Sprintf("denom %s not found", denom)))
 		return
