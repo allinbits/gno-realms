@@ -19,26 +19,26 @@ import (
 
 func Render(path string) string {
 	router := mux.NewRouter()
-	router.HandleFunc("", RenderHome)
-	router.HandleFunc("apps", RenderApps)
-	router.HandleFunc("clients", RenderClients)
-	router.HandleFunc("clients/{id}", RenderClient)
-	router.HandleFunc("clients/{id}/consensus_states", RenderClientConsensusStates)
-	router.HandleFunc("clients/{id}/consensus_states/{revision_number}/{revision_height}", RenderClientConsensusState)
-	router.HandleFunc("clients/{id}/next_sequence_send", RenderClientNextSequenceSend)
-	router.HandleFunc("clients/{id}/packet_commitments", RenderClientPacketCommitments)
-	router.HandleFunc("clients/{id}/packet_receipts", RenderClientPacketReceipts)
-	router.HandleFunc("clients/{id}/packet_acknowledgements", RenderClientPacketAcknowledgements)
-	router.HandleFunc("clients/{id}/unreceived_packets", RenderClientUnreceivedPackets)
+	router.HandleFunc("", renderHome)
+	router.HandleFunc("apps", renderApps)
+	router.HandleFunc("clients", renderClients)
+	router.HandleFunc("clients/{id}", renderClient)
+	router.HandleFunc("clients/{id}/consensus_states", renderClientConsensusStates)
+	router.HandleFunc("clients/{id}/consensus_states/{revision_number}/{revision_height}", renderClientConsensusState)
+	router.HandleFunc("clients/{id}/next_sequence_send", renderClientNextSequenceSend)
+	router.HandleFunc("clients/{id}/packet_commitments", renderClientPacketCommitments)
+	router.HandleFunc("clients/{id}/packet_receipts", renderClientPacketReceipts)
+	router.HandleFunc("clients/{id}/packet_acknowledgements", renderClientPacketAcknowledgements)
+	router.HandleFunc("clients/{id}/unreceived_packets", renderClientUnreceivedPackets)
 	return router.Render(path)
 }
 
-func RenderHome(w *mux.ResponseWriter, r *mux.Request) {
+func renderHome(w *mux.ResponseWriter, r *mux.Request) {
 	// TODO list available endpoints ?
 	w.Write(`["Hello IBC!"]`)
 }
 
-func RenderApps(w *mux.ResponseWriter, r *mux.Request) {
+func renderApps(w *mux.ResponseWriter, r *mux.Request) {
 	var nodes []*json.Node
 	for port, app := range store.routes {
 		nodes = append(nodes, json.ObjectNode("", map[string]*json.Node{
@@ -50,11 +50,11 @@ func RenderApps(w *mux.ResponseWriter, r *mux.Request) {
 	renderNode(w, json.ArrayNode("", nodes))
 }
 
-func RenderClients(w *mux.ResponseWriter, r *mux.Request) {
+func renderClients(w *mux.ResponseWriter, r *mux.Request) {
 	renderNode(w, jsonpage.Render(store.clientByID, r, nil))
 }
 
-func RenderClient(w *mux.ResponseWriter, r *mux.Request) {
+func renderClient(w *mux.ResponseWriter, r *mux.Request) {
 	id := r.GetVar("id")
 	c := store.getClient(id)
 	if c == nil {
@@ -64,17 +64,17 @@ func RenderClient(w *mux.ResponseWriter, r *mux.Request) {
 	renderNode(w, c.RenderJSON())
 }
 
-func RenderClientConsensusStates(w *mux.ResponseWriter, r *mux.Request) {
+func renderClientConsensusStates(w *mux.ResponseWriter, r *mux.Request) {
 	id := r.GetVar("id")
 	c := store.getClient(id)
 	if c == nil {
 		renderNode(w, nodeErrorClientNotFound(id))
 		return
 	}
-	renderNode(w, c.RenderConsensusStates(r))
+	renderNode(w, c.renderConsensusStates(r))
 }
 
-func RenderClientConsensusState(w *mux.ResponseWriter, r *mux.Request) {
+func renderClientConsensusState(w *mux.ResponseWriter, r *mux.Request) {
 	var (
 		id             = r.GetVar("id")
 		revisionNumber = r.GetVar("revision_number")
@@ -103,7 +103,7 @@ func RenderClientConsensusState(w *mux.ResponseWriter, r *mux.Request) {
 	}
 }
 
-func RenderClientNextSequenceSend(w *mux.ResponseWriter, r *mux.Request) {
+func renderClientNextSequenceSend(w *mux.ResponseWriter, r *mux.Request) {
 	id := r.GetVar("id")
 	c := store.getClient(id)
 	if c == nil {
@@ -113,7 +113,7 @@ func RenderClientNextSequenceSend(w *mux.ResponseWriter, r *mux.Request) {
 	w.Write(ufmt.Sprintf(`{"next_sequence_send": %d}"`, int64(c.sendSeq)+1))
 }
 
-func RenderClientPacketCommitments(w *mux.ResponseWriter, r *mux.Request) {
+func renderClientPacketCommitments(w *mux.ResponseWriter, r *mux.Request) {
 	id := r.GetVar("id")
 	c := store.getClient(id)
 	if c == nil {
@@ -123,7 +123,7 @@ func RenderClientPacketCommitments(w *mux.ResponseWriter, r *mux.Request) {
 	renderCommitments(w, r, c.packetCommitmentsBySeq)
 }
 
-func RenderClientPacketReceipts(w *mux.ResponseWriter, r *mux.Request) {
+func renderClientPacketReceipts(w *mux.ResponseWriter, r *mux.Request) {
 	id := r.GetVar("id")
 	c := store.getClient(id)
 	if c == nil {
@@ -133,7 +133,7 @@ func RenderClientPacketReceipts(w *mux.ResponseWriter, r *mux.Request) {
 	renderCommitments(w, r, c.packetReceiptsBySeq)
 }
 
-func RenderClientPacketAcknowledgements(w *mux.ResponseWriter, r *mux.Request) {
+func renderClientPacketAcknowledgements(w *mux.ResponseWriter, r *mux.Request) {
 	id := r.GetVar("id")
 	c := store.getClient(id)
 	if c == nil {
@@ -153,11 +153,11 @@ func renderCommitments(w *mux.ResponseWriter, r *mux.Request, tree *avl.Tree) {
 	}))
 }
 
-// RenderClientUnreceivedPackets returns, given a list of sequences, the
+// renderClientUnreceivedPackets returns, given a list of sequences, the
 // sequences for which no counterparty packet commitments have been received.
 // This is done by checking if a receipt exists on this chain for the packet
 // sequence.
-func RenderClientUnreceivedPackets(w *mux.ResponseWriter, r *mux.Request) {
+func renderClientUnreceivedPackets(w *mux.ResponseWriter, r *mux.Request) {
 	id := r.GetVar("id")
 	c := store.getClient(id)
 	if c == nil {
@@ -217,7 +217,7 @@ func (c *client) RenderJSON() *json.Node {
 	return json.ObjectNode("", m)
 }
 
-func (c *client) RenderConsensusStates(r *mux.Request) *json.Node {
+func (c *client) renderConsensusStates(r *mux.Request) *json.Node {
 	switch c.typ {
 	case lightclient.Tendermint:
 		lc := c.lightClient.(*tendermint.TMLightClient)

@@ -9,23 +9,23 @@ import (
 
 func Render(path string) string {
 	router := mux.NewRouter()
-	router.HandleFunc("", RenderHome)
-	router.HandleFunc("denoms", RenderDenoms)
-	router.HandleFunc("denoms/ibc/{hash}", RenderDenom)
+	router.HandleFunc("", renderHome)
+	router.HandleFunc("denoms", renderDenoms)
+	router.HandleFunc("denoms/ibc/{hash}", renderDenom)
 	// TODO add total escrowed for denom
 	return router.Render(path)
 }
 
-func RenderHome(w *mux.ResponseWriter, r *mux.Request) {
+func renderHome(w *mux.ResponseWriter, r *mux.Request) {
 	// TODO list available endpoints ?
 	w.Write(`["Hello IBC transfer!"]`)
 }
 
-func RenderDenoms(w *mux.ResponseWriter, r *mux.Request) {
+func renderDenoms(w *mux.ResponseWriter, r *mux.Request) {
 	renderNode(w, jsonpage.Render(denoms, r, nil))
 }
 
-func RenderDenom(w *mux.ResponseWriter, r *mux.Request) {
+func renderDenom(w *mux.ResponseWriter, r *mux.Request) {
 	denom := "ibc/" + r.GetVar("hash")
 	d, ok := denoms.Get(denom)
 	if !ok {
