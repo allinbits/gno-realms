@@ -34,8 +34,9 @@ func (tm *TMLightClient) verifyHeader(msg *MsgHeader) error {
 		now             = time.Now()
 		untrustedHeader = msg.Header
 		untrustedValset = msg.ValidatorSet
+		chainID         = tm.ClientState.ChainID
 		trustedHeader   = &Header{
-			ChainID:            tm.ClientState.ChainID,
+			ChainID:            chainID,
 			Height:             msg.TrustedHeight.RevisionHeight,
 			Time:               consState.Timestamp,
 			NextValidatorsHash: consState.NextValidatorsHash,
@@ -85,7 +86,7 @@ func (tm *TMLightClient) verifyHeader(msg *MsgHeader) error {
 			votingPowerNeeded = trustedValset.TotalVotingPower *
 				int64(tl.Numerator) / int64(tl.Denominator)
 		)
-		if err := tm.verifyCommit(trustedValset, msg.Commit, votingPowerNeeded, false); err != nil {
+		if err := verifyCommit(chainID, trustedValset, msg.Commit, votingPowerNeeded, false); err != nil {
 			return ufmt.Errorf("check trusted validators VP>%d: %v", votingPowerNeeded, err)
 		}
 	}
@@ -94,16 +95,46 @@ func (tm *TMLightClient) verifyHeader(msg *MsgHeader) error {
 	// NOTE: this should always be the last check because untrustedValset can be
 	// intentionally made very large to DOS the light client.
 	votingPowerNeeded := untrustedValset.TotalVotingPower * 2 / 3
-	err := tm.verifyCommit(untrustedValset, msg.Commit, votingPowerNeeded, true)
+	err := verifyCommit(chainID, untrustedValset, msg.Commit, votingPowerNeeded, true)
 	if err != nil {
 		return ufmt.Errorf("check untrusted validators VP>%d: %v", votingPowerNeeded, err)
 	}
 	return nil
 }
 
-func (tm TMLightClient) verifyMisbehavior(msg *Misbehaviour) error {
-	// TODO
-	panic("not implemented")
+// verifyMisbehaviour determines whether or not two conflicting headers at the
+// same height would have convinced the light client.
+func (tm TMLightClient) verifyMisbehavior(misbehaviour *Misbehaviour) error {
+	// Regardless of the type of misbehaviour, ensure that both headers are valid
+	// and would have been accepted by light-client
+
+	// Retrieve trusted consensus states for each Header in misbehaviour
+	tmConsensusState1, found := tm.GetConsensusState(misbehaviour.Header1.TrustedHeight)
+	if !found {
+		return ufmt.Errorf(
+			"could not get trusted consensus state from clientStore for Header1 at TrustedHeight: %s",
+			misbehaviour.Header1.TrustedHeight,
+		)
+	}
+
+	tmConsensusState2, found := tm.GetConsensusState(misbehaviour.Header2.TrustedHeight)
+	if !found {
+		return ufmt.Errorf(
+			"could not get trusted consensus state from clientStore for Header2 at TrustedHeight: %s",
+			misbehaviour.Header2.TrustedHeight,
+		)
+	}
+
+	// Check the validity of the two conflicting headers against their respective
+	// trusted consensus states.
+	if err := tm.checkMisbehaviourHeader(tmConsensusState1, misbehaviour.Header1, time.Now()); err != nil {
+		return ufmt.Errorf("verifying Header1 in Misbehaviour failed")
+	}
+	if err := tm.checkMisbehaviourHeader(tmConsensusState2, misbehaviour.Header2, time.Now()); err != nil {
+		return ufmt.Errorf("verifying Header2 in Misbehaviour failed")
+	}
+
+	return nil
 }
 
 // checkTrustedHeader checks that consensus state matches trusted fields of Header
@@ -122,7 +153,8 @@ func checkTrustedHeader(msg *MsgHeader, consensusState *ConsensusState) error {
 // verifyCommit verifies the signatures included in a commit. Returns an error
 // if votingPowerNeeded is not reached with the verified signatures.
 // CONTRACT: both commit and validator set should have passed validate basic.
-func (tm TMLightClient) verifyCommit(
+func verifyCommit(
+	chainID string,
 	vals *ValidatorSet,
 	commit *Commit,
 	votingPowerNeeded int64,
@@ -167,7 +199,7 @@ func (tm TMLightClient) verifyCommit(
 			return ufmt.Errorf("validator %s has a nil PubKey at index %d", addr, idx)
 		}
 
-		voteSignBytes := commit.BytesToSign(tm.ClientState.ChainID, idx)
+		voteSignBytes := commit.BytesToSign(chainID, idx)
 
 		// CONTRACT: all validators use ed25519 keys
 		if !ed25519.Verify(val.PubKey, voteSignBytes, commitSig.Signature) {
@@ -242,5 +274,47 @@ func (tm TMLightClient) verifyChainedMembershipProof(root []byte,
 		return ufmt.Errorf("proof did not commit to expected root: %s, got: %s. Please ensure proof was submitted with correct proofHeight and to the correct chain.", h1, h2)
 	}
 
+	return nil
+}
+
+// checkMisbehaviourHeader checks that a MsgHeader in Misbehaviour is valid
+// misbehaviour given a trusted ConsensusState.
+func (tm TMLightClient) checkMisbehaviourHeader(
+	consState *ConsensusState, msg *MsgHeader, currentTimestamp time.Time,
+) error {
+	// check the trusted fields for the header against ConsensusState
+	if err := checkTrustedHeader(msg, consState); err != nil {
+		return err
+	}
+
+	// assert that the age of the trusted consensus state is not older than the
+	// trusting period
+	if currentTimestamp.Sub(consState.Timestamp) >= tm.ClientState.TrustingPeriod {
+		return ufmt.Errorf(
+			"current timestamp minus the latest consensus state timestamp is greater than or equal to the trusting period (%d >= %d)",
+			currentTimestamp.Sub(consState.Timestamp), tm.ClientState.TrustingPeriod,
+		)
+	}
+
+	chainID := tm.ClientState.ChainID
+	// If chainID is in revision format, then set revision number of chainID with
+	// the revision number of the misbehaviour header.
+	// NOTE: misbehaviour verification is not supported for chains which upgrade
+	// to a new chainID without strictly following the chainID revision format.
+	if types.IsRevisionFormat(chainID) {
+		chainID, _ = types.SetRevisionNumber(chainID, msg.GetHeight().RevisionNumber)
+	}
+
+	// - ValidatorSet must have TrustLevel similarity with trusted FromValidatorSet
+	// - ValidatorSets on both headers are valid given the last trusted ValidatorSet
+	var (
+		tl = tm.ClientState.TrustLevel
+		// TODO protect against overflows
+		votingPowerNeeded = msg.TrustedValidators.TotalVotingPower *
+			int64(tl.Numerator) / int64(tl.Denominator)
+	)
+	if err := verifyCommit(chainID, msg.TrustedValidators, msg.Commit, votingPowerNeeded, false); err != nil {
+		return ufmt.Errorf("validator set in header has too much change from trusted validator set: %v", err)
+	}
 	return nil
 }

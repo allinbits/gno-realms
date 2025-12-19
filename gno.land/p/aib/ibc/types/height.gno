@@ -148,3 +148,16 @@ func ParseChainID(chainID string) uint64 {
 	}
 	return revision
 }
+
+// SetRevisionNumber takes a chainID in valid revision format and swaps the
+// revision number in the chainID with the given revision number.
+func SetRevisionNumber(chainID string, revision uint64) (string, error) {
+	if !IsRevisionFormat(chainID) {
+		return "", ufmt.Errorf("chainID is not in revision format: %s", chainID)
+	}
+
+	splitStr := strings.Split(chainID, "-")
+	// swap out revision number with given revision
+	splitStr[len(splitStr)-1] = strconv.FormatUint(revision, 10)
+	return strings.Join(splitStr, "-"), nil
+}
