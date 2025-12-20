@@ -1,6 +1,7 @@
 package tendermint
 
 import (
+	"bytes"
 	"errors"
 	"time"
 
@@ -69,9 +70,27 @@ func (tm *TMLightClient) CheckForMisbehaviour(clientMsg lightclient.ClientMessag
 			// been validated. Thus we can return true as misbehaviour is present
 			return true
 		}
+		// TODO add consensusState timestamp monotonic check
+
 	case *Misbehaviour:
-		// TODO
-		panic("not implemented")
+		// if heights are equal check that this is valid misbehaviour of a fork
+		// otherwise if heights are unequal check that this is valid misbehavior of
+		// BFT time violation.
+		if msg.Header1.GetHeight().EQ(msg.Header2.GetHeight()) {
+			// Ensure that Commit Hashes are different
+			if !bytes.Equal(
+				msg.Header1.Commit.BlockID.Hash,
+				msg.Header2.Commit.BlockID.Hash,
+			) {
+				return true
+			}
+		} else if !msg.Header1.Header.Time.After(msg.Header2.Header.Time) {
+			// Header1 is at greater height than Header2 (ensured by
+			// Misbehaviour.ValidateBasic()), therefore Header1 time must be less
+			// than or equal to Header2 time in order to be valid misbehaviour
+			// (violation of monotonic time).
+			return true
+		}
 	}
 	return false
 }
