@@ -17,10 +17,11 @@ func TestMisbehaviourValidateBasic(t *testing.T) {
 		expErr   string
 	}{
 		{
-			name:     "valid misbehaviour, two headers of differemt height same time",
+			name:     "valid misbehaviour, two headers of different height same time",
 			malleate: func() {},
 			expErr:   "",
 		},
+		// TODO continue
 		/*
 			{
 				name:     "valid fork misbehaviour, two headers at same height have different time",
