@@ -128,10 +128,10 @@ func (tm TMLightClient) verifyMisbehavior(misbehaviour *Misbehaviour) error {
 	// Check the validity of the two conflicting headers against their respective
 	// trusted consensus states.
 	if err := tm.checkMisbehaviourHeader(tmConsensusState1, misbehaviour.Header1, time.Now()); err != nil {
-		return ufmt.Errorf("verifying Header1 in Misbehaviour failed")
+		return ufmt.Errorf("verifying Header1 in Misbehaviour failed: %v", err)
 	}
 	if err := tm.checkMisbehaviourHeader(tmConsensusState2, misbehaviour.Header2, time.Now()); err != nil {
-		return ufmt.Errorf("verifying Header2 in Misbehaviour failed")
+		return ufmt.Errorf("verifying Header2 in Misbehaviour failed: %v", err)
 	}
 
 	return nil
