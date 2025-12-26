@@ -247,7 +247,7 @@ func TestMsgHeaderValidateBasic(t *testing.T) {
 			malleate: func() {
 				msg.Commit.BlockID.Hash = hash("")
 			},
-			expectedError: `expected BlockID#Hash and Header#Hash to be the same, got "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855" != "f3a08e784692b2a7a1dfe097378c1f2338f80159fc3ff3b17da238f0813db51e`,
+			expectedError: `expected BlockID#Hash and Header#Hash to be the same, got "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855" != "4f633a8766a596303f9139cd4706eb03484be5f5521b724c57b7021fb6889e1d"`,
 		},
 	}
 
