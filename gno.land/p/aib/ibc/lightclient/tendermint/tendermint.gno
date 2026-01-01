@@ -70,7 +70,22 @@ func (tm *TMLightClient) CheckForMisbehaviour(clientMsg lightclient.ClientMessag
 			// been validated. Thus we can return true as misbehaviour is present
 			return true
 		}
-		// TODO add consensusState timestamp monotonic check
+
+		// Check that consensus state timestamps are monotonic
+		prevCons, prevOk := tm.GetPreviousConsensusState(msg.GetHeight())
+		nextCons, nextOk := tm.GetNextConsensusState(msg.GetHeight())
+		// if previous consensus state exists, check consensus state time is
+		// greater than previous consensus state time if previous consensus state
+		// is not before current consensus state return true
+		if prevOk && !prevCons.Timestamp.Before(consState.Timestamp) {
+			return true
+		}
+		// if next consensus state exists, check consensus state time is less than
+		// next consensus state time if next consensus state is not after current
+		// consensus state return true
+		if nextOk && !nextCons.Timestamp.After(consState.Timestamp) {
+			return true
+		}
 
 	case *Misbehaviour:
 		// if heights are equal check that this is valid misbehaviour of a fork
@@ -259,6 +274,34 @@ func (tm *TMLightClient) GetConsensusState(height types.Height) (*ConsensusState
 		return nil, false
 	}
 	return x.(*ConsensusState), true
+}
+
+// GetNextConsensusState returns the lowest consensus state that is larger than
+// the given height.
+func (tm *TMLightClient) GetNextConsensusState(height types.Height) (*ConsensusState, bool) {
+	var cs *ConsensusState
+	tm.ConsensusStateByHeight.Iterate(height.String(), "", func(k string, v any) bool {
+		if k == height.String() {
+			return false // ignore passed height
+		}
+		cs = v.(*ConsensusState)
+		return true
+	})
+	return cs, cs != nil
+}
+
+// GetPreviousConsensusState returns the highest consensus state that is lower
+// than the given height.
+func (tm *TMLightClient) GetPreviousConsensusState(height types.Height) (*ConsensusState, bool) {
+	var cs *ConsensusState
+	tm.ConsensusStateByHeight.ReverseIterate("", height.String(), func(k string, v any) bool {
+		if k == height.String() {
+			return false // ignore passed height
+		}
+		cs = v.(*ConsensusState)
+		return true
+	})
+	return cs, cs != nil
 }
 
 // IsExpired returns whether or not the client has passed the trusting period
