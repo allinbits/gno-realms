@@ -2,6 +2,7 @@ package types
 
 import (
 	"chain/runtime"
+	"encoding/binary"
 	"regexp"
 	"strconv"
 	"strings"
@@ -58,6 +59,25 @@ func ZeroHeight() Height { return Height{} }
 
 func (h Height) String() string {
 	return ufmt.Sprintf("%d/%d", h.RevisionNumber, h.RevisionHeight)
+}
+
+// StringNatSort returns a natural sortable representation of height that can
+// be used for store keys.
+func (h Height) StringNatSort() string {
+	bz := make([]byte, 16)
+	binary.BigEndian.PutUint64(bz, h.RevisionNumber)
+	binary.BigEndian.PutUint64(bz[8:], h.RevisionHeight)
+	return string(bz)
+}
+
+// ParseHeightNatSort is a utility function that takes a string nat sorted
+// representation of the height (see StringBatSort) and returns a Height
+// struct.
+func ParseHeightNatSort(heightNatSort string) (h Height) {
+	bz := []byte(heightNatSort)
+	h.RevisionNumber = binary.BigEndian.Uint64(bz)
+	h.RevisionHeight = binary.BigEndian.Uint64(bz[8:])
+	return
 }
 
 // GTE Helper comparison function returns true if h >= other

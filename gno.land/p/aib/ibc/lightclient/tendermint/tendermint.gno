@@ -32,7 +32,7 @@ func (tm *TMLightClient) Initialize(clientState lightclient.ClientState, consens
 	consState := consensusState.(ConsensusState)
 	consState.processedTime = time.Now()
 	consState.processedHeight = types.GetSelfHeight()
-	tm.ConsensusStateByHeight.Set(cs.LatestHeight.String(), &consState)
+	tm.SetConsensusState(cs.LatestHeight, &consState)
 	return nil
 }
 
@@ -78,12 +78,16 @@ func (tm *TMLightClient) CheckForMisbehaviour(clientMsg lightclient.ClientMessag
 		// greater than previous consensus state time if previous consensus state
 		// is not before current consensus state return true
 		if prevOk && !prevCons.Timestamp.Before(consState.Timestamp) {
+			// TODO add test
+			println("prev is not before")
 			return true
 		}
 		// if next consensus state exists, check consensus state time is less than
 		// next consensus state time if next consensus state is not after current
 		// consensus state return true
 		if nextOk && !nextCons.Timestamp.After(consState.Timestamp) {
+			// TODO add test
+			println("next is not after", msg.GetHeight().String())
 			return true
 		}
 
@@ -128,7 +132,7 @@ func (tm *TMLightClient) UpdateState(clientMsg lightclient.ClientMessage) []type
 
 	// check for duplicate update
 	msgHeight := msg.GetHeight()
-	if tm.ConsensusStateByHeight.Has(msgHeight.String()) {
+	if tm.HasConsensusState(msgHeight) {
 		// perform no-op
 		return []types.Height{msgHeight}
 	}
@@ -144,7 +148,7 @@ func (tm *TMLightClient) UpdateState(clientMsg lightclient.ClientMessage) []type
 		processedTime:      time.Now(),
 		processedHeight:    types.GetSelfHeight(),
 	}
-	tm.ConsensusStateByHeight.Set(msgHeight.String(), consState)
+	tm.SetConsensusState(msgHeight, consState)
 	return []types.Height{msgHeight}
 }
 
@@ -267,9 +271,17 @@ func (tm *TMLightClient) VerifyUpgradeAndUpdateState(newClient, newConsState,
 	panic("not implemented")
 }
 
+func (tm *TMLightClient) SetConsensusState(height types.Height, consState *ConsensusState) {
+	tm.ConsensusStateByHeight.Set(height.StringNatSort(), consState)
+}
+
+func (tm *TMLightClient) HasConsensusState(height types.Height) bool {
+	return tm.ConsensusStateByHeight.Has(height.StringNatSort())
+}
+
 // GetConsensusState returns the consensus state mapped at height, if any.
 func (tm *TMLightClient) GetConsensusState(height types.Height) (*ConsensusState, bool) {
-	x, found := tm.ConsensusStateByHeight.Get(height.String())
+	x, found := tm.ConsensusStateByHeight.Get(height.StringNatSort())
 	if !found {
 		return nil, false
 	}
@@ -280,8 +292,8 @@ func (tm *TMLightClient) GetConsensusState(height types.Height) (*ConsensusState
 // the given height.
 func (tm *TMLightClient) GetNextConsensusState(height types.Height) (*ConsensusState, bool) {
 	var cs *ConsensusState
-	tm.ConsensusStateByHeight.Iterate(height.String(), "", func(k string, v any) bool {
-		if k == height.String() {
+	tm.ConsensusStateByHeight.Iterate(height.StringNatSort(), "", func(k string, v any) bool {
+		if k == height.StringNatSort() {
 			return false // ignore passed height
 		}
 		cs = v.(*ConsensusState)
@@ -294,8 +306,8 @@ func (tm *TMLightClient) GetNextConsensusState(height types.Height) (*ConsensusS
 // than the given height.
 func (tm *TMLightClient) GetPreviousConsensusState(height types.Height) (*ConsensusState, bool) {
 	var cs *ConsensusState
-	tm.ConsensusStateByHeight.ReverseIterate("", height.String(), func(k string, v any) bool {
-		if k == height.String() {
+	tm.ConsensusStateByHeight.ReverseIterate("", height.StringNatSort(), func(k string, v any) bool {
+		if k == height.StringNatSort() {
 			return false // ignore passed height
 		}
 		cs = v.(*ConsensusState)

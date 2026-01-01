@@ -35,8 +35,8 @@ func TestGetNeighboringConsensusStates(t *testing.T) {
 	}
 	height04 := types.NewHeight(0, 4)
 	height49 := types.NewHeight(4, 9)
-	tm.ConsensusStateByHeight.Set(height04.String(), cs04)
-	tm.ConsensusStateByHeight.Set(height49.String(), cs49)
+	tm.SetConsensusState(height04, cs04)
+	tm.SetConsensusState(height49, cs49)
 
 	// Previous height01 should return nil
 	prevCs01, ok := tm.GetPreviousConsensusState(height01)

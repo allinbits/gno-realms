@@ -223,7 +223,7 @@ func (c *client) renderConsensusStates(r *mux.Request) *json.Node {
 		lc := c.lightClient.(*tendermint.TMLightClient)
 		return jsonpage.Render(lc.ConsensusStateByHeight, r, func(k string, v any) *json.Node {
 			cs := v.(*tendermint.ConsensusState)
-			height, _ := types.ParseHeight(k)
+			height := types.ParseHeightNatSort(k)
 			return renderConsensusState(height, cs)
 		})
 	}
