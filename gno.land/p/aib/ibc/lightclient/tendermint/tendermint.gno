@@ -86,8 +86,6 @@ func (tm *TMLightClient) CheckForMisbehaviour(clientMsg lightclient.ClientMessag
 		// next consensus state time if next consensus state is not after current
 		// consensus state return true
 		if nextOk && !nextCons.Timestamp.After(consState.Timestamp) {
-			// TODO add test
-			println("next is not after", msg.GetHeight().String())
 			return true
 		}
 

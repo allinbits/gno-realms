@@ -23,6 +23,7 @@ func Render(path string) string {
 	router.HandleFunc("apps", renderApps)
 	router.HandleFunc("clients", renderClients)
 	router.HandleFunc("clients/{id}", renderClient)
+	router.HandleFunc("clients/{id}/status", renderClientStatus)
 	router.HandleFunc("clients/{id}/consensus_states", renderClientConsensusStates)
 	router.HandleFunc("clients/{id}/consensus_states/{revision_number}/{revision_height}", renderClientConsensusState)
 	router.HandleFunc("clients/{id}/next_sequence_send", renderClientNextSequenceSend)
@@ -62,6 +63,18 @@ func renderClient(w *mux.ResponseWriter, r *mux.Request) {
 		return
 	}
 	renderNode(w, c.RenderJSON())
+}
+
+func renderClientStatus(w *mux.ResponseWriter, r *mux.Request) {
+	id := r.GetVar("id")
+	c := store.getClient(id)
+	if c == nil {
+		renderNode(w, nodeErrorClientNotFound(id))
+		return
+	}
+	renderNode(w, json.ObjectNode("", map[string]*json.Node{
+		"status": json.StringNode("", c.lightClient.Status()),
+	}))
 }
 
 func renderClientConsensusStates(w *mux.ResponseWriter, r *mux.Request) {
