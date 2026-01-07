@@ -25,7 +25,7 @@ func main() {
 		// NOTE this apphash was provided by the gen-proof command below.
 		apphash, _     = hex.DecodeString("fa470da3647704716eab0024c8bcb7530760de45c6cc94c040900a3379c7747c")
 		trustedValset  = tmtesting.GenValset()
-		consensusState = tmtesting.GenConsensusState(time.Now(), apphash[:], trustedValset.Hash())
+		consensusState = tmtesting.GenConsensusState(time.Now(), apphash, trustedValset.Hash())
 		counterpartyID = "07-tendermint-42"
 	)
 	clientID := core.CreateClient(cross, clientState, consensusState)
