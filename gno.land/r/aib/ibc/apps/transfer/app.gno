@@ -110,7 +110,9 @@ func (a *App) OnSendPacket(
 			to     = runtime.CurrentRealm().Address()
 			amount = chain.NewCoins(coin)
 		)
-		banker.SendCoins(from, to, amount)
+		if banker != nil { // FIXME remove banker from params
+			banker.SendCoins(from, to, amount)
+		}
 		gnobanker.NewBanker(gnobanker.BankerTypeRealmIssue).
 			RemoveCoin(to, coin.Denom, coin.Amount)
 	} else {

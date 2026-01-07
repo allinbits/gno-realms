@@ -1,4 +1,3 @@
-// PKGPATH: gno.lang/r/aib/main
 package main
 
 import (
