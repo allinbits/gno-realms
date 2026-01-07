@@ -50,7 +50,7 @@ func main() {
 			Version:         "v1",
 		}},
 	}
-	sequence := core.SendPacket(cross, nil, sendPacket)
+	sequence := core.SendPacket(cross, sendPacket)
 	// Change block time to after the timeout
 	ctx := testing.GetContext()
 	ctx.Time = time.Now().Add(12 * time.Minute)
@@ -208,7 +208,6 @@ func main() {
 // {"items":[],"page":1,"total":1}
 //
 // ----------- app report
-// balance:
 // OnSendPacket (1)
 // - sourceClient: 07-tendermint-1
 // - destinationClient: 07-tendermint-42
@@ -237,7 +236,6 @@ func main() {
 // res: (1 gno.land/p/aib/ibc/types.ResponseResultType)
 //
 // ----------- app report
-// balance:
 // OnSendPacket (1)
 // - sourceClient: 07-tendermint-1
 // - destinationClient: 07-tendermint-42

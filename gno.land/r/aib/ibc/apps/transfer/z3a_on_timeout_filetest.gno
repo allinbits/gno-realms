@@ -59,13 +59,13 @@ func main() {
 			},
 		},
 	}
-	banker := banker.NewBanker(banker.BankerTypeOriginSend)
 	testing.SetOriginCaller(signer)
+	banker := banker.NewBanker(banker.BankerTypeReadonly)
 	transferAppAddr := chain.PackageAddress("gno.land/r/aib/ibc/apps/transfer")
 	println("signer balance before SendPacket:", banker.GetCoins(signer))
 	println("transferAppAddr balance before SendPacket:", banker.GetCoins(transferAppAddr))
 	// Send the packet
-	sequence := core.SendPacket(cross, banker, sendPacket)
+	sequence := core.SendPacket(cross, sendPacket)
 	println("\nsigner balance after SendPacket:", banker.GetCoins(signer))
 	println("transferAppAddr balance after SendPacket:", banker.GetCoins(transferAppAddr))
 

@@ -3,7 +3,6 @@ package main
 // PKGPATH: gno.land/r/aib/main
 
 import (
-	"chain/banker"
 	"time"
 
 	tmtesting "gno.land/p/aib/ibc/lightclient/tendermint/testing"
@@ -57,9 +56,8 @@ func main() {
 			},
 		},
 	}
-	banker := banker.NewBanker(banker.BankerTypeOriginSend)
 
-	sequence := core.SendPacket(cross, banker, packet)
+	sequence := core.SendPacket(cross, packet)
 
 	println("returned sequence:", sequence)
 	println("next sequence:", core.Render("clients/"+clientID+"/next_sequence_send"))
@@ -69,7 +67,7 @@ func main() {
 	println(app2.Report())
 
 	// Send the packet an other time to assert sequence increasing
-	sequence = core.SendPacket(cross, nil, packet)
+	sequence = core.SendPacket(cross, packet)
 
 	println("returned sequence:", sequence)
 	println("next sequence:", core.Render("clients/"+clientID+"/next_sequence_send"))
@@ -82,9 +80,7 @@ func main() {
 // returned sequence: 1
 // next sequence: {"next_sequence_send": 2}"
 // ----------- app1 report
-// balance:
 // OnSendPacket (1)
-// - spendable: 0ugnot
 // - sourceClient: 07-tendermint-1
 // - destinationClient: 07-tendermint-2
 // - sequence: 1
@@ -100,9 +96,7 @@ func main() {
 // OnAcknowledgementPacket (0)
 //
 // ----------- app2 report
-// balance:
 // OnSendPacket (1)
-// - spendable: 0ugnot
 // - sourceClient: 07-tendermint-1
 // - destinationClient: 07-tendermint-2
 // - sequence: 1

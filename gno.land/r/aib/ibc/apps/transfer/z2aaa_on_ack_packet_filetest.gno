@@ -2,7 +2,6 @@
 package main
 
 import (
-	"chain/banker"
 	"chain/runtime"
 	"encoding/hex"
 	"testing"
@@ -142,11 +141,10 @@ func main() {
 			},
 		},
 	}
-	banker := banker.NewBanker(banker.BankerTypeOriginSend)
 	testing.SetOriginCaller(signer)
 	println("signer GRC20 balance before SendPacket:", transfer.GRC20BalanceOf(voucherDenom, signer))
 	// Send the packet
-	sequence := core.SendPacket(cross, banker, sendPacket)
+	sequence := core.SendPacket(cross, sendPacket)
 	println("\nsigner GRC20 balance after SendPacket:", transfer.GRC20BalanceOf(voucherDenom, signer))
 
 	// UpdateClient to advance to height containing the ack proof

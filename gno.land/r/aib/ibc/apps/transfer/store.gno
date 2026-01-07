@@ -34,6 +34,14 @@ func setDenom(denom Denom) {
 	denoms.Set(denom.IBCDenom(), denom)
 }
 
+func getDenom(ibcDenom string) (Denom, bool) {
+	x, found := denoms.Get(ibcDenom)
+	if !found {
+		return Denom{}, false
+	}
+	return x.(Denom), true
+}
+
 func addEscrowForDenom(c chain.Coin) {
 	x, found := totalEscrow.Get(c.Denom)
 	if found {

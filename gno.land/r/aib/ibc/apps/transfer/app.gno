@@ -3,7 +3,6 @@ package transfer
 import (
 	"bytes"
 	"chain"
-	gnobanker "chain/banker"
 	"chain/runtime"
 	"errors"
 	"strconv"
@@ -37,8 +36,7 @@ var _ app.IBCApp = &App{}
 
 // Implements app.IBCApp
 func (a *App) OnSendPacket(
-	_ realm,
-	banker gnobanker.Banker,
+	cur realm,
 	sourceClient string,
 	destinationClient string,
 	sequence uint64,
@@ -113,9 +111,19 @@ func (a *App) OnSendPacket(
 			return ufmt.Errorf("burn GRC20 error: %v", err)
 		}
 	} else {
-		if err := escrowCoin(banker, coin); err != nil {
-			return err
+		// Ensure that sent coin matches the FungibleTokenPacketData
+		sent := cur.Coins()
+		if len(sent) != 1 || sent[0].Amount == 0 {
+			panic("OnSendPacket requires one non-zero coin to be sent")
 		}
+		if coin.Denom != sent[0].Denom || coin.Amount != sent[0].Amount {
+			return ufmt.Errorf(
+				"coin sent %s is not equal to fungible packet data token %s",
+				sent[0], coin,
+			)
+		}
+		// Escrow the coin on realm balance
+		addEscrowForDenom(coin)
 	}
 
 	// Emit events

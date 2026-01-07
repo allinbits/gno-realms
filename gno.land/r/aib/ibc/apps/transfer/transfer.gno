@@ -4,9 +4,56 @@ import (
 	"chain"
 	"chain/banker"
 	"chain/runtime"
+	"strings"
+	"time"
 
+	"gno.land/p/aib/ibc/types"
 	"gno.land/p/nt/ufmt"
+	"gno.land/r/aib/ibc/core"
 )
+
+// Transfer is a shortcut function for sending a token to an other chain using
+// the IBC protocol. The token must be sent by the caller using the send field
+// of the transaction.
+func Transfer(cur realm, clientID, receiver string) {
+	sent := cur.Coins()
+	if len(sent) != 1 || sent[0].Amount == 0 {
+		panic("Transfer requires one non-zero coin to be sent")
+	}
+	denom := sent[0].Denom
+	if strings.HasPrefix(denom, "ibc/") {
+		d, found := getDenom(denom)
+		if !found {
+			panic(ufmt.Sprintf("denom %s not found in store", denom))
+		}
+		denom = d.Path()
+	}
+	var (
+		amount  = ufmt.Sprintf("%d", sent[0].Amount)
+		sender  = runtime.OriginCaller()
+		payload = FungibleTokenPacketData{
+			Denom:    denom,
+			Amount:   amount,
+			Sender:   sender.String(),
+			Receiver: receiver,
+		}
+		packet = types.MsgSendPacket{
+			SourceClient:     clientID,
+			TimeoutTimestamp: uint64(time.Now().Add(time.Hour).Unix()),
+			Payloads: []types.Payload{
+				{
+					SourcePort:      PortID,
+					DestinationPort: PortID,
+					Encoding:        EncodingProtobuf,
+					Value:           payload.ProtoMarshal(),
+					Version:         V1,
+				},
+			},
+		}
+	)
+
+	core.SendPacket(cross, packet)
+}
 
 func refundPacketToken(sourcePort, sourceClient, sender string, token Token) error {
 	coin, err := token.ToCoin()
@@ -28,23 +75,6 @@ func refundPacketToken(sourcePort, sourceClient, sender string, token Token) err
 			return err
 		}
 	}
-	return nil
-}
-
-// escrowCoins sends the specified amount of tokens from the sender to the
-// realm address.
-func escrowCoin(banker banker.Banker, coin chain.Coin) error {
-	// Send the amount from sender to realm address
-	var (
-		from = runtime.OriginCaller()
-		// TODO no app/clientID specific escrow address ?
-		to     = runtime.CurrentRealm().Address()
-		amount = chain.NewCoins(coin)
-	)
-	banker.SendCoins(from, to, amount)
-
-	addEscrowForDenom(coin)
-
 	return nil
 }
 

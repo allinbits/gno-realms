@@ -17,8 +17,12 @@ test:
 	go test -C ./cmd/gen-block-signatures
 	go test -C ./cmd/gen-proof
 
+FORK_REPO   := github.com/tbruyelle/gno
+FORK_BRANCH := tbruyelle/origin-send-filter
+
 update-fork:
-	go mod edit -replace  github.com/gnolang/gno=github.com/allinbits/gno@ibc-fork
+	$(eval HASH := $(shell git ls-remote https://$(FORK_REPO).git refs/heads/$(FORK_BRANCH) | awk '{print $$1}'))
+	go mod edit -replace github.com/gnolang/gno=$(FORK_REPO)@$(HASH)
 	go mod tidy
-	go mod edit -replace  github.com/gnolang/gno/contribs/gnodev=github.com/allinbits/gno/contribs/gnodev@ibc-fork
+	go mod edit -replace github.com/gnolang/gno/contribs/gnodev=$(FORK_REPO)/contribs/gnodev@$(HASH)
 	go mod tidy

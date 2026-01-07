@@ -3,7 +3,6 @@
 package main
 
 import (
-	"chain/banker"
 	"chain/runtime"
 	"encoding/hex"
 	"testing"
@@ -52,10 +51,9 @@ func main() {
 			},
 		},
 	}
-	banker := banker.NewBanker(banker.BankerTypeOriginSend)
 	testing.SetOriginCaller(signer)
 	// Send the packet
-	sequence := core.SendPacket(cross, banker, sendPacket)
+	sequence := core.SendPacket(cross, sendPacket)
 
 	// Acknowledge the packet
 	// Generate the proof of acknowledgement written during the RecvPacket of the

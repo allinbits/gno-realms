@@ -3,7 +3,6 @@
 package main
 
 import (
-	"chain/banker"
 	"chain/runtime"
 	"testing"
 	"time"
@@ -47,10 +46,9 @@ func main() {
 			},
 		},
 	}
-	banker := banker.NewBanker(banker.BankerTypeOriginSend)
 	testing.SetOriginCaller(signer)
 
-	core.SendPacket(cross, banker, packet)
+	core.SendPacket(cross, packet)
 }
 
 // Error:

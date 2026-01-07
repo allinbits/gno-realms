@@ -2,7 +2,6 @@
 package main
 
 import (
-	"chain/banker"
 	"chain/runtime"
 	"encoding/hex"
 	"testing"
@@ -23,7 +22,7 @@ func main() {
 		trustedHeight = types.NewHeight(1, 2)
 		clientState   = tmtesting.NewClientState(chainID, trustedHeight)
 		// NOTE this apphash was provided by the gen-proof command below (RecvPacket proof).
-		apphash, _    = hex.DecodeString("948f52451fd35947b960d2a8d316e3c1d4cae9318a3d71923efeea9d7e3db57b")
+		apphash, _ = hex.DecodeString("948f52451fd35947b960d2a8d316e3c1d4cae9318a3d71923efeea9d7e3db57b")
 		// priv=8a6cAbQSpDbebmcTEhCMPhhr/SkL/2pizo60yzHRkN9Uyk7RHOZm7g4xW+yeJh147/Z4/6HXF6gBwcFNkLsZ/A==
 		val1 = tendermint.NewValidator("9DIBYr64rywKO3Kk6+743xDHcEU=",
 			"VMpO0RzmZu4OMVvsniYdeO/2eP+h1xeoAcHBTZC7Gfw=", 1)
@@ -142,11 +141,10 @@ func main() {
 			},
 		},
 	}
-	banker := banker.NewBanker(banker.BankerTypeOriginSend)
 	testing.SetOriginCaller(signer)
 	println("signer GRC20 balance before SendPacket:", transfer.GRC20BalanceOf(voucherDenom, signer))
 	// Send the packet
-	sequence := core.SendPacket(cross, banker, sendPacket)
+	sequence := core.SendPacket(cross, sendPacket)
 	println("\nsigner GRC20 balance after SendPacket:", transfer.GRC20BalanceOf(voucherDenom, signer))
 
 	// Change block time to after the timeout
