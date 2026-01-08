@@ -8,9 +8,13 @@ ifdef GNOROOT
 	GNOROOT = $(shell go list -f '{{.Module.Dir}}' github.com/gnolang/gno)
 endif
 
+# Create a comma-separated list of each module path from gnomod.toml files
+paths_list := $(shell find gno.land -name 'gnomod.toml' -exec grep -h '^module' {} + | cut -d'"' -f2 | paste -sd,)
+
 gnodev:
-	go tool gnodev -empty-blocks -resolver root=. \
-		-resolver root=$(shell go tool gno env GNOROOT)/examples
+	go tool gnodev -v -empty-blocks -paths=${paths_list} \
+		-resolver root=$(shell go tool gno env GNOROOT)/examples \
+		-resolver root=. \
 
 test: 
 	go tool gno test ./gno.land/...
