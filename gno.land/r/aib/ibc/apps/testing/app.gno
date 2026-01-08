@@ -1,7 +1,6 @@
 package testing
 
 import (
-	"chain"
 	"chain/banker"
 	"chain/runtime"
 
@@ -25,7 +24,6 @@ type (
 		}
 	}
 	Args struct {
-		Banker            banker.Banker
 		SourceClient      string
 		DestinationClient string
 		Sequence          uint64
@@ -51,7 +49,6 @@ func NewApp(_ realm) *App {
 // Implements app.IBCApp
 func (a *App) OnSendPacket(
 	_ realm,
-	banker banker.Banker,
 	sourceClient string,
 	destinationClient string,
 	sequence uint64,
@@ -59,7 +56,6 @@ func (a *App) OnSendPacket(
 ) error {
 	a.Calls.OnSendPacket = append(a.Calls.OnSendPacket,
 		Args{
-			Banker:            banker,
 			SourceClient:      sourceClient,
 			DestinationClient: destinationClient,
 			Sequence:          sequence,
@@ -167,14 +163,6 @@ func (a *App) Report() string {
 
 func (a *Args) Report() string {
 	var s string
-	// if Banker provided (for OnSendPacket only), report spendable balance
-	if a.Banker != nil {
-		coins := banker.OriginSend()
-		if len(coins) == 0 {
-			coins = chain.NewCoins(chain.NewCoin("ugnot", 0))
-		}
-		s += ufmt.Sprintf("- spendable: %s\n", coins)
-	}
 	s += ufmt.Sprintf("- sourceClient: %s\n", a.SourceClient)
 	s += ufmt.Sprintf("- destinationClient: %s\n", a.DestinationClient)
 	s += ufmt.Sprintf("- sequence: %d\n", a.Sequence)

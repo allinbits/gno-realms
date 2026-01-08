@@ -3,7 +3,6 @@ package core
 import (
 	"bytes"
 	"chain"
-	"chain/banker"
 	"encoding/hex"
 	"time"
 
@@ -15,7 +14,7 @@ import (
 
 const maxTimeoutDelta time.Duration = 24 * time.Hour
 
-func SendPacket(cur realm, banker banker.Banker, msg types.MsgSendPacket) (sequence uint64) {
+func SendPacket(cur realm, msg types.MsgSendPacket) (sequence uint64) {
 	if err := msg.ValidateBasic(); err != nil {
 		panic(err)
 	}
@@ -86,7 +85,7 @@ func SendPacket(cur realm, banker banker.Banker, msg types.MsgSendPacket) (seque
 	for i, payload := range msg.Payloads {
 		app := store.route(payload.SourcePort)
 		err := app.OnSendPacket(
-			cross, banker, msg.SourceClient, c.counterpartyClientID, sequence, payload,
+			cross, msg.SourceClient, c.counterpartyClientID, sequence, payload,
 		)
 		if err != nil {
 			panic(ufmt.Sprintf(

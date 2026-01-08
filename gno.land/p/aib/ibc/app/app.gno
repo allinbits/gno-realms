@@ -1,8 +1,6 @@
 package app
 
 import (
-	"chain/banker"
-
 	"gno.land/p/aib/ibc/types"
 )
 
@@ -14,7 +12,6 @@ type IBCApp interface {
 	// the packet sequence and the packet data for this specific application.
 	OnSendPacket(
 		cur realm,
-		banker banker.Banker,
 		sourceClient string,
 		destinationClient string,
 		sequence uint64,

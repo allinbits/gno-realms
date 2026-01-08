@@ -3,10 +3,8 @@
 package main
 
 import (
-	"chain/banker"
 	"chain/runtime"
 	"encoding/hex"
-	"testing"
 	"time"
 
 	tmtesting "gno.land/p/aib/ibc/lightclient/tendermint/testing"
@@ -51,10 +49,8 @@ func main() {
 			},
 		},
 	}
-	banker := banker.NewBanker(banker.BankerTypeOriginSend)
-	testing.SetOriginCaller(signer)
 	// Send the packet
-	sequence := core.SendPacket(cross, banker, sendPacket)
+	sequence := core.SendPacket(cross, sendPacket)
 
 	// Acknowledge the packet
 	specs := ics23.IavlSpec()
