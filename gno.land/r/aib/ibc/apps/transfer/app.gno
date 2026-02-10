@@ -234,7 +234,6 @@ func (a *App) OnRecvPacket(
 
 		voucherDenom := token.Denom.IBCDenom()
 		if !hasDenom(voucherDenom) {
-			// TODO do we still need to store denoms with grc20 storage?
 			setDenom(token.Denom)
 		}
 

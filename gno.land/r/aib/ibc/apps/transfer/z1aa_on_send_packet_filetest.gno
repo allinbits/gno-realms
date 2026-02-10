@@ -59,12 +59,22 @@ func main() {
 	core.SendPacket(cross, banker, packet)
 
 	println("\nsigner GRC20 balance after SendPacket:", transfer.GRC20BalanceOf(voucherDenom, signer))
+	println("\n----------- assert render grc20 after SendPacket")
+	println(transfer.Render("grc20/" + voucherDenom))
+	println("\n----------- assert render grc20 balance after SendPacket")
+	println(transfer.Render("grc20/" + voucherDenom + "/balance/" + signer.String()))
 }
 
 // Output:
 // signer GRC20 balance before SendPacket: 100
 //
 // signer GRC20 balance after SendPacket: 0
+//
+// ----------- assert render grc20 after SendPacket
+// {"denom":"ibc/F9A67CB19B2CAD2ADEC20AD475BE86DF851DEC2B6F6CABC9B7B781BD9131D18F","name":"uatone","symbol":"ibc/F9A67CB19B2CAD2ADEC20AD475BE86DF851DEC2B6F6CABC9B7B781BD9131D18F","decimals":0,"total_supply":0}
+//
+// ----------- assert render grc20 balance after SendPacket
+// {"denom":"ibc/F9A67CB19B2CAD2ADEC20AD475BE86DF851DEC2B6F6CABC9B7B781BD9131D18F","address":"g1gjs8nfdrd55z3xu9gjcatnj29vkwuyx4ffqxd9","balance":0}
 
 // Events:
 // [

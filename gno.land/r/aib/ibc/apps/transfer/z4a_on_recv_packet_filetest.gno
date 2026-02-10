@@ -124,6 +124,10 @@ func main() {
 	println(transfer.Render("denoms"))
 	println("\n----------- assert render /denoms/ibc/CAEF9CA8CE6C302D73A831A49E34E59149D3A9AD96CCEBDFBF62F6D5710D92D8")
 	println(transfer.Render("denoms/ibc/CAEF9CA8CE6C302D73A831A49E34E59149D3A9AD96CCEBDFBF62F6D5710D92D8"))
+	println("\n----------- assert render grc20")
+	println(transfer.Render("grc20/ibc/CAEF9CA8CE6C302D73A831A49E34E59149D3A9AD96CCEBDFBF62F6D5710D92D8"))
+	println("\n----------- assert render grc20 balance")
+	println(transfer.Render("grc20/ibc/CAEF9CA8CE6C302D73A831A49E34E59149D3A9AD96CCEBDFBF62F6D5710D92D8/balance/" + receiver.String()))
 }
 
 // Output:
@@ -140,6 +144,12 @@ func main() {
 //
 // ----------- assert render /denoms/ibc/CAEF9CA8CE6C302D73A831A49E34E59149D3A9AD96CCEBDFBF62F6D5710D92D8
 // {"base":"uphoton","path":"transfer/07-tendermint-1/uphoton","denom":"ibc/CAEF9CA8CE6C302D73A831A49E34E59149D3A9AD96CCEBDFBF62F6D5710D92D8"}
+//
+// ----------- assert render grc20
+// {"denom":"ibc/CAEF9CA8CE6C302D73A831A49E34E59149D3A9AD96CCEBDFBF62F6D5710D92D8","name":"uphoton","symbol":"ibc/CAEF9CA8CE6C302D73A831A49E34E59149D3A9AD96CCEBDFBF62F6D5710D92D8","decimals":0,"total_supply":100}
+//
+// ----------- assert render grc20 balance
+// {"denom":"ibc/CAEF9CA8CE6C302D73A831A49E34E59149D3A9AD96CCEBDFBF62F6D5710D92D8","address":"g1wfjkxetfwejhyh6lta047h6lta047h6llm82yl","balance":100}
 
 // Events:
 // [
