@@ -11,10 +11,10 @@ github.com/alecthomas/chroma/v2 v2.15.0/go.mod h1:gUhVLrPDXPtp/f+L1jo9xepo9gL4eL
 github.com/alecthomas/repr v0.0.0-20220113201626-b1b626ac65ae/go.mod h1:2kn6fqh/zIyPLmm3ugklbEi5hg5wS435eygvNfaDQL8=
 github.com/alecthomas/repr v0.4.0 h1:GhI2A8MACjfegCPVq9f1FLvIBS+DrQ2KQBFZP1iFzXc=
 github.com/alecthomas/repr v0.4.0/go.mod h1:Fr0507jx4eOXV7AlPV6AVZLYrLIuIeSOWtW57eE/O/4=
-github.com/allinbits/gno v0.0.0-20260102165418-c26243cf4439 h1:ZeAo1FTK7aieYD6F7sJHsHk/0C7Rbg9x2V6zxjVy4nI=
-github.com/allinbits/gno v0.0.0-20260102165418-c26243cf4439/go.mod h1:OkezQmocsFLoIUOZ2jHtgIdXUJEN2Q8xKLQn2PCgr1Q=
-github.com/allinbits/gno/contribs/gnodev v0.0.0-20260102165418-c26243cf4439 h1:TyHOztoUzlU7Aa3AAuF4V6E3SpLjrCN5mQqVYwRSi0Q=
-github.com/allinbits/gno/contribs/gnodev v0.0.0-20260102165418-c26243cf4439/go.mod h1:ZYpqk2+lo+e8aFyNVlAkddtyaeeCKJlcoKBnBSgo81s=
+github.com/allinbits/gno v0.0.0-20260206131035-cc986e42656e h1:kL3EEODRc2jm/+CqsU0Bwvad/HceJ6wK/7lO68TmbzU=
+github.com/allinbits/gno v0.0.0-20260206131035-cc986e42656e/go.mod h1:OkezQmocsFLoIUOZ2jHtgIdXUJEN2Q8xKLQn2PCgr1Q=
+github.com/allinbits/gno/contribs/gnodev v0.0.0-20260206131035-cc986e42656e h1:K/OalYpB62xmEYiRFh8hJuixkBMAWNcbl2iU9pQdTjc=
+github.com/allinbits/gno/contribs/gnodev v0.0.0-20260206131035-cc986e42656e/go.mod h1:ZYpqk2+lo+e8aFyNVlAkddtyaeeCKJlcoKBnBSgo81s=
 github.com/aymanbagabas/go-osc52/v2 v2.0.1 h1:HwpRHbFMcZLEVr42D4p7XBqjyuxQH5SMiErDT4WkJ2k=
 github.com/aymanbagabas/go-osc52/v2 v2.0.1/go.mod h1:uYgXzlJ7ZpABp8OJ+exZzJJhRNQ2ASbcXHWsFqH8hp8=
 github.com/bendory/conway-hebrew-calendar v0.0.0-20210829020739-dcc34210ce9b h1:AqcWTgnij9lTMsvc21uXU38gVQyzsb4i1YDRJja+auc=
