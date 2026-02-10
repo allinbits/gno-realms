@@ -74,3 +74,13 @@ func getGRC20(ibcDenom string) *grc20Instance {
 	}
 	return v.(*grc20Instance)
 }
+
+// GRC20BalanceOf returns the GRC20 balance of a voucher token for a given address.
+// Returns 0 if the token does not exist.
+func GRC20BalanceOf(ibcDenom string, addr address) int64 {
+	inst := getGRC20(ibcDenom)
+	if inst == nil {
+		return 0
+	}
+	return inst.token.BalanceOf(addr)
+}
