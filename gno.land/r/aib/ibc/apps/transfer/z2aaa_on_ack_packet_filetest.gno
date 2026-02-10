@@ -1,9 +1,7 @@
 // PKGPATH: gno.land/r/aib/main
-// SEND: 100ibc/F9A67CB19B2CAD2ADEC20AD475BE86DF851DEC2B6F6CABC9B7B781BD9131D18F
 package main
 
 import (
-	"chain"
 	"chain/banker"
 	"chain/runtime"
 	"encoding/hex"
@@ -33,6 +31,11 @@ func main() {
 	core.RegisterCounterparty(cross, clientID, [][]byte{[]byte("iavlStoreKey"), []byte("prefix2")}, counterpartyID)
 
 	signer := runtime.CurrentRealm().Address()
+
+	// Pre-mint GRC20 voucher tokens for the signer
+	voucherDenom := "ibc/F9A67CB19B2CAD2ADEC20AD475BE86DF851DEC2B6F6CABC9B7B781BD9131D18F"
+	transfer.MintVoucherForTesting(cross, "transfer/"+clientID+"/uatone", signer, 100)
+
 	payload := transfer.FungibleTokenPacketData{
 		Denom:    "transfer/" + clientID + "/uatone", // expect transfer/07-tendermint-1/uatone
 		Amount:   "100",
@@ -55,13 +58,10 @@ func main() {
 	}
 	banker := banker.NewBanker(banker.BankerTypeOriginSend)
 	testing.SetOriginCaller(signer)
-	transferAppAddr := chain.PackageAddress("gno.land/r/aib/ibc/apps/transfer")
-	println("signer balance before SendPacket:", banker.GetCoins(signer))
-	println("transferAppAddr balance before SendPacket:", banker.GetCoins(transferAppAddr))
+	println("signer GRC20 balance before SendPacket:", transfer.GRC20BalanceOf(voucherDenom, signer))
 	// Send the packet
 	sequence := core.SendPacket(cross, banker, sendPacket)
-	println("\nsigner balance after SendPacket:", banker.GetCoins(signer))
-	println("transferAppAddr balance after SendPacket (should be empty since tokens were burnt):", banker.GetCoins(transferAppAddr))
+	println("\nsigner GRC20 balance after SendPacket:", transfer.GRC20BalanceOf(voucherDenom, signer))
 
 	// Acknowledge the packet
 	specs := ics23.IavlSpec()
@@ -139,21 +139,17 @@ func main() {
 	res := core.Acknowledgement(cross, ackPacket)
 
 	println("\nack res:", res)
-	println("\nsigner balance after Acknowledgement:", banker.GetCoins(signer))
-	println("transferAppAddr balance after Acknowledgement:", banker.GetCoins(transferAppAddr))
+	println("\nsigner GRC20 balance after Acknowledgement:", transfer.GRC20BalanceOf(voucherDenom, signer))
 }
 
 // Output:
-// signer balance before SendPacket: 100ibc/F9A67CB19B2CAD2ADEC20AD475BE86DF851DEC2B6F6CABC9B7B781BD9131D18F
-// transferAppAddr balance before SendPacket:
+// signer GRC20 balance before SendPacket: 100
 //
-// signer balance after SendPacket:
-// transferAppAddr balance after SendPacket (should be empty since tokens were burnt):
+// signer GRC20 balance after SendPacket: 0
 //
 // ack res: (2 gno.land/p/aib/ibc/types.ResponseResultType)
 //
-// signer balance after Acknowledgement: 100ibc/F9A67CB19B2CAD2ADEC20AD475BE86DF851DEC2B6F6CABC9B7B781BD9131D18F
-// transferAppAddr balance after Acknowledgement:
+// signer GRC20 balance after Acknowledgement: 100
 
 // Events:
 // [
@@ -174,6 +170,42 @@ func main() {
 //       }
 //     ],
 //     "pkg_path": "gno.land/r/aib/ibc/core"
+//   },
+//   {
+//     "type": "register",
+//     "attrs": [
+//       {
+//         "key": "pkgpath",
+//         "value": "gno.land/r/aib/ibc/apps/transfer"
+//       },
+//       {
+//         "key": "slug",
+//         "value": "ibc/F9A67CB19B2CAD2ADEC20AD475BE86DF851DEC2B6F6CABC9B7B781BD9131D18F"
+//       }
+//     ],
+//     "pkg_path": "gno.land/r/demo/defi/grc20reg"
+//   },
+//   {
+//     "type": "Transfer",
+//     "attrs": [
+//       {
+//         "key": "token",
+//         "value": "gno.land/r/aib/ibc/apps/transfer.ibc/F9A67CB19B2CAD2ADEC20AD475BE86DF851DEC2B6F6CABC9B7B781BD9131D18F"
+//       },
+//       {
+//         "key": "from",
+//         "value": ""
+//       },
+//       {
+//         "key": "to",
+//         "value": "g1gjs8nfdrd55z3xu9gjcatnj29vkwuyx4ffqxd9"
+//       },
+//       {
+//         "key": "value",
+//         "value": "100"
+//       }
+//     ],
+//     "pkg_path": "gno.land/p/demo/tokens/grc20"
 //   },
 //   {
 //     "type": "send_packet",
@@ -200,6 +232,28 @@ func main() {
 //       }
 //     ],
 //     "pkg_path": "gno.land/r/aib/ibc/core"
+//   },
+//   {
+//     "type": "Transfer",
+//     "attrs": [
+//       {
+//         "key": "token",
+//         "value": "gno.land/r/aib/ibc/apps/transfer.ibc/F9A67CB19B2CAD2ADEC20AD475BE86DF851DEC2B6F6CABC9B7B781BD9131D18F"
+//       },
+//       {
+//         "key": "from",
+//         "value": "g1gjs8nfdrd55z3xu9gjcatnj29vkwuyx4ffqxd9"
+//       },
+//       {
+//         "key": "to",
+//         "value": ""
+//       },
+//       {
+//         "key": "value",
+//         "value": "100"
+//       }
+//     ],
+//     "pkg_path": "gno.land/p/demo/tokens/grc20"
 //   },
 //   {
 //     "type": "ibc_transfer",
@@ -252,6 +306,28 @@ func main() {
 //       }
 //     ],
 //     "pkg_path": "gno.land/r/aib/ibc/core"
+//   },
+//   {
+//     "type": "Transfer",
+//     "attrs": [
+//       {
+//         "key": "token",
+//         "value": "gno.land/r/aib/ibc/apps/transfer.ibc/F9A67CB19B2CAD2ADEC20AD475BE86DF851DEC2B6F6CABC9B7B781BD9131D18F"
+//       },
+//       {
+//         "key": "from",
+//         "value": ""
+//       },
+//       {
+//         "key": "to",
+//         "value": "g1gjs8nfdrd55z3xu9gjcatnj29vkwuyx4ffqxd9"
+//       },
+//       {
+//         "key": "value",
+//         "value": "100"
+//       }
+//     ],
+//     "pkg_path": "gno.land/p/demo/tokens/grc20"
 //   },
 //   {
 //     "type": "fungible_token_packet",
