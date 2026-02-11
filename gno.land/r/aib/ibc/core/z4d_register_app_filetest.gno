@@ -5,10 +5,10 @@ import (
 	"gno.land/r/aib/ibc/core"
 )
 
-// RegisterApp fails because portID is not alphanumeric
+// RegisterApp fails because portID contains invalid characters (parentheses)
 func main() {
-	core.RegisterApp(cross, "gno.land/r/aib/ibc", appstesting.NewApp(cross))
+	core.RegisterApp(cross, "invalid(port)", appstesting.NewApp(cross))
 }
 
 // Error:
-// invalid portID: validate port identifier: identifier gno.land/r/aib/ibc cannot contain separator '/'
+// invalid portID: validate port identifier: identifier invalid(port) must contain only alphanumeric or the following characters: '.', '_', '+', '-', '#', '/', '[', ']', '<', '>'
