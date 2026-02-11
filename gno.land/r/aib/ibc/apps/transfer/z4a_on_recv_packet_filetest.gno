@@ -113,7 +113,8 @@ func main() {
 		ProofCommitment: proof,
 		ProofHeight:     trustedHeight,
 	}
-	voucherDenom := "ibc/CAEF9CA8CE6C302D73A831A49E34E59149D3A9AD96CCEBDFBF62F6D5710D92D8"
+	// ibc/CAEF9CA8CE6C302D73A831A49E34E59149D3A9AD96CCEBDFBF62F6D5710D92D8
+	voucherDenom := transfer.NewDenom("uphoton", transfer.NewHop(transfer.PortID, clientID)).IBCDenom()
 	println("\nreceiver GRC20 balance before RecvPacket:", transfer.GRC20BalanceOf(voucherDenom, receiver))
 
 	res := core.RecvPacket(cross, recvPacket)
@@ -122,12 +123,12 @@ func main() {
 	println("\nreceiver GRC20 balance after RecvPacket:", transfer.GRC20BalanceOf(voucherDenom, receiver))
 	println("\n----------- assert render /denoms")
 	println(transfer.Render("denoms"))
-	println("\n----------- assert render /denoms/ibc/CAEF9CA8CE6C302D73A831A49E34E59149D3A9AD96CCEBDFBF62F6D5710D92D8")
-	println(transfer.Render("denoms/ibc/CAEF9CA8CE6C302D73A831A49E34E59149D3A9AD96CCEBDFBF62F6D5710D92D8"))
+	println("\n----------- assert render /denoms/" + voucherDenom)
+	println(transfer.Render("denoms/" + voucherDenom))
 	println("\n----------- assert render grc20")
-	println(transfer.Render("grc20/ibc/CAEF9CA8CE6C302D73A831A49E34E59149D3A9AD96CCEBDFBF62F6D5710D92D8"))
+	println(transfer.Render("grc20/" + voucherDenom))
 	println("\n----------- assert render grc20 balance")
-	println(transfer.Render("grc20/ibc/CAEF9CA8CE6C302D73A831A49E34E59149D3A9AD96CCEBDFBF62F6D5710D92D8/balance/" + receiver.String()))
+	println(transfer.Render("grc20/" + voucherDenom + "/balance/" + receiver.String()))
 }
 
 // Output:

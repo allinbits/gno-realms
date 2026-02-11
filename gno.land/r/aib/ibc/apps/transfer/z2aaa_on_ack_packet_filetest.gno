@@ -38,7 +38,8 @@ func main() {
 	core.RegisterCounterparty(cross, clientID, [][]byte{[]byte("iavlStoreKey"), []byte("prefix2")}, counterpartyID)
 
 	signer := runtime.CurrentRealm().Address()
-	voucherDenom := "ibc/F9A67CB19B2CAD2ADEC20AD475BE86DF851DEC2B6F6CABC9B7B781BD9131D18F"
+	// ibc/F9A67CB19B2CAD2ADEC20AD475BE86DF851DEC2B6F6CABC9B7B781BD9131D18F
+	voucherDenom := transfer.NewDenom("uatone", transfer.NewHop(transfer.PortID, clientID)).IBCDenom()
 
 	// Mint GRC20 voucher tokens via a real RecvPacket flow.
 	recvPayload := transfer.FungibleTokenPacketData{
