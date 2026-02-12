@@ -2,7 +2,6 @@
 package main
 
 import (
-	"chain/banker"
 	"encoding/base64"
 	"encoding/hex"
 	"time"
@@ -114,33 +113,44 @@ func main() {
 		ProofCommitment: proof,
 		ProofHeight:     trustedHeight,
 	}
-	banker := banker.NewBanker(banker.BankerTypeReadonly)
-	println("\nreceiver balance before RecvPacket:", banker.GetCoins(receiver))
+	// ibc/CAEF9CA8CE6C302D73A831A49E34E59149D3A9AD96CCEBDFBF62F6D5710D92D8
+	voucherDenom := transfer.NewDenom("uphoton", transfer.NewHop(transfer.PortID, clientID)).IBCDenom()
+	println("\nreceiver GRC20 balance before RecvPacket:", transfer.GRC20BalanceOf(voucherDenom, receiver))
 
 	res := core.RecvPacket(cross, recvPacket)
 
 	println("\nack res:", res)
-	println("\nreceiver balance after RecvPacket:", banker.GetCoins(receiver))
+	println("\nreceiver GRC20 balance after RecvPacket:", transfer.GRC20BalanceOf(voucherDenom, receiver))
 	println("\n----------- assert render /denoms")
 	println(transfer.Render("denoms"))
-	println("\n----------- assert render /denoms/ibc/CAEF9CA8CE6C302D73A831A49E34E59149D3A9AD96CCEBDFBF62F6D5710D92D8")
-	println(transfer.Render("denoms/ibc/CAEF9CA8CE6C302D73A831A49E34E59149D3A9AD96CCEBDFBF62F6D5710D92D8"))
+	println("\n----------- assert render /denoms/" + voucherDenom)
+	println(transfer.Render("denoms/" + voucherDenom))
+	println("\n----------- assert render grc20")
+	println(transfer.Render("grc20/" + voucherDenom))
+	println("\n----------- assert render grc20 balance")
+	println(transfer.Render("grc20/" + voucherDenom + "/balance/" + receiver.String()))
 }
 
 // Output:
 // Payload proto: Cgd1cGhvdG9uEgMxMDAaCmF0b25lMXVzZXIiKGcxd2Zqa3hldGZ3ZWpoeWg2bHRhMDQ3aDZsdGEwNDdoNmxsbTgyeWw=
 //
-// receiver balance before RecvPacket:
+// receiver GRC20 balance before RecvPacket: 0
 //
 // ack res: (2 gno.land/p/aib/ibc/types.ResponseResultType)
 //
-// receiver balance after RecvPacket: 100ibc/CAEF9CA8CE6C302D73A831A49E34E59149D3A9AD96CCEBDFBF62F6D5710D92D8
+// receiver GRC20 balance after RecvPacket: 100
 //
 // ----------- assert render /denoms
 // {"items":[{"base":"uphoton","path":"transfer/07-tendermint-1/uphoton","denom":"ibc/CAEF9CA8CE6C302D73A831A49E34E59149D3A9AD96CCEBDFBF62F6D5710D92D8"}],"page":1,"total":1}
 //
 // ----------- assert render /denoms/ibc/CAEF9CA8CE6C302D73A831A49E34E59149D3A9AD96CCEBDFBF62F6D5710D92D8
 // {"base":"uphoton","path":"transfer/07-tendermint-1/uphoton","denom":"ibc/CAEF9CA8CE6C302D73A831A49E34E59149D3A9AD96CCEBDFBF62F6D5710D92D8"}
+//
+// ----------- assert render grc20
+// {"denom":"ibc/CAEF9CA8CE6C302D73A831A49E34E59149D3A9AD96CCEBDFBF62F6D5710D92D8","name":"uphoton","symbol":"ibc/CAEF9CA8CE6C302D73A831A49E34E59149D3A9AD96CCEBDFBF62F6D5710D92D8","decimals":0,"total_supply":100}
+//
+// ----------- assert render grc20 balance
+// {"denom":"ibc/CAEF9CA8CE6C302D73A831A49E34E59149D3A9AD96CCEBDFBF62F6D5710D92D8","address":"g1wfjkxetfwejhyh6lta047h6lta047h6llm82yl","balance":100}
 
 // Events:
 // [
@@ -201,6 +211,42 @@ func main() {
 //       }
 //     ],
 //     "pkg_path": "gno.land/r/aib/ibc/apps/transfer"
+//   },
+//   {
+//     "type": "register",
+//     "attrs": [
+//       {
+//         "key": "pkgpath",
+//         "value": "gno.land/r/aib/ibc/apps/transfer"
+//       },
+//       {
+//         "key": "slug",
+//         "value": "ibc/CAEF9CA8CE6C302D73A831A49E34E59149D3A9AD96CCEBDFBF62F6D5710D92D8"
+//       }
+//     ],
+//     "pkg_path": "gno.land/r/demo/defi/grc20reg"
+//   },
+//   {
+//     "type": "Transfer",
+//     "attrs": [
+//       {
+//         "key": "token",
+//         "value": "gno.land/r/aib/ibc/apps/transfer.ibc/CAEF9CA8CE6C302D73A831A49E34E59149D3A9AD96CCEBDFBF62F6D5710D92D8"
+//       },
+//       {
+//         "key": "from",
+//         "value": ""
+//       },
+//       {
+//         "key": "to",
+//         "value": "g1wfjkxetfwejhyh6lta047h6lta047h6llm82yl"
+//       },
+//       {
+//         "key": "value",
+//         "value": "100"
+//       }
+//     ],
+//     "pkg_path": "gno.land/p/demo/tokens/grc20"
 //   },
 //   {
 //     "type": "fungible_token_packet",

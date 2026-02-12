@@ -14,16 +14,15 @@ func refundPacketToken(sourcePort, sourceClient, sender string, token Token) err
 		return ufmt.Errorf("token to coin error: %v", err)
 	}
 	if token.Denom.HasPrefix(sourcePort, sourceClient) {
-		// Mint coin that was burnt during OnSendPacket and send it back to
-		// sender
-		var (
-			from   = runtime.CurrentRealm().Address()
-			to     = runtime.OriginCaller()
-			amount = chain.NewCoins(coin)
-		)
-		banker := banker.NewBanker(banker.BankerTypeRealmIssue)
-		banker.IssueCoin(from, coin.Denom, coin.Amount)
-		banker.SendCoins(from, to, amount)
+		// Re-mint GRC20 tokens that were burnt during OnSendPacket
+		inst := getGRC20(coin.Denom)
+		if inst == nil {
+			return ufmt.Errorf("GRC20 token not found for denom %s", coin.Denom)
+		}
+		to := runtime.OriginCaller()
+		if err := inst.ledger.Mint(to, coin.Amount); err != nil {
+			return ufmt.Errorf("re-mint GRC20 error: %v", err)
+		}
 	} else {
 		if err := unescrowCoin(sender, coin); err != nil {
 			return err
