@@ -110,6 +110,16 @@ func TestValidatorSetChangePacketData_Validate(t *testing.T) {
 			},
 			wantErr: false,
 		},
+		{
+			name: "negative power",
+			vsc: ValidatorSetChangePacketData{
+				ValidatorUpdates: []ValidatorUpdate{
+					{PubKey: MakePubKey("ed25519", "AAAA"), Power: -1},
+				},
+				ValsetUpdateId: 1,
+			},
+			wantErr: true,
+		},
 	}
 
 	for _, tt := range tests {
@@ -380,103 +390,11 @@ func TestUnmarshalLegacyStringPubKey(t *testing.T) {
 	}
 }
 
-func TestAccumulateChanges(t *testing.T) {
-	t.Run("empty current and incoming", func(t *testing.T) {
-		result := AccumulateChanges(nil, nil)
-		if len(result) != 0 {
-			t.Errorf("expected empty result, got %d items", len(result))
-		}
-	})
-
-	t.Run("empty current with incoming", func(t *testing.T) {
-		incoming := []ValidatorUpdate{
-			{PubKey: MakePubKey("ed25519", "AAAA"), Power: 100},
-			{PubKey: MakePubKey("ed25519", "BBBB"), Power: 50},
-		}
-		result := AccumulateChanges(nil, incoming)
-		if len(result) != 2 {
-			t.Fatalf("expected 2 results, got %d", len(result))
-		}
-		// Should be sorted by descending power
-		if result[0].Power != 100 {
-			t.Errorf("expected first result power 100, got %d", result[0].Power)
-		}
-		if result[1].Power != 50 {
-			t.Errorf("expected second result power 50, got %d", result[1].Power)
-		}
-	})
-
-	t.Run("incoming overrides current", func(t *testing.T) {
-		current := []ValidatorUpdate{
-			{PubKey: MakePubKey("ed25519", "AAAA"), Power: 100},
-			{PubKey: MakePubKey("ed25519", "BBBB"), Power: 50},
-		}
-		incoming := []ValidatorUpdate{
-			{PubKey: MakePubKey("ed25519", "AAAA"), Power: 200}, // override
-		}
-		result := AccumulateChanges(current, incoming)
-		if len(result) != 2 {
-			t.Fatalf("expected 2 results, got %d", len(result))
-		}
-		// ed25519:AAAA should have updated power 200
-		found := false
-		for _, vu := range result {
-			if vu.PubKey == MakePubKey("ed25519", "AAAA") {
-				if vu.Power != 200 {
-					t.Errorf("expected ed25519:AAAA power 200, got %d", vu.Power)
-				}
-				found = true
-			}
-		}
-		if !found {
-			t.Error("ed25519:AAAA not found in results")
-		}
-	})
-
-	t.Run("merge current and new validators", func(t *testing.T) {
-		current := []ValidatorUpdate{
-			{PubKey: MakePubKey("ed25519", "AAAA"), Power: 100},
-		}
-		incoming := []ValidatorUpdate{
-			{PubKey: MakePubKey("ed25519", "BBBB"), Power: 50},
-		}
-		result := AccumulateChanges(current, incoming)
-		if len(result) != 2 {
-			t.Fatalf("expected 2 results, got %d", len(result))
-		}
-	})
-
-	t.Run("deterministic sort order", func(t *testing.T) {
-		updates := []ValidatorUpdate{
-			{PubKey: MakePubKey("ed25519", "CCCC"), Power: 50},
-			{PubKey: MakePubKey("ed25519", "AAAA"), Power: 50},
-			{PubKey: MakePubKey("ed25519", "BBBB"), Power: 100},
-		}
-		result := AccumulateChanges(nil, updates)
-		if len(result) != 3 {
-			t.Fatalf("expected 3 results, got %d", len(result))
-		}
-		// First: ed25519:BBBB (power 100)
-		if result[0].PubKey != MakePubKey("ed25519", "BBBB") {
-			t.Errorf("expected first result ed25519:BBBB, got %s", result[0].PubKey)
-		}
-		// For equal power 50, descending pubkey: ed25519:CCCC before ed25519:AAAA
-		if result[1].PubKey != MakePubKey("ed25519", "CCCC") {
-			t.Errorf("expected second result ed25519:CCCC, got %s", result[1].PubKey)
-		}
-		if result[2].PubKey != MakePubKey("ed25519", "AAAA") {
-			t.Errorf("expected third result ed25519:AAAA, got %s", result[2].PubKey)
-		}
-	})
-}
-
 func TestApplyValidatorChanges(t *testing.T) {
 	// Reset store for each test
 	resetStore := func() {
 		store.validators = nil
 		store.validators = newTree()
-		store.pendingChanges = nil
-		store.pendingChanges = newTree()
 	}
 
 	t.Run("add new validators", func(t *testing.T) {
@@ -486,10 +404,7 @@ func TestApplyValidatorChanges(t *testing.T) {
 			{PubKey: MakePubKey("ed25519", "AAAA"), Power: 100},
 			{PubKey: MakePubKey("ed25519", "BBBB"), Power: 50},
 		}
-		applied := applyValidatorChanges(changes)
-		if len(applied) != 2 {
-			t.Fatalf("expected 2 applied, got %d", len(applied))
-		}
+		applyValidatorChanges(changes)
 		if GetCCValidatorCount() != 2 {
 			t.Errorf("expected 2 validators, got %d", GetCCValidatorCount())
 		}
@@ -508,10 +423,7 @@ func TestApplyValidatorChanges(t *testing.T) {
 		changes := []ValidatorUpdate{
 			{PubKey: MakePubKey("ed25519", "AAAA"), Power: 200},
 		}
-		applied := applyValidatorChanges(changes)
-		if len(applied) != 1 {
-			t.Fatalf("expected 1 applied, got %d", len(applied))
-		}
+		applyValidatorChanges(changes)
 		val, found := getCCValidator(MakePubKey("ed25519", "AAAA"))
 		if !found {
 			t.Fatal("validator not found after update")
@@ -530,10 +442,7 @@ func TestApplyValidatorChanges(t *testing.T) {
 		changes := []ValidatorUpdate{
 			{PubKey: MakePubKey("ed25519", "AAAA"), Power: 0},
 		}
-		applied := applyValidatorChanges(changes)
-		if len(applied) != 1 {
-			t.Fatalf("expected 1 applied, got %d", len(applied))
-		}
+		applyValidatorChanges(changes)
 		_, found := getCCValidator(MakePubKey("ed25519", "AAAA"))
 		if found {
 			t.Error("validator should have been removed")
@@ -549,10 +458,7 @@ func TestApplyValidatorChanges(t *testing.T) {
 		changes := []ValidatorUpdate{
 			{PubKey: MakePubKey("ed25519", "ZZZZ"), Power: 0},
 		}
-		applied := applyValidatorChanges(changes)
-		if len(applied) != 0 {
-			t.Fatalf("expected 0 applied, got %d", len(applied))
-		}
+		applyValidatorChanges(changes)
 		if GetCCValidatorCount() != 0 {
 			t.Errorf("expected 0 validators, got %d", GetCCValidatorCount())
 		}
@@ -572,10 +478,7 @@ func TestApplyValidatorChanges(t *testing.T) {
 			{PubKey: MakePubKey("ed25519", "DDDD"), Power: 30},  // add new
 			{PubKey: MakePubKey("ed25519", "EEEE"), Power: 0},   // skip (non-existing, zero power)
 		}
-		applied := applyValidatorChanges(changes)
-		if len(applied) != 3 {
-			t.Fatalf("expected 3 applied, got %d", len(applied))
-		}
+		applyValidatorChanges(changes)
 
 		// AAAA should be removed
 		_, found := getCCValidator(MakePubKey("ed25519", "AAAA"))
@@ -641,35 +544,6 @@ func TestSerializeValidatorSet(t *testing.T) {
 	for i, e := range entries {
 		if e != expected[i] {
 			t.Errorf("entry #%d: got %q, want %q", i, e, expected[i])
-		}
-	}
-}
-
-func TestSortValidatorUpdates(t *testing.T) {
-	updates := []ValidatorUpdate{
-		{PubKey: MakePubKey("ed25519", "AAAA"), Power: 50},
-		{PubKey: MakePubKey("ed25519", "BBBB"), Power: 100},
-		{PubKey: MakePubKey("ed25519", "CCCC"), Power: 50},
-		{PubKey: MakePubKey("ed25519", "DDDD"), Power: 200},
-	}
-
-	sortValidatorUpdates(updates)
-
-	// Expected order: descending power, then descending pubkey for ties
-	expectedOrder := []struct {
-		PubKey string
-		Power  int64
-	}{
-		{MakePubKey("ed25519", "DDDD"), 200},
-		{MakePubKey("ed25519", "BBBB"), 100},
-		{MakePubKey("ed25519", "CCCC"), 50},
-		{MakePubKey("ed25519", "AAAA"), 50},
-	}
-
-	for i, exp := range expectedOrder {
-		if updates[i].PubKey != exp.PubKey || updates[i].Power != exp.Power {
-			t.Errorf("position %d: got {%s, %d}, want {%s, %d}",
-				i, updates[i].PubKey, updates[i].Power, exp.PubKey, exp.Power)
 		}
 	}
 }

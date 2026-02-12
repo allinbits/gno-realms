@@ -124,11 +124,8 @@ func main() {
 	println("provider client set:", ok)
 	println("provider client:", providerClient)
 
-	// Verify last valset update ID
-	println("last valset update id:", consumer.GetLastValsetUpdateID())
-
-	// Verify highest valset update ID (for out-of-order packet tracking)
-	println("highest valset update id:", consumer.GetHighestValsetUpdateID())
+	// Verify valset update ID
+	println("valset update id:", consumer.GetHighestValsetUpdateID())
 
 	// Verify individual validators
 	vals := consumer.GetAllCCValidators()
@@ -157,8 +154,7 @@ func main() {
 // total voting power: 150
 // provider client set: true
 // provider client: 07-tendermint-42
-// last valset update id: 1
-// highest valset update id: 1
+// valset update id: 1
 // validator: ed25519:aPFcGOi1P2myrQtfEz6bJikBE3WoW2VHuzMEjjx2jKQ= power: 100
 // validator: ed25519:bPFcGOi1P2myrQtfEz6bJjkBE3WoW2VHuzMEjjx2jKQ= power: 50
 //
@@ -167,9 +163,7 @@ func main() {
 //
 // **Provider Client:** `07-tendermint-42`
 //
-// **Last Valset Update ID:** 1
-//
-// **Highest Valset Update ID:** 1
+// **Valset Update ID:** 1
 //
 // ## Validator Set (2 validators)
 //

@@ -22,30 +22,12 @@ func Render(path string) string {
 		s += "**Provider Client:** _not established_\n\n"
 	}
 
-	// Last valset update ID
-	lastID := GetLastValsetUpdateID()
-	if lastID > 0 {
-		s += ufmt.Sprintf("**Last Valset Update ID:** %d\n\n", lastID)
+	// Valset update ID
+	valsetUpdateID := GetHighestValsetUpdateID()
+	if valsetUpdateID > 0 {
+		s += ufmt.Sprintf("**Valset Update ID:** %d\n\n", valsetUpdateID)
 	} else {
-		s += "**Last Valset Update ID:** _none_\n\n"
-	}
-
-	// Highest valset update ID (for out-of-order tracking)
-	highestID := GetHighestValsetUpdateID()
-	if highestID > 0 {
-		s += ufmt.Sprintf("**Highest Valset Update ID:** %d\n\n", highestID)
-	}
-
-	// Pending changes
-	pending := GetPendingChanges()
-	if len(pending) > 0 {
-		s += ufmt.Sprintf("## Pending Changes (%d)\n\n", len(pending))
-		s += "| PubKey | Power |\n"
-		s += "| --- | --- |\n"
-		for _, vu := range pending {
-			s += ufmt.Sprintf("| `%s` | %s |\n", abbreviatePubKey(vu.PubKey), strconv.FormatInt(vu.Power, 10))
-		}
-		s += "\n"
+		s += "**Valset Update ID:** _none_\n\n"
 	}
 
 	// Current validator set

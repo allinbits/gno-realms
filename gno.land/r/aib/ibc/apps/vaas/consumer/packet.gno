@@ -83,6 +83,9 @@ func (vsc ValidatorSetChangePacketData) Validate() error {
 		if keyType != "ed25519" && keyType != "secp256k1" {
 			return errInvalidPubKey
 		}
+		if vu.Power < 0 {
+			return errNegativePower
+		}
 	}
 	return nil
 }
@@ -276,56 +279,6 @@ func parseInt64Node(node *json.Node) (int64, error) {
 		return int64(n), nil
 	}
 	return 0, ufmt.Errorf("value is neither string nor number")
-}
-
-// AccumulateChanges merges new validator updates into the existing set of
-// pending changes. If a validator appears in both the current and new sets,
-// the new update takes precedence.
-// The result is sorted deterministically by descending power, then by
-// descending pubkey string (for equal powers).
-func AccumulateChanges(current, incoming []ValidatorUpdate) []ValidatorUpdate {
-	m := make(map[string]ValidatorUpdate)
-
-	for _, vu := range current {
-		m[vu.PubKey] = vu
-	}
-	for _, vu := range incoming {
-		m[vu.PubKey] = vu
-	}
-
-	out := make([]ValidatorUpdate, 0, len(m))
-	for _, vu := range m {
-		out = append(out, vu)
-	}
-
-	// Sort deterministically: descending by power, then descending by pubkey.
-	sortValidatorUpdates(out)
-
-	return out
-}
-
-// sortValidatorUpdates sorts a slice of ValidatorUpdate in-place.
-// Ordering: descending by Power, then descending by PubKey (lexicographic).
-func sortValidatorUpdates(updates []ValidatorUpdate) {
-	n := len(updates)
-	for i := 1; i < n; i++ {
-		for j := i; j > 0; j-- {
-			if validatorUpdateLess(updates[j-1], updates[j]) {
-				updates[j-1], updates[j] = updates[j], updates[j-1]
-			} else {
-				break
-			}
-		}
-	}
-}
-
-// validatorUpdateLess returns true if b should come before a in the sorted order.
-// We want descending power, then descending pubkey.
-func validatorUpdateLess(a, b ValidatorUpdate) bool {
-	if a.Power != b.Power {
-		return a.Power < b.Power // lower power sorts later (descending)
-	}
-	return a.PubKey < b.PubKey // lower pubkey sorts later (descending)
 }
 
 // MakePubKey creates a canonical pubkey string from type and base64 value.

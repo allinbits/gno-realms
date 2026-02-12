@@ -22,17 +22,9 @@ type consumerStore struct {
 	// Key: pubkey string (canonical format "type:base64"), Value: *CrossChainValidator
 	validators *avl.Tree
 
-	// pendingChanges stores accumulated validator updates that have been
-	// received via IBC but not yet applied.
-	// Key: pubkey string, Value: *ValidatorUpdate
-	pendingChanges *avl.Tree
-
 	// providerClientID is the IBC client ID for the provider chain.
 	// Set on the first received VSC packet.
 	providerClientID string
-
-	// lastValsetUpdateID is the most recently processed valset update ID.
-	lastValsetUpdateID uint64
 
 	// highestValsetUpdateID is the highest valset update ID that has been
 	// processed. Used for out-of-order packet handling: if a packet arrives
@@ -51,7 +43,6 @@ var store consumerStore
 func init() {
 	store = consumerStore{
 		validators:             avl.NewTree(),
-		pendingChanges:         avl.NewTree(),
 		heightToValsetUpdateID: avl.NewTree(),
 	}
 }
@@ -70,44 +61,6 @@ func GetProviderClientID() (string, bool) {
 
 func setProviderClientID(clientID string) {
 	store.providerClientID = clientID
-}
-
-// ---------------------------------------------------------------------------
-// Pending changes
-// ---------------------------------------------------------------------------
-
-// getPendingChanges returns the current list of accumulated pending validator
-// updates. Returns nil if there are no pending changes.
-func getPendingChanges() []ValidatorUpdate {
-	if store.pendingChanges.Size() == 0 {
-		return nil
-	}
-	updates := make([]ValidatorUpdate, 0, store.pendingChanges.Size())
-	store.pendingChanges.Iterate("", "", func(key string, value interface{}) bool {
-		vu := value.(*ValidatorUpdate)
-		updates = append(updates, *vu)
-		return false
-	})
-	return updates
-}
-
-// setPendingChanges replaces the pending changes with the given list.
-func setPendingChanges(updates []ValidatorUpdate) {
-	store.pendingChanges = avl.NewTree()
-	for i := range updates {
-		store.pendingChanges.Set(updates[i].PubKey, &updates[i])
-	}
-}
-
-// clearPendingChanges removes all pending changes.
-func clearPendingChanges() {
-	store.pendingChanges = avl.NewTree()
-}
-
-// GetPendingChanges returns the current list of accumulated pending validator
-// updates. This is the public accessor.
-func GetPendingChanges() []ValidatorUpdate {
-	return getPendingChanges()
 }
 
 // ---------------------------------------------------------------------------
@@ -131,6 +84,16 @@ func setCCValidator(val CrossChainValidator) {
 // deleteCCValidator removes a cross-chain validator by public key.
 func deleteCCValidator(pubKey string) {
 	store.validators.Remove(pubKey)
+}
+
+// GetCCValidator returns a cross-chain validator by public key.
+// Returns the validator and true if found, or an empty validator and false if not.
+func GetCCValidator(pubKey string) (CrossChainValidator, bool) {
+	v, ok := getCCValidator(pubKey)
+	if !ok {
+		return CrossChainValidator{}, false
+	}
+	return *v, true
 }
 
 // GetAllCCValidators returns all cross-chain validators in the current set.
@@ -165,15 +128,6 @@ func GetTotalVotingPower() int64 {
 // Valset update ID tracking
 // ---------------------------------------------------------------------------
 
-// GetLastValsetUpdateID returns the most recently processed valset update ID.
-func GetLastValsetUpdateID() uint64 {
-	return store.lastValsetUpdateID
-}
-
-func setLastValsetUpdateID(id uint64) {
-	store.lastValsetUpdateID = id
-}
-
 // GetHighestValsetUpdateID returns the highest valset update ID that has been
 // processed. Used for out-of-order packet handling.
 func GetHighestValsetUpdateID() uint64 {
@@ -204,25 +158,21 @@ func GetHeightValsetUpdateID(height uint64) uint64 {
 }
 
 // ---------------------------------------------------------------------------
-// Apply pending changes to cross-chain validators
+// Apply validator changes to cross-chain validators
 // ---------------------------------------------------------------------------
 
 // applyValidatorChanges applies a list of validator updates to the current
 // cross-chain validator set. For each update:
 //   - If the validator exists and the new power is > 0, update its power.
-//   - If the validator exists and the new power is 0, remove it.
+//   - If the validator exists and the new power is <= 0, remove it.
 //   - If the validator does not exist and the power is > 0, add it.
-//   - If the validator does not exist and the power is 0, skip it.
-//
-// Returns the list of updates that were actually applied (excluding skips).
-func applyValidatorChanges(changes []ValidatorUpdate) []ValidatorUpdate {
-	applied := make([]ValidatorUpdate, 0, len(changes))
-
+//   - If the validator does not exist and the power is <= 0, skip it.
+func applyValidatorChanges(changes []ValidatorUpdate) {
 	for _, change := range changes {
 		_, found := getCCValidator(change.PubKey)
 
 		if found {
-			if change.Power < 1 {
+			if change.Power <= 0 {
 				// Remove existing validator
 				deleteCCValidator(change.PubKey)
 			} else {
@@ -232,19 +182,15 @@ func applyValidatorChanges(changes []ValidatorUpdate) []ValidatorUpdate {
 					Power:  change.Power,
 				})
 			}
-			applied = append(applied, change)
 		} else if change.Power > 0 {
 			// Add new validator
 			setCCValidator(CrossChainValidator{
 				PubKey: change.PubKey,
 				Power:  change.Power,
 			})
-			applied = append(applied, change)
 		}
-		// else: update for 0 power on non-existing validator — skip
+		// else: update for non-positive power on non-existing validator — skip
 	}
-
-	return applied
 }
 
 // serializeValidatorSet returns the current validator set as a slice of

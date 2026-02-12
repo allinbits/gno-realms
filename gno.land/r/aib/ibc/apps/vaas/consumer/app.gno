@@ -66,9 +66,8 @@ func (a *App) OnSendPacket(
 
 // OnRecvPacket implements app.IBCApp.
 //
-// Receives VSC packets from the provider, validates them, accumulates
-// changes with any existing pending updates, and applies them to the
-// cross-chain validator set.
+// Receives VSC packets from the provider, validates them, and applies them
+// to the cross-chain validator set.
 //
 // Out-of-order packet handling is supported: if a packet arrives with a
 // ValsetUpdateId <= the highest already processed, it is acknowledged
@@ -140,22 +139,8 @@ func (a *App) OnRecvPacket(
 		)
 	}
 
-	// Accumulate changes: merge new updates with any previously pending ones.
-	currentPending := getPendingChanges()
-	if currentPending == nil {
-		currentPending = []ValidatorUpdate{}
-	}
-	accumulated := AccumulateChanges(currentPending, vscData.ValidatorUpdates)
-
-	// Apply the accumulated changes to the cross-chain validator set.
-	applied := applyValidatorChanges(accumulated)
-	_ = applied
-
-	// Clear pending changes since they've been applied.
-	clearPendingChanges()
-
-	// Record the valset update ID.
-	setLastValsetUpdateID(vscData.ValsetUpdateId)
+	// Apply the validator updates to the cross-chain validator set.
+	applyValidatorChanges(vscData.ValidatorUpdates)
 
 	// Update the highest valset update ID for out-of-order packet tracking.
 	setHighestValsetUpdateID(vscData.ValsetUpdateId)
