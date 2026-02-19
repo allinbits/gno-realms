@@ -3,7 +3,6 @@ package transfer
 import (
 	"bytes"
 	"chain"
-	"chain/banker"
 	gnobanker "chain/banker"
 	"chain/runtime"
 	"errors"
@@ -104,15 +103,15 @@ func (a *App) OnSendPacket(
 		return ufmt.Errorf("token to coin error: %v", err)
 	}
 	if token.Denom.HasPrefix(payload.SourcePort, sourceClient) {
-		// Send the amount from sender to realm address to burn
-		var (
-			from   = runtime.OriginCaller()
-			to     = runtime.CurrentRealm().Address()
-			amount = chain.NewCoins(coin)
-		)
-		banker.SendCoins(from, to, amount)
-		gnobanker.NewBanker(gnobanker.BankerTypeRealmIssue).
-			RemoveCoin(to, coin.Denom, coin.Amount)
+		// Burn the voucher GRC20 tokens from sender
+		inst := getGRC20(coin.Denom)
+		if inst == nil {
+			return ufmt.Errorf("GRC20 token not found for denom %s", coin.Denom)
+		}
+		from := runtime.OriginCaller()
+		if err := inst.ledger.Burn(from, coin.Amount); err != nil {
+			return ufmt.Errorf("burn GRC20 error: %v", err)
+		}
 	} else {
 		if err := escrowCoin(banker, coin); err != nil {
 			return err
@@ -243,22 +242,19 @@ func (a *App) OnRecvPacket(
 			AttributeKeyDenom, string(token.Denom.MarshalJSON()),
 		)
 
-		// mint new tokens if the source of the transfer is the same chain
-		banker := banker.NewBanker(banker.BankerTypeRealmIssue)
-		realmAddr := runtime.CurrentRealm().Address()
+		// Mint GRC20 voucher tokens to the receiver
 		var amount int64
 		amount, ackErr = token.AmountInt64()
 		if ackErr != nil {
 			ack = types.NewErrorAppAcknowledgement(ackErr)
 			return types.RecvPacketResult{Status: types.PacketStatus_Failure}
 		}
-		banker.IssueCoin(realmAddr, voucherDenom, amount)
-
-		// send to receiver
-		banker.SendCoins(realmAddr, address(data.Receiver), chain.Coins{{
-			Denom:  voucherDenom,
-			Amount: amount,
-		}})
+		inst := getOrCreateGRC20(token.Denom.Base, voucherDenom)
+		if err := inst.ledger.Mint(address(data.Receiver), amount); err != nil {
+			ackErr = ufmt.Errorf("mint GRC20 error: %v", err)
+			ack = types.NewErrorAppAcknowledgement(ackErr)
+			return types.RecvPacketResult{Status: types.PacketStatus_Failure}
+		}
 	}
 
 	return recvResult

@@ -17,6 +17,12 @@ The `r/aib/ibc/apps` realm provides applications that implements the
 `p/aib/ibc/app.IBCApp` interface. Such apps must be registered into the core
 module using the `core.RegisterApp()` function.
 
+### Transfer Application
+
+Located in `r/aib/ibc/apps/transfer`, the Transfer application allows token
+transfer between 2 IBC connected chains. It's the gno version of
+`ibc-go/modules/apps/transfer` application.
+
 ## Testing
 
 Run `make gnodev` to start a local gno node with all the realms and packages
