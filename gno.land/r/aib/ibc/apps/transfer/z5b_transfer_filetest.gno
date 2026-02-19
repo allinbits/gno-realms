@@ -22,7 +22,7 @@ func main() {
 	clientID := core.CreateClient(cross, clientState, consensusState)
 	core.RegisterCounterparty(cross, clientID, [][]byte{[]byte("iavlStoreKey"), []byte("prefix2")}, "07-tendermint-2")
 
-	transfer.Transfer(cross, clientID, "atone1user")
+	transfer.Transfer(cross, clientID, "atone1user", time.Now().Add(time.Hour).Unix())
 }
 
 // Error:

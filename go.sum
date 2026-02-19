@@ -257,10 +257,10 @@ github.com/stretchr/testify v1.11.1/go.mod h1:wZwfW3scLgRK+23gO65QZefKpKQRnfz6sD
 github.com/syndtr/goleveldb v1.0.1-0.20210819022825-2ae1ddf74ef7/go.mod h1:q4W45IWZaF22tdD+VEXcAWRA037jwmWEB5VWYORlTpc=
 github.com/syndtr/goleveldb v1.0.1-0.20220721030215-126854af5e6d h1:vfofYNRScrDdvS342BElfbETmL1Aiz3i2t0zfRj16Hs=
 github.com/syndtr/goleveldb v1.0.1-0.20220721030215-126854af5e6d/go.mod h1:RRCYJbIwD5jmqPI9XoAFR0OcDxqUctll6zUj/+B4S48=
-github.com/tbruyelle/gno v0.0.0-20260219090647-c56215283838 h1:DoEJMoir+jNrn4oKGEJDtFc7hINfdY2M/pEoWqbxlak=
-github.com/tbruyelle/gno v0.0.0-20260219090647-c56215283838/go.mod h1:OkezQmocsFLoIUOZ2jHtgIdXUJEN2Q8xKLQn2PCgr1Q=
-github.com/tbruyelle/gno/contribs/gnodev v0.0.0-20260219090647-c56215283838 h1:OFDe+57LK6wuWTj9x/ZxY9GH9PvhfUYTSZeJDvtFP14=
-github.com/tbruyelle/gno/contribs/gnodev v0.0.0-20260219090647-c56215283838/go.mod h1:ZYpqk2+lo+e8aFyNVlAkddtyaeeCKJlcoKBnBSgo81s=
+github.com/tbruyelle/gno v0.0.0-20260219172248-fd66c3d0f1d6 h1:7RmBOpq6tV/B0LUxLd+WF+SMp9DzmVBeODiKvYFqQb8=
+github.com/tbruyelle/gno v0.0.0-20260219172248-fd66c3d0f1d6/go.mod h1:OkezQmocsFLoIUOZ2jHtgIdXUJEN2Q8xKLQn2PCgr1Q=
+github.com/tbruyelle/gno/contribs/gnodev v0.0.0-20260219172248-fd66c3d0f1d6 h1:AJ34RGQdJQ7ZYmanxj1q+Im7VC9CwbomNKu3a27gxYY=
+github.com/tbruyelle/gno/contribs/gnodev v0.0.0-20260219172248-fd66c3d0f1d6/go.mod h1:ZYpqk2+lo+e8aFyNVlAkddtyaeeCKJlcoKBnBSgo81s=
 github.com/valyala/bytebufferpool v1.0.0 h1:GqA5TC/0021Y/b9FG4Oi9Mr3q7XYx6KllzawFIhcdPw=
 github.com/valyala/bytebufferpool v1.0.0/go.mod h1:6bBcMArwyJ5K/AmCkWv1jt77kVWyCJ6HpOuEn7z0Csc=
 github.com/xo/terminfo v0.0.0-20220910002029-abceb7e1c41e h1:JVG44RsyaB9T2KIHavMF/ppJZNG9ZpyihvCd0w101no=

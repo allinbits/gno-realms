@@ -1,9 +1,7 @@
-// PKGPATH: gno.land/r/aib/main
-// SEND: 100ugnot
 package main
 
 import (
-	"chain/runtime"
+	"chain"
 	"encoding/hex"
 	"testing"
 	"time"
@@ -30,30 +28,13 @@ func main() {
 	clientID := core.CreateClient(cross, clientState, consensusState)
 	core.RegisterCounterparty(cross, clientID, [][]byte{[]byte("iavlStoreKey"), []byte("prefix2")}, counterpartyID)
 
-	signer := runtime.CurrentRealm().Address()
-	payload := transfer.FungibleTokenPacketData{
-		Denom:    "ugnot",
-		Amount:   "100",
-		Sender:   signer.String(),
-		Receiver: "atone1user",
-	}
-	payloadBz := payload.ProtoMarshal()
-	sendPacket := types.MsgSendPacket{
-		SourceClient:     clientID,
-		TimeoutTimestamp: uint64(time.Now().Add(time.Hour).Unix()),
-		Payloads: []types.Payload{
-			{
-				SourcePort:      transfer.PortID,
-				DestinationPort: transfer.PortID,
-				Encoding:        transfer.EncodingProtobuf,
-				Value:           payloadBz,
-				Version:         transfer.V1,
-			},
-		},
-	}
-	testing.SetOriginCaller(signer)
-	// Send the packet
-	sequence := core.SendPacket(cross, sendPacket)
+	// Transfer the 100ugnot we want to ack
+	testing.SetOriginSend(chain.NewCoins(chain.NewCoin("ugnot", 100)))
+	println("----------- assert render total_escrow/ugnot before Transfer")
+	println(transfer.Render("total_escrow/ugnot"))
+	sendPacket, sequence := transfer.Transfer(cross, clientID, "atone1user", time.Now().Add(time.Hour).Unix())
+	println("----------- assert render total_escrow/ugnot after Transfer")
+	println(transfer.Render("total_escrow/ugnot"))
 
 	// Acknowledge the packet
 	// Generate the proof of acknowledgement written during the RecvPacket of the

@@ -108,7 +108,7 @@ func (a *App) OnSendPacket(
 		}
 		from := runtime.OriginCaller()
 		if err := inst.ledger.Burn(from, coin.Amount); err != nil {
-			return ufmt.Errorf("burn GRC20 error: %v", err)
+			return ufmt.Errorf("burn GRC20 %s error: %v", coin.String(), err)
 		}
 	} else {
 		// Ensure that sent coin matches the FungibleTokenPacketData

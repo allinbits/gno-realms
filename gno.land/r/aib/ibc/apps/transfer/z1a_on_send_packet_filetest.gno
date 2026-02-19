@@ -2,7 +2,6 @@ package main
 
 import (
 	"chain"
-	"chain/banker"
 	"chain/runtime"
 	"testing"
 	"time"
@@ -14,7 +13,8 @@ import (
 	"gno.land/r/aib/ibc/core"
 )
 
-// OnSendPacket: success
+// OnSendPacket: fail w/ native coins because transfer.Transfer must be the
+// entry point for native coins.
 func main() {
 	var (
 		chainID        = "chain-id-2"
@@ -26,7 +26,7 @@ func main() {
 	clientID := core.CreateClient(cross, clientState, consensusState)
 	core.RegisterCounterparty(cross, clientID, [][]byte{[]byte("iavlStoreKey"), []byte("prefix2")}, "07-tendermint-2")
 
-	signer := runtime.CurrentRealm().Address()
+	signer := runtime.OriginCaller()
 	payload := transfer.FungibleTokenPacketData{
 		Denom:    "ugnot",
 		Amount:   "100",
@@ -46,104 +46,11 @@ func main() {
 			},
 		},
 	}
-	banker := banker.NewBanker(banker.BankerTypeReadonly)
-	transferAppAddr := chain.PackageAddress("gno.land/r/aib/ibc/apps/transfer")
-	println("signer balance before SendPacket:", banker.GetCoins(signer))
-	println("transferAppAddr balance before SendPacket:", banker.GetCoins(transferAppAddr))
-	println("----------- assert render total_escrow/ugnot before SendPacket")
-	println(transfer.Render("total_escrow/ugnot"))
 	testing.SetOriginCaller(signer)
 	testing.SetOriginSend(chain.NewCoins(chain.NewCoin("ugnot", 100)))
 
 	core.SendPacket(cross, packet)
-
-	println("\nsigner balance after SendPacket:", banker.GetCoins(signer))
-	println("transferAppAddr balance after SendPacket:", banker.GetCoins(transferAppAddr))
-	println("----------- assert render total_escrow/ugnot after SendPacket")
-	println(transfer.Render("total_escrow/ugnot"))
 }
 
-// Output:
-// signer balance before SendPacket: 100ugnot
-// transferAppAddr balance before SendPacket:
-// ----------- assert render total_escrow/ugnot before SendPacket
-// {"denom":"ugnot","amount":0}
-//
-// signer balance after SendPacket:
-// transferAppAddr balance after SendPacket: 100ugnot
-// ----------- assert render total_escrow/ugnot after SendPacket
-// {"denom":"ugnot","amount":100}
-
-// Events:
-// [
-//   {
-//     "type": "create_client",
-//     "attrs": [
-//       {
-//         "key": "client_id",
-//         "value": "07-tendermint-1"
-//       },
-//       {
-//         "key": "client_type",
-//         "value": "07-tendermint"
-//       },
-//       {
-//         "key": "consensus_heights",
-//         "value": "2/2"
-//       }
-//     ],
-//     "pkg_path": "gno.land/r/aib/ibc/core"
-//   },
-//   {
-//     "type": "send_packet",
-//     "attrs": [
-//       {
-//         "key": "packet_source_client",
-//         "value": "07-tendermint-1"
-//       },
-//       {
-//         "key": "packet_dest_client",
-//         "value": "07-tendermint-2"
-//       },
-//       {
-//         "key": "packet_sequence",
-//         "value": "1"
-//       },
-//       {
-//         "key": "packet_timeout_timestamp",
-//         "value": "1234571490"
-//       },
-//       {
-//         "key": "encoded_packet_hex",
-//         "value": "0801120f30372d74656e6465726d696e742d311a0f30372d74656e6465726d696e742d3220e2a1d8cc042a790a087472616e7366657212087472616e736665721a0769637332302d3122166170706c69636174696f6e2f782d70726f746f6275662a420a0575676e6f7412033130301a286731676a73386e6664726435357a33787539676a6361746e6a3239766b7775797834666671786439220a61746f6e653175736572"
-//       }
-//     ],
-//     "pkg_path": "gno.land/r/aib/ibc/core"
-//   },
-//   {
-//     "type": "ibc_transfer",
-//     "attrs": [
-//       {
-//         "key": "sender",
-//         "value": "g1gjs8nfdrd55z3xu9gjcatnj29vkwuyx4ffqxd9"
-//       },
-//       {
-//         "key": "receiver",
-//         "value": "atone1user"
-//       },
-//       {
-//         "key": "denom",
-//         "value": "ugnot"
-//       },
-//       {
-//         "key": "amount",
-//         "value": "100"
-//       },
-//       {
-//         "key": "memo",
-//         "value": ""
-//       }
-//     ],
-//     "pkg_path": "gno.land/r/aib/ibc/apps/transfer"
-//   }
-// ]
+// Error:
+// OnSendPacket requires one non-zero coin to be sent

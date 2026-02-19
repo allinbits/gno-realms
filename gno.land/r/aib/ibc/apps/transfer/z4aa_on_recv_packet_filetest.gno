@@ -1,13 +1,10 @@
-// PKGPATH: gno.land/r/aib/main
-// SEND: 100ugnot
 package main
 
 import (
 	"chain"
-	"chain/banker"
-	"chain/runtime"
 	"encoding/base64"
 	"encoding/hex"
+	"testing"
 	"time"
 
 	tmtesting "gno.land/p/aib/ibc/lightclient/tendermint/testing"
@@ -39,11 +36,7 @@ func main() {
 	// transfer. As a result the escrowed ugnot will be negative at the end of
 	// the test.
 	transferAppAddr := chain.PackageAddress("gno.land/r/aib/ibc/apps/transfer")
-	banker.NewBanker(banker.BankerTypeOriginSend).SendCoins(
-		runtime.CurrentRealm().Address(),
-		transferAppAddr,
-		chain.NewCoins(chain.NewCoin("ugnot", 100)),
-	)
+	testing.IssueCoins(transferAppAddr, chain.NewCoins(chain.NewCoin("ugnot", 100)))
 
 	receiver := testutils.TestAddress("receiver")
 	payload := transfer.FungibleTokenPacketData{
@@ -129,8 +122,6 @@ func main() {
 		ProofCommitment: proof,
 		ProofHeight:     trustedHeight,
 	}
-	banker := banker.NewBanker(banker.BankerTypeReadonly)
-	println("\nreceiver balance before RecvPacket:", banker.GetCoins(receiver))
 	// NOTE the following will show 0ugnot since there was no previous escrowed
 	// ugnot before that test.
 	println("----------- assert render total_escrow/ugnot before RecvPacket")
@@ -139,7 +130,6 @@ func main() {
 	res := core.RecvPacket(cross, recvPacket)
 
 	println("\nack res:", res)
-	println("\nreceiver balance after RecvPacket:", banker.GetCoins(receiver))
 	// NOTE the following will show -100ugnot since there was no previous
 	// escrowed ugnot before that test.
 	println("----------- assert render total_escrow/ugnot after RecvPacket")
@@ -148,14 +138,10 @@ func main() {
 
 // Output:
 // Payload proto: Ch90cmFuc2Zlci8wNy10ZW5kZXJtaW50LTQyL3Vnbm90EgMxMDAaCmF0b25lMXVzZXIiKGcxd2Zqa3hldGZ3ZWpoeWg2bHRhMDQ3aDZsdGEwNDdoNmxsbTgyeWw=
-//
-// receiver balance before RecvPacket:
 // ----------- assert render total_escrow/ugnot before RecvPacket
 // {"denom":"ugnot","amount":0}
 //
 // ack res: (2 gno.land/p/aib/ibc/types.ResponseResultType)
-//
-// receiver balance after RecvPacket: 100ugnot
 // ----------- assert render total_escrow/ugnot after RecvPacket
 // {"denom":"ugnot","amount":-100}
 

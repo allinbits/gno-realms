@@ -5,7 +5,6 @@ import (
 	"chain/banker"
 	"chain/runtime"
 	"strings"
-	"time"
 
 	"gno.land/p/aib/ibc/types"
 	"gno.land/p/nt/ufmt"
@@ -15,7 +14,9 @@ import (
 // Transfer is a shortcut function for sending a token to an other chain using
 // the IBC protocol. The token must be sent by the caller using the send field
 // of the transaction.
-func Transfer(cur realm, clientID, receiver string) {
+func Transfer(cur realm, clientID, receiver string, timeoutTimestamp int64) (
+	packet types.MsgSendPacket, sequence uint64,
+) {
 	sent := cur.Coins()
 	if len(sent) != 1 || sent[0].Amount == 0 {
 		panic("Transfer requires one non-zero coin to be sent")
@@ -28,31 +29,25 @@ func Transfer(cur realm, clientID, receiver string) {
 		}
 		denom = d.Path()
 	}
-	var (
-		amount  = ufmt.Sprintf("%d", sent[0].Amount)
-		sender  = runtime.OriginCaller()
-		payload = FungibleTokenPacketData{
-			Denom:    denom,
-			Amount:   amount,
-			Sender:   sender.String(),
-			Receiver: receiver,
-		}
-		packet = types.MsgSendPacket{
-			SourceClient:     clientID,
-			TimeoutTimestamp: uint64(time.Now().Add(time.Hour).Unix()),
-			Payloads: []types.Payload{
-				{
-					SourcePort:      PortID,
-					DestinationPort: PortID,
-					Encoding:        EncodingProtobuf,
-					Value:           payload.ProtoMarshal(),
-					Version:         V1,
-				},
-			},
-		}
-	)
-
-	core.SendPacket(cross, packet)
+	data := FungibleTokenPacketData{
+		Denom:    denom,
+		Amount:   ufmt.Sprintf("%d", sent[0].Amount),
+		Sender:   runtime.OriginCaller().String(),
+		Receiver: receiver,
+	}
+	packet = types.MsgSendPacket{
+		SourceClient: clientID,
+		Payloads: []types.Payload{{
+			SourcePort:      PortID,
+			DestinationPort: PortID,
+			Encoding:        EncodingProtobuf,
+			Value:           data.ProtoMarshal(),
+			Version:         V1,
+		}},
+		TimeoutTimestamp: uint64(timeoutTimestamp),
+	}
+	sequence = core.SendPacket(cross, packet)
+	return
 }
 
 func refundPacketToken(sourcePort, sourceClient, sender string, token Token) error {
