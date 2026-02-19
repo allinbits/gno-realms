@@ -35,13 +35,6 @@ const (
 
 	// EncodingJSON is the encoding identifier for JSON-encoded payloads.
 	EncodingJSON = "application/json"
-
-	// Param keys for propagating validator set changes to the chain.
-	// These follow the approach described in gnolang/gno#3999.
-	// Each entry in valset_new / valset_prev is formatted as "pubkey:power".
-	paramKeyNewUpdatesAvailable = "new_updates_available"
-	paramKeyValsetNew           = "valset_new"
-	paramKeyValsetPrev          = "valset_prev"
 )
 
 func init() {
@@ -148,16 +141,6 @@ func (a *App) OnRecvPacket(
 	// Map the next block height to this valset update ID.
 	nextHeight := uint64(runtime.ChainHeight()) + 1
 	setHeightValsetUpdateID(nextHeight, vscData.ValsetUpdateId)
-
-	// Propagate the updated validator set via params so that the chain's
-	// EndBlocker can pick up the changes (per gnolang/gno#3999).
-	//
-	// TODO(gnolang/gno#3999): Uncomment the following lines once
-	// std.SetParamBool and std.SetParamStrings are available:
-	//
-	//   newValset := serializeValidatorSet()
-	//   std.SetParamStrings(paramKeyValsetNew, newValset)
-	//   std.SetParamBool(paramKeyNewUpdatesAvailable, true)
 
 	// Emit events.
 	chain.Emit(EventTypeVSCPacket,

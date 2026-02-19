@@ -523,31 +523,6 @@ func TestApplyValidatorChanges(t *testing.T) {
 	})
 }
 
-func TestSerializeValidatorSet(t *testing.T) {
-	// Reset store
-	store.validators = nil
-	store.validators = newTree()
-
-	setCCValidator(CrossChainValidator{PubKey: MakePubKey("ed25519", "AAAA"), Power: 100})
-	setCCValidator(CrossChainValidator{PubKey: MakePubKey("ed25519", "BBBB"), Power: 50})
-
-	entries := serializeValidatorSet()
-	if len(entries) != 2 {
-		t.Fatalf("expected 2 entries, got %d", len(entries))
-	}
-
-	// AVL tree iterates in sorted key order (ascending by pubkey)
-	expected := []string{
-		"ed25519:AAAA:100",
-		"ed25519:BBBB:50",
-	}
-	for i, e := range entries {
-		if e != expected[i] {
-			t.Errorf("entry #%d: got %q, want %q", i, e, expected[i])
-		}
-	}
-}
-
 func TestHighestValsetUpdateID(t *testing.T) {
 	// Reset
 	store.highestValsetUpdateID = 0

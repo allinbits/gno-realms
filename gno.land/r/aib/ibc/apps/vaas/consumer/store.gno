@@ -1,9 +1,14 @@
 package consumer
 
 import (
+	"crypto/bech32"
+	"crypto/sha256"
+	"encoding/base64"
 	"strconv"
 
 	"gno.land/p/nt/avl"
+	"gno.land/p/sys/validators"
+	valrealms "gno.land/r/sys/validators/v2"
 )
 
 // CrossChainValidator represents a validator that is tracked by the consumer
@@ -167,40 +172,139 @@ func GetHeightValsetUpdateID(height uint64) uint64 {
 //   - If the validator exists and the new power is <= 0, remove it.
 //   - If the validator does not exist and the power is > 0, add it.
 //   - If the validator does not exist and the power is <= 0, skip it.
+//
+// This also propagates the changes to the chain's validator set via
+// r/sys/validators/v2.
 func applyValidatorChanges(changes []ValidatorUpdate) {
 	for _, change := range changes {
 		_, found := getCCValidator(change.PubKey)
 
 		if found {
 			if change.Power <= 0 {
-				// Remove existing validator
+				// Remove existing validator from local store
 				deleteCCValidator(change.PubKey)
+				// Propagate removal to chain validator set
+				propagateValidatorRemoval(change)
 			} else {
-				// Update existing validator's power
+				// Update existing validator's power in local store
 				setCCValidator(CrossChainValidator{
 					PubKey: change.PubKey,
 					Power:  change.Power,
 				})
+				// Propagate update to chain validator set
+				propagateValidatorUpdate(change)
 			}
 		} else if change.Power > 0 {
-			// Add new validator
+			// Add new validator to local store
 			setCCValidator(CrossChainValidator{
 				PubKey: change.PubKey,
 				Power:  change.Power,
 			})
+			// Propagate addition to chain validator set
+			propagateValidatorAddition(change)
 		}
 		// else: update for non-positive power on non-existing validator — skip
 	}
 }
 
-// serializeValidatorSet returns the current validator set as a slice of
-// strings in the format "pubkey:power". This format is compatible with the
-// params keeper approach described in gnolang/gno#3999.
-func serializeValidatorSet() []string {
-	vals := GetAllCCValidators()
-	entries := make([]string, len(vals))
-	for i, v := range vals {
-		entries[i] = v.PubKey + ":" + strconv.FormatInt(v.Power, 10)
+// deriveAddressFromPubKey derives a bech32 address from a public key.
+// The public key is in format "<type>:<base64value>".
+// Uses SHA256 hash and takes the first 20 bytes, then encodes as bech32.
+func deriveAddressFromPubKey(pubKey string) address {
+	// Extract base64 part after the colon
+	idx := 0
+	for i := 0; i < len(pubKey); i++ {
+		if pubKey[i] == ':' {
+			idx = i + 1
+			break
+		}
 	}
-	return entries
+	base64Key := pubKey[idx:]
+
+	// Decode base64
+	keyBytes, err := base64.StdEncoding.DecodeString(base64Key)
+	if err != nil {
+		panic("invalid base64 in pubkey: " + err.Error())
+	}
+
+	// Hash with SHA256 and take first 20 bytes (like Tendermint/Tendermint2)
+	hash := sha256.Sum256(keyBytes)
+	addrBytes := hash[:20]
+
+	// Encode as bech32 with "g" prefix (gno address format)
+	// TODO: After https://github.com/gnolang/gno/pull/4873 this should not be hardcoded.
+	bechAddr, err := bech32.EncodeFromBase256("g", addrBytes)
+	if err != nil {
+		panic("failed to encode address as bech32: " + err.Error())
+	}
+
+	return address(bechAddr)
+}
+
+// encodePubKeyAsBech32 encodes a public key in bech32 format.
+// The public key is in format "<type>:<base64value>".
+func encodePubKeyAsBech32(pubKey string) string {
+	// Extract base64 part after the colon
+	idx := 0
+	for i := 0; i < len(pubKey); i++ {
+		if pubKey[i] == ':' {
+			idx = i + 1
+			break
+		}
+	}
+	base64Key := pubKey[idx:]
+
+	// Decode base64
+	keyBytes, err := base64.StdEncoding.DecodeString(base64Key)
+	if err != nil {
+		panic("invalid base64 in pubkey: " + err.Error())
+	}
+
+	// Encode as bech32 with "pub" prefix
+	bechPub, err := bech32.EncodeFromBase256("pub", keyBytes)
+	if err != nil {
+		panic("failed to encode pubkey as bech32: " + err.Error())
+	}
+
+	return bechPub
+}
+
+// propagateValidatorAddition adds a validator to the chain validator set.
+// This realm must be whitelisted in r/sys/validators/v2 to succeed.
+func propagateValidatorAddition(update ValidatorUpdate) {
+	addr := deriveAddressFromPubKey(update.PubKey)
+	pubKeyBech32 := encodePubKeyAsBech32(update.PubKey)
+
+	// Create validator struct
+	val := validators.Validator{
+		Address:     addr,
+		PubKey:      pubKeyBech32,
+		VotingPower: uint64(update.Power),
+	}
+
+	valrealms.AddValidator(cross, val)
+}
+
+// propagateValidatorRemoval removes a validator from the chain validator set.
+func propagateValidatorRemoval(update ValidatorUpdate) {
+	addr := deriveAddressFromPubKey(update.PubKey)
+	valrealms.RemoveValidator(cross, addr)
+}
+
+// propagateValidatorUpdate updates a validator's power in the chain validator set.
+// For updates, we use AddValidator which will update the power if the validator exists.
+func propagateValidatorUpdate(update ValidatorUpdate) {
+	addr := deriveAddressFromPubKey(update.PubKey)
+	pubKeyBech32 := encodePubKeyAsBech32(update.PubKey)
+
+	// Create validator struct with updated power
+	val := validators.Validator{
+		Address:     addr,
+		PubKey:      pubKeyBech32,
+		VotingPower: uint64(update.Power),
+	}
+
+	// Call the validators realm to update the validator
+	// AddValidator will update the power if the validator already exists
+	valrealms.AddValidator(cross, val)
 }
