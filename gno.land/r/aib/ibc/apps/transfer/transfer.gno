@@ -11,9 +11,9 @@ import (
 	"gno.land/r/aib/ibc/core"
 )
 
-// Transfer is a shortcut function for sending a token to an other chain using
-// the IBC protocol. The token must be sent by the caller using the send field
-// of the transaction.
+// Transfer is a entry point function for sending a native token to an other
+// chain using the IBC protocol. The token must be sent by the caller using the
+// send field of the transaction.
 func Transfer(cur realm, clientID, receiver string, timeoutTimestamp int64) (
 	packet types.MsgSendPacket, sequence uint64,
 ) {
@@ -21,17 +21,41 @@ func Transfer(cur realm, clientID, receiver string, timeoutTimestamp int64) (
 	if len(sent) != 1 || sent[0].Amount == 0 {
 		panic("Transfer requires one non-zero coin to be sent")
 	}
-	denom := sent[0].Denom
+	return transfer(clientID, receiver, sent[0].Denom, sent[0].Amount, timeoutTimestamp)
+}
+
+// TransferGRC20 can be used to send a GRC20 token to an other chain using the
+// IBC protocol.
+// That token can be an IBC voucher (minted when received a token from an other
+// chain), or any other GRC20 token.
+func TransferGRC20(cur realm, clientID, receiver, denom string, amount, timeoutTimestamp int64) (
+	packet types.MsgSendPacket, sequence uint64,
+) {
+	// Transfer GRC20 to the app
+	inst := getGRC20(denom)
+	if inst == nil {
+		panic(ufmt.Errorf("GRC20 token not found for denom %s", denom))
+	}
 	if strings.HasPrefix(denom, "ibc/") {
+		// If denom is an ibc trace, replace it with the ibc path.
 		d, found := getDenom(denom)
 		if !found {
 			panic(ufmt.Sprintf("denom %s not found in store", denom))
 		}
 		denom = d.Path()
+	} else {
+		// TODO GRC20 token is not IBC voucher, how do we transferFrom?
+		panic("GRC20 non IBC voucher not handled")
 	}
+	return transfer(clientID, receiver, denom, amount, timeoutTimestamp)
+}
+
+func transfer(clientID, receiver, denom string, amount, timeoutTimestamp int64) (
+	packet types.MsgSendPacket, sequence uint64,
+) {
 	data := FungibleTokenPacketData{
 		Denom:    denom,
-		Amount:   ufmt.Sprintf("%d", sent[0].Amount),
+		Amount:   ufmt.Sprintf("%d", amount),
 		Sender:   runtime.OriginCaller().String(),
 		Receiver: receiver,
 	}
