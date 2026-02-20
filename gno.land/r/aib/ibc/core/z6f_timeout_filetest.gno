@@ -41,7 +41,7 @@ func main() {
 			Version:         "v1",
 		}},
 	}
-	sequence := core.SendPacket(cross, nil, sendPacket)
+	sequence := core.SendPacket(cross, sendPacket)
 
 	// Timeout the packet
 	timeoutPacket := types.MsgTimeout{
