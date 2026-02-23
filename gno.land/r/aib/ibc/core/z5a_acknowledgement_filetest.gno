@@ -124,6 +124,8 @@ func main() {
 	println("res:", res)
 	println("\n----------- assert render clients/07-tendermint-1/packet_commitments")
 	println(core.Render("clients/" + clientID + "/packet_commitments"))
+	println("----------- assert render clients/07-tendermint-1/packet_commitments/1 (cleared)")
+	println(core.Render("clients/" + clientID + "/packet_commitments/1"))
 	println("\n----------- app report")
 	println(app.Report())
 
@@ -140,6 +142,8 @@ func main() {
 //
 // ----------- assert render clients/07-tendermint-1/packet_commitments
 // {"items":[],"page":1,"total":1}
+// ----------- assert render clients/07-tendermint-1/packet_commitments/1 (cleared)
+// {"error":"sequence 1 not found"}
 //
 // ----------- app report
 // balance:

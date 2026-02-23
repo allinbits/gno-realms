@@ -75,6 +75,8 @@ func main() {
 	println("next sequence:", core.Render("clients/"+clientID+"/next_sequence_send"))
 	println("----------- assert render clients/07-tendermint-1/packet_commitments")
 	println(core.Render("clients/" + clientID + "/packet_commitments"))
+	println("----------- assert render clients/07-tendermint-1/packet_commitments/1")
+	println(core.Render("clients/" + clientID + "/packet_commitments/1"))
 }
 
 // Output:
@@ -121,6 +123,8 @@ func main() {
 // next sequence: {"next_sequence_send": 3}"
 // ----------- assert render clients/07-tendermint-1/packet_commitments
 // {"items":[{"sequence":"1","data":"IrnGu6pyeXzbWlH2gsUv6cZlxEZjTGa5OfMKACFYs4E="},{"sequence":"2","data":"IrnGu6pyeXzbWlH2gsUv6cZlxEZjTGa5OfMKACFYs4E="}],"page":1,"total":1}
+// ----------- assert render clients/07-tendermint-1/packet_commitments/1
+// {"sequence":"1","data":"IrnGu6pyeXzbWlH2gsUv6cZlxEZjTGa5OfMKACFYs4E="}
 
 // Events:
 // [
