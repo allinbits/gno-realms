@@ -29,7 +29,7 @@ func main() {
 	println("----------- assert render total_escrow/ugnot before Transfer")
 	println(transfer.Render("total_escrow/ugnot"))
 
-	transfer.Transfer(cross, clientID, "atone1user", time.Now().Add(time.Hour).Unix())
+	transfer.Transfer(cross, clientID, "atone1user", uint64(time.Now().Add(time.Hour).Unix()))
 
 	println("----------- assert render total_escrow/ugnot after Transfer")
 	println(transfer.Render("total_escrow/ugnot"))

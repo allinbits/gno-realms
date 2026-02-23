@@ -39,7 +39,7 @@ func main() {
 	testing.SetOriginSend(coins)
 	println("----------- assert render total_escrow/ugnot before Transfer")
 	println(transfer.Render("total_escrow/ugnot"))
-	sendPacket, sequence := transfer.Transfer(cross, clientID, "atone1user", time.Now().Add(10*time.Minute).Unix())
+	sendPacket, sequence := transfer.Transfer(cross, clientID, "atone1user", uint64(time.Now().Add(10*time.Minute).Unix()))
 	println("----------- assert render total_escrow/ugnot after Transfer")
 	println(transfer.Render("total_escrow/ugnot"))
 

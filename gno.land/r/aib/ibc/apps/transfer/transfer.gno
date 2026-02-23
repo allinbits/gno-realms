@@ -14,7 +14,7 @@ import (
 // Transfer is an entry point function for sending a native token to another
 // chain using the IBC protocol. The token must be sent by the caller using the
 // send field of the transaction.
-func Transfer(cur realm, clientID, receiver string, timeoutTimestamp int64) (
+func Transfer(cur realm, clientID, receiver string, timeoutTimestamp uint64) (
 	packet types.MsgSendPacket, sequence uint64,
 ) {
 	sent := cur.Coins()
@@ -28,7 +28,7 @@ func Transfer(cur realm, clientID, receiver string, timeoutTimestamp int64) (
 // IBC protocol.
 // That token can be an IBC voucher (minted when received a token from another
 // chain), or any other GRC20 token.
-func TransferGRC20(cur realm, clientID, receiver, denom string, amount, timeoutTimestamp int64) (
+func TransferGRC20(cur realm, clientID, receiver, denom string, amount int64, timeoutTimestamp uint64) (
 	packet types.MsgSendPacket, sequence uint64,
 ) {
 	// Validate that the GRC20 token exists and resolve the denom path.
@@ -50,7 +50,7 @@ func TransferGRC20(cur realm, clientID, receiver, denom string, amount, timeoutT
 	return transfer(clientID, receiver, denom, amount, timeoutTimestamp)
 }
 
-func transfer(clientID, receiver, denom string, amount, timeoutTimestamp int64) (
+func transfer(clientID, receiver, denom string, amount int64, timeoutTimestamp uint64) (
 	packet types.MsgSendPacket, sequence uint64,
 ) {
 	data := FungibleTokenPacketData{
@@ -68,7 +68,7 @@ func transfer(clientID, receiver, denom string, amount, timeoutTimestamp int64) 
 			Value:           data.ProtoMarshal(),
 			Version:         V1,
 		}},
-		TimeoutTimestamp: uint64(timeoutTimestamp),
+		TimeoutTimestamp: timeoutTimestamp,
 	}
 	sequence = core.SendPacket(cross, packet)
 	return

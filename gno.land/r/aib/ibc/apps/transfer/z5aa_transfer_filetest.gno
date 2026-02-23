@@ -39,7 +39,7 @@ func main() {
 	voucherDenom := transfer.NewDenom("uphoton", transfer.NewHop(transfer.PortID, clientID)).IBCDenom()
 	println("\nreceiver GRC20 balance after RecvPacket:", transfer.GRC20BalanceOf(voucherDenom, signer))
 
-	transfer.TransferGRC20(cross, clientID, "atone1user", voucherDenom, 100, time.Now().Add(time.Hour).Unix())
+	transfer.TransferGRC20(cross, clientID, "atone1user", voucherDenom, 100, uint64(time.Now().Add(time.Hour).Unix()))
 
 	println("\nreceiver GRC20 balance after Transfer:", transfer.GRC20BalanceOf(voucherDenom, signer))
 }
