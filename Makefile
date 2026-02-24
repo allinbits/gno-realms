@@ -12,13 +12,17 @@ gnodev:
 	go tool gnodev -empty-blocks -resolver root=. \
 		-resolver root=$(shell go tool gno env GNOROOT)/examples
 
-test: 
+test:
 	go tool gno test ./gno.land/...
 	go test -C ./cmd/gen-block-signatures
 	go test -C ./cmd/gen-proof
 
+FORK_REPO   := github.com/allinbits/gno
+FORK_BRANCH := julien/validators-edit
+
 update-fork:
-	go mod edit -replace  github.com/gnolang/gno=github.com/allinbits/gno@ibc-fork
+	$(eval HASH := $(shell git ls-remote https://$(FORK_REPO).git refs/heads/$(FORK_BRANCH) | awk '{print $$1}'))
+	go mod edit -replace github.com/gnolang/gno=$(FORK_REPO)@$(HASH)
 	go mod tidy
-	go mod edit -replace  github.com/gnolang/gno/contribs/gnodev=github.com/allinbits/gno/contribs/gnodev@ibc-fork
+	go mod edit -replace github.com/gnolang/gno/contribs/gnodev=$(FORK_REPO)/contribs/gnodev@$(HASH)
 	go mod tidy
