@@ -3,8 +3,8 @@ module aibgno
 go 1.25.3
 
 replace (
-	github.com/gnolang/gno => github.com/tbruyelle/gno v0.0.0-20260219172248-fd66c3d0f1d6
-	github.com/gnolang/gno/contribs/gnodev => github.com/tbruyelle/gno/contribs/gnodev v0.0.0-20260219172248-fd66c3d0f1d6
+	github.com/gnolang/gno => github.com/tbruyelle/gno v0.0.0-20260224164055-55311612a3ad
+	github.com/gnolang/gno/contribs/gnodev => github.com/tbruyelle/gno/contribs/gnodev v0.0.0-20260224164055-55311612a3ad
 )
 
 tool (
@@ -43,7 +43,9 @@ require (
 	github.com/cosmos/ledger-cosmos-go v0.14.0 // indirect
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
 	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.3.0 // indirect
+	github.com/dgraph-io/ristretto/v2 v2.4.0 // indirect
 	github.com/dlclark/regexp2 v1.11.4 // indirect
+	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/emicklei/dot v1.6.2 // indirect
 	github.com/fsnotify/fsnotify v1.7.0 // indirect
 	github.com/getsentry/sentry-go v0.27.0 // indirect
@@ -112,7 +114,7 @@ require (
 	golang.org/x/mod v0.26.0 // indirect
 	golang.org/x/net v0.43.0 // indirect
 	golang.org/x/sync v0.16.0 // indirect
-	golang.org/x/sys v0.35.0 // indirect
+	golang.org/x/sys v0.36.0 // indirect
 	golang.org/x/term v0.34.0 // indirect
 	golang.org/x/text v0.28.0 // indirect
 	golang.org/x/tools v0.35.0 // indirect
