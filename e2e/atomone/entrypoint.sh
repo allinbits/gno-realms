@@ -30,25 +30,6 @@ atomoned genesis collect-gentxs --home /root/.atomone
 # Configure for fast blocks and external access
 CONFIG_DIR=/root/.atomone/config
 
-# Patch genesis: the feat/gno-lc branch has a photon module that enforces
-# uphoton fees. Add IBC message types to fee exceptions so uatone fees also work.
-GENESIS="$CONFIG_DIR/genesis.json"
-jq '
-    # Add IBC message types to photon tx_fee_exceptions
-    .app_state.photon.params.tx_fee_exceptions += [
-        "/ibc.core.client.v1.MsgCreateClient",
-        "/ibc.core.client.v1.MsgUpdateClient",
-        "/ibc.core.channel.v2.MsgSendPacket",
-        "/ibc.core.channel.v2.MsgRecvPacket",
-        "/ibc.core.channel.v2.MsgAcknowledgement",
-        "/ibc.core.channel.v2.MsgTimeout",
-        "/ibc.core.channel.v2.MsgRegisterCounterparty"
-    ] |
-    # Set low dynamicfee base gas price
-    .app_state.dynamicfee.params.min_base_gas_price = "0.000010000000000000" |
-    .app_state.dynamicfee.state.base_gas_price = "0.000010000000000000"
-' "$GENESIS" > /tmp/genesis_patched.json && mv /tmp/genesis_patched.json "$GENESIS"
-
 # app.toml: enable REST API, gRPC, and set minimum gas prices
 sed -i 's/enable = false/enable = true/g' "$CONFIG_DIR/app.toml"
 sed -i 's/address = "tcp:\/\/localhost:1317"/address = "tcp:\/\/0.0.0.0:1317"/g' "$CONFIG_DIR/app.toml"

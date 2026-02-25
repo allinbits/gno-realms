@@ -17,7 +17,7 @@ RUN make install
 # Runtime stage
 FROM alpine:3.21
 
-RUN apk add --no-cache curl jq bash xxd
+RUN apk add --no-cache curl bash
 
 COPY --from=builder /go/bin/atomoned /usr/local/bin/atomoned
 
