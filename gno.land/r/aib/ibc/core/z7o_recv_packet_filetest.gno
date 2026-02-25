@@ -117,8 +117,12 @@ func main() {
 	println("res:", res)
 	println("\n----------- assert render clients/07-tendermint-1/packet_receipts")
 	println(core.Render("clients/" + clientID + "/packet_receipts"))
+	println("----------- assert render clients/07-tendermint-1/packet_receipts/1")
+	println(core.Render("clients/" + clientID + "/packet_receipts/1"))
 	println("\n----------- assert render clients/07-tendermint-1/packet_acknowledgements")
 	println(core.Render("clients/" + clientID + "/packet_acknowledgements"))
+	println("----------- assert render clients/07-tendermint-1/packet_acknowledgements/1")
+	println(core.Render("clients/" + clientID + "/packet_acknowledgements/1"))
 	println("\n----------- app report")
 	println(app.Report())
 
@@ -135,12 +139,15 @@ func main() {
 //
 // ----------- assert render clients/07-tendermint-1/packet_receipts
 // {"items":[{"sequence":"1","data":"Ag=="}],"page":1,"total":1}
+// ----------- assert render clients/07-tendermint-1/packet_receipts/1
+// {"sequence":"1","data":"Ag=="}
 //
 // ----------- assert render clients/07-tendermint-1/packet_acknowledgements
 // {"items":[{"sequence":"1","data":"4vsw3796verKgtQmU00rOp1URN0qh/oW04t3uhoTztc="}],"page":1,"total":1}
+// ----------- assert render clients/07-tendermint-1/packet_acknowledgements/1
+// {"sequence":"1","data":"4vsw3796verKgtQmU00rOp1URN0qh/oW04t3uhoTztc="}
 //
 // ----------- app report
-// balance:
 // OnSendPacket (0)
 // OnRecvPacket (1)
 // - sourceClient: 07-tendermint-42
@@ -159,7 +166,6 @@ func main() {
 // res: (1 gno.land/p/aib/ibc/types.ResponseResultType)
 //
 // ----------- app report
-// balance:
 // OnSendPacket (0)
 // OnRecvPacket (1)
 // - sourceClient: 07-tendermint-42

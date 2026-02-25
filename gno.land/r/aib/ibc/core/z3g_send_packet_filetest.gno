@@ -8,7 +8,7 @@ import (
 // SendPacket assert that MsgSendPacket.ValidateBasic is invoked
 func main() {
 	packet := types.MsgSendPacket{}
-	core.SendPacket(cross, nil, packet)
+	core.SendPacket(cross, packet)
 }
 
 // Error:

@@ -3,7 +3,6 @@ package main
 // PKGPATH: gno.land/r/aib/main
 
 import (
-	"chain/banker"
 	"time"
 
 	tmtesting "gno.land/p/aib/ibc/lightclient/tendermint/testing"
@@ -57,9 +56,8 @@ func main() {
 			},
 		},
 	}
-	banker := banker.NewBanker(banker.BankerTypeOriginSend)
 
-	sequence := core.SendPacket(cross, banker, packet)
+	sequence := core.SendPacket(cross, packet)
 
 	println("returned sequence:", sequence)
 	println("next sequence:", core.Render("clients/"+clientID+"/next_sequence_send"))
@@ -69,12 +67,14 @@ func main() {
 	println(app2.Report())
 
 	// Send the packet an other time to assert sequence increasing
-	sequence = core.SendPacket(cross, nil, packet)
+	sequence = core.SendPacket(cross, packet)
 
 	println("returned sequence:", sequence)
 	println("next sequence:", core.Render("clients/"+clientID+"/next_sequence_send"))
 	println("----------- assert render clients/07-tendermint-1/packet_commitments")
 	println(core.Render("clients/" + clientID + "/packet_commitments"))
+	println("----------- assert render clients/07-tendermint-1/packet_commitments/1")
+	println(core.Render("clients/" + clientID + "/packet_commitments/1"))
 }
 
 // Output:
@@ -82,9 +82,7 @@ func main() {
 // returned sequence: 1
 // next sequence: {"next_sequence_send": 2}"
 // ----------- app1 report
-// balance:
 // OnSendPacket (1)
-// - spendable: 0ugnot
 // - sourceClient: 07-tendermint-1
 // - destinationClient: 07-tendermint-2
 // - sequence: 1
@@ -100,9 +98,7 @@ func main() {
 // OnAcknowledgementPacket (0)
 //
 // ----------- app2 report
-// balance:
 // OnSendPacket (1)
-// - spendable: 0ugnot
 // - sourceClient: 07-tendermint-1
 // - destinationClient: 07-tendermint-2
 // - sequence: 1
@@ -121,6 +117,8 @@ func main() {
 // next sequence: {"next_sequence_send": 3}"
 // ----------- assert render clients/07-tendermint-1/packet_commitments
 // {"items":[{"sequence":"1","data":"IrnGu6pyeXzbWlH2gsUv6cZlxEZjTGa5OfMKACFYs4E="},{"sequence":"2","data":"IrnGu6pyeXzbWlH2gsUv6cZlxEZjTGa5OfMKACFYs4E="}],"page":1,"total":1}
+// ----------- assert render clients/07-tendermint-1/packet_commitments/1
+// {"sequence":"1","data":"IrnGu6pyeXzbWlH2gsUv6cZlxEZjTGa5OfMKACFYs4E="}
 
 // Events:
 // [

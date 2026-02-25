@@ -1,0 +1,2 @@
+- test: ajouter realm dans test a genesis.
+- create file test for gno-realms

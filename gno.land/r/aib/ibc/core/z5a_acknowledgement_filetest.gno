@@ -2,7 +2,6 @@
 package main
 
 import (
-	"chain/banker"
 	"encoding/hex"
 	"time"
 
@@ -44,9 +43,8 @@ func main() {
 			Version:         "v1",
 		}},
 	}
-	banker := banker.NewBanker(banker.BankerTypeOriginSend)
 
-	sequence := core.SendPacket(cross, banker, sendPacket)
+	sequence := core.SendPacket(cross, sendPacket)
 
 	// Acknowledge the packet
 	specs := ics23.IavlSpec()
@@ -124,6 +122,8 @@ func main() {
 	println("res:", res)
 	println("\n----------- assert render clients/07-tendermint-1/packet_commitments")
 	println(core.Render("clients/" + clientID + "/packet_commitments"))
+	println("----------- assert render clients/07-tendermint-1/packet_commitments/1 (cleared)")
+	println(core.Render("clients/" + clientID + "/packet_commitments/1"))
 	println("\n----------- app report")
 	println(app.Report())
 
@@ -140,11 +140,11 @@ func main() {
 //
 // ----------- assert render clients/07-tendermint-1/packet_commitments
 // {"items":[],"page":1,"total":1}
+// ----------- assert render clients/07-tendermint-1/packet_commitments/1 (cleared)
+// {"error":"sequence 1 not found"}
 //
 // ----------- app report
-// balance:
 // OnSendPacket (1)
-// - spendable: 0ugnot
 // - sourceClient: 07-tendermint-1
 // - destinationClient: 07-tendermint-42
 // - sequence: 1
@@ -173,9 +173,7 @@ func main() {
 // res: (1 gno.land/p/aib/ibc/types.ResponseResultType)
 //
 // ----------- app report
-// balance:
 // OnSendPacket (1)
-// - spendable: 0ugnot
 // - sourceClient: 07-tendermint-1
 // - destinationClient: 07-tendermint-42
 // - sequence: 1

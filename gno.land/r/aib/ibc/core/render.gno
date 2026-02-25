@@ -28,8 +28,11 @@ func Render(path string) string {
 	router.HandleFunc("clients/{id}/consensus_states/{revision_number}/{revision_height}", renderClientConsensusState)
 	router.HandleFunc("clients/{id}/next_sequence_send", renderClientNextSequenceSend)
 	router.HandleFunc("clients/{id}/packet_commitments", renderClientPacketCommitments)
+	router.HandleFunc("clients/{id}/packet_commitments/{sequence}", renderClientPacketCommitment)
 	router.HandleFunc("clients/{id}/packet_receipts", renderClientPacketReceipts)
+	router.HandleFunc("clients/{id}/packet_receipts/{sequence}", renderClientPacketReceipt)
 	router.HandleFunc("clients/{id}/packet_acknowledgements", renderClientPacketAcknowledgements)
+	router.HandleFunc("clients/{id}/packet_acknowledgements/{sequence}", renderClientPacketAcknowledgement)
 	router.HandleFunc("clients/{id}/unreceived_packets", renderClientUnreceivedPackets)
 	return router.Render(path)
 }
@@ -136,6 +139,16 @@ func renderClientPacketCommitments(w *mux.ResponseWriter, r *mux.Request) {
 	renderCommitments(w, r, c.packetCommitmentsBySeq)
 }
 
+func renderClientPacketCommitment(w *mux.ResponseWriter, r *mux.Request) {
+	id := r.GetVar("id")
+	c := store.getClient(id)
+	if c == nil {
+		renderNode(w, nodeErrorClientNotFound(id))
+		return
+	}
+	renderCommitment(w, r, c.packetCommitmentsBySeq)
+}
+
 func renderClientPacketReceipts(w *mux.ResponseWriter, r *mux.Request) {
 	id := r.GetVar("id")
 	c := store.getClient(id)
@@ -144,6 +157,16 @@ func renderClientPacketReceipts(w *mux.ResponseWriter, r *mux.Request) {
 		return
 	}
 	renderCommitments(w, r, c.packetReceiptsBySeq)
+}
+
+func renderClientPacketReceipt(w *mux.ResponseWriter, r *mux.Request) {
+	id := r.GetVar("id")
+	c := store.getClient(id)
+	if c == nil {
+		renderNode(w, nodeErrorClientNotFound(id))
+		return
+	}
+	renderCommitment(w, r, c.packetReceiptsBySeq)
 }
 
 func renderClientPacketAcknowledgements(w *mux.ResponseWriter, r *mux.Request) {
@@ -156,14 +179,43 @@ func renderClientPacketAcknowledgements(w *mux.ResponseWriter, r *mux.Request) {
 	renderCommitments(w, r, c.packetAcknowledgementsBySeq)
 }
 
+func renderClientPacketAcknowledgement(w *mux.ResponseWriter, r *mux.Request) {
+	id := r.GetVar("id")
+	c := store.getClient(id)
+	if c == nil {
+		renderNode(w, nodeErrorClientNotFound(id))
+		return
+	}
+	renderCommitment(w, r, c.packetAcknowledgementsBySeq)
+}
+
+func renderCommitment(w *mux.ResponseWriter, r *mux.Request, tree *avl.Tree) {
+	seqStr := r.GetVar("sequence")
+	seq, err := strconv.ParseUint(seqStr, 10, 64)
+	if err != nil {
+		renderNode(w, nodeError("invalid sequence %q: %v", seqStr, err))
+		return
+	}
+	v, found := tree.Get(seqid.ID(seq).Binary())
+	if !found {
+		renderNode(w, nodeError("sequence %s not found", seqStr))
+		return
+	}
+	renderNode(w, commitmentNode(seq, v.([]byte)))
+}
+
 func renderCommitments(w *mux.ResponseWriter, r *mux.Request, tree *avl.Tree) {
 	renderNode(w, jsonpage.Render(tree, r, func(k string, v any) *json.Node {
 		id, _ := seqid.FromBinary(k)
-		return json.ObjectNode("", map[string]*json.Node{
-			"sequence": json.StringNode("", strconv.FormatUint(uint64(id), 10)),
-			"data":     json.StringNode("", base64.StdEncoding.EncodeToString(v.([]byte))),
-		})
+		return commitmentNode(uint64(id), v.([]byte))
 	}))
+}
+
+func commitmentNode(sequence uint64, data []byte) *json.Node {
+	return json.ObjectNode("", map[string]*json.Node{
+		"sequence": json.StringNode("", strconv.FormatUint(sequence, 10)),
+		"data":     json.StringNode("", base64.StdEncoding.EncodeToString(data)),
+	})
 }
 
 // renderClientUnreceivedPackets returns, given a list of sequences, the
