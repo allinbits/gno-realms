@@ -2,13 +2,12 @@
 set -eu
 
 CHAIN_ID="${ATOMONE_CHAIN_ID:-atomone-e2e-1}"
-DENOM="${ATOMONE_DENOM:-uatone}"
 MONIKER="validator"
 
 echo "Initializing AtomOne chain ($CHAIN_ID)..."
 
 # Initialize the chain (overwrite if re-run)
-atomoned init "$MONIKER" --chain-id "$CHAIN_ID" --default-denom "$DENOM" --home /root/.atomone -o
+atomoned init "$MONIKER" --chain-id "$CHAIN_ID" --default-denom uatone --home /root/.atomone -o
 
 # Recover the validator key from the test mnemonic
 echo "$TEST_MNEMONIC" | atomoned keys add validator --recover --keyring-backend test --home /root/.atomone
@@ -17,10 +16,10 @@ VALIDATOR_ADDR=$(atomoned keys show validator -a --keyring-backend test --home /
 echo "Validator address: $VALIDATOR_ADDR"
 
 # Fund the validator account in genesis
-atomoned genesis add-genesis-account "$VALIDATOR_ADDR" "1000000000${DENOM}" --keyring-backend test --home /root/.atomone
+atomoned genesis add-genesis-account "$VALIDATOR_ADDR" "1000000000uatone,10000000000uphoton" --keyring-backend test --home /root/.atomone
 
 # Create the gentx
-atomoned genesis gentx validator "500000000${DENOM}" \
+atomoned genesis gentx validator "500000000uatone" \
     --chain-id "$CHAIN_ID" \
     --keyring-backend test \
     --home /root/.atomone
@@ -32,20 +31,9 @@ atomoned genesis collect-gentxs --home /root/.atomone
 CONFIG_DIR=/root/.atomone/config
 
 # Patch genesis: the feat/gno-lc branch has a photon module that enforces
-# uphoton fees. For e2e testing, add uphoton to the validator's balance and
-# add IBC message types to fee exceptions so uatone fees also work.
+# uphoton fees. Add IBC message types to fee exceptions so uatone fees also work.
 GENESIS="$CONFIG_DIR/genesis.json"
-jq --arg addr "$VALIDATOR_ADDR" '
-    # Add uphoton to the validator balance
-    .app_state.bank.balances |= map(
-        if .address == $addr then
-            .coins += [{"denom": "uphoton", "amount": "10000000000"}] |
-            .coins |= sort_by(.denom)
-        else . end
-    ) |
-    # Add uphoton to bank supply
-    .app_state.bank.supply += [{"denom": "uphoton", "amount": "10000000000"}] |
-    .app_state.bank.supply |= sort_by(.denom) |
+jq '
     # Add IBC message types to photon tx_fee_exceptions
     .app_state.photon.params.tx_fee_exceptions += [
         "/ibc.core.client.v1.MsgCreateClient",
