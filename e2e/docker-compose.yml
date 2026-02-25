@@ -43,8 +43,7 @@ services:
       start_period: 30s
 
   relayer:
-    build:
-      context: /home/tom/src/atomone/ibc-v2-ts-relayer
+    image: ghcr.io/allinbits/ibc-v2-ts-relayer:latest
     entrypoint: ["/entrypoint.sh"]
     command: ["ibc-v2-ts-relayer", "relay"]
     volumes:
