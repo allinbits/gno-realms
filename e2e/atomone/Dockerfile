@@ -1,5 +1,5 @@
 # Build stage: compile atomoned from the julien/wire-vaas branch
-FROM golang:1.24.5-alpine AS builder
+FROM golang:1.26.0-alpine AS builder
 
 RUN apk add --no-cache git make
 
