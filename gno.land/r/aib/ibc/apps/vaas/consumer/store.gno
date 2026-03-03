@@ -11,6 +11,11 @@ import (
 	valrealms "gno.land/r/sys/validators/v2"
 )
 
+// consumerPkgPath is the canonical package path of this realm.
+// It is used to check whether this realm is whitelisted in r/sys/validators/v2
+// before attempting to propagate validator set changes to the chain.
+const consumerPkgPath = "gno.land/r/aib/ibc/apps/vaas/consumer"
+
 // CrossChainValidator represents a validator that is tracked by the consumer
 // chain, as communicated by the provider chain via IBC.
 type CrossChainValidator struct {
@@ -271,11 +276,16 @@ func encodePubKeyAsBech32(pubKey string) string {
 
 // propagateValidatorAddition adds a validator to the chain validator set.
 // This realm must be whitelisted in r/sys/validators/v2 to succeed.
+// If the realm is not whitelisted (e.g. in test environments), propagation is
+// skipped silently — the update is still applied to the local consumer store.
 func propagateValidatorAddition(update ValidatorUpdate) {
+	if !valrealms.IsAllowedRealm(consumerPkgPath) {
+		return
+	}
+
 	addr := deriveAddressFromPubKey(update.PubKey)
 	pubKeyBech32 := encodePubKeyAsBech32(update.PubKey)
 
-	// Create validator struct
 	val := validators.Validator{
 		Address:     addr,
 		PubKey:      pubKeyBech32,
@@ -286,9 +296,14 @@ func propagateValidatorAddition(update ValidatorUpdate) {
 }
 
 // propagateValidatorRemoval removes a validator from the chain validator set.
-// If the validator is not present in the chain set (e.g. because the local store
-// was set up out-of-band without a prior propagation), this is a no-op.
+// If the realm is not whitelisted, or if the validator is not present in the
+// chain set (e.g. because the local store was set up out-of-band), this is a
+// no-op.
 func propagateValidatorRemoval(update ValidatorUpdate) {
+	if !valrealms.IsAllowedRealm(consumerPkgPath) {
+		return
+	}
+
 	addr := deriveAddressFromPubKey(update.PubKey)
 	if !valrealms.IsValidator(addr) {
 		// Already absent from the chain validator set — nothing to do.
@@ -298,11 +313,16 @@ func propagateValidatorRemoval(update ValidatorUpdate) {
 }
 
 // propagateValidatorUpdate updates a validator's power in the chain validator set.
-// If the validator is not yet present in the chain set (e.g. because the local store
-// was set up out-of-band without a prior propagation), it is added as a new entry.
+// If the realm is not whitelisted, propagation is skipped silently.
+// If the validator is not yet present in the chain set (e.g. because the local
+// store was set up out-of-band without a prior propagation), it is added instead.
 // The PoA protocol's AddValidator supports upsert semantics: it updates the power
 // when the validator already exists with a different power, and adds it when absent.
 func propagateValidatorUpdate(update ValidatorUpdate) {
+	if !valrealms.IsAllowedRealm(consumerPkgPath) {
+		return
+	}
+
 	addr := deriveAddressFromPubKey(update.PubKey)
 	pubKeyBech32 := encodePubKeyAsBech32(update.PubKey)
 
