@@ -2,7 +2,6 @@ package consumer
 
 import (
 	"chain"
-	"chain/banker"
 	"chain/runtime"
 	"strconv"
 
@@ -48,7 +47,6 @@ var _ app.IBCApp = &App{}
 // The consumer does not send packets — it only receives them.
 func (a *App) OnSendPacket(
 	_ realm,
-	_ banker.Banker,
 	sourceClient string,
 	destinationClient string,
 	sequence uint64,

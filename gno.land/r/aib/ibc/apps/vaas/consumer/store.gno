@@ -286,25 +286,30 @@ func propagateValidatorAddition(update ValidatorUpdate) {
 }
 
 // propagateValidatorRemoval removes a validator from the chain validator set.
+// If the validator is not present in the chain set (e.g. because the local store
+// was set up out-of-band without a prior propagation), this is a no-op.
 func propagateValidatorRemoval(update ValidatorUpdate) {
 	addr := deriveAddressFromPubKey(update.PubKey)
+	if !valrealms.IsValidator(addr) {
+		// Already absent from the chain validator set — nothing to do.
+		return
+	}
 	valrealms.RemoveValidator(cross, addr)
 }
 
 // propagateValidatorUpdate updates a validator's power in the chain validator set.
-// For updates, we use AddValidator which will update the power if the validator exists.
+// If the validator is not yet present in the chain set (e.g. because the local store
+// was set up out-of-band without a prior propagation), it is added as a new entry.
+// The PoA protocol's AddValidator supports upsert semantics: it updates the power
+// when the validator already exists with a different power, and adds it when absent.
 func propagateValidatorUpdate(update ValidatorUpdate) {
 	addr := deriveAddressFromPubKey(update.PubKey)
 	pubKeyBech32 := encodePubKeyAsBech32(update.PubKey)
 
-	// Create validator struct with updated power
 	val := validators.Validator{
 		Address:     addr,
 		PubKey:      pubKeyBech32,
 		VotingPower: uint64(update.Power),
 	}
-
-	// Call the validators realm to update the validator
-	// AddValidator will update the power if the validator already exists
 	valrealms.AddValidator(cross, val)
 }
