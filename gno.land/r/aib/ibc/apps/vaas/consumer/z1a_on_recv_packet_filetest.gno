@@ -21,7 +21,7 @@ func main() {
 		trustedHeight = types.NewHeight(2, 2)
 		clientState   = tmtesting.NewClientState(chainID, trustedHeight)
 		// NOTE this apphash was provided by the gen-proof command below.
-		apphash, _     = hex.DecodeString("87c645b2174373448359ec6f3e229dcde8c822810be084d4817daf3f293d45eb")
+		apphash, _     = hex.DecodeString("a0422bd19e236ba3b18bc349cb3b1d9666535ec2c1c791d77af8602f4babe756")
 		trustedValset  = tmtesting.GenValset()
 		consensusState = tmtesting.GenConsensusState(time.Now(), apphash, trustedValset.Hash())
 		counterpartyID = "07-tendermint-42"
@@ -44,7 +44,7 @@ func main() {
 		ics23.CommitmentProof_Exist{
 			Exist: &ics23.ExistenceProof{
 				Key:   []byte("\x70\x72\x65\x66\x69\x78\x32\x30\x37\x2d\x74\x65\x6e\x64\x65\x72\x6d\x69\x6e\x74\x2d\x34\x32\x01\x00\x00\x00\x00\x00\x00\x00\x01"),
-				Value: []byte("\x2e\x68\x87\xac\xb0\x8c\x7e\x10\xf3\xc8\x41\xff\x82\x7e\x1f\xd0\xb5\xa1\x4c\xae\x61\x6e\x69\x02\x7c\x46\xec\x99\x31\x1d\x66\xc6"),
+				Value: []byte("\xe9\x8f\x03\xeb\x61\xff\x1c\x24\x55\x13\x22\x6a\xb4\x69\x0d\x66\x95\x2d\x55\xe0\xfe\x00\xd5\xfb\xf6\x6f\x41\x9f\x80\x77\xe2\x9b"),
 				Leaf: &ics23.LeafOp{
 					Hash:         specs.LeafSpec.Hash,
 					PrehashKey:   specs.LeafSpec.PrehashKey,
@@ -76,7 +76,7 @@ func main() {
 		ics23.CommitmentProof_Exist{
 			Exist: &ics23.ExistenceProof{
 				Key:   []byte("\x69\x61\x76\x6c\x53\x74\x6f\x72\x65\x4b\x65\x79"),
-				Value: []byte("\x96\x00\x74\x6d\x6d\x49\x2b\x83\x82\xe1\xda\x51\x7f\x7f\x05\xdd\xb2\xdf\xfa\x01\x77\x92\x1b\x50\x46\xd1\x48\x34\xa1\x53\x50\x6c"),
+				Value: []byte("\x9f\xa0\x4e\x4c\x86\xd2\x5c\xf8\x69\xbf\xa6\x26\x2c\xf1\x0c\xdc\x9b\x51\xa8\x0f\x29\xa3\xd6\xad\x78\x81\xbe\x9a\x33\x15\x85\x3c"),
 				Leaf: &ics23.LeafOp{
 					Hash:         specs.LeafSpec.Hash,
 					PrehashKey:   specs.LeafSpec.PrehashKey,
