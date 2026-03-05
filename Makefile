@@ -18,7 +18,7 @@ test:
 	go test -C ./cmd/gen-proof
 
 FORK_REPO   := github.com/allinbits/gno
-FORK_BRANCH := julien/validators-edit
+FORK_BRANCH := julien/validators-edit-with-5039
 
 update-fork:
 	$(eval HASH := $(shell git ls-remote https://$(FORK_REPO).git refs/heads/$(FORK_BRANCH) | awk '{print $$1}'))
