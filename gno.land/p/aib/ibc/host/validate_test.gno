@@ -17,70 +17,18 @@ type testCase struct {
 	expErr error
 }
 
-func TestClientIdentifierValidator(t *testing.T) {
+func TestDefaultIdentifierValidator(t *testing.T) {
 	testCases := []testCase{
 		{"valid lowercase", "lowercaseid", nil},
 		{"valid id special chars", "._+-#[]<>._+-#[]<>", nil},
 		{"valid id lower and special chars", "lower._+-#[]<>", nil},
 		{"numeric id", "1234567890", nil},
 		{"uppercase id", "NOTLOWERCASE", nil},
+		{"numeric id", "1234567890", nil},
 		{"blank id", "               ", errors.New("the ID is blank - contains only spaces")},
 		{"id length out of range", "1", errors.New("the ID length is too short")},
 		{"id is too long", "this identifier is too long to be used as a valid identifier", errors.New("the ID exceeds the maximum allowed length")},
-		{"path-like id", "lower/case/id", errors.New("the ID contains path-like characters, which are invalid for client IDs")},
-		{"invalid id", "(clientid)", errors.New("the ID contains invalid characters")},
-		{"empty string", "", errors.New("the ID cannot be empty")},
-	}
-
-	for _, tc := range testCases {
-		err := host.ClientIdentifierValidator(tc.id)
-		if tc.expErr == nil {
-			urequire.NoError(t, err, tc.msg)
-		} else {
-			urequire.Error(t, err, tc.msg)
-		}
-	}
-}
-
-func TestPortIdentifierValidator(t *testing.T) {
-	testCases := []testCase{
-		{"valid lowercase", "transfer", nil},
-		{"valid id special chars", "._+-#[]<>._+-#[]<>", nil},
-		{"valid id lower and special chars", "lower._+-#[]<>", nil},
-		{"numeric id", "1234567890", nil},
-		{"uppercase id", "NOTLOWERCASE", nil},
-		{"blank id", "               ", errors.New("the ID is blank - contains only spaces")},
-		{"id length out of range", "1", errors.New("the ID length is too short")},
-		{"id is too long", longID, errors.New("the ID exceeds the maximum allowed length")},
-		{"path-like id", "lower/case/id", errors.New("the ID contains path-like characters")},
-		{"vaas consumer app id", "vconsumer", nil},
-		{"vaas provider app id", "vprovider", nil},
-		{"invalid id", "(clientid)", errors.New("the ID contains invalid characters")},
-		{"empty string", "", errors.New("the ID cannot be empty")},
-	}
-
-	for _, tc := range testCases {
-		err := host.PortIdentifierValidator(tc.id)
-		if tc.expErr == nil {
-			urequire.NoError(t, err, tc.msg)
-		} else {
-			urequire.Error(t, err, tc.msg)
-		}
-	}
-}
-
-// TestDefaultIdentifierValidator tests shared cases where both client and port
-// validators agree on the result.
-func TestDefaultIdentifierValidator(t *testing.T) {
-	// These cases should produce the same result for both validators.
-	testCases := []testCase{
-		{"valid lowercase", "lowercaseid", nil},
-		{"valid id special chars", "._+-#[]<>._+-#[]<>", nil},
-		{"valid id lower and special chars", "lower._+-#[]<>", nil},
-		{"numeric id", "1234567890", nil},
-		{"uppercase id", "NOTLOWERCASE", nil},
-		{"blank id", "               ", errors.New("the ID is blank - contains only spaces")},
-		{"path-like id", "lower/case/id", errors.New("the ID contains path-like characters")},
+		{"path-like id", "lower/case/id", errors.New("the ID contains path-like characters, which are invalid for an ID")},
 		{"invalid id", "(clientid)", errors.New("the ID contains invalid characters")},
 		{"empty string", "", errors.New("the ID cannot be empty")},
 	}
@@ -94,6 +42,32 @@ func TestDefaultIdentifierValidator(t *testing.T) {
 		} else {
 			urequire.Error(t, err, tc.msg)
 			urequire.Error(t, err2, tc.msg)
+		}
+	}
+}
+
+func TestPortIdentifierValidator(t *testing.T) {
+	testCases := []testCase{
+		{"valid lowercase", "transfer", nil},
+		{"valid id special chars", "._+-#[]<>._+-#[]<>", nil},
+		{"valid id lower and special chars", "lower._+-#[]<>", nil},
+		{"numeric id", "1234567890", nil},
+		{"uppercase id", "NOTLOWERCASE", nil},
+		{"numeric id", "1234567890", nil},
+		{"blank id", "               ", errors.New("the ID is blank - contains only spaces")},
+		{"id length out of range", "1", errors.New("the ID length is too short")},
+		{"id is too long", longID, errors.New("the ID exceeds the maximum allowed length")},
+		{"path-like id", "lower/case/id", errors.New("the ID contains path-like characters, which are invalid for an ID")},
+		{"invalid id", "(clientid)", errors.New("the ID contains invalid characters")},
+		{"empty string", "", errors.New("the ID cannot be empty")},
+	}
+
+	for _, tc := range testCases {
+		err := host.PortIdentifierValidator(tc.id)
+		if tc.expErr == nil {
+			urequire.NoError(t, err, tc.msg)
+		} else {
+			urequire.Error(t, err, tc.msg)
 		}
 	}
 }
