@@ -8,6 +8,7 @@ require (
 	github.com/cosmos/cosmos-db v1.1.3
 	github.com/cosmos/ibc-go/v10 v10.4.0
 	github.com/cosmos/ics23/go v0.11.0
+	github.com/stretchr/testify v1.11.1
 )
 
 require (
@@ -129,7 +130,6 @@ require (
 	github.com/spf13/cobra v1.10.1 // indirect
 	github.com/spf13/pflag v1.0.9 // indirect
 	github.com/spf13/viper v1.20.1 // indirect
-	github.com/stretchr/testify v1.11.1 // indirect
 	github.com/subosito/gotenv v1.6.0 // indirect
 	github.com/syndtr/goleveldb v1.0.1-0.20220721030215-126854af5e6d // indirect
 	github.com/tendermint/go-amino v0.16.0 // indirect

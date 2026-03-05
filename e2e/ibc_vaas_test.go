@@ -53,7 +53,7 @@ func (s *E2ETestSuite) TestIBCVAASProviderToConsumer() {
 	// Build and broadcast MsgSendPacket with VSC data
 	msg := buildMsgSendPacketVAAS(
 		s.atomoneClientID, s.senderAddress,
-		"vaas/provider", "vaas/consumer",
+		"provider", "consumer",
 		vscJSON, time.Now().Add(time.Hour).Unix(),
 	)
 
@@ -130,7 +130,7 @@ func (s *E2ETestSuite) TestIBCVAASUpdateExistingValidator() {
 
 	msg1 := buildMsgSendPacketVAAS(
 		s.atomoneClientID, s.senderAddress,
-		"vaas/provider", "vaas/consumer",
+		"provider", "consumer",
 		vscJSON1, time.Now().Add(time.Hour).Unix(),
 	)
 
@@ -169,7 +169,7 @@ func (s *E2ETestSuite) TestIBCVAASUpdateExistingValidator() {
 
 	msg2 := buildMsgSendPacketVAAS(
 		s.atomoneClientID, s.senderAddress,
-		"vaas/provider", "vaas/consumer",
+		"provider", "consumer",
 		vscJSON2, time.Now().Add(time.Hour).Unix(),
 	)
 
@@ -232,7 +232,7 @@ func (s *E2ETestSuite) TestIBCVAASRemoveValidator() {
 
 	msg1 := buildMsgSendPacketVAAS(
 		s.atomoneClientID, s.senderAddress,
-		"vaas/provider", "vaas/consumer",
+		"provider", "consumer",
 		vscJSON1, time.Now().Add(time.Hour).Unix(),
 	)
 
@@ -270,7 +270,7 @@ func (s *E2ETestSuite) TestIBCVAASRemoveValidator() {
 
 	msg2 := buildMsgSendPacketVAAS(
 		s.atomoneClientID, s.senderAddress,
-		"vaas/provider", "vaas/consumer",
+		"provider", "consumer",
 		vscJSON2, time.Now().Add(time.Hour).Unix(),
 	)
 
