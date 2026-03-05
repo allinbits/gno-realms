@@ -16,18 +16,18 @@ import (
 // and applies them to the consumer chain's validator set.
 //
 // The provider sends ValidatorSetChangePacketData packets encoded as JSON with:
-//   - SourcePort: "vaas/provider"
-//   - DestinationPort: "vaas/consumer"
+//   - SourcePort: "provider"
+//   - DestinationPort: "consumer"
 //   - Version: "1"
 //   - Encoding: "application/json"
 type App struct{}
 
 const (
 	// PortID is the IBC application identifier for the VAAS consumer app.
-	PortID = "vaas/consumer"
+	PortID = "consumer"
 
 	// ProviderPortID is the IBC application identifier for the VAAS provider.
-	ProviderPortID = "vaas/provider"
+	ProviderPortID = "provider"
 
 	// Version is the IBC application version for the VAAS protocol.
 	Version = "1"

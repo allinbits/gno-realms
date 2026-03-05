@@ -8,15 +8,6 @@ import (
 	"gno.land/p/nt/ufmt"
 )
 
-// IsValidPortID defines regular expression to check if the string consist of
-// characters in one of the following categories only:
-// - Alphanumeric
-// - `.`, `_`, `+`, `-`, `#`, `/`
-// - `[`, `]`, `<`, `>`
-// Unlike IsValidID, this also allows "/" so that hierarchical application
-// identifiers (e.g. "vaas/provider", "vaas/consumer") are accepted.
-var IsValidPortID = regexp.MustCompile(`^[a-zA-Z0-9\.\_\+\-\#\[\]\<\>\/]+$`).MatchString
-
 // DefaultMaxCharacterLength defines the default maximum character length used
 // in validation of identifiers including the client, connection, port and
 // channel identifiers.
@@ -79,23 +70,13 @@ func ClientIdentifierValidator(id string) error {
 	return nil
 }
 
-// PortIdentifierValidator is the validator function for Port identifiers.
-// A valid port identifier must be between 2-128 characters and only contain
-// alphanumeric and some allowed special characters (see IsValidPortID).
-// Unlike other identifiers, port identifiers also allow "/" so that
-// hierarchical application identifiers work (e.g. "vaas/consumer").
+// PortIdentifierValidator is the default validator function for Port identifiers.
+// A valid Identifier must be between 2-64 characters and only contain alphanumeric and some allowed
+// special characters (see IsValidID).
 func PortIdentifierValidator(id string) error {
-	if strings.TrimSpace(id) == "" {
-		return ufmt.Errorf("validate port identifier: identifier cannot be blank")
-	}
-	if len(id) < 2 || len(id) > DefaultMaxPortCharacterLength {
-		return ufmt.Errorf("validate port identifier: identifier %s has invalid length: %d, must be between %d-%d characters", id, len(id), 2, DefaultMaxPortCharacterLength)
-	}
-	if !IsValidPortID(id) {
-		return ufmt.Errorf(
-			"validate port identifier: identifier %s must contain only alphanumeric or the following characters: '.', '_', '+', '-', '#', '/', '[', ']', '<', '>'",
-			id,
-		)
+	err := defaultIdentifierValidator(id, 2, DefaultMaxPortCharacterLength)
+	if err != nil {
+		return ufmt.Errorf("validate port identifier: %v", err)
 	}
 	return nil
 }

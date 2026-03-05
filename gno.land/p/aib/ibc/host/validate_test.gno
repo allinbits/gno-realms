@@ -52,15 +52,11 @@ func TestPortIdentifierValidator(t *testing.T) {
 		{"blank id", "               ", errors.New("the ID is blank - contains only spaces")},
 		{"id length out of range", "1", errors.New("the ID length is too short")},
 		{"id is too long", longID, errors.New("the ID exceeds the maximum allowed length")},
+		{"path-like id", "lower/case/id", errors.New("the ID contains path-like characters")},
+		{"vaas consumer app id", "vconsumer", nil},
+		{"vaas provider app id", "vprovider", nil},
 		{"invalid id", "(clientid)", errors.New("the ID contains invalid characters")},
 		{"empty string", "", errors.New("the ID cannot be empty")},
-		// Port identifiers allow "/" for application identifiers
-		{"path-like id allowed for ports", "lower/case/id", nil},
-		{"vaas consumer app id", "vaas/consumer", nil},
-		{"vaas provider app id", "vaas/provider", nil},
-		{"single slash", "a/b", nil},
-		{"multiple slashes", "a/b/c/d", nil},
-		{"slash only not valid (too short after trim)", "/", errors.New("the ID length is too short")},
 	}
 
 	for _, tc := range testCases {
@@ -84,6 +80,7 @@ func TestDefaultIdentifierValidator(t *testing.T) {
 		{"numeric id", "1234567890", nil},
 		{"uppercase id", "NOTLOWERCASE", nil},
 		{"blank id", "               ", errors.New("the ID is blank - contains only spaces")},
+		{"path-like id", "lower/case/id", errors.New("the ID contains path-like characters")},
 		{"invalid id", "(clientid)", errors.New("the ID contains invalid characters")},
 		{"empty string", "", errors.New("the ID cannot be empty")},
 	}
@@ -98,26 +95,5 @@ func TestDefaultIdentifierValidator(t *testing.T) {
 			urequire.Error(t, err, tc.msg)
 			urequire.Error(t, err2, tc.msg)
 		}
-	}
-}
-
-// TestPortAllowsSlashButClientDoesNot verifies that "/" is allowed in port IDs
-// (for application identifiers like "vaas/consumer") but rejected in client IDs.
-func TestPortAllowsSlashButClientDoesNot(t *testing.T) {
-	slashIDs := []string{
-		"vaas/consumer",
-		"vaas/provider",
-		"lower/case/id",
-		"app/v2/module",
-	}
-
-	for _, id := range slashIDs {
-		// Port validator should accept "/"
-		err := host.PortIdentifierValidator(id)
-		urequire.NoError(t, err, "port should accept: "+id)
-
-		// Client validator should reject "/"
-		err = host.ClientIdentifierValidator(id)
-		urequire.Error(t, err, "client should reject: "+id)
 	}
 }
