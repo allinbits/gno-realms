@@ -15,8 +15,15 @@ echo "$TEST_MNEMONIC" | atomoned keys add validator --recover --keyring-backend 
 VALIDATOR_ADDR=$(atomoned keys show validator -a --keyring-backend test --home /root/.atomone)
 echo "Validator address: $VALIDATOR_ADDR"
 
-# Fund the validator account in genesis
+# Recover the relayer key from a separate mnemonic
+echo "$RELAYER_MNEMONIC" | atomoned keys add relayer --recover --keyring-backend test --home /root/.atomone
+
+RELAYER_ADDR=$(atomoned keys show relayer -a --keyring-backend test --home /root/.atomone)
+echo "Relayer address: $RELAYER_ADDR"
+
+# Fund the validator and relayer accounts in genesis
 atomoned genesis add-genesis-account "$VALIDATOR_ADDR" "1000000000uatone,10000000000uphoton" --keyring-backend test --home /root/.atomone
+atomoned genesis add-genesis-account "$RELAYER_ADDR" "1000000000uatone,10000000000uphoton" --keyring-backend test --home /root/.atomone
 
 # Create the gentx
 atomoned genesis gentx validator "500000000uatone" \

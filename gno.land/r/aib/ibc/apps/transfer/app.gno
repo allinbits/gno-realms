@@ -10,7 +10,7 @@ import (
 
 	"gno.land/p/aib/ibc/app"
 	"gno.land/p/aib/ibc/types"
-	"gno.land/p/nt/ufmt"
+	"gno.land/p/nt/ufmt/v0"
 	"gno.land/r/aib/ibc/core"
 )
 
@@ -112,7 +112,7 @@ func (a *App) OnSendPacket(
 		}
 	} else {
 		// Ensure that sent coin matches the FungibleTokenPacketData
-		sent := cur.Coins()
+		sent := cur.SentCoins()
 		if len(sent) != 1 || sent[0].Amount == 0 {
 			return ufmt.Errorf("OnSendPacket requires one non-zero coin to be sent")
 		}

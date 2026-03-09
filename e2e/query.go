@@ -128,9 +128,9 @@ func queryGnoClientCounterparty(containerID, clientID string) (string, error) {
 	return resp.CounterpartyClientID, nil
 }
 
-// queryGRC20Balance returns the GRC20 token balance for a given IBC hash and address.
-func queryGRC20Balance(containerID, ibcHash, addr string) (int64, error) {
-	renderArgs := fmt.Sprintf("grc20/ibc/%s/balance/%s", ibcHash, addr)
+// queryGnoGRC20Balance returns the GRC20 token balance for a given IBC hash and address.
+func queryGnoGRC20Balance(containerID, addr, denom string) (int64, error) {
+	renderArgs := fmt.Sprintf("grc20/%s/balance/%s", denom, addr)
 	content, err := gnoQuery(containerID, "r/aib/ibc/apps/transfer", renderArgs)
 	if err != nil {
 		return 0, err
@@ -167,7 +167,7 @@ func queryGnoBalance(containerID, addr, denom string) (int64, error) {
 	}
 	data := strings.Trim(strings.TrimSpace(stdout[idx+len(prefix):]), "\"")
 	// data is like "9988968600ugnot" or "100ugnot,50foo"
-	for _, coin := range strings.Split(data, ",") {
+	for coin := range strings.SplitSeq(data, ",") {
 		if strings.HasSuffix(coin, denom) {
 			amountStr := strings.TrimSuffix(coin, denom)
 			return strconv.ParseInt(amountStr, 10, 64)

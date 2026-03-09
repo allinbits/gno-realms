@@ -12,7 +12,6 @@ type Config struct {
 	TestMnemonic   string
 	AtomoneChainID string
 	GnoChainID     string
-	GnoReceiver    string
 	AtomoneRPC     string
 	AtomoneREST    string
 }
@@ -27,7 +26,6 @@ func LoadConfig() (*Config, error) {
 		TestMnemonic:   os.Getenv("TEST_MNEMONIC"),
 		AtomoneChainID: os.Getenv("ATOMONE_CHAIN_ID"),
 		GnoChainID:     os.Getenv("GNO_CHAIN_ID"),
-		GnoReceiver:    os.Getenv("GNO_RECEIVER"),
 		AtomoneRPC:     os.Getenv("ATOMONE_RPC"),
 		AtomoneREST:    os.Getenv("ATOMONE_REST"),
 	}

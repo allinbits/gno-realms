@@ -7,7 +7,7 @@ import (
 	"strings"
 
 	"gno.land/p/aib/ibc/host"
-	"gno.land/p/nt/ufmt"
+	"gno.land/p/nt/ufmt/v0"
 )
 
 // ValidateClientType validates the client type. It cannot be blank or empty.

@@ -9,7 +9,7 @@ import (
 	"gno.land/p/aib/ibc/host"
 	"gno.land/p/aib/ibc/lightclient"
 	"gno.land/p/aib/ibc/types"
-	"gno.land/p/nt/ufmt"
+	"gno.land/p/nt/ufmt/v0"
 )
 
 const maxTimeoutDelta time.Duration = 24 * time.Hour

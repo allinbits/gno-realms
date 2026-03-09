@@ -5,9 +5,9 @@ import (
 	"strings"
 	"testing"
 
-	"gno.land/p/nt/uassert"
-	"gno.land/p/nt/ufmt"
-	"gno.land/p/nt/urequire"
+	"gno.land/p/nt/uassert/v0"
+	"gno.land/p/nt/ufmt/v0"
+	"gno.land/p/nt/urequire/v0"
 	"gno.land/r/aib/ibc/apps/transfer"
 )
 

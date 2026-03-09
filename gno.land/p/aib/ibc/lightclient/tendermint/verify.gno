@@ -8,7 +8,7 @@ import (
 
 	"gno.land/p/aib/ibc/types"
 	"gno.land/p/aib/ics23"
-	"gno.land/p/nt/ufmt"
+	"gno.land/p/nt/ufmt/v0"
 )
 
 func (tm *TMLightClient) verifyHeader(msg *MsgHeader) error {

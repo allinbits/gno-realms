@@ -9,7 +9,7 @@ import (
 
 	"crypto/sha256"
 
-	"gno.land/p/nt/ufmt"
+	"gno.land/p/nt/ufmt/v0"
 )
 
 type HashOp int32

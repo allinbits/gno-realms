@@ -45,10 +45,9 @@ func (s *E2ETestSuite) signAndBroadcastGnoCall(keyName, pkgPath, funcName, sendC
 	s.Require().NoError(err, "gnokey maketx call: stdout=%s stderr=%s", stdout, stderr)
 }
 
-// signAndBroadcastAtomOneTx signs and broadcasts messages on the AtomOne chain.
-// It retries on account sequence mismatch (the relayer shares the same account).
-// It returns the tx hash.
-func (s *E2ETestSuite) signAndBroadcastAtomOneTx(msgs ...proto.Message) string {
+// signAndBroadcastAtomOneTx signs, broadcasts, and waits for tx confirmation
+// on the AtomOne chain.
+func (s *E2ETestSuite) signAndBroadcastAtomOneTx(signer string, msgs ...proto.Message) {
 	unsignedTx := buildUnsignedTx(msgs, channeltypesv2.RegisterInterfaces)
 
 	ctx := context.Background()
@@ -58,39 +57,19 @@ func (s *E2ETestSuite) signAndBroadcastAtomOneTx(msgs ...proto.Message) string {
 		"bash", "-c", "cat > /tmp/unsigned_tx.json")
 	s.Require().NoError(err, "write unsigned tx: %s", stderr)
 
-	// Retry sign+broadcast on sequence mismatch (relayer may race with us)
-	const maxRetries = 5
-	for attempt := range maxRetries {
-		txHash, err := s.trySignAndBroadcast(ctx)
-		if err == nil {
-			return txHash
-		}
-		if !strings.Contains(err.Error(), "account sequence mismatch") {
-			s.Require().NoError(err, "tx failed")
-		}
-		s.T().Logf("Sequence mismatch (attempt %d/%d), retrying...", attempt+1, maxRetries)
-		time.Sleep(time.Second)
-	}
-	s.Require().Fail("tx failed after retries: account sequence mismatch")
-	return ""
-}
-
-func (s *E2ETestSuite) trySignAndBroadcast(ctx context.Context) (string, error) {
 	// Sign
 	signCtx, signCancel := context.WithTimeout(ctx, 30*time.Second)
 	defer signCancel()
-	_, stderr, err := dockerExec(signCtx, s.atomoneContainer,
+	_, stderr, err = dockerExec(signCtx, s.atomoneContainer,
 		"atomoned", "tx", "sign", "/tmp/unsigned_tx.json",
-		"--from", "validator",
+		"--from", signer,
 		"--chain-id", s.cfg.AtomoneChainID,
 		"--keyring-backend", "test",
 		"--home", "/root/.atomone",
 		"--node", "tcp://localhost:26657",
 		"--output-document", "/tmp/signed_tx.json",
 	)
-	if err != nil {
-		return "", fmt.Errorf("sign tx: %s", stderr)
-	}
+	s.Require().NoError(err, "sign tx: %s", stderr)
 
 	// Broadcast
 	bcastCtx, bcastCancel := context.WithTimeout(ctx, 30*time.Second)
@@ -100,27 +79,44 @@ func (s *E2ETestSuite) trySignAndBroadcast(ctx context.Context) (string, error) 
 		"--node", "tcp://localhost:26657",
 		"--output", "json",
 	)
-	if err != nil {
-		return "", fmt.Errorf("broadcast tx: %s", stderr)
-	}
+	s.Require().NoError(err, "broadcast tx: %s", stderr)
 
-	var txResult struct {
-		Code   int    `json:"code"`
+	var bcastResult struct {
 		TxHash string `json:"txhash"`
-		RawLog string `json:"raw_log"`
 	}
-	if err := json.Unmarshal([]byte(strings.TrimSpace(stdout)), &txResult); err != nil {
-		return "", fmt.Errorf("parse broadcast result: %w", err)
-	}
-	if txResult.Code != 0 {
-		return "", fmt.Errorf("%s", txResult.RawLog)
-	}
-	return txResult.TxHash, nil
+	err = json.Unmarshal([]byte(strings.TrimSpace(stdout)), &bcastResult)
+	s.Require().NoError(err, "parse broadcast result: %s", stdout)
+	s.Require().NotEmpty(bcastResult.TxHash, "broadcast returned empty txhash")
+
+	// Query tx to confirm execution
+	s.Require().Eventually(func() bool {
+		qCtx, qCancel := context.WithTimeout(ctx, 10*time.Second)
+		defer qCancel()
+		stdout, _, err := dockerExec(qCtx, s.atomoneContainer,
+			"atomoned", "q", "tx", bcastResult.TxHash,
+			"--node", "tcp://localhost:26657",
+			"--output", "json",
+		)
+		if err != nil {
+			return false
+		}
+		var txResult struct {
+			Code   int    `json:"code"`
+			RawLog string `json:"raw_log"`
+		}
+		if err := json.Unmarshal([]byte(strings.TrimSpace(stdout)), &txResult); err != nil {
+			return false
+		}
+		s.Require().Equal(0, txResult.Code, "tx failed: %s", txResult.RawLog)
+		return true
+	}, 30*time.Second, time.Second, "tx %s not confirmed", bcastResult.TxHash)
 }
 
 // buildMsgSendPacket creates a MsgSendPacket for an IBC v2 token transfer.
-func buildMsgSendPacket(sourceClient, sender, receiver, denom, amount string, timeoutTimestamp int64) *channeltypesv2.MsgSendPacket {
-	packetData := transfertypes.NewFungibleTokenPacketData(denom, amount, sender, receiver, "")
+func buildMsgSendPacket(sourceClient, sender, receiver, denom string, amount, timeoutTimestamp int64) *channeltypesv2.MsgSendPacket {
+	packetData := transfertypes.NewFungibleTokenPacketData(
+		denom, fmt.Sprint(amount), sender, receiver, "",
+	)
 	bz, err := proto.Marshal(&packetData)
 	if err != nil {
 		panic(fmt.Sprintf("marshal FungibleTokenPacketData: %v", err))

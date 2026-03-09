@@ -4,7 +4,7 @@ import (
 	"encoding/binary"
 	"time"
 
-	"gno.land/p/nt/ufmt"
+	"gno.land/p/nt/ufmt/v0"
 )
 
 type WireType int

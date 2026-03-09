@@ -7,7 +7,7 @@ import (
 
 	"gno.land/p/aib/encoding/proto"
 	"gno.land/p/aib/ibc/host"
-	"gno.land/p/nt/ufmt"
+	"gno.land/p/nt/ufmt/v0"
 )
 
 // PacketStatus specifies the status of a RecvPacketResult.

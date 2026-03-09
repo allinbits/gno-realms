@@ -4,7 +4,7 @@ import (
 	"encoding/hex"
 	"testing"
 
-	"gno.land/p/nt/uassert"
+	"gno.land/p/nt/uassert/v0"
 )
 
 func TestHashFromByteSlices(t *testing.T) {

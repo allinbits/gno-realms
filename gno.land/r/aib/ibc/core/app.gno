@@ -5,7 +5,7 @@ import (
 
 	"gno.land/p/aib/ibc/app"
 	"gno.land/p/aib/ibc/host"
-	"gno.land/p/nt/ufmt"
+	"gno.land/p/nt/ufmt/v0"
 )
 
 // RegisterApp registers an IBCApp, the portID is determined using the package

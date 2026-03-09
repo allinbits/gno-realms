@@ -12,13 +12,13 @@ import (
 
 type E2ETestSuite struct {
 	suite.Suite
-	cfg              *Config
-	atomoneClientID  string
-	gnoClientID      string
-	senderAddress    string
-	gnoSenderAddress string
-	atomoneContainer string
-	gnoContainer     string
+	cfg                  *Config
+	atomoneClientID      string
+	gnoClientID          string
+	atomOneSenderAddress string
+	gnoSenderAddress     string
+	atomoneContainer     string
+	gnoContainer         string
 }
 
 func TestE2E(t *testing.T) {
@@ -52,9 +52,9 @@ func (s *E2ETestSuite) SetupSuite() {
 		"atomoned", "keys", "show", "validator", "-a",
 		"--keyring-backend", "test", "--home", "/root/.atomone")
 	s.Require().NoError(err, "get validator address: %s", stderr)
-	s.senderAddress = strings.TrimSpace(stdout)
-	s.Require().NotEmpty(s.senderAddress)
-	s.T().Logf("Sender address: %s", s.senderAddress)
+	s.atomOneSenderAddress = strings.TrimSpace(stdout)
+	s.Require().NotEmpty(s.atomOneSenderAddress)
+	s.T().Logf("AtomOne sender address: %s", s.atomOneSenderAddress)
 
 	// Recover test key in gnokey for Gno→AtomOne transfers
 	s.recoverGnoKey("test", cfg.TestMnemonic)
@@ -116,7 +116,7 @@ func (s *E2ETestSuite) gnoKeyAddress(keyName string) string {
 	stdout, stderr, err := dockerExec(ctx, s.gnoContainer, "gnokey", "list")
 	s.Require().NoError(err, "gnokey list: %s", stderr)
 	// Output format: "0. keyname (local) - addr: g1... pub: gpub1..."
-	for _, line := range strings.Split(stdout, "\n") {
+	for line := range strings.SplitSeq(stdout, "\n") {
 		if strings.Contains(line, keyName) {
 			idx := strings.Index(line, "addr: ")
 			if idx >= 0 {

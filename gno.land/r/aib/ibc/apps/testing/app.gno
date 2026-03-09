@@ -3,7 +3,7 @@ package testing
 import (
 	"gno.land/p/aib/ibc/app"
 	"gno.land/p/aib/ibc/types"
-	"gno.land/p/nt/ufmt"
+	"gno.land/p/nt/ufmt/v0"
 )
 
 type (

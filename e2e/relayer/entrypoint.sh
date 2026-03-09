@@ -8,8 +8,8 @@ echo "Configuring relayer..."
 
 /bin/with_keyring bash -c "
     echo 'Adding mnemonics...'
-    ibc-v2-ts-relayer add-mnemonic -c $ATOMONE_CHAIN_ID -m \"$TEST_MNEMONIC\"
-    ibc-v2-ts-relayer add-mnemonic -c $GNO_CHAIN_ID -m \"$TEST_MNEMONIC\"
+    ibc-v2-ts-relayer add-mnemonic -c $ATOMONE_CHAIN_ID -m \"$RELAYER_MNEMONIC\"
+    ibc-v2-ts-relayer add-mnemonic -c $GNO_CHAIN_ID -m \"$RELAYER_MNEMONIC\"
 
     echo 'Adding gas prices...'
     ibc-v2-ts-relayer add-gas-price -c $ATOMONE_CHAIN_ID 0.025uphoton
