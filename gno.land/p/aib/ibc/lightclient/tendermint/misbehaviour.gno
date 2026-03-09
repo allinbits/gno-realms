@@ -2,7 +2,7 @@ package tendermint
 
 import (
 	"gno.land/p/aib/ibc/lightclient"
-	"gno.land/p/nt/ufmt"
+	"gno.land/p/nt/ufmt/v0"
 )
 
 // Misbehaviour is a wrapper over two conflicting Headers

@@ -7,8 +7,8 @@ import (
 	"time"
 
 	"gno.land/p/aib/ibc/types"
-	"gno.land/p/nt/ufmt"
-	"gno.land/p/nt/urequire"
+	"gno.land/p/nt/ufmt/v0"
+	"gno.land/p/nt/urequire/v0"
 )
 
 func TestMsgSendPacketValidateBasic(t *testing.T) {

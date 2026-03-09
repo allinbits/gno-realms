@@ -6,7 +6,7 @@ import (
 
 	"gno.land/p/aib/ibc/lightclient"
 	"gno.land/p/aib/ibc/types"
-	"gno.land/p/nt/ufmt"
+	"gno.land/p/nt/ufmt/v0"
 )
 
 // CreateClient generates a new client identifier and invokes the associated

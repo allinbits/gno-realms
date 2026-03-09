@@ -7,7 +7,7 @@ import (
 	"strings"
 
 	"gno.land/p/aib/ibc/types"
-	"gno.land/p/nt/ufmt"
+	"gno.land/p/nt/ufmt/v0"
 	"gno.land/r/aib/ibc/core"
 )
 

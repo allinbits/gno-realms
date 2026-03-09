@@ -4,7 +4,7 @@ import (
 	"chain"
 	"chain/banker"
 
-	"gno.land/p/nt/ufmt"
+	"gno.land/p/nt/ufmt/v0"
 )
 
 // LimitedBanker is a banker that limits the total spendable coins.

@@ -8,7 +8,7 @@ import (
 	"chain/runtime"
 
 	"gno.land/p/aib/limitedbanker"
-	"gno.land/p/nt/testutils"
+	"gno.land/p/nt/testutils/v0"
 )
 
 // multiple coins

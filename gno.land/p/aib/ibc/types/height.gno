@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"strings"
 
-	"gno.land/p/nt/ufmt"
+	"gno.land/p/nt/ufmt/v0"
 )
 
 // Height is a monotonically increasing data type

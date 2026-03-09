@@ -5,9 +5,9 @@ import (
 	"strconv"
 	"testing"
 
-	"gno.land/p/nt/avl"
-	"gno.land/p/nt/mux"
-	"gno.land/p/nt/uassert"
+	"gno.land/p/nt/avl/v0"
+	"gno.land/p/nt/mux/v0"
+	"gno.land/p/nt/uassert/v0"
 	"gno.land/p/onbloc/json"
 )
 

@@ -4,7 +4,7 @@ import (
 	"strings"
 
 	"gno.land/p/aib/encoding/proto"
-	"gno.land/p/nt/ufmt"
+	"gno.land/p/nt/ufmt/v0"
 	"gno.land/p/onbloc/int256"
 )
 

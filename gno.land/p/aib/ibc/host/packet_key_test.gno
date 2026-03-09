@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	"gno.land/p/aib/ibc/host"
-	"gno.land/p/nt/urequire"
+	"gno.land/p/nt/urequire/v0"
 )
 
 // TestPacketCommitmentKey is primarily used to document the expected key output

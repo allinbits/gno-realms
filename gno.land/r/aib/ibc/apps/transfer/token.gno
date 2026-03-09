@@ -4,7 +4,7 @@ import (
 	"chain"
 	"strconv"
 
-	"gno.land/p/nt/ufmt"
+	"gno.land/p/nt/ufmt/v0"
 )
 
 // Token defines a struct which represents a token to be transferred.

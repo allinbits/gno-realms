@@ -7,7 +7,7 @@ import (
 	"gno.land/p/aib/ibc/lightclient/tendermint"
 	"gno.land/p/aib/ibc/types"
 	"gno.land/p/aib/ics23"
-	"gno.land/p/nt/urequire"
+	"gno.land/p/nt/urequire/v0"
 )
 
 func TestGetNeighboringConsensusStates(t *testing.T) {

@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	"gno.land/p/aib/ibc/types"
-	"gno.land/p/nt/urequire"
+	"gno.land/p/nt/urequire/v0"
 )
 
 // TestCommitPacket is primarily used to document the expected commitment output
