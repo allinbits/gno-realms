@@ -4,7 +4,7 @@ import (
 	"encoding/base64"
 	"strconv"
 
-	"gno.land/p/nt/ufmt"
+	"gno.land/p/nt/ufmt/v0"
 	"gno.land/p/onbloc/json"
 )
 

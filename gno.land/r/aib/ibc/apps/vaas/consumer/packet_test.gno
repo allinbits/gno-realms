@@ -3,7 +3,7 @@ package consumer
 import (
 	"testing"
 
-	"gno.land/p/nt/avl"
+	"gno.land/p/nt/avl/v0"
 )
 
 func TestValidatorSetChangePacketData_Validate(t *testing.T) {

@@ -52,13 +52,13 @@ func (s *E2ETestSuite) TestIBCVAASProviderToConsumer() {
 
 	// Build and broadcast MsgSendPacket with VSC data
 	msg := buildMsgSendPacketVAAS(
-		s.atomoneClientID, s.senderAddress,
+		s.atomoneClientID, s.atomOneSenderAddress,
 		"provider", "consumer",
 		vscJSON, time.Now().Add(time.Hour).Unix(),
 	)
 
-	txHash := s.signAndBroadcastAtomOneTx(msg)
-	s.T().Logf("VSC packet submitted: txhash=%s", txHash)
+	s.signAndBroadcastAtomOneTx(s.atomOneSenderAddress, msg)
+	s.T().Logf("VSC packet submitted")
 
 	// Query VAAS consumer state before relay
 	s.T().Log("Querying VAAS consumer state before relay...")
@@ -129,12 +129,12 @@ func (s *E2ETestSuite) TestIBCVAASUpdateExistingValidator() {
 	r.NoError(err, "marshal initial VSC packet data")
 
 	msg1 := buildMsgSendPacketVAAS(
-		s.atomoneClientID, s.senderAddress,
+		s.atomoneClientID, s.atomOneSenderAddress,
 		"provider", "consumer",
 		vscJSON1, time.Now().Add(time.Hour).Unix(),
 	)
 
-	s.signAndBroadcastAtomOneTx(msg1)
+	s.signAndBroadcastAtomOneTx(s.atomOneSenderAddress, msg1)
 	s.T().Logf("Initial VSC packet submitted: valset_update_id=%d", valsetUpdateID1)
 
 	// Wait for first valset update to be applied
@@ -168,13 +168,13 @@ func (s *E2ETestSuite) TestIBCVAASUpdateExistingValidator() {
 	r.NoError(err, "marshal update VSC packet data")
 
 	msg2 := buildMsgSendPacketVAAS(
-		s.atomoneClientID, s.senderAddress,
+		s.atomoneClientID, s.atomOneSenderAddress,
 		"provider", "consumer",
 		vscJSON2, time.Now().Add(time.Hour).Unix(),
 	)
 
-	txHash := s.signAndBroadcastAtomOneTx(msg2)
-	s.T().Logf("Update VSC packet submitted: txhash=%s, valset_update_id=%d", txHash, valsetUpdateID2)
+	s.signAndBroadcastAtomOneTx(s.atomOneSenderAddress, msg2)
+	s.T().Logf("Update VSC packet submitted: valset_update_id=%d", valsetUpdateID2)
 
 	// Wait for second valset update to be applied
 	s.T().Log("Waiting for valset update ID to increment...")
@@ -231,12 +231,12 @@ func (s *E2ETestSuite) TestIBCVAASRemoveValidator() {
 	r.NoError(err, "marshal initial VSC packet data")
 
 	msg1 := buildMsgSendPacketVAAS(
-		s.atomoneClientID, s.senderAddress,
+		s.atomoneClientID, s.atomOneSenderAddress,
 		"provider", "consumer",
 		vscJSON1, time.Now().Add(time.Hour).Unix(),
 	)
 
-	s.signAndBroadcastAtomOneTx(msg1)
+	s.signAndBroadcastAtomOneTx(s.atomOneSenderAddress, msg1)
 
 	// Wait for initial validators to be established
 	r.Eventually(func() bool {
@@ -269,13 +269,13 @@ func (s *E2ETestSuite) TestIBCVAASRemoveValidator() {
 	r.NoError(err, "marshal removal VSC packet data")
 
 	msg2 := buildMsgSendPacketVAAS(
-		s.atomoneClientID, s.senderAddress,
+		s.atomoneClientID, s.atomOneSenderAddress,
 		"provider", "consumer",
 		vscJSON2, time.Now().Add(time.Hour).Unix(),
 	)
 
-	txHash := s.signAndBroadcastAtomOneTx(msg2)
-	s.T().Logf("Removal VSC packet submitted: txhash=%s, valset_update_id=%d", txHash, valsetUpdateID2)
+	s.signAndBroadcastAtomOneTx(s.atomOneSenderAddress, msg2)
+	s.T().Logf("Removal VSC packet submitted: valset_update_id=%d", valsetUpdateID2)
 
 	// Wait for second valset update to be applied
 	r.Eventually(func() bool {

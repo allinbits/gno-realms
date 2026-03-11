@@ -6,7 +6,7 @@ import (
 	"encoding/base64"
 	"strconv"
 
-	"gno.land/p/nt/avl"
+	"gno.land/p/nt/avl/v0"
 	"gno.land/p/sys/validators"
 	valrealms "gno.land/r/sys/validators/v2"
 )
