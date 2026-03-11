@@ -9,6 +9,7 @@ import (
 	"gno.land/p/aib/ibc/types"
 	"gno.land/p/nt/ufmt/v0"
 	"gno.land/r/aib/ibc/core"
+	"gno.land/r/demo/defi/grc20reg"
 )
 
 // Transfer is an entry point function for sending a native token to another
@@ -31,21 +32,31 @@ func Transfer(cur realm, clientID, receiver string, timeoutTimestamp uint64) (
 func TransferGRC20(cur realm, clientID, receiver, denom string, amount int64, timeoutTimestamp uint64) (
 	packet types.MsgSendPacket, sequence uint64,
 ) {
-	// Validate that the GRC20 token exists and resolve the denom path.
-	inst := getGRC20(denom)
-	if inst == nil {
-		panic(ufmt.Errorf("GRC20 token not found for denom %s", denom))
-	}
 	if strings.HasPrefix(denom, "ibc/") {
-		// If denom is an ibc trace, replace it with the ibc path.
+		// IBC voucher: validate it exists and resolve the denom path.
+		inst := getGRC20(denom)
+		if inst == nil {
+			panic(ufmt.Errorf("GRC20 token not found for denom %s", denom))
+		}
 		d, found := getDenom(denom)
 		if !found {
 			panic(ufmt.Sprintf("denom %s not found in store", denom))
 		}
 		denom = d.Path()
 	} else {
-		// TODO GRC20 token is not IBC voucher, how do we transferFrom?
-		panic("GRC20 non IBC voucher not handled")
+		// Non-IBC GRC20 token: escrow via TransferFrom.
+		// The caller must have approved the transfer app realm address
+		// for the given amount before calling this function.
+		token := grc20reg.Get(denom)
+		if token == nil {
+			panic(ufmt.Sprintf("GRC20 token %s not found in grc20reg", denom))
+		}
+		sender := runtime.OriginCaller()
+		escrowAddr := runtime.CurrentRealm().Address()
+		teller := token.RealmTeller()
+		if err := teller.TransferFrom(sender, escrowAddr, amount); err != nil {
+			panic(ufmt.Errorf("TransferFrom GRC20 error: %v", err))
+		}
 	}
 	return transfer(clientID, receiver, denom, amount, timeoutTimestamp)
 }
@@ -89,25 +100,36 @@ func refundPacketToken(sourcePort, sourceClient, sender string, token Token) err
 			return ufmt.Errorf("re-mint GRC20 error: %v", err)
 		}
 	} else {
-		if err := unescrowCoin(sender, coin); err != nil {
+		if err := unescrow(sender, coin); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-// escrowCoins sends the specified amount of tokens from the realm to the
-// original sender.
-func unescrowCoin(sender string, coin chain.Coin) error {
-	// Send back the amount from escrow address back to sender
-	var (
-		// TODO no app/clientID specific escrow address ?
-		from   = runtime.CurrentRealm().Address()
-		to     = address(sender)
-		amount = chain.NewCoins(coin)
-		banker = banker.NewBanker(banker.BankerTypeRealmSend)
-	)
-	banker.SendCoins(from, to, amount)
+// unescrow sends the specified amount of tokens from the realm escrow back to
+// the original sender. It handles both native coins (via banker) and non-IBC
+// GRC20 tokens (via RealmTeller).
+func unescrow(receiver string, coin chain.Coin) error {
+	token := grc20reg.Get(coin.Denom)
+	if token != nil {
+		// Non-IBC GRC20 token: transfer from escrow back to receiver.
+		// RealmTeller uses CurrentRealm (transfer app) as the sender.
+		teller := token.RealmTeller()
+		if err := teller.Transfer(address(receiver), coin.Amount); err != nil {
+			return ufmt.Errorf("unescrow GRC20 %s error: %v", coin.Denom, err)
+		}
+	} else {
+		// Native coin: send from realm escrow via banker
+		var (
+			// TODO no app/clientID specific escrow address ?
+			from   = runtime.CurrentRealm().Address()
+			to     = address(receiver)
+			amount = chain.NewCoins(coin)
+			banker = banker.NewBanker(banker.BankerTypeRealmSend)
+		)
+		banker.SendCoins(from, to, amount)
+	}
 
 	subEscrowForDenom(coin)
 
