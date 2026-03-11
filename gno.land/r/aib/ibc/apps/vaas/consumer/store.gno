@@ -7,8 +7,8 @@ import (
 	"strconv"
 
 	"gno.land/p/nt/avl/v0"
-	"gno.land/p/sys/validators"
-	valrealms "gno.land/r/sys/validators/v2"
+	pVals "gno.land/p/sys/validators"
+	validators "gno.land/r/sys/validators/v2"
 )
 
 // consumerPkgPath is the canonical package path of this realm.
@@ -279,20 +279,20 @@ func encodePubKeyAsBech32(pubKey string) string {
 // If the realm is not whitelisted (e.g. in test environments), propagation is
 // skipped silently — the update is still applied to the local consumer store.
 func propagateValidatorAddition(update ValidatorUpdate) {
-	if !valrealms.IsAllowedRealm(consumerPkgPath) {
+	if !validators.IsAllowedRealm(consumerPkgPath) {
 		return
 	}
 
 	addr := deriveAddressFromPubKey(update.PubKey)
 	pubKeyBech32 := encodePubKeyAsBech32(update.PubKey)
 
-	val := validators.Validator{
+	val := pVals.Validator{
 		Address:     addr,
 		PubKey:      pubKeyBech32,
 		VotingPower: uint64(update.Power),
 	}
 
-	valrealms.AddValidator(cross, val)
+	validators.AddValidator(cross, val)
 }
 
 // propagateValidatorRemoval removes a validator from the chain validator set.
@@ -300,16 +300,16 @@ func propagateValidatorAddition(update ValidatorUpdate) {
 // chain set (e.g. because the local store was set up out-of-band), this is a
 // no-op.
 func propagateValidatorRemoval(update ValidatorUpdate) {
-	if !valrealms.IsAllowedRealm(consumerPkgPath) {
+	if !validators.IsAllowedRealm(consumerPkgPath) {
 		return
 	}
 
 	addr := deriveAddressFromPubKey(update.PubKey)
-	if !valrealms.IsValidator(addr) {
+	if !validators.IsValidator(addr) {
 		// Already absent from the chain validator set — nothing to do.
 		return
 	}
-	valrealms.RemoveValidator(cross, addr)
+	validators.RemoveValidator(cross, addr)
 }
 
 // propagateValidatorUpdate updates a validator's power in the chain validator set.
@@ -319,17 +319,17 @@ func propagateValidatorRemoval(update ValidatorUpdate) {
 // The PoA protocol's AddValidator supports upsert semantics: it updates the power
 // when the validator already exists with a different power, and adds it when absent.
 func propagateValidatorUpdate(update ValidatorUpdate) {
-	if !valrealms.IsAllowedRealm(consumerPkgPath) {
+	if !validators.IsAllowedRealm(consumerPkgPath) {
 		return
 	}
 
 	addr := deriveAddressFromPubKey(update.PubKey)
 	pubKeyBech32 := encodePubKeyAsBech32(update.PubKey)
 
-	val := validators.Validator{
+	val := pVals.Validator{
 		Address:     addr,
 		PubKey:      pubKeyBech32,
 		VotingPower: uint64(update.Power),
 	}
-	valrealms.AddValidator(cross, val)
+	validators.AddValidator(cross, val)
 }
