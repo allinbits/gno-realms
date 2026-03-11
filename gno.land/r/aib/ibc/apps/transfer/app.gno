@@ -92,7 +92,9 @@ func (a *App) OnSendPacket(
 	// If we enforce that IBC v2 packets are sent with ICS20 v2 and above
 	// versions that separate the trace from the base denomination in the packet
 	// data, then we can remove this restriction.
-	if strings.Contains(token.Denom.Base, "/") {
+	// Skip the slash restriction for denoms found in grc20reg (their keys
+	// contain slashes, e.g. "gno.land/r/demo/foo.FOO").
+	if strings.Contains(token.Denom.Base, "/") && !isGRC20RegToken(token.Denom.Base) {
 		return ufmt.Errorf("base denomination %s cannot contain slashes for IBC v2 packet", token.Denom.Base)
 	}
 
@@ -110,8 +112,12 @@ func (a *App) OnSendPacket(
 		if err := inst.ledger.Burn(from, coin.Amount); err != nil {
 			return ufmt.Errorf("burn GRC20 %s error: %v", coin.String(), err)
 		}
+	} else if isGRC20RegToken(coin.Denom) {
+		// Non-IBC GRC20 token: already escrowed by TransferGRC20 via
+		// CallerTeller().TransferFrom(). Just track the escrow amount.
+		addEscrowForDenom(coin)
 	} else {
-		// Ensure that sent coin matches the FungibleTokenPacketData
+		// Native token: ensure that sent coin matches the FungibleTokenPacketData
 		sent := cur.SentCoins()
 		if len(sent) != 1 || sent[0].Amount == 0 {
 			return ufmt.Errorf("OnSendPacket requires one non-zero coin to be sent")
@@ -226,7 +232,7 @@ func (a *App) OnRecvPacket(
 
 		coin := chain.NewCoin(token.Denom.IBCDenom(), transferAmount)
 
-		ackErr = unescrowCoin(data.Receiver, coin)
+		ackErr = unescrow(data.Receiver, coin)
 		if ackErr != nil {
 			ack = types.NewErrorAppAcknowledgement(ackErr)
 			return types.RecvPacketResult{Status: types.PacketStatus_Failure}
