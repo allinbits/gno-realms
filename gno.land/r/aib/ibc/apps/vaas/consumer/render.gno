@@ -13,6 +13,8 @@ import (
 func Render(path string) string {
 	// Handle JSON render paths for e2e tests
 	switch path {
+	case "config":
+		return renderConfig()
 	case "provider_client_id":
 		return renderProviderClientID()
 	case "highest_valset_update_id":
@@ -27,6 +29,16 @@ func Render(path string) string {
 
 	// Default to human-readable Markdown
 	return renderMarkdown()
+}
+
+// renderConfig returns JSON with the realm configuration.
+func renderConfig() string {
+	return json.ObjectNode("", map[string]*json.Node{
+		"port_id":          json.StringNode("", PortID),
+		"provider_port_id": json.StringNode("", ProviderPortID),
+		"version":          json.StringNode("", Version),
+		"encoding":         json.StringNode("", EncodingJSON),
+	}).String()
 }
 
 // renderProviderClientID returns JSON with provider client ID.
