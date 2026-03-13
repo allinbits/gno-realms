@@ -11,6 +11,10 @@ github.com/alecthomas/chroma/v2 v2.23.1/go.mod h1:NqVhfBR0lte5Ouh3DcthuUCTUpDC9c
 github.com/alecthomas/repr v0.0.0-20220113201626-b1b626ac65ae/go.mod h1:2kn6fqh/zIyPLmm3ugklbEi5hg5wS435eygvNfaDQL8=
 github.com/alecthomas/repr v0.5.2 h1:SU73FTI9D1P5UNtvseffFSGmdNci/O6RsqzeXJtP0Qs=
 github.com/alecthomas/repr v0.5.2/go.mod h1:Fr0507jx4eOXV7AlPV6AVZLYrLIuIeSOWtW57eE/O/4=
+github.com/allinbits/gno v0.0.0-20260309122902-3c3d9323ec27 h1:dQk+u9pdTx2F7RCsjTRgNlFJGvCQ6K5XaH//CkMUKwA=
+github.com/allinbits/gno v0.0.0-20260309122902-3c3d9323ec27/go.mod h1:990lKB5nQ8JHad9HZnGztOR5C0Q3KJQIsb9jB0pB6oE=
+github.com/allinbits/gno/contribs/gnodev v0.0.0-20260309122902-3c3d9323ec27 h1:tjeoIqkBlreWqrtEVla3DxWMDRY3qdOhLHT/0M5VIAU=
+github.com/allinbits/gno/contribs/gnodev v0.0.0-20260309122902-3c3d9323ec27/go.mod h1:RmtB0KUcU/VZ1MmLtoSAjRb6Fz76YaQ27ybrchNldLw=
 github.com/aymanbagabas/go-osc52/v2 v2.0.1 h1:HwpRHbFMcZLEVr42D4p7XBqjyuxQH5SMiErDT4WkJ2k=
 github.com/aymanbagabas/go-osc52/v2 v2.0.1/go.mod h1:uYgXzlJ7ZpABp8OJ+exZzJJhRNQ2ASbcXHWsFqH8hp8=
 github.com/bendory/conway-hebrew-calendar v0.0.0-20210829020739-dcc34210ce9b h1:AqcWTgnij9lTMsvc21uXU38gVQyzsb4i1YDRJja+auc=
@@ -261,10 +265,6 @@ github.com/stretchr/testify v1.11.1/go.mod h1:wZwfW3scLgRK+23gO65QZefKpKQRnfz6sD
 github.com/syndtr/goleveldb v1.0.1-0.20210819022825-2ae1ddf74ef7/go.mod h1:q4W45IWZaF22tdD+VEXcAWRA037jwmWEB5VWYORlTpc=
 github.com/syndtr/goleveldb v1.0.1-0.20220721030215-126854af5e6d h1:vfofYNRScrDdvS342BElfbETmL1Aiz3i2t0zfRj16Hs=
 github.com/syndtr/goleveldb v1.0.1-0.20220721030215-126854af5e6d/go.mod h1:RRCYJbIwD5jmqPI9XoAFR0OcDxqUctll6zUj/+B4S48=
-github.com/tbruyelle/gno v0.0.0-20260309102527-799370aaf013 h1:DOku/GE2Dxj/CP+0hbVs3eqbBxZqt2djfioCcLzTJ2k=
-github.com/tbruyelle/gno v0.0.0-20260309102527-799370aaf013/go.mod h1:990lKB5nQ8JHad9HZnGztOR5C0Q3KJQIsb9jB0pB6oE=
-github.com/tbruyelle/gno/contribs/gnodev v0.0.0-20260309102527-799370aaf013 h1:P7J8YzCm3gzmuTWnqLVUz3ACd3luPlgEMxJjhjvqflg=
-github.com/tbruyelle/gno/contribs/gnodev v0.0.0-20260309102527-799370aaf013/go.mod h1:RmtB0KUcU/VZ1MmLtoSAjRb6Fz76YaQ27ybrchNldLw=
 github.com/valyala/bytebufferpool v1.0.0 h1:GqA5TC/0021Y/b9FG4Oi9Mr3q7XYx6KllzawFIhcdPw=
 github.com/valyala/bytebufferpool v1.0.0/go.mod h1:6bBcMArwyJ5K/AmCkWv1jt77kVWyCJ6HpOuEn7z0Csc=
 github.com/xo/terminfo v0.0.0-20220910002029-abceb7e1c41e h1:JVG44RsyaB9T2KIHavMF/ppJZNG9ZpyihvCd0w101no=

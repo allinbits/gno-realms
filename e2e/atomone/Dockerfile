@@ -1,10 +1,10 @@
-# Build stage: compile atomoned from the feat/gno-lc branch
-FROM golang:1.24.5-alpine AS builder
+# Build stage: compile atomoned from the julien/wire-vaas branch
+FROM golang:1.26.0-alpine AS builder
 
 RUN apk add --no-cache git make
 
-# Clone the atomone repo with the Gno light client
-RUN git clone --branch feat/gno-lc --single-branch --depth 1 \
+# Clone the atomone repo with VAAS provider wiring
+RUN git clone --branch julien/wire-vaas --single-branch --depth 1 \
     https://github.com/atomone-hub/atomone.git /src/atomone
 
 WORKDIR /src/atomone

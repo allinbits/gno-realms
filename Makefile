@@ -12,13 +12,18 @@ gnodev:
 	go tool gnodev -empty-blocks -resolver root=. \
 		-resolver root=$(shell go tool gno env GNOROOT)/examples
 
-test: 
-	go tool gno test ./gno.land/...
+test:
+	go tool gnodev -empty-blocks -resolver root=. \
+		-resolver root=$(shell go tool gno env GNOROOT)/examples > /dev/null 2>&1 & \
+	sleep 10; \
+	go tool gno clean -modcache=true; \
+	go tool gno mod download -remote-overrides gno.land=http://127.0.0.1:26657; \
+	go tool gno test ./gno.land/... --root-dir=$(shell go tool gno env GNOROOT); \
 	go test -C ./cmd/gen-block-signatures
 	go test -C ./cmd/gen-proof
 
-FORK_REPO   := github.com/tbruyelle/gno
-FORK_BRANCH := tbruyelle/origin-send-filter
+FORK_REPO   := github.com/allinbits/gno
+FORK_BRANCH := julien/validators-edit-with-5039
 
 update-fork:
 	$(eval HASH := $(shell git ls-remote https://$(FORK_REPO).git refs/heads/$(FORK_BRANCH) | awk '{print $$1}'))

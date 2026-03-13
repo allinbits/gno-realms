@@ -3,9 +3,9 @@ FROM golang:1.24-alpine AS builder
 
 RUN apk add --no-cache git make
 
-# Clone the gno fork with IBC support
-RUN git clone --branch tbruyelle/origin-send-filter --single-branch --depth 1 \
-    https://github.com/tbruyelle/gno.git /src/gno
+# Clone the gno fork with IBC + validator support support
+RUN git clone --branch julien/validators-edit-with-5039 --single-branch --depth 1 \
+    https://github.com/allinbits/gno.git /src/gno
 
 WORKDIR /src/gno
 
