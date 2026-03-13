@@ -13,7 +13,6 @@ jobs:
           go-version-file: go.mod
       - name: Run tests
         run: |
-          make gnodev
           make test
 
   e2e:
