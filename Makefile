@@ -13,7 +13,17 @@ gnodev:
 		-resolver root=$(shell go tool gno env GNOROOT)/examples
 
 test:
-	go tool gno test ./gno.land/...
+	@echo "Starting gnodev in background..."
+	@go tool gnodev -empty-blocks -resolver root=. \
+		-resolver root=$(shell go tool gno env GNOROOT)/examples > /dev/null 2>&1 & \
+		GNODEV_PID=$$!; \
+		sleep 5; \
+		go tool gno clean -modcache=true; \
+		go tool gno mod download -remote-overrides gno.land=http://127.0.0.1:26657; \
+		go tool gno test ./gno.land/... --root-dir=$(shell go tool gno env GNOROOT); \
+		RESULT=$$?; \
+		kill $$GNODEV_PID 2>/dev/null || true; \
+		exit $$RESULT
 	go test -C ./cmd/gen-block-signatures
 	go test -C ./cmd/gen-proof
 
