@@ -114,15 +114,14 @@ func refundPacketToken(sourcePort, sourceClient, sender string, token Token) err
 // the original sender. It handles both native coins (via banker) and non-IBC
 // GRC20 tokens (via RealmTeller).
 func unescrow(receiver string, coin chain.Coin) error {
-	// If the denom is a GRC20 alias, resolve it to the grc20reg key.
-	denomKey := coin.Denom
-	if isGRC20Alias(denomKey) {
-		denomKey = resolveGRC20Alias(denomKey)
-	}
-	token := grc20reg.Get(denomKey)
-	if token != nil {
-		// Non-IBC GRC20 token: transfer from escrow back to receiver.
-		// RealmTeller uses CurrentRealm (transfer app) as the sender.
+	if isGRC20Alias(coin.Denom) {
+		// Non-IBC GRC20 token: resolve alias to grc20reg key and transfer
+		// from escrow back to receiver.
+		denomKey := resolveGRC20Alias(coin.Denom)
+		token := grc20reg.Get(denomKey)
+		if token == nil {
+			return ufmt.Errorf("GRC20 token %s not found in grc20reg", denomKey)
+		}
 		teller := token.RealmTeller()
 		if err := teller.Transfer(address(receiver), coin.Amount); err != nil {
 			return ufmt.Errorf("unescrow GRC20 %s error: %v", denomKey, err)
