@@ -79,8 +79,6 @@ func (a *App) OnSendPacket(
 		return ufmt.Errorf("invalid FungibleTokenPacketData: sender %s is different from signer %s", data.Sender, signer)
 	}
 
-	// TODO review comment: maybe not relevant in a pure IBCv2 impl.
-	//
 	// Enforce that the base denom does not contain any slashes
 	// Since IBC v2 packets will no longer have channel identifiers, we cannot
 	// rely on the channel format to easily divide the trace from the base
