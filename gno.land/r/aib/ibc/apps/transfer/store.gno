@@ -83,12 +83,6 @@ func getGRC20(ibcDenom string) *grc20Instance {
 	return v.(*grc20Instance)
 }
 
-// isGRC20RegToken returns true if the denom is a non-IBC GRC20 token
-// registered in the grc20reg registry.
-func isGRC20RegToken(denom string) bool {
-	return grc20reg.Get(denom) != nil
-}
-
 // GRC20BalanceOf returns the GRC20 balance of a voucher token for a given address.
 // Returns 0 if the token does not exist.
 func GRC20BalanceOf(ibcDenom string, addr address) int64 {
