@@ -90,9 +90,9 @@ func (a *App) OnSendPacket(
 	// If we enforce that IBC v2 packets are sent with ICS20 v2 and above
 	// versions that separate the trace from the base denomination in the packet
 	// data, then we can remove this restriction.
-	// Skip the slash restriction for denoms found in grc20reg (their keys
-	// contain slashes, e.g. "gno.land/r/demo/foo.FOO").
-	if strings.Contains(token.Denom.Base, "/") && !isGRC20(token.Denom.Base) {
+	// Non-IBC GRC20 tokens use aliases (slashes replaced with colons)
+	// so they pass this check naturally.
+	if strings.Contains(token.Denom.Base, "/") {
 		return ufmt.Errorf("base denomination %s cannot contain slashes for IBC v2 packet", token.Denom.Base)
 	}
 
@@ -109,7 +109,7 @@ func (a *App) OnSendPacket(
 		if err := inst.ledger.Burn(address(data.Sender), coin.Amount); err != nil {
 			return ufmt.Errorf("burn GRC20 %s error: %v", coin.String(), err)
 		}
-	} else if isGRC20(token.Denom.Base) {
+	} else if isGRC20Alias(token.Denom.Base) {
 		// Non-IBC GRC20 token: already escrowed by TransferGRC20 via
 		// RealmTeller().TransferFrom(). Just track the escrow amount.
 		addEscrowForDenom(coin)
@@ -362,12 +362,6 @@ func (a *App) OnTimeoutPacket(
 		AttributeKeyMemo, data.Memo,
 	)
 	return nil
-}
-
-// isGRC20 returns true if the denom is a non-IBC GRC20 token.
-// GRC20 denoms are grc20reg keys which always start with "gno.land/".
-func isGRC20(denom string) bool {
-	return strings.HasPrefix(denom, "gno.land/")
 }
 
 func unmarshalPayload(bz []byte) (FungibleTokenPacketData, Token, error) {

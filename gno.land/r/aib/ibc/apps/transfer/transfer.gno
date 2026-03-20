@@ -57,6 +57,9 @@ func TransferGRC20(cur realm, clientID, receiver, denom string, amount int64, ti
 		if err := teller.TransferFrom(sender, escrowAddr, amount); err != nil {
 			panic(ufmt.Errorf("TransferFrom GRC20 error: %v", err))
 		}
+		// Replace the denom with a slash-free alias for the IBC packet.
+		// This avoids ibc-go rejecting base denoms containing slashes.
+		denom = GRC20Alias(denom)
 	}
 	return transfer(clientID, receiver, denom, amount, timeoutTimestamp)
 }
@@ -111,13 +114,18 @@ func refundPacketToken(sourcePort, sourceClient, sender string, token Token) err
 // the original sender. It handles both native coins (via banker) and non-IBC
 // GRC20 tokens (via RealmTeller).
 func unescrow(receiver string, coin chain.Coin) error {
-	token := grc20reg.Get(coin.Denom)
+	// If the denom is a GRC20 alias, resolve it to the grc20reg key.
+	denomKey := coin.Denom
+	if isGRC20Alias(denomKey) {
+		denomKey = resolveGRC20Alias(denomKey)
+	}
+	token := grc20reg.Get(denomKey)
 	if token != nil {
 		// Non-IBC GRC20 token: transfer from escrow back to receiver.
 		// RealmTeller uses CurrentRealm (transfer app) as the sender.
 		teller := token.RealmTeller()
 		if err := teller.Transfer(address(receiver), coin.Amount); err != nil {
-			return ufmt.Errorf("unescrow GRC20 %s error: %v", coin.Denom, err)
+			return ufmt.Errorf("unescrow GRC20 %s error: %v", denomKey, err)
 		}
 	} else {
 		// Native coin: send from realm escrow via banker

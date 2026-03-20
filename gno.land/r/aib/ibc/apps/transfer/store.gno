@@ -2,6 +2,7 @@ package transfer
 
 import (
 	"chain"
+	"strings"
 
 	"gno.land/p/demo/tokens/grc20"
 	"gno.land/p/nt/avl/v0"
@@ -91,4 +92,24 @@ func GRC20BalanceOf(ibcDenom string, addr address) int64 {
 		return 0
 	}
 	return inst.token.BalanceOf(addr)
+}
+
+// GRC20Alias returns a slash-free alias for a GRC20 denom (grc20reg key)
+// by replacing "/" with ":". Colons are allowed in Cosmos SDK denoms but
+// never appear in grc20reg keys (Gno package paths), so no escaping is needed.
+// Example: "gno.land/r/demo/foo.FOO" → "gno.land:r:demo:foo.FOO"
+func GRC20Alias(grc20regKey string) string {
+	return strings.ReplaceAll(grc20regKey, "/", ":")
+}
+
+// resolveGRC20Alias converts a GRC20 alias back to the grc20reg key
+// by replacing ":" with "/".
+func resolveGRC20Alias(alias string) string {
+	return strings.ReplaceAll(alias, ":", "/")
+}
+
+// isGRC20Alias returns true if the denom is a GRC20 alias.
+// GRC20 aliases always start with "gno.land:" (the colon-encoded form of "gno.land/").
+func isGRC20Alias(denom string) bool {
+	return strings.HasPrefix(denom, "gno.land:")
 }

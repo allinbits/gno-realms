@@ -199,6 +199,37 @@ func queryAtomOneBalance(restURL, addr, denom string) (int64, error) {
 	return strconv.ParseInt(resp.Balance.Amount, 10, 64)
 }
 
+// IBCDenom represents the denom info returned by the ibc-go transfer Denom query.
+type IBCDenom struct {
+	Base  string    `json:"base"`
+	Trace []IBCHop  `json:"trace"`
+}
+
+type IBCHop struct {
+	PortID    string `json:"port_id"`
+	ChannelID string `json:"channel_id"`
+}
+
+// queryAtomOneIBCDenom queries the IBC transfer denom info for a given hash on AtomOne.
+// Endpoint: /ibc/apps/transfer/v1/denoms/{hash}
+func queryAtomOneIBCDenom(restURL, hash string) (*IBCDenom, error) {
+	url := fmt.Sprintf("%s/ibc/apps/transfer/v1/denoms/%s", restURL, hash)
+	body, err := httpGet(url)
+	if err != nil {
+		return nil, err
+	}
+	var resp struct {
+		Denom *IBCDenom `json:"denom"`
+	}
+	if err := json.Unmarshal(body, &resp); err != nil {
+		return nil, fmt.Errorf("parse denom response: %w (raw: %s)", err, string(body))
+	}
+	if resp.Denom == nil {
+		return nil, fmt.Errorf("denom not found for hash %s", hash)
+	}
+	return resp.Denom, nil
+}
+
 // gnoEval executes a gnokey query vm/qeval inside the gno container and returns
 // the raw result. The expr is a function call like "BalanceOf(\"addr\")".
 // The data format is "pkgPath.expr" where pkgPath is the full realm path.
@@ -221,6 +252,47 @@ func gnoEval(containerID, realmPath, expr string) (string, error) {
 	}
 	content := strings.TrimSpace(stdout[idx+len(prefix):])
 	return content, nil
+}
+
+// GnoDenom represents the denom info returned by the Gno transfer realm render endpoint.
+type GnoDenom struct {
+	Base  string `json:"base"`
+	Path  string `json:"path"`
+	Denom string `json:"denom"`
+}
+
+// queryGnoIBCDenom queries the Gno transfer realm for IBC denom info.
+// Endpoint: denoms/ibc/{hash}
+func queryGnoIBCDenom(containerID, ibcDenom string) (*GnoDenom, error) {
+	renderArgs := fmt.Sprintf("denoms/%s", ibcDenom)
+	content, err := gnoQuery(containerID, "r/aib/ibc/apps/transfer", renderArgs)
+	if err != nil {
+		return nil, err
+	}
+	var d GnoDenom
+	if err := json.Unmarshal([]byte(content), &d); err != nil {
+		return nil, fmt.Errorf("parse denom response: %w (raw: %s)", err, content)
+	}
+	return &d, nil
+}
+
+// queryGnoGRC20Alias queries the transfer realm for the GRC20 denom alias
+// by calling transfer.GRC20Alias via vm/qeval.
+func queryGnoGRC20Alias(containerID, denom string) (string, error) {
+	expr := fmt.Sprintf("GRC20Alias(\"%s\")", denom)
+	content, err := gnoEval(containerID, "r/aib/ibc/apps/transfer", expr)
+	if err != nil {
+		return "", err
+	}
+	// qeval returns: ("gno.land:r:..." string)
+	content = strings.TrimPrefix(content, "(")
+	content = strings.TrimSuffix(content, ")")
+	// Remove the type suffix and unquote the string value
+	parts := strings.Fields(content)
+	if len(parts) != 2 {
+		return "", fmt.Errorf("unexpected qeval result: %s", content)
+	}
+	return strings.Trim(parts[0], "\""), nil
 }
 
 // queryGnoGRC20TestBalance returns the GRC20 test token balance for an address

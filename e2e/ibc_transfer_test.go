@@ -59,6 +59,13 @@ func (s *E2ETestSuite) TestIBCTransferAtomOneToGno() {
 
 	s.T().Logf("GRC20 balance verified: %d (before: %d, expected +%d)", afterGRC20, beforeGRC20, transferAmount)
 
+	// Query Gno transfer realm denom info and verify the trace is correctly parsed.
+	denomInfo, err := queryGnoIBCDenom(s.gnoContainer, ibcDenom)
+	r.NoError(err, "query IBC denom info on Gno")
+	r.Equal(denom, denomInfo.Base, "IBC denom base should be the original denom")
+	r.Equal(ibcDenom, denomInfo.Denom, "IBC denom should match")
+	s.T().Logf("IBC denom verified: base=%s path=%s denom=%s", denomInfo.Base, denomInfo.Path, denomInfo.Denom)
+
 	// -----------------------------------
 	// Transfer back the atones to AtomOne
 	// -----------------------------------
@@ -161,6 +168,16 @@ func (s *E2ETestSuite) TestIBCTransferGnoToAtomOne() {
 	}, time.Minute*2, time.Second, "IBC voucher balance not received on AtomOne")
 
 	s.T().Logf("AtomOne IBC balance verified: %d (before: %d, expected +%d)", afterAtomOneBalance, beforeAtomOneBalance, transferAmount)
+
+	// Query ibc-go denom info and verify the trace is correctly parsed.
+	denomHash := computeIBCDenomHash(s.atomoneClientID, denom)
+	denomInfo, err := queryAtomOneIBCDenom(s.cfg.AtomoneREST, denomHash)
+	r.NoError(err, "query IBC denom info on AtomOne")
+	r.Equal(denom, denomInfo.Base, "IBC denom base should be the original denom")
+	r.Len(denomInfo.Trace, 1, "IBC denom should have exactly one trace hop")
+	r.Equal("transfer", denomInfo.Trace[0].PortID, "trace hop port should be 'transfer'")
+	r.Equal(s.atomoneClientID, denomInfo.Trace[0].ChannelID, "trace hop channel/client should be the AtomOne client ID")
+	s.T().Logf("IBC denom verified: base=%s trace=%v", denomInfo.Base, denomInfo.Trace)
 
 	// ------------------------------
 	// Transfer back the gnots to Gno
@@ -265,8 +282,11 @@ func (s *E2ETestSuite) TestIBCTransferGRC20GnoToAtomOne() {
 	}, time.Minute/2, time.Second, "sender GRC20 balance did not decrease on Gno")
 	s.T().Logf("GRC20 balance verified: %d (before: %d, expected -%d)", afterBalance, beforeBalance, transferAmount)
 
-	// Compute expected IBC denom on AtomOne
-	ibcDenom := "ibc/" + computeIBCDenomHash(s.atomoneClientID, denom)
+	// Query the grc20 alias from the transfer realm via qeval.
+	alias, err := queryGnoGRC20Alias(s.gnoContainer, denom)
+	r.NoError(err, "query GRC20 alias from transfer realm")
+	ibcDenom := "ibc/" + computeIBCDenomHash(s.atomoneClientID, alias)
+	s.T().Logf("GRC20 alias: %s", alias)
 	s.T().Logf("Expected IBC denom on AtomOne: %s", ibcDenom)
 
 	// Wait for IBC voucher on AtomOne
@@ -283,46 +303,54 @@ func (s *E2ETestSuite) TestIBCTransferGRC20GnoToAtomOne() {
 	}, time.Minute*2, time.Second, "IBC voucher balance not received on AtomOne")
 	s.T().Logf("AtomOne IBC balance verified: %d (before: %d, expected +%d)", afterAtomOneBalance, beforeAtomOneBalance, transferAmount)
 
-	// NOTE: Return trip (AtomOne→Gno) is not possible because ibc-go rejects
-	// base denoms containing slashes in IBC v2 packets. GRC20 denoms like
-	// "gno.land/r/..." inherently contain slashes. Our Gno implementation
-	// bypasses this restriction via isGRC20(), but ibc-go does not.
-	//
-	// // ----------------------------------------
-	// // Transfer back the GRC20 tokens to Gno
-	// // ----------------------------------------
-	// sender = s.atomOneSenderAddress
-	// receiver = s.gnoSenderAddress
-	// beforeAtomOneBalance = afterAtomOneBalance
-	// beforeBalance = afterBalance
-	// s.T().Logf("Sending %d %s back from %s to %s...", transferAmount, ibcDenom, sender, receiver)
-	//
-	// // Build and broadcast MsgSendPacket on AtomOne
-	// msg := buildMsgSendPacket(
-	// 	s.atomoneClientID, sender, receiver,
-	// 	fmt.Sprintf("transfer/%s/%s", s.atomoneClientID, denom),
-	// 	transferAmount, timeout,
-	// )
-	// s.signAndBroadcastAtomOneTx(sender, msg)
-	// s.T().Log("AtomOne IBC transfer confirmed")
-	//
-	// // Verify sender balance decreased on AtomOne (voucher burned)
-	// s.T().Log("Verifying sender balance decreased on AtomOne...")
-	// afterAtomOneBalance, err = queryAtomOneBalance(s.cfg.AtomoneREST, sender, ibcDenom)
-	// r.NoError(err, "query AtomOne balance after transfer back")
-	// r.Equal(beforeAtomOneBalance-transferAmount, afterAtomOneBalance, "sender balance did not decrease on AtomOne")
-	// s.T().Logf("AtomOne balance verified: %d (before: %d, expected -%d)", afterAtomOneBalance, beforeAtomOneBalance, transferAmount)
-	//
-	// // Wait for GRC20 tokens to be unescrowed on Gno
-	// s.T().Log("Waiting for GRC20 tokens back on Gno...")
-	// r.Eventually(func() bool {
-	// 	bal, err := queryGnoGRC20TestBalance(s.gnoContainer, receiver)
-	// 	if err != nil {
-	// 		return false
-	// 	}
-	// 	afterBalance = bal
-	// 	return afterBalance == beforeBalance+transferAmount
-	// }, time.Minute/2, time.Second, "GRC20 balance not unescrowed on Gno")
-	//
-	// s.T().Logf("GRC20 balance verified: %d (before: %d, expected +%d)", afterBalance, beforeBalance, transferAmount)
+	// Query ibc-go denom info and verify the trace is correctly parsed.
+	// The alias (slashes replaced with colons) should be the base denom, with a single trace
+	// hop of transfer/<atomoneClientID>.
+	denomHash := computeIBCDenomHash(s.atomoneClientID, alias)
+	denomInfo, err := queryAtomOneIBCDenom(s.cfg.AtomoneREST, denomHash)
+	r.NoError(err, "query IBC denom info on AtomOne")
+	r.Equal(alias, denomInfo.Base, "IBC denom base should be the grc20 alias")
+	r.Len(denomInfo.Trace, 1, "IBC denom should have exactly one trace hop")
+	r.Equal("transfer", denomInfo.Trace[0].PortID, "trace hop port should be 'transfer'")
+	r.Equal(s.atomoneClientID, denomInfo.Trace[0].ChannelID, "trace hop channel/client should be the AtomOne client ID")
+	s.T().Logf("IBC denom verified: base=%s trace=%v", denomInfo.Base, denomInfo.Trace)
+
+	// ----------------------------------------
+	// Transfer back the GRC20 tokens to Gno
+	// ----------------------------------------
+	sender = s.atomOneSenderAddress
+	receiver = s.gnoSenderAddress
+	beforeAtomOneBalance = afterAtomOneBalance
+	beforeBalance = afterBalance
+	s.T().Logf("Sending %d %s back from %s to %s...", transferAmount, ibcDenom, sender, receiver)
+
+	// Build and broadcast MsgSendPacket on AtomOne.
+	// The denom in the packet must be the full IBC path (trace + alias).
+	msg := buildMsgSendPacket(
+		s.atomoneClientID, sender, receiver,
+		fmt.Sprintf("transfer/%s/%s", s.atomoneClientID, alias),
+		transferAmount, timeout,
+	)
+	s.signAndBroadcastAtomOneTx(sender, msg)
+	s.T().Log("AtomOne IBC transfer confirmed")
+
+	// Verify sender balance decreased on AtomOne (voucher burned)
+	s.T().Log("Verifying sender balance decreased on AtomOne...")
+	afterAtomOneBalance, err = queryAtomOneBalance(s.cfg.AtomoneREST, sender, ibcDenom)
+	r.NoError(err, "query AtomOne balance after transfer back")
+	r.Equal(beforeAtomOneBalance-transferAmount, afterAtomOneBalance, "sender balance did not decrease on AtomOne")
+	s.T().Logf("AtomOne balance verified: %d (before: %d, expected -%d)", afterAtomOneBalance, beforeAtomOneBalance, transferAmount)
+
+	// Wait for GRC20 tokens to be unescrowed on Gno
+	s.T().Log("Waiting for GRC20 tokens back on Gno...")
+	r.Eventually(func() bool {
+		bal, err := queryGnoGRC20TestBalance(s.gnoContainer, receiver)
+		if err != nil {
+			return false
+		}
+		afterBalance = bal
+		return afterBalance == beforeBalance+transferAmount
+	}, time.Minute/2, time.Second, "GRC20 balance not unescrowed on Gno")
+
+	s.T().Logf("GRC20 balance verified: %d (before: %d, expected +%d)", afterBalance, beforeBalance, transferAmount)
 }
