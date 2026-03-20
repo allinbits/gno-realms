@@ -10,6 +10,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/cosmos/cosmos-sdk/types/bech32"
 )
 
 // httpGet performs an HTTP GET with retries on 503 errors.
@@ -197,9 +199,62 @@ func queryAtomOneBalance(restURL, addr, denom string) (int64, error) {
 	return strconv.ParseInt(resp.Balance.Amount, 10, 64)
 }
 
+// gnoEval executes a gnokey query vm/qeval inside the gno container and returns
+// the raw result. The expr is a function call like "BalanceOf(\"addr\")".
+// The data format is "pkgPath.expr" where pkgPath is the full realm path.
+func gnoEval(containerID, realmPath, expr string) (string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	data := fmt.Sprintf("gno.land/%s.%s", realmPath, expr)
+	stdout, stderr, err := dockerExec(ctx, containerID,
+		"gnokey", "query", "vm/qeval",
+		"-data", data,
+		"-remote", "localhost:26657",
+	)
+	if err != nil {
+		return "", fmt.Errorf("gnokey qeval %s: %w: %s", data, err, stderr)
+	}
+	const prefix = "data: "
+	idx := strings.Index(stdout, prefix)
+	if idx < 0 {
+		return "", fmt.Errorf("unexpected gnokey output (no 'data: ' prefix): %s", stdout)
+	}
+	content := strings.TrimSpace(stdout[idx+len(prefix):])
+	return content, nil
+}
+
+// queryGnoGRC20TestBalance returns the GRC20 test token balance for an address
+// by calling grc20test.BalanceOf via vm/qeval.
+func queryGnoGRC20TestBalance(containerID, addr string) (int64, error) {
+	expr := fmt.Sprintf("BalanceOf(\"%s\")", addr)
+	content, err := gnoEval(containerID, "r/aib/ibc/apps/testing/grc20test", expr)
+	if err != nil {
+		return 0, err
+	}
+	// qeval returns: (VALUE TYPE), e.g. (1000 int64)
+	content = strings.TrimPrefix(content, "(")
+	content = strings.TrimSuffix(content, ")")
+	parts := strings.Fields(content)
+	if len(parts) != 2 {
+		return 0, fmt.Errorf("unexpected qeval result: %s", content)
+	}
+	return strconv.ParseInt(parts[0], 10, 64)
+}
+
 // computeIBCDenomHash computes SHA256("transfer/<clientID>/<denom>") as uppercase hex.
 func computeIBCDenomHash(clientID, denom string) string {
 	path := fmt.Sprintf("transfer/%s/%s", clientID, denom)
 	hash := sha256.Sum256([]byte(path))
 	return strings.ToUpper(fmt.Sprintf("%x", hash))
+}
+
+// gnoPkgAddress computes the Gno package address for a given package path.
+// Replicates Gno's DerivePkgBech32Addr without importing the full Gno module.
+func gnoPkgAddress(pkgPath string) string {
+	hash := sha256.Sum256([]byte("pkgPath:" + pkgPath))
+	addr, err := bech32.ConvertAndEncode("g", hash[:20])
+	if err != nil {
+		panic(fmt.Sprintf("bech32 encode: %v", err))
+	}
+	return addr
 }

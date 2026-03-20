@@ -22,4 +22,4 @@ exec gnodev local \
     -add-account "${RELAYER_ADDR}=10000000000ugnot" \
     -resolver root=/aibgno \
     -resolver root=$GNOROOT/examples \
-    -paths "gno.land/r/aib/ibc/core,gno.land/r/aib/ibc/apps/transfer"
+    -paths "gno.land/r/aib/ibc/core,gno.land/r/aib/ibc/apps/transfer,gno.land/r/aib/ibc/apps/testing/grc20test"
