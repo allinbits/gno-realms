@@ -10,9 +10,9 @@ import (
 )
 
 var (
-	denoms      *avl.Tree // ibcDenom:Denom
-	totalEscrow *avl.Tree // denom:chain.Coin
-	grc20tokens *avl.Tree // ibcDenom:*grc20Instance
+	denoms        *avl.Tree // ibcDenom:Denom
+	totalEscrow   *avl.Tree // denom:chain.Coin
+	voucherTokens *avl.Tree // ibcDenom:*grc20Instance
 )
 
 // grc20Instance holds a GRC20 token and its private ledger for mint/burn.
@@ -24,7 +24,7 @@ type grc20Instance struct {
 func init() {
 	denoms = avl.NewTree()
 	totalEscrow = avl.NewTree()
-	grc20tokens = avl.NewTree()
+	voucherTokens = avl.NewTree()
 }
 
 func hasDenom(voucherDenom string) bool {
@@ -64,12 +64,12 @@ func subEscrowForDenom(c chain.Coin) {
 // denom, or creates a new one and registers it in grc20reg for DeFi
 // discoverability.
 func getOrCreateGRC20(baseDenom, voucherDenom string) *grc20Instance {
-	if v, ok := grc20tokens.Get(voucherDenom); ok {
+	if v, ok := voucherTokens.Get(voucherDenom); ok {
 		return v.(*grc20Instance)
 	}
 	token, ledger := grc20.NewToken(baseDenom, voucherDenom, 0)
 	inst := &grc20Instance{token: token, ledger: ledger}
-	grc20tokens.Set(voucherDenom, inst)
+	voucherTokens.Set(voucherDenom, inst)
 	grc20reg.Register(cross, token, voucherDenom)
 	return inst
 }
@@ -77,7 +77,7 @@ func getOrCreateGRC20(baseDenom, voucherDenom string) *grc20Instance {
 // getGRC20 returns the GRC20 instance for the given IBC denom, or nil if not
 // found.
 func getGRC20(ibcDenom string) *grc20Instance {
-	v, ok := grc20tokens.Get(ibcDenom)
+	v, ok := voucherTokens.Get(ibcDenom)
 	if !ok {
 		return nil
 	}
