@@ -104,8 +104,7 @@ func (a *App) OnSendPacket(
 		if inst == nil {
 			return ufmt.Errorf("GRC20 token not found for denom %s", coin.Denom)
 		}
-		from := runtime.OriginCaller()
-		if err := inst.ledger.Burn(from, coin.Amount); err != nil {
+		if err := inst.ledger.Burn(address(data.Sender), coin.Amount); err != nil {
 			return ufmt.Errorf("burn GRC20 %s error: %v", coin.String(), err)
 		}
 	} else {
