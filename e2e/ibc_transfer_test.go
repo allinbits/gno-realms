@@ -71,7 +71,7 @@ func (s *E2ETestSuite) TestIBCTransferAtomOneToGno() {
 	s.signAndBroadcastGnoCall(sender,
 		"gno.land/r/aib/ibc/apps/transfer", "TransferGRC20",
 		"", // no -send coins for GRC20 transfer
-		s.gnoClientID, receiver, ibcDenom, fmt.Sprint(transferAmount), fmt.Sprint(timeout),
+		s.gnoClientID, receiver, ibcDenom, fmt.Sprint(transferAmount), fmt.Sprint(timeout), "",
 	)
 	s.T().Log("Gno transfer IBC voucher submitted")
 
@@ -122,7 +122,7 @@ func (s *E2ETestSuite) TestIBCTransferGnoToAtomOne() {
 	s.signAndBroadcastGnoCall(sender,
 		"gno.land/r/aib/ibc/apps/transfer", "Transfer",
 		fmt.Sprintf("%d%s", transferAmount, denom),
-		s.gnoClientID, receiver, fmt.Sprint(timeout),
+		s.gnoClientID, receiver, fmt.Sprint(timeout), "",
 	)
 	s.T().Log("Gno transfer submitted")
 

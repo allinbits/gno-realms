@@ -29,7 +29,7 @@ func main() {
 	println("----------- assert render total_escrow/ugnot before Transfer")
 	println(transfer.Render("total_escrow/ugnot"))
 
-	transfer.Transfer(cross, clientID, "atone1user", uint64(time.Now().Add(time.Hour).Unix()))
+	transfer.Transfer(cross, clientID, "atone1user", uint64(time.Now().Add(time.Hour).Unix()), "memo")
 
 	println("----------- assert render total_escrow/ugnot after Transfer")
 	println(transfer.Render("total_escrow/ugnot"))
@@ -82,7 +82,7 @@ func main() {
 //       },
 //       {
 //         "key": "encoded_packet_hex",
-//         "value": "0801120f30372d74656e6465726d696e742d311a0f30372d74656e6465726d696e742d3220e2a1d8cc042a790a087472616e7366657212087472616e736665721a0769637332302d3122166170706c69636174696f6e2f782d70726f746f6275662a420a0575676e6f7412033130301a28673177796d75343764726872306b7571323039386d3739326c797467746a326e797837377972736d220a61746f6e653175736572"
+//         "value": "0801120f30372d74656e6465726d696e742d311a0f30372d74656e6465726d696e742d3220e2a1d8cc042a7f0a087472616e7366657212087472616e736665721a0769637332302d3122166170706c69636174696f6e2f782d70726f746f6275662a480a0575676e6f7412033130301a28673177796d75343764726872306b7571323039386d3739326c797467746a326e797837377972736d220a61746f6e6531757365722a046d656d6f"
 //       }
 //     ],
 //     "pkg_path": "gno.land/r/aib/ibc/core"
@@ -108,7 +108,7 @@ func main() {
 //       },
 //       {
 //         "key": "memo",
-//         "value": ""
+//         "value": "memo"
 //       }
 //     ],
 //     "pkg_path": "gno.land/r/aib/ibc/apps/transfer"

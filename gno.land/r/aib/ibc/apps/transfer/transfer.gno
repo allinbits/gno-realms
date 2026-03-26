@@ -13,22 +13,23 @@ import (
 
 // Transfer is an entry point function for sending a native token to another
 // chain using the IBC protocol. The token must be sent by the caller using the
-// send field of the transaction.
-func Transfer(cur realm, clientID, receiver string, timeoutTimestamp uint64) (
+// send field of the transaction. memo is included in the IBC packet payload.
+func Transfer(cur realm, clientID, receiver string, timeoutTimestamp uint64, memo string) (
 	packet types.MsgSendPacket, sequence uint64,
 ) {
 	sent := cur.SentCoins()
 	if len(sent) != 1 || sent[0].Amount == 0 {
 		panic("Transfer requires one non-zero coin to be sent")
 	}
-	return transfer(clientID, receiver, sent[0].Denom, sent[0].Amount, timeoutTimestamp)
+	return transfer(clientID, receiver, sent[0].Denom, sent[0].Amount, timeoutTimestamp, memo)
 }
 
 // TransferGRC20 can be used to send a GRC20 token to another chain using the
 // IBC protocol.
 // That token can be an IBC voucher (minted when received a token from another
-// chain), or any other GRC20 token.
-func TransferGRC20(cur realm, clientID, receiver, denom string, amount int64, timeoutTimestamp uint64) (
+// chain), or any other GRC20 token. memo is included in the IBC packet
+// payload.
+func TransferGRC20(cur realm, clientID, receiver, denom string, amount int64, timeoutTimestamp uint64, memo string) (
 	packet types.MsgSendPacket, sequence uint64,
 ) {
 	// Validate that the GRC20 token exists and resolve the denom path.
@@ -47,18 +48,19 @@ func TransferGRC20(cur realm, clientID, receiver, denom string, amount int64, ti
 		// TODO GRC20 token is not IBC voucher, how do we transferFrom?
 		panic("GRC20 non IBC voucher not handled")
 	}
-	return transfer(clientID, receiver, denom, amount, timeoutTimestamp)
+	return transfer(clientID, receiver, denom, amount, timeoutTimestamp, memo)
 }
 
-func transfer(clientID, receiver, denom string, amount int64, timeoutTimestamp uint64) (
+func transfer(clientID, receiver, denom string, amount int64, timeoutTimestamp uint64, memo string) (
 	packet types.MsgSendPacket, sequence uint64,
 ) {
-	data := FungibleTokenPacketData{
-		Denom:    denom,
-		Amount:   ufmt.Sprintf("%d", amount),
-		Sender:   runtime.OriginCaller().String(),
-		Receiver: receiver,
-	}
+	data := NewFungibleTokenPacketData(
+		denom,
+		ufmt.Sprintf("%d", amount),
+		runtime.OriginCaller().String(),
+		receiver,
+		memo,
+	)
 	packet = types.MsgSendPacket{
 		SourceClient: clientID,
 		Payloads: []types.Payload{{
