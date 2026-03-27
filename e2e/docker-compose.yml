@@ -3,6 +3,9 @@ services:
     build:
       context: ..
       dockerfile: e2e/gno/Dockerfile
+      args:
+        - FORK_REPO
+        - FORK_BRANCH
     ports:
       - "46657:26657"
       - "48888:8888"
