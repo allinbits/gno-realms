@@ -12,11 +12,11 @@ import (
 var (
 	denoms        *avl.Tree // ibcDenom:Denom
 	totalEscrow   *avl.Tree // denom:chain.Coin
-	voucherTokens *avl.Tree // ibcDenom:*grc20Instance
+	voucherTokens *avl.Tree // ibcDenom:*voucher
 )
 
-// grc20Instance holds a GRC20 token and its private ledger for mint/burn.
-type grc20Instance struct {
+// voucher holds a voucher token and its private ledger for mint/burn.
+type voucher struct {
 	token  *grc20.Token
 	ledger *grc20.PrivateLedger
 }
@@ -60,34 +60,34 @@ func subEscrowForDenom(c chain.Coin) {
 	totalEscrow.Set(c.Denom, c)
 }
 
-// getOrCreateGRC20 returns the existing GRC20 instance for the given IBC
+// getOrCreateVoucher returns the existing voucher instance for the given IBC
 // denom, or creates a new one and registers it in grc20reg for DeFi
 // discoverability.
-func getOrCreateGRC20(baseDenom, voucherDenom string) *grc20Instance {
+func getOrCreateVoucher(baseDenom, voucherDenom string) *voucher {
 	if v, ok := voucherTokens.Get(voucherDenom); ok {
-		return v.(*grc20Instance)
+		return v.(*voucher)
 	}
 	token, ledger := grc20.NewToken(baseDenom, voucherDenom, 0)
-	inst := &grc20Instance{token: token, ledger: ledger}
+	inst := &voucher{token: token, ledger: ledger}
 	voucherTokens.Set(voucherDenom, inst)
 	grc20reg.Register(cross, token, voucherDenom)
 	return inst
 }
 
-// getGRC20 returns the GRC20 instance for the given IBC denom, or nil if not
+// getVoucher returns the voucher instance for the given IBC denom, or nil if not
 // found.
-func getGRC20(ibcDenom string) *grc20Instance {
+func getVoucher(ibcDenom string) *voucher {
 	v, ok := voucherTokens.Get(ibcDenom)
 	if !ok {
 		return nil
 	}
-	return v.(*grc20Instance)
+	return v.(*voucher)
 }
 
-// GRC20BalanceOf returns the GRC20 balance of a voucher token for a given address.
+// VoucherBalanceOf returns the balance of a voucher token for a given address.
 // Returns 0 if the token does not exist.
-func GRC20BalanceOf(ibcDenom string, addr address) int64 {
-	inst := getGRC20(ibcDenom)
+func VoucherBalanceOf(ibcDenom string, addr address) int64 {
+	inst := getVoucher(ibcDenom)
 	if inst == nil {
 		return 0
 	}

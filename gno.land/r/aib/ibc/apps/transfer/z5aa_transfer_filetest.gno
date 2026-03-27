@@ -37,11 +37,11 @@ func main() {
 
 	// ibc/CAEF9CA8CE6C302D73A831A49E34E59149D3A9AD96CCEBDFBF62F6D5710D92D8
 	voucherDenom := transfer.NewDenom("uphoton", transfer.NewHop(transfer.PortID, clientID)).IBCDenom()
-	println("\nreceiver GRC20 balance after RecvPacket:", transfer.GRC20BalanceOf(voucherDenom, signer))
+	println("\nreceiver voucher balance after RecvPacket:", transfer.VoucherBalanceOf(voucherDenom, signer))
 
 	transfer.TransferGRC20(cross, clientID, "atone1user", voucherDenom, 100, uint64(time.Now().Add(time.Hour).Unix()))
 
-	println("\nreceiver GRC20 balance after Transfer:", transfer.GRC20BalanceOf(voucherDenom, signer))
+	println("\nreceiver voucher balance after Transfer:", transfer.VoucherBalanceOf(voucherDenom, signer))
 }
 
 func recvPacket(clientID, counterpartyID string, trustedHeight types.Height, receiver address) {
@@ -132,9 +132,9 @@ func recvPacket(clientID, counterpartyID string, trustedHeight types.Height, rec
 // Output:
 // Payload proto: Cgd1cGhvdG9uEgMxMDAaCmF0b25lMXVzZXIiKGcxd3ltdTQ3ZHJocjBrdXEyMDk4bTc5Mmx5dGd0ajJueXg3N3lyc20=
 //
-// receiver GRC20 balance after RecvPacket: 100
+// receiver voucher balance after RecvPacket: 100
 //
-// receiver GRC20 balance after Transfer: 0
+// receiver voucher balance after Transfer: 0
 
 // Events:
 // [

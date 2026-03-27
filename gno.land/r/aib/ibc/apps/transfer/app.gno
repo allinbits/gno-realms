@@ -101,13 +101,13 @@ func (a *App) OnSendPacket(
 		return ufmt.Errorf("token to coin error: %v", err)
 	}
 	if token.Denom.HasPrefix(payload.SourcePort, sourceClient) {
-		// Burn the voucher GRC20 tokens from sender
-		inst := getGRC20(coin.Denom)
+		// Burn the voucher tokens from sender
+		inst := getVoucher(coin.Denom)
 		if inst == nil {
-			return ufmt.Errorf("GRC20 token not found for denom %s", coin.Denom)
+			return ufmt.Errorf("voucher token not found for denom %s", coin.Denom)
 		}
 		if err := inst.ledger.Burn(address(data.Sender), coin.Amount); err != nil {
-			return ufmt.Errorf("burn GRC20 %s error: %v", coin.String(), err)
+			return ufmt.Errorf("burn voucher %s error: %v", coin.String(), err)
 		}
 	} else if isGRC20Alias(token.Denom.Base) {
 		// Non-IBC GRC20 token: already escrowed by TransferGRC20 via
@@ -253,16 +253,16 @@ func (a *App) OnRecvPacket(
 			AttributeKeyDenom, string(token.Denom.MarshalJSON()),
 		)
 
-		// Mint GRC20 voucher tokens to the receiver
+		// Mint voucher tokens to the receiver
 		var amount int64
 		amount, ackErr = token.AmountInt64()
 		if ackErr != nil {
 			ack = types.NewErrorAppAcknowledgement(ackErr)
 			return types.RecvPacketResult{Status: types.PacketStatus_Failure}
 		}
-		inst := getOrCreateGRC20(token.Denom.Base, voucherDenom)
+		inst := getOrCreateVoucher(token.Denom.Base, voucherDenom)
 		if err := inst.ledger.Mint(address(data.Receiver), amount); err != nil {
-			ackErr = ufmt.Errorf("mint GRC20 error: %v", err)
+			ackErr = ufmt.Errorf("mint voucher error: %v", err)
 			ack = types.NewErrorAppAcknowledgement(ackErr)
 			return types.RecvPacketResult{Status: types.PacketStatus_Failure}
 		}

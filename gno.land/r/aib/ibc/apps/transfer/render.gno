@@ -15,8 +15,8 @@ func Render(path string) string {
 	router.HandleFunc("denoms", renderDenoms)
 	router.HandleFunc("denoms/ibc/{hash}", renderDenom)
 	router.HandleFunc("total_escrow/{denom}", renderTotalEscrowForDenom)
-	router.HandleFunc("grc20/ibc/{hash}", renderGRC20)
-	router.HandleFunc("grc20/ibc/{hash}/balance/{addr}", renderGRC20Balance)
+	router.HandleFunc("grc20/ibc/{hash}", renderVoucher)
+	router.HandleFunc("grc20/ibc/{hash}/balance/{addr}", renderVoucherBalance)
 	return router.Render(path)
 }
 
@@ -52,11 +52,11 @@ func renderTotalEscrowForDenom(w *mux.ResponseWriter, r *mux.Request) {
 	}))
 }
 
-func renderGRC20(w *mux.ResponseWriter, r *mux.Request) {
+func renderVoucher(w *mux.ResponseWriter, r *mux.Request) {
 	ibcDenom := "ibc/" + r.GetVar("hash")
-	inst := getGRC20(ibcDenom)
+	inst := getVoucher(ibcDenom)
 	if inst == nil {
-		renderNode(w, nodeError("GRC20 token %s not found", ibcDenom))
+		renderNode(w, nodeError("voucher token %s not found", ibcDenom))
 		return
 	}
 	renderNode(w, json.ObjectNode("", map[string]*json.Node{
@@ -68,12 +68,12 @@ func renderGRC20(w *mux.ResponseWriter, r *mux.Request) {
 	}))
 }
 
-func renderGRC20Balance(w *mux.ResponseWriter, r *mux.Request) {
+func renderVoucherBalance(w *mux.ResponseWriter, r *mux.Request) {
 	ibcDenom := "ibc/" + r.GetVar("hash")
 	addr := r.GetVar("addr")
-	inst := getGRC20(ibcDenom)
+	inst := getVoucher(ibcDenom)
 	if inst == nil {
-		renderNode(w, nodeError("GRC20 token %s not found", ibcDenom))
+		renderNode(w, nodeError("voucher token %s not found", ibcDenom))
 		return
 	}
 	balance := inst.token.BalanceOf(address(addr))

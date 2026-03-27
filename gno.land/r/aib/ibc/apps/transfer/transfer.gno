@@ -37,9 +37,8 @@ func TransferGRC20(cur realm, clientID, receiver, denom string, amount int64, ti
 	}
 	if strings.HasPrefix(denom, "ibc/") {
 		// IBC voucher: validate it exists and resolve the denom path.
-		inst := getGRC20(denom)
-		if inst == nil {
-			panic(ufmt.Errorf("GRC20 token not found for denom %s", denom))
+		if getVoucher(denom) == nil {
+			panic(ufmt.Errorf("voucher token not found for denom %s", denom))
 		}
 		d, found := getDenom(denom)
 		if !found {
@@ -97,13 +96,13 @@ func refundPacketToken(sourcePort, sourceClient, sender string, token Token) err
 		return ufmt.Errorf("token to coin error: %v", err)
 	}
 	if token.Denom.HasPrefix(sourcePort, sourceClient) {
-		// Re-mint GRC20 tokens that were burnt during OnSendPacket
-		inst := getGRC20(coin.Denom)
+		// Re-mint voucher tokens that were burnt during OnSendPacket
+		inst := getVoucher(coin.Denom)
 		if inst == nil {
-			return ufmt.Errorf("GRC20 token not found for denom %s", coin.Denom)
+			return ufmt.Errorf("voucher token not found for denom %s", coin.Denom)
 		}
 		if err := inst.ledger.Mint(address(sender), coin.Amount); err != nil {
-			return ufmt.Errorf("re-mint GRC20 error: %v", err)
+			return ufmt.Errorf("re-mint voucher error: %v", err)
 		}
 	} else {
 		if err := unescrow(sender, coin); err != nil {

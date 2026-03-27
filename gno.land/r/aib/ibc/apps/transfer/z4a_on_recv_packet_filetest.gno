@@ -114,30 +114,30 @@ func main() {
 	}
 	// ibc/CAEF9CA8CE6C302D73A831A49E34E59149D3A9AD96CCEBDFBF62F6D5710D92D8
 	voucherDenom := transfer.NewDenom("uphoton", transfer.NewHop(transfer.PortID, clientID)).IBCDenom()
-	println("\nreceiver GRC20 balance before RecvPacket:", transfer.GRC20BalanceOf(voucherDenom, receiver))
+	println("\nreceiver voucher balance before RecvPacket:", transfer.VoucherBalanceOf(voucherDenom, receiver))
 
 	res := core.RecvPacket(cross, recvPacket)
 
 	println("\nack res:", res)
-	println("\nreceiver GRC20 balance after RecvPacket:", transfer.GRC20BalanceOf(voucherDenom, receiver))
+	println("\nreceiver voucher balance after RecvPacket:", transfer.VoucherBalanceOf(voucherDenom, receiver))
 	println("\n----------- assert render /denoms")
 	println(transfer.Render("denoms"))
 	println("\n----------- assert render /denoms/" + voucherDenom)
 	println(transfer.Render("denoms/" + voucherDenom))
-	println("\n----------- assert render grc20")
+	println("\n----------- assert render voucher")
 	println(transfer.Render("grc20/" + voucherDenom))
-	println("\n----------- assert render grc20 balance")
+	println("\n----------- assert render voucher balance")
 	println(transfer.Render("grc20/" + voucherDenom + "/balance/" + receiver.String()))
 }
 
 // Output:
 // Payload proto: Cgd1cGhvdG9uEgMxMDAaCmF0b25lMXVzZXIiKGcxd2Zqa3hldGZ3ZWpoeWg2bHRhMDQ3aDZsdGEwNDdoNmxsbTgyeWw=
 //
-// receiver GRC20 balance before RecvPacket: 0
+// receiver voucher balance before RecvPacket: 0
 //
 // ack res: (2 gno.land/p/aib/ibc/types.ResponseResultType)
 //
-// receiver GRC20 balance after RecvPacket: 100
+// receiver voucher balance after RecvPacket: 100
 //
 // ----------- assert render /denoms
 // {"items":[{"base":"uphoton","path":"transfer/07-tendermint-1/uphoton","denom":"ibc/CAEF9CA8CE6C302D73A831A49E34E59149D3A9AD96CCEBDFBF62F6D5710D92D8"}],"page":1,"total":1}
@@ -145,10 +145,10 @@ func main() {
 // ----------- assert render /denoms/ibc/CAEF9CA8CE6C302D73A831A49E34E59149D3A9AD96CCEBDFBF62F6D5710D92D8
 // {"base":"uphoton","path":"transfer/07-tendermint-1/uphoton","denom":"ibc/CAEF9CA8CE6C302D73A831A49E34E59149D3A9AD96CCEBDFBF62F6D5710D92D8"}
 //
-// ----------- assert render grc20
+// ----------- assert render voucher
 // {"denom":"ibc/CAEF9CA8CE6C302D73A831A49E34E59149D3A9AD96CCEBDFBF62F6D5710D92D8","name":"uphoton","symbol":"ibc/CAEF9CA8CE6C302D73A831A49E34E59149D3A9AD96CCEBDFBF62F6D5710D92D8","decimals":0,"total_supply":100}
 //
-// ----------- assert render grc20 balance
+// ----------- assert render voucher balance
 // {"denom":"ibc/CAEF9CA8CE6C302D73A831A49E34E59149D3A9AD96CCEBDFBF62F6D5710D92D8","address":"g1wfjkxetfwejhyh6lta047h6lta047h6llm82yl","balance":100}
 
 // Events:
