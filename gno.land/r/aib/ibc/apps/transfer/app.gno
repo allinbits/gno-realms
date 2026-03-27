@@ -79,8 +79,6 @@ func (a *App) OnSendPacket(
 		return ufmt.Errorf("invalid FungibleTokenPacketData: sender %s is different from signer %s", data.Sender, signer)
 	}
 
-	// TODO review comment: maybe not relevant in a pure IBCv2 impl.
-	//
 	// Enforce that the base denom does not contain any slashes
 	// Since IBC v2 packets will no longer have channel identifiers, we cannot
 	// rely on the channel format to easily divide the trace from the base
@@ -106,8 +104,7 @@ func (a *App) OnSendPacket(
 		if inst == nil {
 			return ufmt.Errorf("GRC20 token not found for denom %s", coin.Denom)
 		}
-		from := runtime.OriginCaller()
-		if err := inst.ledger.Burn(from, coin.Amount); err != nil {
+		if err := inst.ledger.Burn(address(data.Sender), coin.Amount); err != nil {
 			return ufmt.Errorf("burn GRC20 %s error: %v", coin.String(), err)
 		}
 	} else {
