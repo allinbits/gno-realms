@@ -21,7 +21,7 @@ module using the `core.RegisterApp()` function.
 
 Located in `r/aib/ibc/apps/transfer`, the Transfer application allows token
 transfer between 2 IBC connected chains. It's the gno version of
-`ibc-go/modules/apps/transfer` application. 
+`ibc-go/modules/apps/transfer` application.
 
 ## Testing
 
