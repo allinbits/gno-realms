@@ -29,7 +29,7 @@ func main() {
 	clientID := core.CreateClient(cross, clientState, consensusState)
 	core.RegisterCounterparty(cross, clientID, [][]byte{[]byte("iavlStoreKey"), []byte("prefix2")}, counterpartyID)
 
-	// Mint GRC20 voucher tokens via a real RecvPacket flow.
+	// Mint voucher tokens via a real RecvPacket flow.
 	receiver := testutils.TestAddress("receiver")
 	recvPayload := transfer.FungibleTokenPacketData{
 		Denom:    "uatone",
@@ -138,33 +138,33 @@ func main() {
 	testing.SetOriginCaller(receiver)
 	// ibc/F9A67CB19B2CAD2ADEC20AD475BE86DF851DEC2B6F6CABC9B7B781BD9131D18F
 	voucherDenom := transfer.NewDenom("uatone", transfer.NewHop(transfer.PortID, clientID)).IBCDenom()
-	println("signer GRC20 balance before SendPacket:", transfer.GRC20BalanceOf(voucherDenom, receiver))
-	println("----------- assert render grc20 before SendPacket")
+	println("signer voucher balance before SendPacket:", transfer.VoucherBalanceOf(voucherDenom, receiver))
+	println("----------- assert render voucher before SendPacket")
 	println(transfer.Render("grc20/" + voucherDenom))
-	println("----------- assert render grc20 balance before SendPacket")
+	println("----------- assert render voucher balance before SendPacket")
 	println(transfer.Render("grc20/" + voucherDenom + "/balance/" + receiver.String()))
 
 	core.SendPacket(cross, sendPacket)
 
-	println("\nsigner GRC20 balance after SendPacket:", transfer.GRC20BalanceOf(voucherDenom, receiver))
-	println("----------- assert render grc20 after SendPacket")
+	println("\nsigner voucher balance after SendPacket:", transfer.VoucherBalanceOf(voucherDenom, receiver))
+	println("----------- assert render voucher after SendPacket")
 	println(transfer.Render("grc20/" + voucherDenom))
-	println("----------- assert render grc20 balance after SendPacket")
+	println("----------- assert render voucher balance after SendPacket")
 	println(transfer.Render("grc20/" + voucherDenom + "/balance/" + receiver.String()))
 }
 
 // Output:
 // Payload proto: CgZ1YXRvbmUSAzEwMBoKYXRvbmUxdXNlciIoZzF3ZmpreGV0Zndlamh5aDZsdGEwNDdoNmx0YTA0N2g2bGxtODJ5bA==
-// signer GRC20 balance before SendPacket: 100
-// ----------- assert render grc20 before SendPacket
+// signer voucher balance before SendPacket: 100
+// ----------- assert render voucher before SendPacket
 // {"denom":"ibc/F9A67CB19B2CAD2ADEC20AD475BE86DF851DEC2B6F6CABC9B7B781BD9131D18F","name":"uatone","symbol":"ibc/F9A67CB19B2CAD2ADEC20AD475BE86DF851DEC2B6F6CABC9B7B781BD9131D18F","decimals":0,"total_supply":100}
-// ----------- assert render grc20 balance before SendPacket
+// ----------- assert render voucher balance before SendPacket
 // {"denom":"ibc/F9A67CB19B2CAD2ADEC20AD475BE86DF851DEC2B6F6CABC9B7B781BD9131D18F","address":"g1wfjkxetfwejhyh6lta047h6lta047h6llm82yl","balance":100}
 //
-// signer GRC20 balance after SendPacket: 0
-// ----------- assert render grc20 after SendPacket
+// signer voucher balance after SendPacket: 0
+// ----------- assert render voucher after SendPacket
 // {"denom":"ibc/F9A67CB19B2CAD2ADEC20AD475BE86DF851DEC2B6F6CABC9B7B781BD9131D18F","name":"uatone","symbol":"ibc/F9A67CB19B2CAD2ADEC20AD475BE86DF851DEC2B6F6CABC9B7B781BD9131D18F","decimals":0,"total_supply":0}
-// ----------- assert render grc20 balance after SendPacket
+// ----------- assert render voucher balance after SendPacket
 // {"denom":"ibc/F9A67CB19B2CAD2ADEC20AD475BE86DF851DEC2B6F6CABC9B7B781BD9131D18F","address":"g1wfjkxetfwejhyh6lta047h6lta047h6llm82yl","balance":0}
 
 // Events:

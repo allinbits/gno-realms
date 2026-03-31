@@ -13,7 +13,7 @@ import (
 	"gno.land/r/aib/ibc/core"
 )
 
-// OnAcknowledgementPacket: success with refund
+// OnAcknowledgementPacket: success with native coin refund
 func main() {
 	var (
 		chainID        = "chain-id-2"

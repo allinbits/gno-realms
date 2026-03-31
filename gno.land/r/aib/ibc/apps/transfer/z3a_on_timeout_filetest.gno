@@ -14,7 +14,7 @@ import (
 	"gno.land/r/aib/ibc/core"
 )
 
-// OnTimeout: success
+// OnTimeout: success with native coin
 func main() {
 	var (
 		chainID       = "atomone-1"

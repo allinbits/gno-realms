@@ -16,6 +16,8 @@ Under the hood:
 - `go tool gno test ./gno.land/...` runs all Gno tests (unit tests + filetests)
 - `go test -C ./cmd/gen-block-signatures` and `go test -C ./cmd/gen-proof` run Go tests
 
+**Important:** Always use `go tool gno test`, not a standalone `gno` binary. The gno fork is resolved via `go mod` replace directives, so `go tool gno` picks up the correct fork automatically. A standalone `gno` may point to upstream and miss fork-specific features.
+
 Run a single package's tests:
 ```bash
 go tool gno test ./gno.land/p/aib/ibc/types
@@ -24,6 +26,11 @@ go tool gno test ./gno.land/p/aib/ibc/types
 Run a specific test by name:
 ```bash
 go tool gno test -run TestPacketValidateBasic ./gno.land/p/aib/ibc/types
+```
+
+Update filetest golden output (`// Output:` and `// Events:` sections) automatically:
+```bash
+go tool gno test -update-golden-tests ./gno.land/r/aib/ibc/apps/transfer/
 ```
 
 ## Architecture

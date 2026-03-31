@@ -1,0 +1,2 @@
+module = "gno.land/r/aib/ibc/apps/testing/grc20test"
+gno = "0.9"
