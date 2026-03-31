@@ -127,7 +127,7 @@ func main() {
 	// Now send the voucher tokens back (burn)
 	testing.SetOriginCaller(signer)
 	println("signer voucher balance before Transfer:", transfer.VoucherBalanceOf(voucherDenom, signer))
-	sendPacket, sequence := transfer.TransferGRC20(cross, clientID, "atone1user", voucherDenom, 100, uint64(time.Now().Add(time.Hour).Unix()))
+	sendPacket, sequence := transfer.Transfer(cross, clientID, "atone1user", voucherDenom, 100, uint64(time.Now().Add(time.Hour).Unix()), "")
 	println("\nsigner voucher balance after Transfer:", transfer.VoucherBalanceOf(voucherDenom, signer))
 
 	// UpdateClient to advance to height containing the ack proof

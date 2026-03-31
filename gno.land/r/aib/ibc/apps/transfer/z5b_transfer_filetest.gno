@@ -22,8 +22,8 @@ func main() {
 	clientID := core.CreateClient(cross, clientState, consensusState)
 	core.RegisterCounterparty(cross, clientID, [][]byte{[]byte("iavlStoreKey"), []byte("prefix2")}, "07-tendermint-2")
 
-	transfer.Transfer(cross, clientID, "atone1user", uint64(time.Now().Add(time.Hour).Unix()), "")
+	transfer.Transfer(cross, clientID, "atone1user", "ugnot", 100, uint64(time.Now().Add(time.Hour).Unix()), "")
 }
 
 // Error:
-// Transfer requires one non-zero coin to be sent
+// native transfer requires one non-zero coin to be sent

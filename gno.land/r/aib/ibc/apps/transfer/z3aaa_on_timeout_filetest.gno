@@ -47,7 +47,7 @@ func main() {
 	grc20regKey := "gno.land/r/aib/ibc/apps/testing/grc20test." + grc20test.Slug
 	testing.SetOriginCaller(signer)
 	println("signer grc20 balance before Transfer:", grc20test.BalanceOf(signer))
-	sendPacket, sequence := transfer.TransferGRC20(cross, clientID, "atone1user", grc20regKey, 100, uint64(time.Now().Add(10*time.Minute).Unix()))
+	sendPacket, sequence := transfer.Transfer(cross, clientID, "atone1user", grc20regKey, 100, uint64(time.Now().Add(10*time.Minute).Unix()), "")
 	println("\nsigner grc20 balance after Transfer:", grc20test.BalanceOf(signer))
 
 	// Change block time to after the timeout

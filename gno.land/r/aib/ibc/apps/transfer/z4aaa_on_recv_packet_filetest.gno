@@ -46,7 +46,7 @@ func main() {
 	grc20regKey := "gno.land/r/aib/ibc/apps/testing/grc20test." + grc20test.Slug
 	testing.SetOriginCaller(signer)
 	println("signer grc20 balance before Transfer:", grc20test.BalanceOf(signer))
-	transfer.TransferGRC20(cross, clientID, "atone1user", grc20regKey, 100, uint64(time.Now().Add(time.Hour).Unix()))
+	transfer.Transfer(cross, clientID, "atone1user", grc20regKey, 100, uint64(time.Now().Add(time.Hour).Unix()), "")
 	println("signer grc20 balance after Transfer:", grc20test.BalanceOf(signer))
 
 	// Step 2: RecvPacket returning the GRC20 tokens (chain B → chain A)

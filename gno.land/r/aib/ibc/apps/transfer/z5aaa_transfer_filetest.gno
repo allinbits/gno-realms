@@ -39,7 +39,7 @@ func main() {
 
 	println("----------- balance before Transfer:", grc20test.BalanceOf(caller))
 
-	transfer.TransferGRC20(cross, clientID, "atone1user", denom, 100, uint64(time.Now().Add(time.Hour).Unix()))
+	transfer.Transfer(cross, clientID, "atone1user", denom, 100, uint64(time.Now().Add(time.Hour).Unix()), "")
 
 	println("----------- balance after Transfer:", grc20test.BalanceOf(caller))
 }

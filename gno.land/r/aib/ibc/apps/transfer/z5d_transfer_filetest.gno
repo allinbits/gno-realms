@@ -28,7 +28,7 @@ func main() {
 	grc20test.Mint(cross, runtime.OriginCaller(), 1000)
 
 	denom := "gno.land/r/aib/ibc/apps/testing/grc20test." + grc20test.Slug
-	transfer.TransferGRC20(cross, clientID, "atone1user", denom, 100, uint64(time.Now().Add(time.Hour).Unix()))
+	transfer.Transfer(cross, clientID, "atone1user", denom, 100, uint64(time.Now().Add(time.Hour).Unix()), "")
 }
 
 // Error:
