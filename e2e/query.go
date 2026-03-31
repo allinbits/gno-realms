@@ -130,9 +130,9 @@ func queryGnoClientCounterparty(containerID, clientID string) (string, error) {
 	return resp.CounterpartyClientID, nil
 }
 
-// queryGnoGRC20Balance returns the GRC20 token balance for a given IBC hash and address.
-func queryGnoGRC20Balance(containerID, addr, denom string) (int64, error) {
-	renderArgs := fmt.Sprintf("grc20/%s/balance/%s", denom, addr)
+// queryVoucherBalance returns the voucher token balance for a given IBC denom and address.
+func queryVoucherBalance(containerID, addr, denom string) (int64, error) {
+	renderArgs := fmt.Sprintf("voucher/%s/balance/%s", denom, addr)
 	content, err := gnoQuery(containerID, "r/aib/ibc/apps/transfer", renderArgs)
 	if err != nil {
 		return 0, err

@@ -140,17 +140,17 @@ func main() {
 	voucherDenom := transfer.NewDenom("uatone", transfer.NewHop(transfer.PortID, clientID)).IBCDenom()
 	println("signer voucher balance before SendPacket:", transfer.VoucherBalanceOf(voucherDenom, receiver))
 	println("----------- assert render voucher before SendPacket")
-	println(transfer.Render("grc20/" + voucherDenom))
+	println(transfer.Render("voucher/" + voucherDenom))
 	println("----------- assert render voucher balance before SendPacket")
-	println(transfer.Render("grc20/" + voucherDenom + "/balance/" + receiver.String()))
+	println(transfer.Render("voucher/" + voucherDenom + "/balance/" + receiver.String()))
 
 	core.SendPacket(cross, sendPacket)
 
 	println("\nsigner voucher balance after SendPacket:", transfer.VoucherBalanceOf(voucherDenom, receiver))
 	println("----------- assert render voucher after SendPacket")
-	println(transfer.Render("grc20/" + voucherDenom))
+	println(transfer.Render("voucher/" + voucherDenom))
 	println("----------- assert render voucher balance after SendPacket")
-	println(transfer.Render("grc20/" + voucherDenom + "/balance/" + receiver.String()))
+	println(transfer.Render("voucher/" + voucherDenom + "/balance/" + receiver.String()))
 }
 
 // Output:

@@ -125,9 +125,9 @@ func main() {
 	println("\n----------- assert render /denoms/" + voucherDenom)
 	println(transfer.Render("denoms/" + voucherDenom))
 	println("\n----------- assert render voucher")
-	println(transfer.Render("grc20/" + voucherDenom))
+	println(transfer.Render("voucher/" + voucherDenom))
 	println("\n----------- assert render voucher balance")
-	println(transfer.Render("grc20/" + voucherDenom + "/balance/" + receiver.String()))
+	println(transfer.Render("voucher/" + voucherDenom + "/balance/" + receiver.String()))
 }
 
 // Output:

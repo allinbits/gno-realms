@@ -15,8 +15,8 @@ func Render(path string) string {
 	router.HandleFunc("denoms", renderDenoms)
 	router.HandleFunc("denoms/ibc/{hash}", renderDenom)
 	router.HandleFunc("total_escrow/{denom}", renderTotalEscrowForDenom)
-	router.HandleFunc("grc20/ibc/{hash}", renderVoucher)
-	router.HandleFunc("grc20/ibc/{hash}/balance/{addr}", renderVoucherBalance)
+	router.HandleFunc("voucher/ibc/{hash}", renderVoucher)
+	router.HandleFunc("voucher/ibc/{hash}/balance/{addr}", renderVoucherBalance)
 	return router.Render(path)
 }
 

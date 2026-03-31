@@ -136,9 +136,9 @@ IBC voucher tokens (minted on RecvPacket for cross-chain tokens) use **GRC20 tok
 - **Escrow/unescrow** of native tokens (ugnot, etc.) still uses `chain/banker`
 - Native token escrow in `OnSendPacket` uses `cur.SentCoins()` to verify coins sent with the transaction
 
-### GRC20 Render Endpoints
-- `grc20/ibc/{hash}` - Token info (name, symbol, total supply)
-- `grc20/ibc/{hash}/balance/{address}` - Balance of an address
+### Voucher Render Endpoints
+- `voucher/ibc/{hash}` - Token info (name, symbol, total supply)
+- `voucher/ibc/{hash}/balance/{address}` - Balance of an address
 
 ## Fork Dependency Management
 
