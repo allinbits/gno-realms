@@ -38,8 +38,29 @@ func Render(path string) string {
 }
 
 func renderHome(w *mux.ResponseWriter, r *mux.Request) {
-	// TODO list available endpoints ?
-	w.Write(`["Hello IBC!"]`)
+	var out strings.Builder
+	out.WriteString("# IBC core\n\n")
+	out.WriteString("IBC v2 core state and query endpoints.\n\n")
+	out.WriteString("## Dashboard\n\n")
+	out.WriteString(ufmt.Sprintf("- Registered apps: `%d`\n", countRegisteredApps()))
+	out.WriteString(ufmt.Sprintf("- Clients: `%d`\n\n", store.clientByID.Size()))
+	out.WriteString("## Endpoints\n\n")
+	out.WriteString("- [`apps`](/r/aib/ibc/core:apps): list registered IBC applications\n")
+	out.WriteString("- [`clients`](/r/aib/ibc/core:clients): list clients (`?page`, `?limit`)\n")
+	out.WriteString("- `clients/{id}`: get client details\n")
+	out.WriteString("- `clients/{id}/status`: get client status\n")
+	out.WriteString("- `clients/{id}/consensus_states`: list client consensus states (`?page`, `?limit`)\n")
+	out.WriteString("- `clients/{id}/consensus_states/{revision_number}/{revision_height}`: get a consensus state by height\n")
+	out.WriteString("- `clients/{id}/next_sequence_send`: get the next packet sequence to send\n")
+	out.WriteString("- `clients/{id}/packet_commitments`: list packet commitments (`?page`, `?limit`)\n")
+	out.WriteString("- `clients/{id}/packet_commitments/{sequence}`: get a packet commitment by sequence\n")
+	out.WriteString("- `clients/{id}/packet_receipts`: list packet receipts (`?page`, `?limit`)\n")
+	out.WriteString("- `clients/{id}/packet_receipts/{sequence}`: get a packet receipt by sequence\n")
+	out.WriteString("- `clients/{id}/packet_acknowledgements`: list packet acknowledgements (`?page`, `?limit`)\n")
+	out.WriteString("- `clients/{id}/packet_acknowledgements/{sequence}`: get a packet acknowledgement by sequence\n")
+	out.WriteString("- `clients/{id}/unreceived_packets?sequences=1,2,3`: return sequences without a local packet receipt\n\n")
+	out.WriteString("Start with [`clients`](/r/aib/ibc/core:clients) to discover a client ID.\n")
+	w.Write(out.String())
 }
 
 func renderApps(w *mux.ResponseWriter, r *mux.Request) {
@@ -346,4 +367,12 @@ func nodeError(msg string, args ...any) *json.Node {
 	return json.ObjectNode("", map[string]*json.Node{
 		"error": json.StringNode("", ufmt.Sprintf(msg, args...)),
 	})
+}
+
+func countRegisteredApps() int {
+	var count int
+	for range store.routes {
+		count++
+	}
+	return count
 }

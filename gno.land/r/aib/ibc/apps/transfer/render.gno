@@ -3,6 +3,7 @@ package transfer
 import (
 	"chain"
 	"chain/runtime"
+	"strings"
 
 	"gno.land/p/aib/jsonpage"
 	"gno.land/p/nt/mux/v0"
@@ -23,8 +24,21 @@ func Render(path string) string {
 }
 
 func renderHome(w *mux.ResponseWriter, r *mux.Request) {
-	// TODO list available endpoints ?
-	w.Write(`["Hello IBC transfer!"]`)
+	var out strings.Builder
+	out.WriteString("# IBC transfer\n\n")
+	out.WriteString("ICS-20 style transfer state and voucher token queries.\n\n")
+	out.WriteString("## Dashboard\n\n")
+	out.WriteString(ufmt.Sprintf("- Known IBC denoms: `%d`\n", denoms.Size()))
+	out.WriteString(ufmt.Sprintf("- Escrow denoms: `%d`\n", totalEscrow.Size()))
+	out.WriteString(ufmt.Sprintf("- Voucher GRC20 tokens: `%d`\n\n", grc20tokens.Size()))
+	out.WriteString("## Endpoints\n\n")
+	out.WriteString("- [`denoms`](/r/aib/ibc/apps/transfer:denoms): list known IBC denoms (`?page`, `?limit`)\n")
+	out.WriteString("- `denoms/ibc/{hash}`: get metadata for an IBC denom\n")
+	out.WriteString("- `total_escrow/{denom}`: get total escrow tracked for a base denom\n")
+	out.WriteString("- `grc20/ibc/{hash}`: get GRC20 voucher token metadata\n")
+	out.WriteString("- `grc20/ibc/{hash}/balance/{addr}`: get a GRC20 voucher balance for an address\n\n")
+	out.WriteString("Start with [`denoms`](/r/aib/ibc/apps/transfer:denoms) to discover an IBC denom hash.\n")
+	w.Write(out.String())
 }
 
 func renderDenoms(w *mux.ResponseWriter, r *mux.Request) {
