@@ -10,7 +10,7 @@ import (
 	"gno.land/r/aib/ibc/core"
 )
 
-// OnSendPacket: caller did not send any coins
+// TransferGRC20: token not found in grc20reg
 func main() {
 	var (
 		chainID        = "chain-id-2"
@@ -22,8 +22,8 @@ func main() {
 	clientID := core.CreateClient(cross, clientState, consensusState)
 	core.RegisterCounterparty(cross, clientID, [][]byte{[]byte("iavlStoreKey"), []byte("prefix2")}, "07-tendermint-2")
 
-	transfer.Transfer(cross, clientID, "atone1user", "ugnot", 100, uint64(time.Now().Add(time.Hour).Unix()), "")
+	transfer.Transfer(cross, clientID, "atone1user", "gno.land/r/unknown/token", 100, uint64(time.Now().Add(time.Hour).Unix()), "")
 }
 
 // Error:
-// native transfer requires one non-zero coin to be sent
+// GRC20 token gno.land/r/unknown/token not found in grc20reg

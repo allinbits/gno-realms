@@ -15,7 +15,7 @@ import (
 	"gno.land/r/aib/ibc/core"
 )
 
-// OnTimeout: success w/ IBC token
+// OnTimeout: success w/ IBC voucher token
 func main() {
 	var (
 		chainID       = "atomone-1"
@@ -40,7 +40,7 @@ func main() {
 	// ibc/F9A67CB19B2CAD2ADEC20AD475BE86DF851DEC2B6F6CABC9B7B781BD9131D18F
 	voucherDenom := transfer.NewDenom("uatone", transfer.NewHop(transfer.PortID, clientID)).IBCDenom()
 
-	// Mint GRC20 voucher tokens via a real RecvPacket flow.
+	// Mint voucher tokens via a real RecvPacket flow.
 	recvPayload := transfer.FungibleTokenPacketData{
 		Denom:    "uatone",
 		Amount:   "100",
@@ -146,10 +146,10 @@ func main() {
 		},
 	}
 	testing.SetOriginCaller(signer)
-	println("signer GRC20 balance before SendPacket:", transfer.GRC20BalanceOf(voucherDenom, signer))
+	println("signer voucher balance before SendPacket:", transfer.VoucherBalanceOf(voucherDenom, signer))
 	// Send the packet
 	sequence := core.SendPacket(cross, sendPacket)
-	println("\nsigner GRC20 balance after SendPacket:", transfer.GRC20BalanceOf(voucherDenom, signer))
+	println("\nsigner voucher balance after SendPacket:", transfer.VoucherBalanceOf(voucherDenom, signer))
 
 	// Change block time to after the timeout
 	ctx := testing.GetContext()
@@ -287,18 +287,18 @@ func main() {
 	res := core.Timeout(cross, timeoutPacket)
 
 	println("\ntimeout res:", res)
-	println("\nsigner GRC20 balance after Timeout:", transfer.GRC20BalanceOf(voucherDenom, signer))
+	println("\nsigner voucher balance after Timeout:", transfer.VoucherBalanceOf(voucherDenom, signer))
 }
 
 // Output:
 // Payload proto: CgZ1YXRvbmUSAzEwMBoKYXRvbmUxdXNlciIoZzE3cmdzZG5meHp6YTBzZGZzZG1hMzdzZHd4YWdzejM3ODgzM2NhNA==
-// signer GRC20 balance before SendPacket: 100
+// signer voucher balance before SendPacket: 100
 //
-// signer GRC20 balance after SendPacket: 0
+// signer voucher balance after SendPacket: 0
 //
 // timeout res: (2 gno.land/p/aib/ibc/types.ResponseResultType)
 //
-// signer GRC20 balance after Timeout: 100
+// signer voucher balance after Timeout: 100
 
 // Events:
 // [

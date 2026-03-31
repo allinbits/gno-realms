@@ -53,4 +53,4 @@ func main() {
 }
 
 // Error:
-// send packet failed for payload #0 app "transfer": OnSendPacket requires one non-zero coin to be sent
+// send packet failed for payload #0 app "transfer": OnSendPacket requires one non-zero coin to be sent for native token transfer

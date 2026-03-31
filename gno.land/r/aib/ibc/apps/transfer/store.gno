@@ -2,6 +2,8 @@ package transfer
 
 import (
 	"chain"
+	"net/url"
+	"strings"
 
 	"gno.land/p/demo/tokens/grc20"
 	"gno.land/p/nt/avl/v0"
@@ -9,13 +11,13 @@ import (
 )
 
 var (
-	denoms      *avl.Tree // ibcDenom:Denom
-	totalEscrow *avl.Tree // denom:chain.Coin
-	grc20tokens *avl.Tree // ibcDenom:*grc20Instance
+	denoms        *avl.Tree // ibcDenom:Denom
+	totalEscrow   *avl.Tree // denom:chain.Coin
+	voucherTokens *avl.Tree // ibcDenom:*voucher
 )
 
-// grc20Instance holds a GRC20 token and its private ledger for mint/burn.
-type grc20Instance struct {
+// voucher holds a voucher token and its private ledger for mint/burn.
+type voucher struct {
 	token  *grc20.Token
 	ledger *grc20.PrivateLedger
 }
@@ -23,7 +25,7 @@ type grc20Instance struct {
 func init() {
 	denoms = avl.NewTree()
 	totalEscrow = avl.NewTree()
-	grc20tokens = avl.NewTree()
+	voucherTokens = avl.NewTree()
 }
 
 func hasDenom(voucherDenom string) bool {
@@ -59,36 +61,60 @@ func subEscrowForDenom(c chain.Coin) {
 	totalEscrow.Set(c.Denom, c)
 }
 
-// getOrCreateGRC20 returns the existing GRC20 instance for the given IBC
+// getOrCreateVoucher returns the existing voucher instance for the given IBC
 // denom, or creates a new one and registers it in grc20reg for DeFi
 // discoverability.
-func getOrCreateGRC20(baseDenom, voucherDenom string) *grc20Instance {
-	if v, ok := grc20tokens.Get(voucherDenom); ok {
-		return v.(*grc20Instance)
+func getOrCreateVoucher(baseDenom, voucherDenom string) *voucher {
+	if v, ok := voucherTokens.Get(voucherDenom); ok {
+		return v.(*voucher)
 	}
 	token, ledger := grc20.NewToken(baseDenom, voucherDenom, 0)
-	inst := &grc20Instance{token: token, ledger: ledger}
-	grc20tokens.Set(voucherDenom, inst)
+	inst := &voucher{token: token, ledger: ledger}
+	voucherTokens.Set(voucherDenom, inst)
 	grc20reg.Register(cross, token, voucherDenom)
 	return inst
 }
 
-// getGRC20 returns the GRC20 instance for the given IBC denom, or nil if not
+// getVoucher returns the voucher instance for the given IBC denom, or nil if not
 // found.
-func getGRC20(ibcDenom string) *grc20Instance {
-	v, ok := grc20tokens.Get(ibcDenom)
+func getVoucher(ibcDenom string) *voucher {
+	v, ok := voucherTokens.Get(ibcDenom)
 	if !ok {
 		return nil
 	}
-	return v.(*grc20Instance)
+	return v.(*voucher)
 }
 
-// GRC20BalanceOf returns the GRC20 balance of a voucher token for a given address.
+// VoucherBalanceOf returns the balance of a voucher token for a given address.
 // Returns 0 if the token does not exist.
-func GRC20BalanceOf(ibcDenom string, addr address) int64 {
-	inst := getGRC20(ibcDenom)
+func VoucherBalanceOf(ibcDenom string, addr address) int64 {
+	inst := getVoucher(ibcDenom)
 	if inst == nil {
 		return 0
 	}
 	return inst.token.BalanceOf(addr)
+}
+
+// GRC20Alias returns a slash-free alias for a GRC20 denom (grc20reg key)
+// using url.PathEscape. This ensures slashes are encoded as %2F while keeping
+// the denom human-readable.
+// Examples:
+//
+//	"gno.land/r/demo/foo"      → "gno.land%2Fr%2Fdemo%2Ffoo"
+//	"gno.land/r/demo/foo.FOO"  → "gno.land%2Fr%2Fdemo%2Ffoo.FOO"
+//	"gno.land/r/demo/foo.A:B"  → "gno.land%2Fr%2Fdemo%2Ffoo.A:B"
+func GRC20Alias(grc20regKey string) string {
+	return url.PathEscape(grc20regKey)
+}
+
+// resolveGRC20Alias converts a GRC20 alias back to the grc20reg key,
+// reversing the encoding applied by grc20Alias.
+func resolveGRC20Alias(alias string) (string, error) {
+	return url.PathUnescape(alias)
+}
+
+// isGRC20Alias returns true if the denom is a GRC20 alias.
+// GRC20 aliases always start with "gno.land%2F" (the path-escaped form of "gno.land/").
+func isGRC20Alias(denom string) bool {
+	return strings.HasPrefix(denom, "gno.land%2F")
 }

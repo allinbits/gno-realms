@@ -13,7 +13,7 @@ import (
 	"gno.land/r/aib/ibc/core"
 )
 
-// OnAcknowledgementPacket: success with refund
+// OnAcknowledgementPacket: success with native coin refund
 func main() {
 	var (
 		chainID        = "chain-id-2"
@@ -32,7 +32,7 @@ func main() {
 	testing.SetOriginSend(coins)
 	println("----------- assert render total_escrow/ugnot before Transfer")
 	println(transfer.Render("total_escrow/ugnot"))
-	sendPacket, sequence := transfer.Transfer(cross, clientID, "atone1user", uint64(time.Now().Add(time.Hour).Unix()))
+	sendPacket, sequence := transfer.Transfer(cross, clientID, "atone1user", "ugnot", 100, uint64(time.Now().Add(time.Hour).Unix()), "")
 	println("----------- assert render total_escrow/ugnot after Transfer")
 	println(transfer.Render("total_escrow/ugnot"))
 

@@ -1,16 +1,18 @@
 package main
 
 import (
+	"chain/runtime"
 	"time"
 
 	tmtesting "gno.land/p/aib/ibc/lightclient/tendermint/testing"
 	"gno.land/p/aib/ibc/types"
 
+	"gno.land/r/aib/ibc/apps/testing/grc20test"
 	"gno.land/r/aib/ibc/apps/transfer"
 	"gno.land/r/aib/ibc/core"
 )
 
-// OnSendPacket: caller did not send any coins
+// TransferGRC20: no approval (insufficient allowance)
 func main() {
 	var (
 		chainID        = "chain-id-2"
@@ -22,8 +24,12 @@ func main() {
 	clientID := core.CreateClient(cross, clientState, consensusState)
 	core.RegisterCounterparty(cross, clientID, [][]byte{[]byte("iavlStoreKey"), []byte("prefix2")}, "07-tendermint-2")
 
-	transfer.Transfer(cross, clientID, "atone1user", "ugnot", 100, uint64(time.Now().Add(time.Hour).Unix()), "")
+	// Mint tokens but do NOT approve the transfer app
+	grc20test.Mint(cross, runtime.OriginCaller(), 1000)
+
+	denom := "gno.land/r/aib/ibc/apps/testing/grc20test." + grc20test.Slug
+	transfer.Transfer(cross, clientID, "atone1user", denom, 100, uint64(time.Now().Add(time.Hour).Unix()), "")
 }
 
 // Error:
-// native transfer requires one non-zero coin to be sent
+// send packet failed for payload #0 app "transfer": escrow GRC20 gno.land/r/aib/ibc/apps/testing/grc20test.my:exotic/slug%2F error: insufficient allowance

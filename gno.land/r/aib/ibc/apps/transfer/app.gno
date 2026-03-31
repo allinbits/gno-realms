@@ -12,6 +12,7 @@ import (
 	"gno.land/p/aib/ibc/types"
 	"gno.land/p/nt/ufmt/v0"
 	"gno.land/r/aib/ibc/core"
+	"gno.land/r/demo/defi/grc20reg"
 )
 
 type App struct{}
@@ -42,7 +43,6 @@ func (a *App) OnSendPacket(
 	sequence uint64,
 	payload types.Payload,
 ) error {
-	// TODO do we need to ensure that caller is aib/ibc/core realm ?
 	// TODO add parameter to disable the app
 	// TODO add parameter to block sender addr
 
@@ -90,6 +90,8 @@ func (a *App) OnSendPacket(
 	// If we enforce that IBC v2 packets are sent with ICS20 v2 and above
 	// versions that separate the trace from the base denomination in the packet
 	// data, then we can remove this restriction.
+	// Non-IBC GRC20 tokens use aliases (slashes replaced with colons)
+	// so they pass this check naturally.
 	if strings.Contains(token.Denom.Base, "/") {
 		return ufmt.Errorf("base denomination %s cannot contain slashes for IBC v2 packet", token.Denom.Base)
 	}
@@ -99,19 +101,35 @@ func (a *App) OnSendPacket(
 		return ufmt.Errorf("token to coin error: %v", err)
 	}
 	if token.Denom.HasPrefix(payload.SourcePort, sourceClient) {
-		// Burn the voucher GRC20 tokens from sender
-		inst := getGRC20(coin.Denom)
+		// Burn the voucher tokens from sender
+		inst := getVoucher(coin.Denom)
 		if inst == nil {
-			return ufmt.Errorf("GRC20 token not found for denom %s", coin.Denom)
+			return ufmt.Errorf("voucher token not found for denom %s", coin.Denom)
 		}
 		if err := inst.ledger.Burn(address(data.Sender), coin.Amount); err != nil {
-			return ufmt.Errorf("burn GRC20 %s error: %v", coin.String(), err)
+			return ufmt.Errorf("burn voucher %s error: %v", coin.String(), err)
 		}
+	} else if isGRC20Alias(token.Denom.Base) {
+		// Non-IBC GRC20 token: escrow via TransferFrom.
+		// The caller must have approved the transfer app realm address.
+		denomKey, err := resolveGRC20Alias(token.Denom.Base)
+		if err != nil {
+			return ufmt.Errorf("resolve GRC20 alias %s error: %v", token.Denom.Base, err)
+		}
+		grc20Token := grc20reg.Get(denomKey)
+		if grc20Token == nil {
+			return ufmt.Errorf("GRC20 token %s not found in grc20reg", denomKey)
+		}
+		teller := grc20Token.RealmTeller()
+		if err := teller.TransferFrom(address(data.Sender), runtime.CurrentRealm().Address(), coin.Amount); err != nil {
+			return ufmt.Errorf("escrow GRC20 %s error: %v", denomKey, err)
+		}
+		addEscrowForDenom(coin)
 	} else {
-		// Ensure that sent coin matches the FungibleTokenPacketData
+		// Native token: ensure that sent coin matches the FungibleTokenPacketData
 		sent := cur.SentCoins()
 		if len(sent) != 1 || sent[0].Amount == 0 {
-			return ufmt.Errorf("OnSendPacket requires one non-zero coin to be sent")
+			return ufmt.Errorf("OnSendPacket requires one non-zero coin to be sent for native token transfer")
 		}
 		if coin.Denom != sent[0].Denom || coin.Amount != sent[0].Amount {
 			return ufmt.Errorf(
@@ -223,7 +241,11 @@ func (a *App) OnRecvPacket(
 
 		coin := chain.NewCoin(token.Denom.IBCDenom(), transferAmount)
 
-		ackErr = unescrowCoin(data.Receiver, coin)
+		if isGRC20Alias(coin.Denom) {
+			ackErr = unescrowGRC20(data.Receiver, coin)
+		} else {
+			ackErr = unescrowNative(data.Receiver, coin)
+		}
 		if ackErr != nil {
 			ack = types.NewErrorAppAcknowledgement(ackErr)
 			return types.RecvPacketResult{Status: types.PacketStatus_Failure}
@@ -247,16 +269,16 @@ func (a *App) OnRecvPacket(
 			AttributeKeyDenom, string(token.Denom.MarshalJSON()),
 		)
 
-		// Mint GRC20 voucher tokens to the receiver
+		// Mint voucher tokens to the receiver
 		var amount int64
 		amount, ackErr = token.AmountInt64()
 		if ackErr != nil {
 			ack = types.NewErrorAppAcknowledgement(ackErr)
 			return types.RecvPacketResult{Status: types.PacketStatus_Failure}
 		}
-		inst := getOrCreateGRC20(token.Denom.Base, voucherDenom)
+		inst := getOrCreateVoucher(token.Denom.Base, voucherDenom)
 		if err := inst.ledger.Mint(address(data.Receiver), amount); err != nil {
-			ackErr = ufmt.Errorf("mint GRC20 error: %v", err)
+			ackErr = ufmt.Errorf("mint voucher error: %v", err)
 			ack = types.NewErrorAppAcknowledgement(ackErr)
 			return types.RecvPacketResult{Status: types.PacketStatus_Failure}
 		}
