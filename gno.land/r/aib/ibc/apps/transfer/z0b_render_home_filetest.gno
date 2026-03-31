@@ -25,4 +25,6 @@ func main() {
 // - `grc20/ibc/{hash}`: get GRC20 voucher token metadata
 // - `grc20/ibc/{hash}/balance/{addr}`: get a GRC20 voucher balance for an address
 //
-// Start with [`denoms`](/r/aib/ibc/apps/transfer:denoms) to discover an IBC denom hash.
+// ## Known denoms
+//
+// No denom traces yet. Receive an IBC voucher, then refresh this page.

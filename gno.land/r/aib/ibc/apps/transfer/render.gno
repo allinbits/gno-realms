@@ -37,7 +37,20 @@ func renderHome(w *mux.ResponseWriter, r *mux.Request) {
 	out.WriteString("- `total_escrow/{denom}`: get total escrow tracked for a base denom\n")
 	out.WriteString("- `grc20/ibc/{hash}`: get GRC20 voucher token metadata\n")
 	out.WriteString("- `grc20/ibc/{hash}/balance/{addr}`: get a GRC20 voucher balance for an address\n\n")
-	out.WriteString("Start with [`denoms`](/r/aib/ibc/apps/transfer:denoms) to discover an IBC denom hash.\n")
+	out.WriteString("## Known denoms\n\n")
+	if denoms.Size() == 0 {
+		out.WriteString("No denom traces yet. Receive an IBC voucher, then refresh this page.\n")
+	} else {
+		denoms.IterateByOffset(0, denoms.Size(), func(_ string, v any) bool {
+			d := v.(Denom)
+			out.WriteString(ufmt.Sprintf(
+				"- `%s`: [metadata](/r/aib/ibc/apps/transfer:denoms/%s) | [GRC20](/r/aib/ibc/apps/transfer:grc20/%s)\n",
+				d.IBCDenom(), d.IBCDenom(), d.IBCDenom(),
+			))
+			out.WriteString(ufmt.Sprintf("  path: `%s`\n", d.Path()))
+			return false
+		})
+	}
 	w.Write(out.String())
 }
 

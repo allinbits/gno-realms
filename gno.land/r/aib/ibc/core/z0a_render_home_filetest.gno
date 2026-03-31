@@ -48,4 +48,6 @@ func main() {
 // - `clients/{id}/packet_acknowledgements/{sequence}`: get a packet acknowledgement by sequence
 // - `clients/{id}/unreceived_packets?sequences=1,2,3`: return sequences without a local packet receipt
 //
-// Start with [`clients`](/r/aib/ibc/core:clients) to discover a client ID.
+// ## Known clients
+//
+// - `07-tendermint-1`: [details](/r/aib/ibc/core:clients/07-tendermint-1) | [status](/r/aib/ibc/core:clients/07-tendermint-1/status) | [consensus states](/r/aib/ibc/core:clients/07-tendermint-1/consensus_states) | [next sequence](/r/aib/ibc/core:clients/07-tendermint-1/next_sequence_send) | [commitments](/r/aib/ibc/core:clients/07-tendermint-1/packet_commitments) | [receipts](/r/aib/ibc/core:clients/07-tendermint-1/packet_receipts) | [acks](/r/aib/ibc/core:clients/07-tendermint-1/packet_acknowledgements)

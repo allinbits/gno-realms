@@ -59,7 +59,19 @@ func renderHome(w *mux.ResponseWriter, r *mux.Request) {
 	out.WriteString("- `clients/{id}/packet_acknowledgements`: list packet acknowledgements (`?page`, `?limit`)\n")
 	out.WriteString("- `clients/{id}/packet_acknowledgements/{sequence}`: get a packet acknowledgement by sequence\n")
 	out.WriteString("- `clients/{id}/unreceived_packets?sequences=1,2,3`: return sequences without a local packet receipt\n\n")
-	out.WriteString("Start with [`clients`](/r/aib/ibc/core:clients) to discover a client ID.\n")
+	out.WriteString("## Known clients\n\n")
+	if store.clientByID.Size() == 0 {
+		out.WriteString("No clients yet. Create one, then refresh this page.\n")
+	} else {
+		store.clientByID.IterateByOffset(0, store.clientByID.Size(), func(_ string, v any) bool {
+			c := v.(*client)
+			out.WriteString(ufmt.Sprintf(
+				"- `%s`: [details](/r/aib/ibc/core:clients/%s) | [status](/r/aib/ibc/core:clients/%s/status) | [consensus states](/r/aib/ibc/core:clients/%s/consensus_states) | [next sequence](/r/aib/ibc/core:clients/%s/next_sequence_send) | [commitments](/r/aib/ibc/core:clients/%s/packet_commitments) | [receipts](/r/aib/ibc/core:clients/%s/packet_receipts) | [acks](/r/aib/ibc/core:clients/%s/packet_acknowledgements)\n",
+				c.id, c.id, c.id, c.id, c.id, c.id, c.id, c.id,
+			))
+			return false
+		})
+	}
 	w.Write(out.String())
 }
 
