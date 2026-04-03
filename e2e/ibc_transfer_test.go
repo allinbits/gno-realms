@@ -225,7 +225,7 @@ func (s *E2ETestSuite) TestIBCTransferGRC20GnoToAtomOne() {
 		r              = s.Require()
 		mintAmount     = int64(1000000)
 		transferAmount = int64(100)
-		denom          = "gno.land/r/aib/ibc/apps/testing/grc20test.my:exotic/slug%2F"
+		denom          = "gno.land/r/aib/ibc/apps/testing/grc20test." + "TEST"
 		sender         = s.gnoSenderAddress
 		receiver       = s.atomOneSenderAddress
 		timeout        = time.Now().Add(time.Hour).Unix()

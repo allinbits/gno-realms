@@ -8,6 +8,7 @@ IBC v2 implementation for Gno (similar to IBC Eureka for Ethereum). Gno smart co
 make test           # Run all tests (gno filetests + Go tests)
 make gnodev         # Start local gno node with all realms/packages
 make update-fork    # Update the allinbits/gno fork dependency
+make mod-download   # Sync gno package cache (~/.config/gno/pkg/mod/) with the fork
 ```
 
 CI runs unit + e2e tests on every push (`.github/workflows/test.yml`).

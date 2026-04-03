@@ -32,4 +32,4 @@ func main() {
 }
 
 // Error:
-// send packet failed for payload #0 app "transfer": escrow GRC20 gno.land/r/aib/ibc/apps/testing/grc20test.my:exotic/slug%2F error: insufficient allowance
+// send packet failed for payload #0 app "transfer": escrow GRC20 gno.land/r/aib/ibc/apps/testing/grc20test.TEST error: insufficient allowance

@@ -284,7 +284,7 @@ func queryGnoGRC20Alias(containerID, denom string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	// qeval returns: ("gno.land%2Fr%2F..." string)
+	// qeval returns: ("gno.land:r:..." string)
 	content = strings.TrimPrefix(content, "(")
 	content = strings.TrimSuffix(content, ")")
 	// Remove the type suffix and unquote the string value

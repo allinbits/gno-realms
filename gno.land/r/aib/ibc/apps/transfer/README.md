@@ -89,10 +89,10 @@ gnokey maketx call -pkgpath gno.land/r/aib/ibc/apps/transfer -func Transfer \
 ```
 
 > [!IMPORTANT]
-> GRC20 denoms are encoded into slash-free aliases for IBC packets using URL
-> path-escaping (e.g. `gno.land/r/demo/foo.FOO` becomes
-> `gno.land%2Fr%2Fdemo%2Ffoo.FOO`). The counterparty chain sees the aliased
-> form, not the original grc20reg key.
+> GRC20 denoms are encoded into slash-free aliases for IBC packets by replacing
+> `/` with `:` (e.g. `gno.land/r/demo/foo.FOO` becomes
+> `gno.land:r:demo:foo.FOO`). The counterparty chain sees the aliased form, not
+> the original grc20reg key.
 
 ## Query endpoints
 
@@ -133,7 +133,7 @@ Convert a grc20reg key to the slash-free alias used in IBC packets.
 
 ```gno
 alias := transfer.GRC20Alias("gno.land/r/demo/foo.FOO")
-// "gno.land%2Fr%2Fdemo%2Ffoo.FOO"
+// "gno.land:r:demo:foo.FOO"
 ```
 
 ### NewDenom / NewHop

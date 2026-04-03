@@ -122,10 +122,7 @@ func refundPacketToken(sourcePort, sourceClient, sender string, token Token) err
 // unescrowGRC20 resolves the GRC20 alias and transfers the escrowed tokens
 // back to the receiver via the token's RealmTeller.
 func unescrowGRC20(receiver string, coin chain.Coin) error {
-	denomKey, err := resolveGRC20Alias(coin.Denom)
-	if err != nil {
-		return ufmt.Errorf("resolve GRC20 alias %s error: %v", coin.Denom, err)
-	}
+	denomKey := resolveGRC20Alias(coin.Denom)
 	token := grc20reg.Get(denomKey)
 	if token == nil {
 		return ufmt.Errorf("GRC20 token %s not found in grc20reg", denomKey)
