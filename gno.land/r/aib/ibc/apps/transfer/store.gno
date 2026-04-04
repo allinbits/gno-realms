@@ -70,7 +70,9 @@ func getOrCreateVoucher(baseDenom, voucherDenom string) *voucher {
 	token, ledger := grc20.NewToken(baseDenom, voucherDenom, 0)
 	inst := &voucher{token: token, ledger: ledger}
 	voucherTokens.Set(voucherDenom, inst)
-	grc20reg.Register(cross, token, voucherDenom)
+	// Use the hex hash from voucherDenom ("ibc/{hash}") as slug: unique per
+	// voucher and alphanumeric-only, which satisfies grc20reg's slug validation.
+	grc20reg.Register(cross, token, voucherDenom[len("ibc/"):])
 	return inst
 }
 

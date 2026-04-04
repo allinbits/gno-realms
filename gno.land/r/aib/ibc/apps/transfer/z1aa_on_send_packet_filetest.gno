@@ -236,7 +236,7 @@ func main() {
 //       },
 //       {
 //         "key": "slug",
-//         "value": "ibc/F9A67CB19B2CAD2ADEC20AD475BE86DF851DEC2B6F6CABC9B7B781BD9131D18F"
+//         "value": "F9A67CB19B2CAD2ADEC20AD475BE86DF851DEC2B6F6CABC9B7B781BD9131D18F"
 //       }
 //     ],
 //     "pkg_path": "gno.land/r/demo/defi/grc20reg"
