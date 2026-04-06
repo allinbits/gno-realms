@@ -26,12 +26,17 @@ func main() {
 //
 // IBC v2 core state and query endpoints.
 //
-// ## Dashboard
+// ## Clients (1)
 //
-// - Registered apps: `0`
-// - Clients: `1`
+// | Client | St. | Creator | Cpty | Height | CS | Seq | Cmts | Rcpts | Acks |
+// |--------|-----|---------|------|--------|----|-----|------|-------|------|
+// | [`07-tendermint-1`](/r/aib/ibc/core:clients/07-tendermint-1) | [Active](/r/aib/ibc/core:clients/07-tendermint-1/status) | [g1wymu…yrsm](/u/g1wymu47drhr0kuq2098m792lytgtj2nyx77yrsm) |  | [2/2](/r/aib/ibc/core:clients/07-tendermint-1/consensus_states/2/2) | [1](/r/aib/ibc/core:clients/07-tendermint-1/consensus_states) | [1](/r/aib/ibc/core:clients/07-tendermint-1/next_sequence_send) | [0](/r/aib/ibc/core:clients/07-tendermint-1/packet_commitments) | [0](/r/aib/ibc/core:clients/07-tendermint-1/packet_receipts) | [0](/r/aib/ibc/core:clients/07-tendermint-1/packet_acknowledgements) |
 //
-// ## Endpoints
+// ## Apps (0)
+//
+// No apps registered yet.
+//
+// ## JSON endpoints
 //
 // - [`apps`](/r/aib/ibc/core:apps): list registered IBC applications
 // - [`clients`](/r/aib/ibc/core:clients): list clients (`?page`, `?limit`)
@@ -47,7 +52,3 @@ func main() {
 // - `clients/{id}/packet_acknowledgements`: list packet acknowledgements (`?page`, `?limit`)
 // - `clients/{id}/packet_acknowledgements/{sequence}`: get a packet acknowledgement by sequence
 // - `clients/{id}/unreceived_packets?sequences=1,2,3`: return sequences without a local packet receipt
-//
-// ## Known clients
-//
-// - `07-tendermint-1`: [details](/r/aib/ibc/core:clients/07-tendermint-1) | [status](/r/aib/ibc/core:clients/07-tendermint-1/status) | [consensus states](/r/aib/ibc/core:clients/07-tendermint-1/consensus_states) | [next sequence](/r/aib/ibc/core:clients/07-tendermint-1/next_sequence_send) | [commitments](/r/aib/ibc/core:clients/07-tendermint-1/packet_commitments) | [receipts](/r/aib/ibc/core:clients/07-tendermint-1/packet_receipts) | [acks](/r/aib/ibc/core:clients/07-tendermint-1/packet_acknowledgements)
