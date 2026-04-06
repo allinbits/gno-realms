@@ -42,7 +42,7 @@ func renderHome(w *mux.ResponseWriter, r *mux.Request) {
 	out.WriteString("# IBC core\n\n")
 	out.WriteString("IBC v2 core state and query endpoints.\n\n")
 	out.WriteString("## Dashboard\n\n")
-	out.WriteString(ufmt.Sprintf("- Registered apps: `%d`\n", countRegisteredApps()))
+	out.WriteString(ufmt.Sprintf("- Registered apps: `%d`\n", len(store.routes)))
 	out.WriteString(ufmt.Sprintf("- Clients: `%d`\n\n", store.clientByID.Size()))
 	out.WriteString("## Endpoints\n\n")
 	out.WriteString("- [`apps`](/r/aib/ibc/core:apps): list registered IBC applications\n")
@@ -379,12 +379,4 @@ func nodeError(msg string, args ...any) *json.Node {
 	return json.ObjectNode("", map[string]*json.Node{
 		"error": json.StringNode("", ufmt.Sprintf(msg, args...)),
 	})
-}
-
-func countRegisteredApps() int {
-	var count int
-	for range store.routes {
-		count++
-	}
-	return count
 }

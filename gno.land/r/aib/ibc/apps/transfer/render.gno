@@ -30,7 +30,7 @@ func renderHome(w *mux.ResponseWriter, r *mux.Request) {
 	out.WriteString("## Dashboard\n\n")
 	out.WriteString(ufmt.Sprintf("- Known IBC denoms: `%d`\n", denoms.Size()))
 	out.WriteString(ufmt.Sprintf("- Escrow denoms: `%d`\n", totalEscrow.Size()))
-	out.WriteString(ufmt.Sprintf("- Voucher GRC20 tokens: `%d`\n\n", grc20tokens.Size()))
+	out.WriteString(ufmt.Sprintf("- Voucher GRC20 tokens: `%d`\n\n", voucherTokens.Size()))
 	out.WriteString("## Endpoints\n\n")
 	out.WriteString("- [`denoms`](/r/aib/ibc/apps/transfer:denoms): list known IBC denoms (`?page`, `?limit`)\n")
 	out.WriteString("- `denoms/ibc/{hash}`: get metadata for an IBC denom\n")
