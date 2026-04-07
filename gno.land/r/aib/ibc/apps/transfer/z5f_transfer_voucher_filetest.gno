@@ -195,7 +195,7 @@ func mintVoucher(clientID, counterpartyID string, trustedHeight types.Height, re
 //       },
 //       {
 //         "key": "slug",
-//         "value": "ibc/CAEF9CA8CE6C302D73A831A49E34E59149D3A9AD96CCEBDFBF62F6D5710D92D8"
+//         "value": "CAEF9CA8CE6C302D73A831A49E34E59149D3A9AD96CCEBDFBF62F6D5710D92D8"
 //       }
 //     ],
 //     "pkg_path": "gno.land/r/demo/defi/grc20reg"
