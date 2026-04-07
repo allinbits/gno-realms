@@ -34,6 +34,7 @@ func main() {
 	)
 	clientID := core.CreateClient(cross, clientState, consensusState)
 	core.RegisterCounterparty(cross, clientID, [][]byte{[]byte("iavlStoreKey"), []byte("prefix2")}, counterpartyID)
+	relayer := runtime.OriginCaller()
 
 	signer := runtime.CurrentRealm().Address()
 
@@ -136,6 +137,7 @@ func main() {
 	println("\nreceiver grc20 balance before RecvPacket:", grc20test.BalanceOf(receiver))
 	println("transfer app grc20 balance before RecvPacket:", grc20test.BalanceOf(transferAppAddr))
 
+	testing.SetOriginCaller(relayer)
 	res := core.RecvPacket(cross, recvPacket)
 
 	println("\nack res:", res)

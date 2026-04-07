@@ -65,6 +65,17 @@ func RegisterCounterparty(cur realm, clientID string, counterpartyMerklePrefix [
 	c.counterpartyMerklePrefix = counterpartyMerklePrefix
 }
 
+// Until admin operations land, the client creator is the only authorized
+// relayer for client maintenance and packet relay on that client.
+func ensureAuthorizedRelayer(c *client) {
+	caller := runtime.OriginCaller()
+	if c.creator != caller {
+		panic(ufmt.Sprintf(
+			"expected relayer %s for client %s, got %s", c.creator, c.id, caller,
+		))
+	}
+}
+
 // UpdateClient will update the given IBC v2 light client with a new header.
 // Can also be used to submit a misbehavior (clientMessage can be a header or
 // a misbehavior, maybe split into 2 functions would make more sense here).
@@ -76,15 +87,13 @@ func UpdateClient(cur realm, clientID string, clientMessage lightclient.ClientMe
 	if c == nil {
 		panic(ufmt.Sprintf("client %s not found", clientID))
 	}
+	ensureAuthorizedRelayer(c)
 	if c.typ != clientMessage.ClientType() {
 		panic("client type for client state and client message do not match")
 	}
 	if status := c.lightClient.Status(); status != lightclient.Active {
 		panic(ufmt.Sprintf("cannot update client (%s) with status %s", c.id, status))
 	}
-	// TODO check if relayer address is in whitelist
-	// Similarly to ibc-v2 go implementation, for safety we're going to restrict
-	// the UpdateClient call to a set of predefined relayers addresses.
 
 	err := c.lightClient.VerifyClientMessage(clientMessage)
 	if err != nil {
