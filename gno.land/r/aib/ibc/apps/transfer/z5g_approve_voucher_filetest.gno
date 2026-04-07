@@ -44,7 +44,7 @@ func main() {
 
 	println("allowance after ApproveVoucher:", token.Allowance(owner, spender))
 
-	testing.SetOriginCaller(spender)
+	testing.SetRealm(testing.NewUserRealm(spender))
 	if err := token.CallerTeller().TransferFrom(owner, recipient, 25); err != nil {
 		panic(err)
 	}
