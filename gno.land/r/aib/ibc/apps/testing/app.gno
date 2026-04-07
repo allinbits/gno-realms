@@ -4,6 +4,7 @@ import (
 	"gno.land/p/aib/ibc/app"
 	"gno.land/p/aib/ibc/types"
 	"gno.land/p/nt/ufmt/v0"
+	"gno.land/r/demo/defi/grc20reg"
 )
 
 type (
@@ -168,4 +169,14 @@ func (a *Args) Report() string {
 		s += ufmt.Sprintf("- ack: %s\n", string(a.Ack))
 	}
 	return s
+}
+
+// TransferApprovedGRC20 spends an approved GRC20 allowance from the caller's
+// account context. This is test-only plumbing used by filetests that need a
+// real realm frame for CallerTeller-based TransferFrom flows.
+func TransferApprovedGRC20(_ realm, grc20regKey string, owner, recipient address, amount int64) {
+	token := grc20reg.MustGet(grc20regKey)
+	if err := token.CallerTeller().TransferFrom(owner, recipient, amount); err != nil {
+		panic(err)
+	}
 }

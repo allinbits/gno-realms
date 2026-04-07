@@ -3,13 +3,14 @@ package main
 import (
 	"chain/runtime"
 	"encoding/hex"
-	"testing"
+	stdtesting "testing"
 	"time"
 
 	tmtesting "gno.land/p/aib/ibc/lightclient/tendermint/testing"
 	"gno.land/p/aib/ibc/types"
 	"gno.land/p/aib/ics23"
 	"gno.land/p/nt/testutils/v0"
+	appstesting "gno.land/r/aib/ibc/apps/testing"
 	"gno.land/r/aib/ibc/apps/transfer"
 	"gno.land/r/aib/ibc/core"
 	"gno.land/r/demo/defi/grc20reg"
@@ -44,10 +45,8 @@ func main() {
 
 	println("allowance after ApproveVoucher:", token.Allowance(owner, spender))
 
-	testing.SetRealm(testing.NewUserRealm(spender))
-	if err := token.CallerTeller().TransferFrom(owner, recipient, 25); err != nil {
-		panic(err)
-	}
+	stdtesting.SetRealm(stdtesting.NewUserRealm(spender))
+	appstesting.TransferApprovedGRC20(cross, "gno.land/r/aib/ibc/apps/transfer."+voucherDenom[len("ibc/"):], owner, recipient, 25)
 
 	println("allowance after TransferFrom:", token.Allowance(owner, spender))
 	println("owner voucher balance after TransferFrom:", transfer.VoucherBalanceOf(voucherDenom, owner))
