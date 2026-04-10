@@ -66,10 +66,14 @@ func Transfer(cur realm, clientID, receiver, denom string, amount int64, timeout
 	return transfer(clientID, receiver, denom, amount, timeoutTimestamp, memo)
 }
 
-// TransferVoucher transfers an IBC voucher token from the origin caller to the
+// TransferVoucher transfers an IBC voucher token from the caller to the
 // provided recipient. Unlike interacting with the underlying GRC20 directly,
 // this helper works via MsgCall because the transfer realm can impersonate the
-// origin caller against the voucher ledger it owns.
+// caller against the voucher ledger it owns.
+//
+// Uses PreviousRealm (not OriginCaller) to identify the caller, preventing
+// cross-realm phishing where a malicious intermediary realm could move the
+// transaction signer's tokens.
 func TransferVoucher(cur realm, ibcDenom string, to address, amount int64) {
 	if sent := cur.SentCoins(); len(sent) > 0 {
 		panic("voucher transfer must not include native coins")
@@ -78,15 +82,19 @@ func TransferVoucher(cur realm, ibcDenom string, to address, amount int64) {
 	if inst == nil {
 		panic(ufmt.Errorf("voucher token not found for denom %s", ibcDenom))
 	}
-	teller := inst.ledger.ImpersonateTeller(runtime.OriginCaller())
+	teller := inst.ledger.ImpersonateTeller(runtime.PreviousRealm().Address())
 	if err := teller.Transfer(to, amount); err != nil {
 		panic(ufmt.Errorf("transfer voucher %s error: %v", ibcDenom, err))
 	}
 }
 
 // ApproveVoucher sets a spender allowance for an IBC voucher token on behalf
-// of the origin caller. This exposes a MsgCall-friendly way to approve voucher
+// of the caller. This exposes a MsgCall-friendly way to approve voucher
 // transfers without interacting with grc20reg directly.
+//
+// Uses PreviousRealm (not OriginCaller) to identify the caller, preventing
+// cross-realm phishing where a malicious intermediary realm could set
+// allowances on the transaction signer's tokens.
 func ApproveVoucher(cur realm, ibcDenom string, spender address, amount int64) {
 	if sent := cur.SentCoins(); len(sent) > 0 {
 		panic("voucher approval must not include native coins")
@@ -95,7 +103,7 @@ func ApproveVoucher(cur realm, ibcDenom string, spender address, amount int64) {
 	if inst == nil {
 		panic(ufmt.Errorf("voucher token not found for denom %s", ibcDenom))
 	}
-	teller := inst.ledger.ImpersonateTeller(runtime.OriginCaller())
+	teller := inst.ledger.ImpersonateTeller(runtime.PreviousRealm().Address())
 	if err := teller.Approve(spender, amount); err != nil {
 		panic(ufmt.Errorf("approve voucher %s error: %v", ibcDenom, err))
 	}
