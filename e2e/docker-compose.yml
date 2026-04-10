@@ -3,9 +3,8 @@ services:
     build:
       context: ..
       dockerfile: e2e/gno/Dockerfile
-      args:
-        - FORK_REPO
-        - FORK_BRANCH
+      additional_contexts:
+        - gno-fork=../../gno
     ports:
       - "46657:26657"
       - "48888:8888"
@@ -62,7 +61,8 @@ services:
       start_period: 30s
 
   relayer:
-    image: ghcr.io/allinbits/ibc-v2-ts-relayer:latest
+    build:
+      context: ../../atomone/ibc-v2-ts-relayer
     entrypoint: ["/entrypoint.sh"]
     command: ["ibc-v2-ts-relayer", "relay"]
     volumes:

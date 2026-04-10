@@ -3,8 +3,8 @@ module aibgno
 go 1.25.3
 
 replace (
-	github.com/gnolang/gno => github.com/allinbits/gno v0.0.0-20260403155940-f9fee3f01ccc
-	github.com/gnolang/gno/contribs/gnodev => github.com/allinbits/gno/contribs/gnodev v0.0.0-20260403155940-f9fee3f01ccc
+	github.com/gnolang/gno => ../gno
+	github.com/gnolang/gno/contribs/gnodev => ../gno/contribs/gnodev
 )
 
 tool (
@@ -20,6 +20,7 @@ require (
 	github.com/aymanbagabas/go-osc52/v2 v2.0.1 // indirect
 	github.com/bendory/conway-hebrew-calendar v0.0.0-20210829020739-dcc34210ce9b // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
+	github.com/bmatsuo/lmdb-go v1.8.0 // indirect
 	github.com/btcsuite/btcd/btcec/v2 v2.3.6 // indirect
 	github.com/btcsuite/btcd/btcutil v1.1.6 // indirect
 	github.com/cenkalti/backoff/v5 v5.0.3 // indirect
@@ -46,6 +47,7 @@ require (
 	github.com/dlclark/regexp2 v1.11.5 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/emicklei/dot v1.11.0 // indirect
+	github.com/erigontech/mdbx-go v0.40.0 // indirect
 	github.com/fsnotify/fsnotify v1.9.0 // indirect
 	github.com/getsentry/sentry-go v0.35.0 // indirect
 	github.com/gnolang/gno v0.2.0 // indirect
@@ -62,6 +64,7 @@ require (
 	github.com/gorilla/websocket v1.5.3 // indirect
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.28.0 // indirect
 	github.com/hashicorp/golang-lru/v2 v2.0.7 // indirect
+	github.com/ianlancetaylor/cgosymbolizer v0.0.0-20241129212102-9c50ad6b591e // indirect
 	github.com/klauspost/compress v1.18.0 // indirect
 	github.com/kr/pretty v0.3.1 // indirect
 	github.com/kr/text v0.2.0 // indirect

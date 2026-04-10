@@ -1,14 +1,11 @@
 # Build stage: compile gnodev and gnokey from the gno fork
 FROM golang:1.24-alpine AS builder
 
-ARG FORK_REPO
-ARG FORK_BRANCH
+RUN apk add --no-cache git make gcc musl-dev lmdb-dev linux-headers
+ENV CGO_ENABLED=1
 
-RUN apk add --no-cache git make
-
-# Clone the gno fork with IBC support
-RUN git clone --branch ${FORK_BRANCH} --single-branch --depth 1 \
-    https://${FORK_REPO}.git /src/gno
+# Copy local gno fork with IBC support
+COPY --from=gno-fork / /src/gno
 
 WORKDIR /src/gno
 
@@ -36,7 +33,7 @@ RUN cd /aibgno && \
 # Runtime stage
 FROM alpine:3.21
 
-RUN apk add --no-cache curl bash
+RUN apk add --no-cache curl bash lmdb
 
 COPY --from=builder /usr/local/bin/gnodev /usr/local/bin/gnodev
 COPY --from=builder /usr/local/bin/gnokey /usr/local/bin/gnokey
