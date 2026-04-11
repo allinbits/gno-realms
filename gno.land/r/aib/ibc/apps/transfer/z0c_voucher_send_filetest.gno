@@ -3,7 +3,6 @@ package main
 import (
 	"chain/runtime"
 	"encoding/hex"
-	"testing"
 	"time"
 
 	tmtesting "gno.land/p/aib/ibc/lightclient/tendermint/testing"
@@ -12,10 +11,9 @@ import (
 	"gno.land/p/nt/testutils/v0"
 	"gno.land/r/aib/ibc/apps/transfer"
 	"gno.land/r/aib/ibc/core"
-	"gno.land/r/demo/defi/grc20reg"
 )
 
-// ApproveVoucher: success for IBC voucher token via MsgCall helper.
+// VoucherSend: success for IBC voucher token via MsgCall helper.
 func main() {
 	var (
 		chainID        = "chain-id-2"
@@ -29,29 +27,19 @@ func main() {
 	clientID := core.CreateClient(cross, clientState, consensusState)
 	core.RegisterCounterparty(cross, clientID, [][]byte{[]byte("iavlStoreKey"), []byte("prefix2")}, counterpartyID)
 
-	owner := runtime.OriginCaller()
-	spender := testutils.TestAddress("spender")
+	signer := runtime.OriginCaller()
 	recipient := testutils.TestAddress("recipient")
 
-	mintVoucher(clientID, counterpartyID, trustedHeight, owner)
+	mintVoucher(clientID, counterpartyID, trustedHeight, signer)
 
 	voucherDenom := transfer.NewDenom("uphoton", transfer.NewHop(transfer.PortID, clientID)).IBCDenom()
-	token := grc20reg.MustGet("gno.land/r/aib/ibc/apps/transfer." + voucherDenom[len("ibc/"):])
+	println("signer voucher balance before VoucherSend:", transfer.VoucherBalanceOf(voucherDenom, signer))
+	println("recipient voucher balance before VoucherSend:", transfer.VoucherBalanceOf(voucherDenom, recipient))
 
-	println("allowance before ApproveVoucher:", token.Allowance(owner, spender))
+	transfer.VoucherSend(cross, voucherDenom, recipient, 40)
 
-	transfer.ApproveVoucher(cross, voucherDenom, spender, 40)
-
-	println("allowance after ApproveVoucher:", token.Allowance(owner, spender))
-
-	testing.SetRealm(testing.NewUserRealm(spender))
-	if err := token.CallerTeller().TransferFrom(owner, recipient, 25); err != nil {
-		panic(err)
-	}
-
-	println("allowance after TransferFrom:", token.Allowance(owner, spender))
-	println("owner voucher balance after TransferFrom:", transfer.VoucherBalanceOf(voucherDenom, owner))
-	println("recipient voucher balance after TransferFrom:", transfer.VoucherBalanceOf(voucherDenom, recipient))
+	println("signer voucher balance after VoucherSend:", transfer.VoucherBalanceOf(voucherDenom, signer))
+	println("recipient voucher balance after VoucherSend:", transfer.VoucherBalanceOf(voucherDenom, recipient))
 }
 
 func mintVoucher(clientID, counterpartyID string, trustedHeight types.Height, receiver address) {
@@ -133,11 +121,10 @@ func mintVoucher(clientID, counterpartyID string, trustedHeight types.Height, re
 }
 
 // Output:
-// allowance before ApproveVoucher: 0
-// allowance after ApproveVoucher: 40
-// allowance after TransferFrom: 15
-// owner voucher balance after TransferFrom: 75
-// recipient voucher balance after TransferFrom: 25
+// signer voucher balance before VoucherSend: 100
+// recipient voucher balance before VoucherSend: 0
+// signer voucher balance after VoucherSend: 60
+// recipient voucher balance after VoucherSend: 40
 
 // Events:
 // [
@@ -296,28 +283,6 @@ func mintVoucher(clientID, counterpartyID string, trustedHeight types.Height, re
 //     "pkg_path": "gno.land/r/aib/ibc/core"
 //   },
 //   {
-//     "type": "Approval",
-//     "attrs": [
-//       {
-//         "key": "token",
-//         "value": "gno.land/r/aib/ibc/apps/transfer.ibc/CAEF9CA8CE6C302D73A831A49E34E59149D3A9AD96CCEBDFBF62F6D5710D92D8"
-//       },
-//       {
-//         "key": "owner",
-//         "value": "g1wymu47drhr0kuq2098m792lytgtj2nyx77yrsm"
-//       },
-//       {
-//         "key": "spender",
-//         "value": "g1wdcx2mnyv4e97h6lta047h6lta047h6l735n06"
-//       },
-//       {
-//         "key": "value",
-//         "value": "40"
-//       }
-//     ],
-//     "pkg_path": "gno.land/p/demo/tokens/grc20"
-//   },
-//   {
 //     "type": "Transfer",
 //     "attrs": [
 //       {
@@ -334,7 +299,7 @@ func mintVoucher(clientID, counterpartyID string, trustedHeight types.Height, re
 //       },
 //       {
 //         "key": "value",
-//         "value": "25"
+//         "value": "40"
 //       }
 //     ],
 //     "pkg_path": "gno.land/p/demo/tokens/grc20"

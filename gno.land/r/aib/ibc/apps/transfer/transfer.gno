@@ -66,15 +66,15 @@ func Transfer(cur realm, clientID, receiver, denom string, amount int64, timeout
 	return transfer(clientID, receiver, denom, amount, timeoutTimestamp, memo)
 }
 
-// TransferVoucher transfers an IBC voucher token from the caller to the
-// provided recipient. Unlike interacting with the underlying GRC20 directly,
-// this helper works via MsgCall because the transfer realm can impersonate the
+// VoucherSend sends an IBC voucher token from the caller to the provided
+// recipient. Unlike interacting with the underlying GRC20 directly, this
+// helper works via MsgCall because the transfer realm can impersonate the
 // caller against the voucher ledger it owns.
 //
 // Uses PreviousRealm (not OriginCaller) to identify the caller, preventing
 // cross-realm phishing where a malicious intermediary realm could move the
 // transaction signer's tokens.
-func TransferVoucher(cur realm, ibcDenom string, to address, amount int64) {
+func VoucherSend(cur realm, ibcDenom string, to address, amount int64) {
 	if sent := cur.SentCoins(); len(sent) > 0 {
 		panic("voucher transfer must not include native coins")
 	}
@@ -88,14 +88,14 @@ func TransferVoucher(cur realm, ibcDenom string, to address, amount int64) {
 	}
 }
 
-// ApproveVoucher sets a spender allowance for an IBC voucher token on behalf
+// VoucherApprove sets a spender allowance for an IBC voucher token on behalf
 // of the caller. This exposes a MsgCall-friendly way to approve voucher
-// transfers without interacting with grc20reg directly.
+// spending without interacting with grc20reg directly.
 //
 // Uses PreviousRealm (not OriginCaller) to identify the caller, preventing
 // cross-realm phishing where a malicious intermediary realm could set
 // allowances on the transaction signer's tokens.
-func ApproveVoucher(cur realm, ibcDenom string, spender address, amount int64) {
+func VoucherApprove(cur realm, ibcDenom string, spender address, amount int64) {
 	if sent := cur.SentCoins(); len(sent) > 0 {
 		panic("voucher approval must not include native coins")
 	}

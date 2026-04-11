@@ -56,35 +56,6 @@ gnokey maketx call -pkgpath gno.land/r/aib/ibc/apps/transfer -func Transfer \
     -broadcast -chainid gnoland-1 ADDRESS
 ```
 
-For local voucher interactions on Gno, the transfer realm also exposes
-`MsgCall`-friendly helper functions:
-
-```gno
-func TransferVoucher(cur realm, ibcDenom string, to address, amount int64)
-func ApproveVoucher(cur realm, ibcDenom string, spender address, amount int64)
-```
-
-Use `TransferVoucher` to move voucher tokens between Gno addresses without
-going through an IBC send:
-
-```
-gnokey maketx call -pkgpath gno.land/r/aib/ibc/apps/transfer -func TransferVoucher \
-    -args "ibc/CAEF9CA8CE6C302D73A831A49E34E59149D3A9AD96CCEBDFBF62F6D5710D92D8" \
-    -args "g1recipient..." -args "100" \
-    -gas-fee 1000000ugnot -gas-wanted 90000000 \
-    -broadcast -chainid gnoland-1 ADDRESS
-```
-
-Use `ApproveVoucher` to set a spender allowance for a voucher token:
-
-```
-gnokey maketx call -pkgpath gno.land/r/aib/ibc/apps/transfer -func ApproveVoucher \
-    -args "ibc/CAEF9CA8CE6C302D73A831A49E34E59149D3A9AD96CCEBDFBF62F6D5710D92D8" \
-    -args "g1spender..." -args "100" \
-    -gas-fee 1000000ugnot -gas-wanted 90000000 \
-    -broadcast -chainid gnoland-1 ADDRESS
-```
-
 ### GRC20 token
 
 The caller must first approve the transfer app realm to spend the tokens.
@@ -155,6 +126,39 @@ voucher does not exist.
 
 ```gno
 balance := transfer.VoucherBalanceOf("ibc/CAEF9C...", addr)
+```
+
+### VoucherSend
+
+Send an IBC voucher token to another Gno address without going through an IBC
+transfer:
+
+```gno
+transfer.VoucherSend(cross, "ibc/CAEF9C...", recipient, 100)
+```
+
+```
+gnokey maketx call -pkgpath gno.land/r/aib/ibc/apps/transfer -func VoucherSend \
+    -args "ibc/CAEF9CA8CE6C302D73A831A49E34E59149D3A9AD96CCEBDFBF62F6D5710D92D8" \
+    -args "g1recipient..." -args "100" \
+    -gas-fee 1000000ugnot -gas-wanted 90000000 \
+    -broadcast -chainid gnoland-1 ADDRESS
+```
+
+### VoucherApprove
+
+Set a spender allowance for an IBC voucher token:
+
+```gno
+transfer.VoucherApprove(cross, "ibc/CAEF9C...", spender, 100)
+```
+
+```
+gnokey maketx call -pkgpath gno.land/r/aib/ibc/apps/transfer -func VoucherApprove \
+    -args "ibc/CAEF9CA8CE6C302D73A831A49E34E59149D3A9AD96CCEBDFBF62F6D5710D92D8" \
+    -args "g1spender..." -args "100" \
+    -gas-fee 1000000ugnot -gas-wanted 90000000 \
+    -broadcast -chainid gnoland-1 ADDRESS
 ```
 
 ### GRC20Alias
