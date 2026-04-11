@@ -66,14 +66,8 @@ func Transfer(cur realm, clientID, receiver, denom string, amount int64, timeout
 	return transfer(clientID, receiver, denom, amount, timeoutTimestamp, memo)
 }
 
-// VoucherSend sends an IBC voucher token from the caller to the provided
-// recipient. Unlike interacting with the underlying GRC20 directly, this
-// helper works via MsgCall because the transfer realm can impersonate the
-// caller against the voucher ledger it owns.
-//
-// Uses PreviousRealm (not OriginCaller) to identify the caller, preventing
-// cross-realm phishing where a malicious intermediary realm could move the
-// transaction signer's tokens.
+// VoucherSend is a convenience helper to send an IBC voucher token from the
+// caller to the provided recipient.
 func VoucherSend(cur realm, ibcDenom string, to address, amount int64) {
 	if sent := cur.SentCoins(); len(sent) > 0 {
 		panic("voucher transfer must not include native coins")
@@ -88,13 +82,8 @@ func VoucherSend(cur realm, ibcDenom string, to address, amount int64) {
 	}
 }
 
-// VoucherApprove sets a spender allowance for an IBC voucher token on behalf
-// of the caller. This exposes a MsgCall-friendly way to approve voucher
-// spending without interacting with grc20reg directly.
-//
-// Uses PreviousRealm (not OriginCaller) to identify the caller, preventing
-// cross-realm phishing where a malicious intermediary realm could set
-// allowances on the transaction signer's tokens.
+// VoucherApprove is a convenience helper to set a spender allowance for an IBC
+// voucher token on behalf of the caller.
 func VoucherApprove(cur realm, ibcDenom string, spender address, amount int64) {
 	if sent := cur.SentCoins(); len(sent) > 0 {
 		panic("voucher approval must not include native coins")
