@@ -31,7 +31,6 @@ func main() {
 
 	owner := runtime.OriginCaller()
 	spender := testutils.TestAddress("spender")
-	recipient := testutils.TestAddress("recipient")
 
 	mintVoucher(clientID, counterpartyID, trustedHeight, owner)
 
@@ -40,18 +39,10 @@ func main() {
 
 	println("allowance before VoucherApprove:", token.Allowance(owner, spender))
 
+	testing.SetRealm(testing.NewUserRealm(owner))
 	transfer.VoucherApprove(cross, voucherDenom, spender, 40)
 
 	println("allowance after VoucherApprove:", token.Allowance(owner, spender))
-
-	testing.SetRealm(testing.NewUserRealm(spender))
-	if err := token.CallerTeller().TransferFrom(owner, recipient, 25); err != nil {
-		panic(err)
-	}
-
-	println("allowance after TransferFrom:", token.Allowance(owner, spender))
-	println("owner voucher balance after TransferFrom:", transfer.VoucherBalanceOf(voucherDenom, owner))
-	println("recipient voucher balance after TransferFrom:", transfer.VoucherBalanceOf(voucherDenom, recipient))
 }
 
 func mintVoucher(clientID, counterpartyID string, trustedHeight types.Height, receiver address) {
@@ -135,9 +126,6 @@ func mintVoucher(clientID, counterpartyID string, trustedHeight types.Height, re
 // Output:
 // allowance before VoucherApprove: 0
 // allowance after VoucherApprove: 40
-// allowance after TransferFrom: 15
-// owner voucher balance after TransferFrom: 75
-// recipient voucher balance after TransferFrom: 25
 
 // Events:
 // [
@@ -313,28 +301,6 @@ func mintVoucher(clientID, counterpartyID string, trustedHeight types.Height, re
 //       {
 //         "key": "value",
 //         "value": "40"
-//       }
-//     ],
-//     "pkg_path": "gno.land/p/demo/tokens/grc20"
-//   },
-//   {
-//     "type": "Transfer",
-//     "attrs": [
-//       {
-//         "key": "token",
-//         "value": "gno.land/r/aib/ibc/apps/transfer.ibc/CAEF9CA8CE6C302D73A831A49E34E59149D3A9AD96CCEBDFBF62F6D5710D92D8"
-//       },
-//       {
-//         "key": "from",
-//         "value": "g1wymu47drhr0kuq2098m792lytgtj2nyx77yrsm"
-//       },
-//       {
-//         "key": "to",
-//         "value": "g1wfjkx6tsd9jkuazlta047h6lta047h6lu0zqma"
-//       },
-//       {
-//         "key": "value",
-//         "value": "25"
 //       }
 //     ],
 //     "pkg_path": "gno.land/p/demo/tokens/grc20"

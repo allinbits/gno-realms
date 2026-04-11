@@ -3,6 +3,7 @@ package main
 import (
 	"chain/runtime"
 	"encoding/hex"
+	"testing"
 	"time"
 
 	tmtesting "gno.land/p/aib/ibc/lightclient/tendermint/testing"
@@ -36,6 +37,7 @@ func main() {
 	println("signer voucher balance before VoucherSend:", transfer.VoucherBalanceOf(voucherDenom, signer))
 	println("recipient voucher balance before VoucherSend:", transfer.VoucherBalanceOf(voucherDenom, recipient))
 
+	testing.SetRealm(testing.NewUserRealm(signer))
 	transfer.VoucherSend(cross, voucherDenom, recipient, 40)
 
 	println("signer voucher balance after VoucherSend:", transfer.VoucherBalanceOf(voucherDenom, signer))
