@@ -130,8 +130,7 @@ balance := transfer.VoucherBalanceOf("ibc/CAEF9C...", addr)
 
 ### VoucherSend
 
-Send an IBC voucher token to another Gno address without going through an IBC
-transfer:
+Send an IBC voucher token to another Gno address:
 
 ```gno
 transfer.VoucherSend(cross, "ibc/CAEF9C...", recipient, 100)
