@@ -128,6 +128,38 @@ voucher does not exist.
 balance := transfer.VoucherBalanceOf("ibc/CAEF9C...", addr)
 ```
 
+### VoucherSend
+
+Send an IBC voucher token to another Gno address:
+
+```gno
+transfer.VoucherSend(cross, "ibc/CAEF9C...", recipient, 100)
+```
+
+```
+gnokey maketx call -pkgpath gno.land/r/aib/ibc/apps/transfer -func VoucherSend \
+    -args "ibc/CAEF9CA8CE6C302D73A831A49E34E59149D3A9AD96CCEBDFBF62F6D5710D92D8" \
+    -args "g1recipient..." -args "100" \
+    -gas-fee 1000000ugnot -gas-wanted 90000000 \
+    -broadcast -chainid gnoland-1 ADDRESS
+```
+
+### VoucherApprove
+
+Set a spender allowance for an IBC voucher token:
+
+```gno
+transfer.VoucherApprove(cross, "ibc/CAEF9C...", spender, 100)
+```
+
+```
+gnokey maketx call -pkgpath gno.land/r/aib/ibc/apps/transfer -func VoucherApprove \
+    -args "ibc/CAEF9CA8CE6C302D73A831A49E34E59149D3A9AD96CCEBDFBF62F6D5710D92D8" \
+    -args "g1spender..." -args "100" \
+    -gas-fee 1000000ugnot -gas-wanted 90000000 \
+    -broadcast -chainid gnoland-1 ADDRESS
+```
+
 ### GRC20Alias
 
 Convert a grc20reg key to the slash-free alias used in IBC packets.
