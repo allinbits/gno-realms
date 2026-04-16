@@ -10,6 +10,8 @@ import (
 
 // UpdateClient consensusState.NextValidatorHash and nextValset mismatch
 func main() {
+	core.SetAdmin(cross, "g1wymu47drhr0kuq2098m792lytgtj2nyx77yrsm")
+	core.AddRelayer(cross, "g1wymu47drhr0kuq2098m792lytgtj2nyx77yrsm")
 	// CreateClient and RegisterCounterparty
 	var (
 		chainID        = "chain-id-2"

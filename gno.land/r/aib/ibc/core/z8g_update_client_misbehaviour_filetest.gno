@@ -13,6 +13,8 @@ import (
 // UpdateClient with invalid misbehaviour:
 // header2 trusted consensus older than trusting period
 func main() {
+	core.SetAdmin(cross, "g1wymu47drhr0kuq2098m792lytgtj2nyx77yrsm")
+	core.AddRelayer(cross, "g1wymu47drhr0kuq2098m792lytgtj2nyx77yrsm")
 	// CreateClient and RegisterCounterparty
 	var (
 		chainID     = "atomone-1"

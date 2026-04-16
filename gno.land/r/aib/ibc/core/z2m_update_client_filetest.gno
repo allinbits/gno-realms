@@ -11,6 +11,8 @@ import (
 
 // UpdateClient fail because less than 2/3 of validators have signed
 func main() {
+	core.SetAdmin(cross, "g1wymu47drhr0kuq2098m792lytgtj2nyx77yrsm")
+	core.AddRelayer(cross, "g1wymu47drhr0kuq2098m792lytgtj2nyx77yrsm")
 	// CreateClient and RegisterCounterparty
 	var (
 		chainID     = "atomone-1"

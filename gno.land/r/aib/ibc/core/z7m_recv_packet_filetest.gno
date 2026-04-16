@@ -13,6 +13,8 @@ import (
 
 // RecvPacket unauthorized relayer
 func main() {
+	core.SetAdmin(cross, "g1wymu47drhr0kuq2098m792lytgtj2nyx77yrsm")
+	core.AddRelayer(cross, "g1wymu47drhr0kuq2098m792lytgtj2nyx77yrsm")
 	var (
 		chainID        = "chain-id-2"
 		trustedHeight  = types.NewHeight(2, 2)
@@ -62,4 +64,4 @@ func main() {
 }
 
 // Error:
-// expected relayer g1wymu47drhr0kuq2098m792lytgtj2nyx77yrsm for client 07-tendermint-1, got g1wymu47drhr0kuq2098m792lytgtj2nyx77yrsx
+// unauthorized relayer g1wymu47drhr0kuq2098m792lytgtj2nyx77yrsx

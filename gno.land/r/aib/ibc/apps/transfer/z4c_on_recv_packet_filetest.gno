@@ -15,6 +15,8 @@ import (
 // OnRecvPacket: fails because payload is bad encoded
 // NOTE: RecvPacket does not fail if OnRecvPacket fails.
 func main() {
+	core.SetAdmin(cross, "g1wymu47drhr0kuq2098m792lytgtj2nyx77yrsm")
+	core.AddRelayer(cross, "g1wymu47drhr0kuq2098m792lytgtj2nyx77yrsm")
 	var (
 		chainID       = "chain-id-2"
 		trustedHeight = types.NewHeight(2, 2)

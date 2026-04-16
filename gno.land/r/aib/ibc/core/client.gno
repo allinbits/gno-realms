@@ -27,6 +27,7 @@ func CreateClient(cur realm, clientState lightclient.ClientState, consensusState
 	if err := consensusState.ValidateBasic(); err != nil {
 		panic(err)
 	}
+	ensureAuthorizedRelayer()
 	c := store.addClient(clientState.ClientType(), runtime.OriginCaller())
 	err := c.lightClient.Initialize(clientState, consensusState)
 	if err != nil {
@@ -65,17 +66,6 @@ func RegisterCounterparty(cur realm, clientID string, counterpartyMerklePrefix [
 	c.counterpartyMerklePrefix = counterpartyMerklePrefix
 }
 
-// Until admin operations land, the client creator is the only authorized
-// relayer for client maintenance and packet relay on that client.
-func ensureAuthorizedRelayer(c *client) {
-	caller := runtime.OriginCaller()
-	if c.creator != caller {
-		panic(ufmt.Sprintf(
-			"expected relayer %s for client %s, got %s", c.creator, c.id, caller,
-		))
-	}
-}
-
 // UpdateClient will update the given IBC v2 light client with a new header.
 // Can also be used to submit a misbehavior (clientMessage can be a header or
 // a misbehavior, maybe split into 2 functions would make more sense here).
@@ -87,7 +77,7 @@ func UpdateClient(cur realm, clientID string, clientMessage lightclient.ClientMe
 	if c == nil {
 		panic(ufmt.Sprintf("client %s not found", clientID))
 	}
-	ensureAuthorizedRelayer(c)
+	ensureAuthorizedRelayer()
 	if c.typ != clientMessage.ClientType() {
 		panic("client type for client state and client message do not match")
 	}

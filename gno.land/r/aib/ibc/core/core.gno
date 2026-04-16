@@ -107,7 +107,7 @@ func RecvPacket(cur realm, msg types.MsgRecvPacket) types.ResponseResultType {
 	if c == nil {
 		panic(ufmt.Sprintf("client %s not found", clientID))
 	}
-	ensureAuthorizedRelayer(c)
+	ensureAuthorizedRelayer()
 	// check client is active
 	if status := c.lightClient.Status(); status != lightclient.Active {
 		panic(ufmt.Sprintf("client (%s) status is %s", clientID, status))
@@ -237,7 +237,7 @@ func Acknowledgement(cur realm, msg types.MsgAcknowledgement) types.ResponseResu
 	if c == nil {
 		panic(ufmt.Sprintf("client %s not found", clientID))
 	}
-	ensureAuthorizedRelayer(c)
+	ensureAuthorizedRelayer()
 	// check client is active
 	if status := c.lightClient.Status(); status != lightclient.Active {
 		panic(ufmt.Sprintf("client (%s) status is %s", clientID, status))
@@ -335,7 +335,7 @@ func Timeout(cur realm, msg types.MsgTimeout) types.ResponseResultType {
 	if c == nil {
 		panic(ufmt.Sprintf("client %s not found", clientID))
 	}
-	ensureAuthorizedRelayer(c)
+	ensureAuthorizedRelayer()
 	// check client is active
 	if status := c.lightClient.Status(); status != lightclient.Active {
 		panic(ufmt.Sprintf("client (%s) status is %s", clientID, status))
