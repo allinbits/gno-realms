@@ -31,4 +31,4 @@ func main() {
 }
 
 // Error:
-// expected same signer as CreateClient submittor g1wymu47drhr0kuq2098m792lytgtj2nyx77yrsm, got g1wymu47drhr0kuq2098m792lytgtj2nyx77yrsx
+// expected same signer as CreateClient submitter g1wymu47drhr0kuq2098m792lytgtj2nyx77yrsm, got g1wymu47drhr0kuq2098m792lytgtj2nyx77yrsx

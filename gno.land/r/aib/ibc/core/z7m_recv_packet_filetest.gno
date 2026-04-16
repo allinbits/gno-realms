@@ -1,7 +1,6 @@
 package main
 
 import (
-	"encoding/hex"
 	"testing"
 	"time"
 
@@ -15,14 +14,12 @@ import (
 // RecvPacket unauthorized relayer
 func main() {
 	var (
-		chainID       = "chain-id-2"
-		trustedHeight = types.NewHeight(2, 2)
-		clientState   = tmtesting.NewClientState(chainID, trustedHeight)
-		apphash, _    = hex.DecodeString("8da82bb625ee946f4b7aa03a82010cb115f9ce3879c7caad8d92e71eb821996e")
-		trustedValset = tmtesting.GenValset()
-		consensusState = tmtesting.GenConsensusState(
-			time.Now(), apphash, trustedValset.Hash(),
-		)
+		chainID        = "chain-id-2"
+		trustedHeight  = types.NewHeight(2, 2)
+		clientState    = tmtesting.NewClientState(chainID, trustedHeight)
+		apphash        = tmtesting.Hash("apphash")
+		trustedValset  = tmtesting.GenValset()
+		consensusState = tmtesting.GenConsensusState(time.Now(), apphash, trustedValset.Hash())
 		counterpartyID = "07-tendermint-42"
 	)
 	clientID := core.CreateClient(cross, clientState, consensusState)
@@ -38,54 +35,6 @@ func main() {
 	})
 	core.RegisterApp(cross, appPortID, app)
 
-	specs := ics23.IavlSpec()
-	proof := []ics23.CommitmentProof{
-		ics23.CommitmentProof_Exist{
-			Exist: &ics23.ExistenceProof{
-				Key:   []byte("\x70\x72\x65\x66\x69\x78\x32\x30\x37\x2d\x74\x65\x6e\x64\x65\x72\x6d\x69\x6e\x74\x2d\x34\x32\x01\x00\x00\x00\x00\x00\x00\x00\x01"),
-				Value: []byte("\x23\x99\xf6\x84\x16\xb7\xd0\x09\x3b\xe4\x9e\x5f\x8e\xe1\xbe\x1c\x8e\x07\xa0\x93\xc5\x67\x09\x03\x46\xce\x36\xc9\x7d\x11\x71\x71"),
-				Leaf: &ics23.LeafOp{
-					Hash:         specs.LeafSpec.Hash,
-					PrehashKey:   specs.LeafSpec.PrehashKey,
-					PrehashValue: specs.LeafSpec.PrehashValue,
-					Length:       specs.LeafSpec.Length,
-					Prefix:       []byte("\x00\x02\x02"),
-				},
-				Path: []*ics23.InnerOp{
-					{
-						Hash:   specs.InnerSpec.Hash,
-						Prefix: []byte("\x02\x04\x02\x20\x35\xf8\xea\x80\x53\x90\xe0\x84\x85\x4f\x39\x9b\x42\xcc\xde\xae\xa3\x3a\x1d\xed\xc1\x15\x63\x8a\xc4\x8d\x06\x00\x63\x7d\xba\x1f\x20"),
-						Suffix: []byte(""),
-					},
-					{
-						Hash:   specs.InnerSpec.Hash,
-						Prefix: []byte("\x04\x08\x02\x20"),
-						Suffix: []byte("\x20\x79\x8e\x2c\xaa\x96\xfd\xfb\xa3\x76\xdd\xeb\x47\x99\x99\x54\xd2\xf4\x7e\x65\x16\x22\x64\xb0\x53\x6a\xb5\xdf\xf7\xfc\x0a\x2e\x07"),
-					},
-					{
-						Hash:   specs.InnerSpec.Hash,
-						Prefix: []byte("\x06\x0c\x02\x20\x9a\xf3\x7d\xd5\x95\xa0\x19\x08\x03\xb5\xe0\x5a\xae\xf4\x2a\xe3\xfa\xd4\x99\xe4\xfb\xe3\x7f\x7c\xd3\x1c\xad\xff\x22\xa9\xee\x74\x20"),
-						Suffix: []byte(""),
-					},
-				},
-			},
-		},
-		ics23.CommitmentProof_Exist{
-			Exist: &ics23.ExistenceProof{
-				Key:   []byte("\x69\x61\x76\x6c\x53\x74\x6f\x72\x65\x4b\x65\x79"),
-				Value: []byte("\xeb\xfd\x02\x8a\x5d\xe1\xcf\x93\xde\x5d\x0b\xa8\xcf\x6e\x0d\x5e\x29\xf8\x80\x1a\x08\x0b\x07\x20\x3c\xf1\xca\xf2\xf4\xdd\xd3\x10"),
-				Leaf: &ics23.LeafOp{
-					Hash:         specs.LeafSpec.Hash,
-					PrehashKey:   specs.LeafSpec.PrehashKey,
-					PrehashValue: specs.LeafSpec.PrehashValue,
-					Length:       specs.LeafSpec.Length,
-					Prefix:       []byte("\x00"),
-				},
-				Path: []*ics23.InnerOp{},
-			},
-		},
-	}
-
 	recvPacket := types.MsgRecvPacket{
 		Packet: types.Packet{
 			Sequence:          1,
@@ -100,8 +49,12 @@ func main() {
 				Version:         "v1",
 			}},
 		},
-		ProofCommitment: proof,
-		ProofHeight:     trustedHeight,
+		ProofCommitment: []ics23.CommitmentProof{
+			ics23.CommitmentProof_Exist{
+				Exist: &ics23.ExistenceProof{},
+			},
+		},
+		ProofHeight: trustedHeight,
 	}
 
 	testing.SetOriginCaller("g1wymu47drhr0kuq2098m792lytgtj2nyx77yrsx")

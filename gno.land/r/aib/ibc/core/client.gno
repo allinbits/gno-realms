@@ -56,7 +56,7 @@ func RegisterCounterparty(cur realm, clientID string, counterpartyMerklePrefix [
 		panic(ufmt.Sprintf("client %s not found", clientID))
 	}
 	if c.creator != runtime.OriginCaller() {
-		panic(ufmt.Sprintf("expected same signer as CreateClient submittor %s, got %s", c.creator, runtime.OriginCaller()))
+		panic(ufmt.Sprintf("expected same signer as CreateClient submitter %s, got %s", c.creator, runtime.OriginCaller()))
 	}
 	if c.counterpartyClientID != "" {
 		panic("cannot register counterparty once it is already set")
