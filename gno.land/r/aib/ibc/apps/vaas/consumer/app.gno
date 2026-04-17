@@ -24,13 +24,13 @@ type App struct{}
 
 const (
 	// PortID is the IBC application identifier for the VAAS consumer app.
-	PortID = "consumer"
+	PortID = "vaasconsumer"
 
 	// ProviderPortID is the IBC application identifier for the VAAS provider.
-	ProviderPortID = "provider"
+	ProviderPortID = "vaasprovider"
 
 	// Version is the IBC application version for the VAAS protocol.
-	Version = "1"
+	Version = "vaas-v1"
 
 	// EncodingJSON is the encoding identifier for JSON-encoded payloads.
 	EncodingJSON = "application/json"

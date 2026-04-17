@@ -34,7 +34,7 @@ func main() {
 
 // Output:
 // ----------- assert render apps
-// [{"port_id":"consumer","pkg_path":"gno.land/r/aib/ibc/apps/vaas/consumer","address":"g1x4tk6nkmvvh9vqer7kudvaz0jywt6ur63qjds5"}]
+// [{"port_id":"vaasconsumer","pkg_path":"gno.land/r/aib/ibc/apps/vaas/consumer","address":"g1x4tk6nkmvvh9vqer7kudvaz0jywt6ur63qjds5"}]
 //
 // ----------- assert realm config
-// {"port_id":"consumer","provider_port_id":"provider","version":"1","encoding":"application/json"}
+// {"port_id":"vaasconsumer","provider_port_id":"vaasprovider","version":"vaas-v1","encoding":"application/json"}
