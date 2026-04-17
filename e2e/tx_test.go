@@ -17,6 +17,59 @@ import (
 	channeltypesv2 "github.com/cosmos/ibc-go/v10/modules/core/04-channel/v2/types"
 )
 
+// addGnoKey creates a new random gnokey in the gno container and returns its address.
+func (s *E2ETestSuite) addGnoKey(keyName string) string {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	_, stderr, err := dockerExecStdin(ctx, s.gnoContainer, "\n",
+		"gnokey", "add", keyName, "--insecure-password-stdin", "--force")
+	s.Require().NoError(err, "gnokey add %s: %s", keyName, stderr)
+	return s.gnoKeyAddress(keyName)
+}
+
+// sendGnoCoins sends native coins between gnokey accounts.
+func (s *E2ETestSuite) sendGnoCoins(fromKey, toAddr, coins string) {
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	stdout, stderr, err := dockerExecStdin(ctx, s.gnoContainer, "\n",
+		"gnokey", "maketx", "send",
+		"-to", toAddr,
+		"-send", coins,
+		"-gas-fee", "1000000ugnot",
+		"-gas-wanted", "90000000",
+		"-broadcast",
+		"-chainid", s.cfg.GnoChainID,
+		"-remote", "localhost:26657",
+		"-insecure-password-stdin",
+		fromKey,
+	)
+	s.Require().NoError(err, "gnokey send: stdout=%s stderr=%s", stdout, stderr)
+}
+
+// signAndBroadcastGnoRun writes a Gno script to the container and executes it via gnokey maketx run.
+func (s *E2ETestSuite) signAndBroadcastGnoRun(keyName, script string) {
+	ctx := context.Background()
+	// Write script to container
+	_, stderr, err := dockerExecStdin(ctx, s.gnoContainer, script,
+		"bash", "-c", "cat > /tmp/run.gno")
+	s.Require().NoError(err, "write run script: %s", stderr)
+
+	runCtx, cancel := context.WithTimeout(ctx, 60*time.Second)
+	defer cancel()
+	stdout, stderr, err := dockerExecStdin(runCtx, s.gnoContainer, "\n",
+		"gnokey", "maketx", "run",
+		"-gas-fee", "1000000ugnot",
+		"-gas-wanted", "90000000",
+		"-broadcast",
+		"-chainid", s.cfg.GnoChainID,
+		"-remote", "localhost:26657",
+		"-insecure-password-stdin",
+		keyName,
+		"/tmp/run.gno",
+	)
+	s.Require().NoError(err, "gnokey maketx run: stdout=%s stderr=%s", stdout, stderr)
+}
+
 // signAndBroadcastGnoCall executes a gnokey maketx call inside the gno container.
 func (s *E2ETestSuite) signAndBroadcastGnoCall(keyName, pkgPath, funcName, sendCoins string, args ...string) {
 	cmdArgs := []string{

@@ -236,7 +236,7 @@ Cross-chain e2e tests live in `e2e/`. They validate the full IBC v2 lifecycle be
 
 | Component | Source | Branch | Binary |
 |-----------|--------|--------|--------|
-| AtomOne | `atomone-hub/atomone` | `feat/gno-lc` | `atomoned` |
+| AtomOne | `atomone-hub/atomone` | `main` | `atomoned` |
 | Gno | `tbruyelle/gno` | `tbruyelle/origin-send-filter` | `gnodev` + `gnokey` |
 | Relayer | `ghcr.io/allinbits/ibc-v2-ts-relayer:latest` | (pre-built image) | `ibc-v2-ts-relayer` |
 | tx-indexer | `ghcr.io/gnolang/tx-indexer:latest` | (pre-built image) | — |
@@ -265,7 +265,7 @@ e2e/
 │   ├── Dockerfile          # git clone tbruyelle/gno, builds gnodev+gnokey
 │   └── entrypoint.sh       # gnodev local with resolvers for aibgno + examples
 ├── atomone/
-│   ├── Dockerfile          # git clone atomone-hub/atomone@feat/gno-lc
+│   ├── Dockerfile          # git clone atomone-hub/atomone@main
 │   └── entrypoint.sh       # Single-validator init, fast blocks, starts atomoned
 ├── relayer/
 │   └── entrypoint.sh       # Configures mnemonics, gas prices, relay path
