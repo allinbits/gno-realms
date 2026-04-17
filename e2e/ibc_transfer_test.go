@@ -42,22 +42,22 @@ func (s *E2ETestSuite) TestIBCTransferAtomOneToGno() {
 	ibcDenom := "ibc/" + computeIBCDenomHash(s.gnoClientID, denom)
 	s.T().Logf("Expected IBC denom: %s", ibcDenom)
 
-	// Record GRC20 balance before relay
-	beforeGRC20, _ := queryGnoGRC20Balance(s.gnoContainer, receiver, ibcDenom)
+	// Record voucher balance before relay
+	beforeVoucher, _ := queryVoucherBalance(s.gnoContainer, receiver, ibcDenom)
 
-	// Wait for GRC20 balance to increase on Gno
-	s.T().Logf("Waiting for GRC20 balance on Gno (before: %d)...", beforeGRC20)
-	var afterGRC20 int64
+	// Wait for voucher balance to increase on Gno
+	s.T().Logf("Waiting for voucher balance on Gno (before: %d)...", beforeVoucher)
+	var afterVoucher int64
 	r.Eventually(func() bool {
-		bal, err := queryGnoGRC20Balance(s.gnoContainer, receiver, ibcDenom)
+		bal, err := queryVoucherBalance(s.gnoContainer, receiver, ibcDenom)
 		if err != nil {
 			return false
 		}
-		afterGRC20 = bal
-		return afterGRC20 == beforeGRC20+transferAmount
-	}, time.Minute/2, time.Second, "GRC20 balance not received on Gno")
+		afterVoucher = bal
+		return afterVoucher == beforeVoucher+transferAmount
+	}, time.Minute/2, time.Second, "voucher balance not received on Gno")
 
-	s.T().Logf("GRC20 balance verified: %d (before: %d, expected +%d)", afterGRC20, beforeGRC20, transferAmount)
+	s.T().Logf("voucher balance verified: %d (before: %d, expected +%d)", afterVoucher, beforeVoucher, transferAmount)
 
 	// Query Gno transfer realm denom info and verify the trace is correctly parsed.
 	denomInfo, err := queryGnoIBCDenom(s.gnoContainer, ibcDenom)
@@ -71,13 +71,13 @@ func (s *E2ETestSuite) TestIBCTransferAtomOneToGno() {
 	// -----------------------------------
 	sender = s.gnoSenderAddress
 	receiver = s.atomOneSenderAddress
-	beforeGRC20 = afterGRC20
+	beforeVoucher = afterVoucher
 	beforeAtomOneBalance = afterAtomOneBalance
 	s.T().Logf("Sending %d%s from %s to %s...", transferAmount, ibcDenom, sender, receiver)
 
 	s.signAndBroadcastGnoCall(sender,
 		"gno.land/r/aib/ibc/apps/transfer", "Transfer",
-		"", // no -send coins for GRC20 transfer
+		"", // no -send coins for voucher transfer
 		s.gnoClientID, receiver, ibcDenom, fmt.Sprint(transferAmount), fmt.Sprint(timeout), "",
 	)
 	s.T().Log("Gno transfer IBC voucher submitted")
@@ -85,14 +85,14 @@ func (s *E2ETestSuite) TestIBCTransferAtomOneToGno() {
 	// Verify sender balance decreased (tokens escrowed for IBC transfer)
 	s.T().Log("Verifying sender balance decreased on Gno...")
 	r.Eventually(func() bool {
-		bal, err := queryGnoGRC20Balance(s.gnoContainer, sender, ibcDenom)
+		bal, err := queryVoucherBalance(s.gnoContainer, sender, ibcDenom)
 		if err != nil {
 			return false
 		}
-		afterGRC20 = bal
-		return afterGRC20 == beforeGRC20-transferAmount
+		afterVoucher = bal
+		return afterVoucher == beforeVoucher-transferAmount
 	}, time.Minute/2, time.Second, "sender balance did not decrease on Gno")
-	s.T().Logf("GRC20 balance verified: %d (before: %d, expected -%d)", afterGRC20, beforeGRC20, transferAmount)
+	s.T().Logf("voucher balance verified: %d (before: %d, expected -%d)", afterVoucher, beforeVoucher, transferAmount)
 
 	// Wait for atone token on AtomOne
 	s.T().Log("Waiting for atone token back on AtomOne...")
@@ -225,7 +225,7 @@ func (s *E2ETestSuite) TestIBCTransferGRC20GnoToAtomOne() {
 		r              = s.Require()
 		mintAmount     = int64(1000000)
 		transferAmount = int64(100)
-		denom          = "gno.land/r/aib/ibc/apps/testing/grc20test.my:exotic/slug%2F"
+		denom          = "gno.land/r/aib/ibc/apps/testing/grc20test." + "TEST"
 		sender         = s.gnoSenderAddress
 		receiver       = s.atomOneSenderAddress
 		timeout        = time.Now().Add(time.Hour).Unix()

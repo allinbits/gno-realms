@@ -12,6 +12,8 @@ import (
 // UpdateClient with valid misbehaviour:
 // header1.height == header2.height && header1.Hash != header2.hash
 func main() {
+	core.SetAdmin(cross, "g1wymu47drhr0kuq2098m792lytgtj2nyx77yrsm")
+	core.AddRelayer(cross, "g1wymu47drhr0kuq2098m792lytgtj2nyx77yrsm")
 	// CreateClient and RegisterCounterparty
 	var (
 		chainID     = "atomone-1"

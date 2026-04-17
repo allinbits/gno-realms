@@ -17,6 +17,8 @@ func (SoloMachine) ValidateBasic() error {
 
 // CreateClient w/ unhandled light client type
 func main() {
+	core.SetAdmin(cross, "g1wymu47drhr0kuq2098m792lytgtj2nyx77yrsm")
+	core.AddRelayer(cross, "g1wymu47drhr0kuq2098m792lytgtj2nyx77yrsm")
 	core.CreateClient(cross, SoloMachine{}, SoloMachine{})
 }
 

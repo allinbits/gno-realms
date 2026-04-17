@@ -27,6 +27,7 @@ func CreateClient(cur realm, clientState lightclient.ClientState, consensusState
 	if err := consensusState.ValidateBasic(); err != nil {
 		panic(err)
 	}
+	ensureAuthorizedRelayer()
 	c := store.addClient(clientState.ClientType(), runtime.OriginCaller())
 	err := c.lightClient.Initialize(clientState, consensusState)
 	if err != nil {
@@ -56,7 +57,7 @@ func RegisterCounterparty(cur realm, clientID string, counterpartyMerklePrefix [
 		panic(ufmt.Sprintf("client %s not found", clientID))
 	}
 	if c.creator != runtime.OriginCaller() {
-		panic(ufmt.Sprintf("expected same signer as CreateClient submittor %s, got %s", c.creator, runtime.OriginCaller()))
+		panic(ufmt.Sprintf("expected same signer as CreateClient submitter %s, got %s", c.creator, runtime.OriginCaller()))
 	}
 	if c.counterpartyClientID != "" {
 		panic("cannot register counterparty once it is already set")
@@ -76,15 +77,13 @@ func UpdateClient(cur realm, clientID string, clientMessage lightclient.ClientMe
 	if c == nil {
 		panic(ufmt.Sprintf("client %s not found", clientID))
 	}
+	ensureAuthorizedRelayer()
 	if c.typ != clientMessage.ClientType() {
 		panic("client type for client state and client message do not match")
 	}
 	if status := c.lightClient.Status(); status != lightclient.Active {
 		panic(ufmt.Sprintf("cannot update client (%s) with status %s", c.id, status))
 	}
-	// TODO check if relayer address is in whitelist
-	// Similarly to ibc-v2 go implementation, for safety we're going to restrict
-	// the UpdateClient call to a set of predefined relayers addresses.
 
 	err := c.lightClient.VerifyClientMessage(clientMessage)
 	if err != nil {

@@ -16,6 +16,8 @@ import (
 
 // OnSendPacket: success w/ IBC voucher token
 func main() {
+	core.SetAdmin(cross, "g1wymu47drhr0kuq2098m792lytgtj2nyx77yrsm")
+	core.AddRelayer(cross, "g1wymu47drhr0kuq2098m792lytgtj2nyx77yrsm")
 	var (
 		chainID       = "chain-id-2"
 		trustedHeight = types.NewHeight(2, 2)
@@ -140,30 +142,30 @@ func main() {
 	voucherDenom := transfer.NewDenom("uatone", transfer.NewHop(transfer.PortID, clientID)).IBCDenom()
 	println("signer voucher balance before SendPacket:", transfer.VoucherBalanceOf(voucherDenom, receiver))
 	println("----------- assert render voucher before SendPacket")
-	println(transfer.Render("grc20/" + voucherDenom))
+	println(transfer.Render("voucher/" + voucherDenom))
 	println("----------- assert render voucher balance before SendPacket")
-	println(transfer.Render("grc20/" + voucherDenom + "/balance/" + receiver.String()))
+	println(transfer.Render("voucher/" + voucherDenom + "/balance/" + receiver.String()))
 
 	core.SendPacket(cross, sendPacket)
 
 	println("\nsigner voucher balance after SendPacket:", transfer.VoucherBalanceOf(voucherDenom, receiver))
 	println("----------- assert render voucher after SendPacket")
-	println(transfer.Render("grc20/" + voucherDenom))
+	println(transfer.Render("voucher/" + voucherDenom))
 	println("----------- assert render voucher balance after SendPacket")
-	println(transfer.Render("grc20/" + voucherDenom + "/balance/" + receiver.String()))
+	println(transfer.Render("voucher/" + voucherDenom + "/balance/" + receiver.String()))
 }
 
 // Output:
 // Payload proto: CgZ1YXRvbmUSAzEwMBoKYXRvbmUxdXNlciIoZzF3ZmpreGV0Zndlamh5aDZsdGEwNDdoNmx0YTA0N2g2bGxtODJ5bA==
 // signer voucher balance before SendPacket: 100
 // ----------- assert render voucher before SendPacket
-// {"denom":"ibc/F9A67CB19B2CAD2ADEC20AD475BE86DF851DEC2B6F6CABC9B7B781BD9131D18F","name":"uatone","symbol":"ibc/F9A67CB19B2CAD2ADEC20AD475BE86DF851DEC2B6F6CABC9B7B781BD9131D18F","decimals":0,"total_supply":100}
+// {"denom":"ibc/F9A67CB19B2CAD2ADEC20AD475BE86DF851DEC2B6F6CABC9B7B781BD9131D18F","grc20reg_key":".F9A67CB19B2CAD2ADEC20AD475BE86DF851DEC2B6F6CABC9B7B781BD9131D18F","name":"uatone","symbol":"ibc/F9A67CB19B2CAD2ADEC20AD475BE86DF851DEC2B6F6CABC9B7B781BD9131D18F","decimals":0,"total_supply":100}
 // ----------- assert render voucher balance before SendPacket
 // {"denom":"ibc/F9A67CB19B2CAD2ADEC20AD475BE86DF851DEC2B6F6CABC9B7B781BD9131D18F","address":"g1wfjkxetfwejhyh6lta047h6lta047h6llm82yl","balance":100}
 //
 // signer voucher balance after SendPacket: 0
 // ----------- assert render voucher after SendPacket
-// {"denom":"ibc/F9A67CB19B2CAD2ADEC20AD475BE86DF851DEC2B6F6CABC9B7B781BD9131D18F","name":"uatone","symbol":"ibc/F9A67CB19B2CAD2ADEC20AD475BE86DF851DEC2B6F6CABC9B7B781BD9131D18F","decimals":0,"total_supply":0}
+// {"denom":"ibc/F9A67CB19B2CAD2ADEC20AD475BE86DF851DEC2B6F6CABC9B7B781BD9131D18F","grc20reg_key":".F9A67CB19B2CAD2ADEC20AD475BE86DF851DEC2B6F6CABC9B7B781BD9131D18F","name":"uatone","symbol":"ibc/F9A67CB19B2CAD2ADEC20AD475BE86DF851DEC2B6F6CABC9B7B781BD9131D18F","decimals":0,"total_supply":0}
 // ----------- assert render voucher balance after SendPacket
 // {"denom":"ibc/F9A67CB19B2CAD2ADEC20AD475BE86DF851DEC2B6F6CABC9B7B781BD9131D18F","address":"g1wfjkxetfwejhyh6lta047h6lta047h6llm82yl","balance":0}
 
@@ -236,7 +238,7 @@ func main() {
 //       },
 //       {
 //         "key": "slug",
-//         "value": "ibc/F9A67CB19B2CAD2ADEC20AD475BE86DF851DEC2B6F6CABC9B7B781BD9131D18F"
+//         "value": "F9A67CB19B2CAD2ADEC20AD475BE86DF851DEC2B6F6CABC9B7B781BD9131D18F"
 //       }
 //     ],
 //     "pkg_path": "gno.land/r/demo/defi/grc20reg"

@@ -11,6 +11,8 @@ import (
 
 // CreateClient and RegisterCounterparty have different signer
 func main() {
+	core.SetAdmin(cross, "g1wymu47drhr0kuq2098m792lytgtj2nyx77yrsm")
+	core.AddRelayer(cross, "g1wymu47drhr0kuq2098m792lytgtj2nyx77yrsm")
 	var (
 		chainID        = "chain-id-2"
 		clientState    = tmtesting.NewClientState(chainID, types.NewHeight(2, 2))
@@ -31,4 +33,4 @@ func main() {
 }
 
 // Error:
-// expected same signer as CreateClient submittor g1wymu47drhr0kuq2098m792lytgtj2nyx77yrsm, got g1wymu47drhr0kuq2098m792lytgtj2nyx77yrsx
+// expected same signer as CreateClient submitter g1wymu47drhr0kuq2098m792lytgtj2nyx77yrsm, got g1wymu47drhr0kuq2098m792lytgtj2nyx77yrsx

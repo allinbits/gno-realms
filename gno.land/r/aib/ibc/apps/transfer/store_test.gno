@@ -4,7 +4,6 @@ import (
 	"testing"
 
 	"gno.land/p/nt/uassert/v0"
-	"gno.land/p/nt/urequire/v0"
 )
 
 func TestGRC20AliasRoundTrip(t *testing.T) {
@@ -16,37 +15,17 @@ func TestGRC20AliasRoundTrip(t *testing.T) {
 		{
 			"simple path without slug",
 			"gno.land/r/demo/foo",
-			"gno.land%2Fr%2Fdemo%2Ffoo",
+			"gno.land:r:demo:foo",
 		},
 		{
 			"path with slug",
 			"gno.land/r/demo/foo.FOO",
-			"gno.land%2Fr%2Fdemo%2Ffoo.FOO",
+			"gno.land:r:demo:foo.FOO",
 		},
 		{
-			"slug with colon",
-			"gno.land/r/demo/foo.A:B",
-			"gno.land%2Fr%2Fdemo%2Ffoo.A:B",
-		},
-		{
-			"slug with multiple colons",
-			"gno.land/r/demo/foo.A:B:C",
-			"gno.land%2Fr%2Fdemo%2Ffoo.A:B:C",
-		},
-		{
-			"slug with percent sign",
-			"gno.land/r/demo/foo.A%B",
-			"gno.land%2Fr%2Fdemo%2Ffoo.A%25B",
-		},
-		{
-			"slug with literal %2F",
-			"gno.land/r/demo/foo.A%2FB",
-			"gno.land%2Fr%2Fdemo%2Ffoo.A%252FB",
-		},
-		{
-			"slug with slash",
-			"gno.land/r/demo/foo.A/B",
-			"gno.land%2Fr%2Fdemo%2Ffoo.A%2FB",
+			"path with alphanumeric slug",
+			"gno.land/r/demo/foo.Bar123",
+			"gno.land:r:demo:foo.Bar123",
 		},
 	}
 	for _, tc := range testCases {
@@ -54,20 +33,19 @@ func TestGRC20AliasRoundTrip(t *testing.T) {
 			alias := GRC20Alias(tc.key)
 			uassert.Equal(t, tc.expAlias, alias)
 
-			got, err := resolveGRC20Alias(alias)
-			urequire.NoError(t, err)
+			got := resolveGRC20Alias(alias)
 			uassert.Equal(t, tc.key, got)
 		})
 	}
 }
 
-func TestisGRC20Alias(t *testing.T) {
+func TestIsGRC20Alias(t *testing.T) {
 	testCases := []struct {
 		name   string
 		denom  string
 		expect bool
 	}{
-		{"grc20 alias", "gno.land%2Fr%2Fdemo%2Ffoo.FOO", true},
+		{"grc20 alias", "gno.land:r:demo:foo.FOO", true},
 		{"native denom", "ugnot", false},
 		{"ibc denom", "ibc/ABC123", false},
 		{"gno path not aliased", "gno.land/r/demo/foo", false},

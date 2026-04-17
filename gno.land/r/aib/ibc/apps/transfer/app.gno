@@ -112,10 +112,7 @@ func (a *App) OnSendPacket(
 	} else if isGRC20Alias(token.Denom.Base) {
 		// Non-IBC GRC20 token: escrow via TransferFrom.
 		// The caller must have approved the transfer app realm address.
-		denomKey, err := resolveGRC20Alias(token.Denom.Base)
-		if err != nil {
-			return ufmt.Errorf("resolve GRC20 alias %s error: %v", token.Denom.Base, err)
-		}
+		denomKey := resolveGRC20Alias(token.Denom.Base)
 		grc20Token := grc20reg.Get(denomKey)
 		if grc20Token == nil {
 			return ufmt.Errorf("GRC20 token %s not found in grc20reg", denomKey)

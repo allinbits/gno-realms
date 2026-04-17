@@ -38,8 +38,67 @@ func Render(path string) string {
 }
 
 func renderHome(w *mux.ResponseWriter, r *mux.Request) {
-	// TODO list available endpoints ?
-	w.Write(`["Hello IBC!"]`)
+	var out strings.Builder
+	out.WriteString("# IBC core\n\n")
+	out.WriteString("IBC v2 core state and query endpoints.\n\n")
+	out.WriteString(ufmt.Sprintf("## Clients (%d)\n\n", store.clientByID.Size()))
+	if store.clientByID.Size() > 0 {
+		out.WriteString("| Client | St. | Creator | Cpty | Height | CS | Seq | Cmts | Rcpts | Acks |\n")
+		out.WriteString("|--------|-----|---------|------|--------|----|-----|------|-------|------|\n")
+		store.clientByID.IterateByOffset(0, store.clientByID.Size(), func(_ string, v any) bool {
+			c := v.(*client)
+			var nConsStates int
+			switch c.typ {
+			case lightclient.Tendermint:
+				lc := c.lightClient.(*tendermint.TMLightClient)
+				nConsStates = lc.ConsensusStateByHeight.Size()
+			}
+			out.WriteString(ufmt.Sprintf(
+				"| [`%s`](/r/aib/ibc/core:clients/%s) | [%s](/r/aib/ibc/core:clients/%s/status) | %s | %s | [%s](/r/aib/ibc/core:clients/%s/consensus_states/%d/%d) | [%d](/r/aib/ibc/core:clients/%s/consensus_states) | [%d](/r/aib/ibc/core:clients/%s/next_sequence_send) | [%d](/r/aib/ibc/core:clients/%s/packet_commitments) | [%d](/r/aib/ibc/core:clients/%s/packet_receipts) | [%d](/r/aib/ibc/core:clients/%s/packet_acknowledgements) |\n",
+				c.id, c.id,
+				c.lightClient.Status(), c.id,
+				renderAddr(c.creator),
+				c.counterpartyClientID,
+				c.lightClient.LatestHeight().String(), c.id, c.lightClient.LatestHeight().RevisionNumber, c.lightClient.LatestHeight().RevisionHeight,
+				nConsStates, c.id,
+				int64(c.sendSeq)+1, c.id,
+				c.packetCommitmentsBySeq.Size(), c.id,
+				c.packetReceiptsBySeq.Size(), c.id,
+				c.packetAcknowledgementsBySeq.Size(), c.id,
+			))
+			return false
+		})
+		out.WriteString("\n")
+	} else {
+		out.WriteString("No clients yet.\n\n")
+	}
+	out.WriteString(ufmt.Sprintf("## Apps (%d)\n\n", len(store.routes)))
+	if len(store.routes) > 0 {
+		out.WriteString("| Port | Pkg | Addr |\n")
+		out.WriteString("|------|-----|------|\n")
+		for port, app := range store.routes {
+			out.WriteString(ufmt.Sprintf("| %s | %s | %s |\n", port, renderPkgPath(app.pkgPath), renderAddr(app.address)))
+		}
+		out.WriteString("\n")
+	} else {
+		out.WriteString("No apps registered yet.\n\n")
+	}
+	out.WriteString("## JSON endpoints\n\n")
+	out.WriteString("- [`apps`](/r/aib/ibc/core:apps): list registered IBC applications\n")
+	out.WriteString("- [`clients`](/r/aib/ibc/core:clients): list clients (`?page`, `?limit`)\n")
+	out.WriteString("- `clients/{id}`: get client details\n")
+	out.WriteString("- `clients/{id}/status`: get client status\n")
+	out.WriteString("- `clients/{id}/consensus_states`: list client consensus states (`?page`, `?limit`)\n")
+	out.WriteString("- `clients/{id}/consensus_states/{revision_number}/{revision_height}`: get a consensus state by height\n")
+	out.WriteString("- `clients/{id}/next_sequence_send`: get the next packet sequence to send\n")
+	out.WriteString("- `clients/{id}/packet_commitments`: list packet commitments (`?page`, `?limit`)\n")
+	out.WriteString("- `clients/{id}/packet_commitments/{sequence}`: get a packet commitment by sequence\n")
+	out.WriteString("- `clients/{id}/packet_receipts`: list packet receipts (`?page`, `?limit`)\n")
+	out.WriteString("- `clients/{id}/packet_receipts/{sequence}`: get a packet receipt by sequence\n")
+	out.WriteString("- `clients/{id}/packet_acknowledgements`: list packet acknowledgements (`?page`, `?limit`)\n")
+	out.WriteString("- `clients/{id}/packet_acknowledgements/{sequence}`: get a packet acknowledgement by sequence\n")
+	out.WriteString("- `clients/{id}/unreceived_packets?sequences=1,2,3`: return sequences without a local packet receipt\n\n")
+	w.Write(out.String())
 }
 
 func renderApps(w *mux.ResponseWriter, r *mux.Request) {
@@ -302,6 +361,23 @@ func renderConsensusState(height types.Height, cs *tendermint.ConsensusState) *j
 		"root":                 json.StringNode("", base64.StdEncoding.EncodeToString(cs.Root.Hash)),
 		"next_validators_hash": json.StringNode("", base64.StdEncoding.EncodeToString(cs.NextValidatorsHash)),
 	})
+}
+
+func renderPkgPath(path string) string {
+	const prefix = "gno.land"
+	if strings.HasPrefix(path, prefix) {
+		return ufmt.Sprintf("[`%s`](%s)", path, path[len(prefix):])
+	}
+	return "`" + path + "`"
+}
+
+func renderAddr(addr address) string {
+	s := addr.String()
+	short := s
+	if len(s) > 10 {
+		short = s[:6] + "…" + s[len(s)-4:]
+	}
+	return ufmt.Sprintf("[%s](/u/%s)", short, s)
 }
 
 func renderHeight(h types.Height) *json.Node {

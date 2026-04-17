@@ -18,6 +18,8 @@ import (
 
 // OnAcknowledgementPacket: success w/ refund of non-IBC GRC20 token
 func main() {
+	core.SetAdmin(cross, "g1wymu47drhr0kuq2098m792lytgtj2nyx77yrsm")
+	core.AddRelayer(cross, "g1wymu47drhr0kuq2098m792lytgtj2nyx77yrsm")
 	var (
 		chainID       = "chain-id-2"
 		trustedHeight = types.NewHeight(2, 2)
@@ -35,6 +37,7 @@ func main() {
 	)
 	clientID := core.CreateClient(cross, clientState, consensusState)
 	core.RegisterCounterparty(cross, clientID, [][]byte{[]byte("iavlStoreKey"), []byte("prefix2")}, counterpartyID)
+	relayer := runtime.OriginCaller()
 
 	signer := runtime.CurrentRealm().Address()
 
@@ -51,6 +54,7 @@ func main() {
 	println("\nsigner grc20 balance after Transfer:", grc20test.BalanceOf(signer))
 
 	// UpdateClient to advance to height containing the ack proof
+	testing.SetOriginCaller(relayer)
 	apphash, _ = hex.DecodeString("7437e69c1edb7f177fb5fe9f6487f0dd0e2391d6f435d152a97110fb98b6df00")
 	trustedHeight = clientState.LatestHeight
 	specs := ics23.IavlSpec()

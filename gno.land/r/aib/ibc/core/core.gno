@@ -101,13 +101,13 @@ func RecvPacket(cur realm, msg types.MsgRecvPacket) types.ResponseResultType {
 	if err := msg.ValidateBasic(); err != nil {
 		panic(err)
 	}
-	// TODO check if relayer address is in whitelist
 
 	clientID := msg.Packet.DestinationClient
 	c := store.getClient(clientID)
 	if c == nil {
 		panic(ufmt.Sprintf("client %s not found", clientID))
 	}
+	ensureAuthorizedRelayer()
 	// check client is active
 	if status := c.lightClient.Status(); status != lightclient.Active {
 		panic(ufmt.Sprintf("client (%s) status is %s", clientID, status))
@@ -231,13 +231,13 @@ func Acknowledgement(cur realm, msg types.MsgAcknowledgement) types.ResponseResu
 	if err := msg.ValidateBasic(); err != nil {
 		panic(err)
 	}
-	// TODO check if relayer address is in whitelist
 
 	clientID := msg.Packet.SourceClient
 	c := store.getClient(clientID)
 	if c == nil {
 		panic(ufmt.Sprintf("client %s not found", clientID))
 	}
+	ensureAuthorizedRelayer()
 	// check client is active
 	if status := c.lightClient.Status(); status != lightclient.Active {
 		panic(ufmt.Sprintf("client (%s) status is %s", clientID, status))
@@ -329,13 +329,13 @@ func Timeout(cur realm, msg types.MsgTimeout) types.ResponseResultType {
 	if err := msg.ValidateBasic(); err != nil {
 		panic(err)
 	}
-	// TODO check if relayer address is in whitelist
 
 	clientID := msg.Packet.SourceClient
 	c := store.getClient(clientID)
 	if c == nil {
 		panic(ufmt.Sprintf("client %s not found", clientID))
 	}
+	ensureAuthorizedRelayer()
 	// check client is active
 	if status := c.lightClient.Status(); status != lightclient.Active {
 		panic(ufmt.Sprintf("client (%s) status is %s", clientID, status))

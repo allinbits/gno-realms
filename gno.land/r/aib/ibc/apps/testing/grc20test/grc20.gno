@@ -7,10 +7,8 @@ import (
 )
 
 // Slug is the grc20reg registration slug (the third argument to
-// grc20reg.Register). It deliberately contains colons, slashes, and a literal
-// %2F to stress-test the GRC20Alias url.PathEscape encoding used in IBC transfer
-// packets.
-const Slug = "my:exotic/slug%2F"
+// grc20reg.Register). Slugs must be alphanumeric (enforced by grc20reg).
+const Slug = "TEST"
 
 var (
 	Token, ledger = grc20.NewToken("Test", "TEST", 0)

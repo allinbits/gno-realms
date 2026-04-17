@@ -28,6 +28,8 @@ func (validateError) ClientType() string {
 // has too many cases, hence ValidateBasic is tested in unittests and we only
 // ensure that the ValidateBasic() method are properly invoked.
 func main() {
+	core.SetAdmin(cross, "g1wymu47drhr0kuq2098m792lytgtj2nyx77yrsm")
+	core.AddRelayer(cross, "g1wymu47drhr0kuq2098m792lytgtj2nyx77yrsm")
 	// CreateClient and RegisterCounterparty
 	var (
 		chainID        = "chain-id-2"

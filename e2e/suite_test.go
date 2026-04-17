@@ -3,6 +3,7 @@ package e2e
 import (
 	"context"
 	"fmt"
+	"os/exec"
 	"strings"
 	"testing"
 	"time"
@@ -65,36 +66,60 @@ func (s *E2ETestSuite) SetupSuite() {
 	s.waitForIBCClients()
 }
 
-func (s *E2ETestSuite) waitForIBCClients() {
-	r := s.Require()
+// waitForCondition polls condition every tick until timeout. If the relayer
+// container exits during polling, it fails immediately with the relayer logs.
+func (s *E2ETestSuite) waitForCondition(timeout, tick time.Duration, condition func() bool, msg string) {
+	deadline := time.After(timeout)
+	ticker := time.NewTicker(tick)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-deadline:
+			s.T().Fatalf("%s (timed out after %s)", msg, timeout)
+		case <-ticker.C:
+			// Fail fast if the relayer container has exited
+			out, err := exec.Command("docker", "compose", "ps", "-a", "--format", "{{.State}}", "relayer").Output()
+			if err == nil {
+				if state := strings.TrimSpace(string(out)); state == "exited" || state == "dead" {
+					logs, _ := exec.Command("docker", "compose", "logs", "--tail", "30", "relayer").CombinedOutput()
+					s.T().Fatalf("relayer container exited while waiting for: %s\n%s", msg, string(logs))
+				}
+			}
+			if condition() {
+				return
+			}
+		}
+	}
+}
 
+func (s *E2ETestSuite) waitForIBCClients() {
 	// Wait for client on AtomOne
-	r.Eventually(func() bool {
+	s.waitForCondition(3*time.Minute, 2*time.Second, func() bool {
 		id, err := queryAtomOneClientStates(s.cfg.AtomoneREST)
 		if err != nil {
 			return false
 		}
 		s.atomoneClientID = id
 		return true
-	}, 3*time.Minute, 2*time.Second, "IBC client on AtomOne not created in time")
+	}, "IBC client on AtomOne not created in time")
 	s.T().Logf("AtomOne client ID: %s", s.atomoneClientID)
 
 	// Wait for client on Gno
-	r.Eventually(func() bool {
+	s.waitForCondition(3*time.Minute, 2*time.Second, func() bool {
 		id, err := queryGnoClients(s.gnoContainer)
 		if err != nil {
 			return false
 		}
 		s.gnoClientID = id
 		return true
-	}, 3*time.Minute, 2*time.Second, "IBC client on Gno not created in time")
+	}, "IBC client on Gno not created in time")
 	s.T().Logf("Gno client ID: %s", s.gnoClientID)
 
 	// Wait for counterparty registration
-	r.Eventually(func() bool {
+	s.waitForCondition(1*time.Minute, 2*time.Second, func() bool {
 		_, err := queryGnoClientCounterparty(s.gnoContainer, s.gnoClientID)
 		return err == nil
-	}, 1*time.Minute, 2*time.Second, "counterparty not registered on Gno in time")
+	}, "counterparty not registered on Gno in time")
 	s.T().Log("Counterparty registered")
 }
 

@@ -17,6 +17,21 @@ services:
       retries: 60
       start_period: 180s
 
+  gno-whitelist:
+    build:
+      context: ..
+      dockerfile: e2e/gno/Dockerfile
+      args:
+        - FORK_REPO
+        - FORK_BRANCH
+    entrypoint: ["/whitelist.sh"]
+    volumes:
+      - ./gno/whitelist.sh:/whitelist.sh
+    env_file: .env
+    depends_on:
+      gno:
+        condition: service_healthy
+
   tx-indexer:
     image: ghcr.io/gnolang/tx-indexer:latest
     command:
@@ -56,8 +71,8 @@ services:
       - IPC_LOCK
     env_file: .env
     depends_on:
-      gno:
-        condition: service_healthy
+      gno-whitelist:
+        condition: service_completed_successfully
       tx-indexer:
         condition: service_started
       atomone:

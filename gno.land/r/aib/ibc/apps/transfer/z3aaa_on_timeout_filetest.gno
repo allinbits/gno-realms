@@ -18,6 +18,8 @@ import (
 
 // OnTimeout: success w/ non-IBC GRC20 token
 func main() {
+	core.SetAdmin(cross, "g1wymu47drhr0kuq2098m792lytgtj2nyx77yrsm")
+	core.AddRelayer(cross, "g1wymu47drhr0kuq2098m792lytgtj2nyx77yrsm")
 	var (
 		chainID       = "chain-id-2"
 		trustedHeight = types.NewHeight(2, 2)
@@ -35,6 +37,7 @@ func main() {
 	)
 	clientID := core.CreateClient(cross, clientState, consensusState)
 	core.RegisterCounterparty(cross, clientID, [][]byte{[]byte("iavlStoreKey"), []byte("prefix2")}, counterpartyID)
+	relayer := runtime.OriginCaller()
 
 	signer := runtime.CurrentRealm().Address()
 
@@ -55,6 +58,7 @@ func main() {
 	ctx.Time = time.Now().Add(12 * time.Minute)
 	testing.SetContext(ctx)
 	// Update client with a block created after the timeout
+	testing.SetOriginCaller(relayer)
 	apphash, _ = hex.DecodeString("82ea91f259352674360c621c4b0a1975cc076e3792b6d22a8bfbe8e7f7d0d2d7")
 	trustedHeight = clientState.LatestHeight
 	specs := ics23.IavlSpec()

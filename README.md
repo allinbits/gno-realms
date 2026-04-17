@@ -19,9 +19,7 @@ module using the `core.RegisterApp()` function.
 
 ### Transfer Application
 
-Located in `r/aib/ibc/apps/transfer`, the Transfer application allows token
-transfer between 2 IBC connected chains. It's the gno version of
-`ibc-go/modules/apps/transfer` application.
+See [Transfer Application README].
 
 ## Testing
 
@@ -36,3 +34,4 @@ functions, because they use complex args (see [README][IBC Core Readme]).
 Once created, clients are visible here http://localhost:8888/r/aib/ibc/core:clients
 
 [IBC Core README]: ./gno.land/r/aib/ibc/core/README.md
+[Transfer Application README]: ./gno.land/r/aib/ibc/apps/transfer/README.md

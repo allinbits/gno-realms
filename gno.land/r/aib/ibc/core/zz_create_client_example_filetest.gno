@@ -11,6 +11,8 @@ import (
 )
 
 func main() {
+	core.SetAdmin(cross, "g1wymu47drhr0kuq2098m792lytgtj2nyx77yrsm")
+	core.AddRelayer(cross, "g1wymu47drhr0kuq2098m792lytgtj2nyx77yrsm")
 	// CreateClient
 	var (
 		chainID      = "chain-id-2"  // XXX update
