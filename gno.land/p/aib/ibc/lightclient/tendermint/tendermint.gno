@@ -262,6 +262,9 @@ func (tm *TMLightClient) TimestampAtHeight(height types.Height) (uint64, error) 
 // resetting FrozenHeight. The substitute and subject client states must match
 // in TrustLevel, UnbondingPeriod, MaxClockDrift, ProofSpecs and UpgradePath.
 func (tm *TMLightClient) RecoverClient(substitute lightclient.Interface) error {
+	if substitute == nil {
+		return errors.New("substitute must not be nil")
+	}
 	sub, ok := substitute.(*TMLightClient)
 	if !ok {
 		return ufmt.Errorf("substitute client type mismatch: expected *TMLightClient, got %T", substitute)

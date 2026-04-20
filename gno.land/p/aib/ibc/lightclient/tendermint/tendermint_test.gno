@@ -121,12 +121,12 @@ func TestRecoverClient(t *testing.T) {
 		uassert.Equal(t, "substitute-root", string(cs.Root.Hash))
 	})
 
-	t.Run("failure: substitute not a *TMLightClient", func(t *testing.T) {
+	t.Run("failure: substitute is nil", func(t *testing.T) {
 		subject := newSubject()
 
 		err := subject.RecoverClient(nil)
 		urequire.Error(t, err)
-		urequire.ErrorContains(t, err, "substitute client type mismatch")
+		urequire.ErrorContains(t, err, "substitute must not be nil")
 	})
 
 	t.Run("success: substitute TrustingPeriod is adopted", func(t *testing.T) {
