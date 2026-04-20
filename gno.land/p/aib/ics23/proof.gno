@@ -596,7 +596,12 @@ func (p *InnerSpec) Equal(other *InnerSpec) bool {
 	return bytes.Equal(p.EmptyChild, other.EmptyChild)
 }
 
-// over-declares equality, which we consider fine for now.
+// SpecEquals returns true if two ProofSpec instances match on the subset of
+// fields that matter for routing proof verification through a known spec
+// (IavlSpec/TendermintSpec). It intentionally ignores MaxDepth/MinDepth,
+// LeafOp.Prefix, ChildOrder contents, and InnerSpec.EmptyChild — it
+// over-declares equality, which we consider fine for that use case.
+// Use Equal for strict field-by-field comparison (e.g. RecoverClient).
 func (p *ProofSpec) SpecEquals(spec *ProofSpec) bool {
 	// 1. Compare LeafSpecs values.
 	switch {
