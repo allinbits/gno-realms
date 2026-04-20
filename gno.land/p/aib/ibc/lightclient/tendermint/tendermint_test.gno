@@ -4,9 +4,11 @@ import (
 	"testing"
 	"time"
 
+	"gno.land/p/aib/ibc/lightclient"
 	"gno.land/p/aib/ibc/lightclient/tendermint"
 	"gno.land/p/aib/ibc/types"
 	"gno.land/p/aib/ics23"
+	"gno.land/p/nt/uassert/v0"
 	"gno.land/p/nt/urequire/v0"
 )
 
@@ -71,4 +73,110 @@ func TestGetNeighboringConsensusStates(t *testing.T) {
 	nextCs49, ok := tm.GetNextConsensusState(height49)
 	urequire.True(t, nextCs49 == nil, "next consensus state exists after highest consensus state")
 	urequire.False(t, ok)
+}
+
+func TestRecoverClient(t *testing.T) {
+	newConsState := func(root string) *tendermint.ConsensusState {
+		return &tendermint.ConsensusState{
+			Timestamp:          time.Now().UTC(),
+			Root:               tendermint.NewMerkleRoot([]byte(root)),
+			NextValidatorsHash: []byte("nextVals"),
+		}
+	}
+	// Build two clients with matching immutable parameters, different chainIDs
+	// and different latest heights.
+	newSubject := func() *tendermint.TMLightClient {
+		tm := tendermint.NewTMLightClient()
+		cs := tendermint.NewClientState("subject-chain", tendermint.DefaultTrustLevel,
+			trustingPeriod, ubdPeriod, maxClockDrift, types.NewHeight(0, 5),
+			ics23.GetSDKProofSpecs(), upgradePath)
+		urequire.NoError(t, tm.Initialize(*cs, *newConsState("subject-root")))
+		// Freeze the subject so its status becomes Frozen (for realism; not
+		// required by RecoverClient itself).
+		tm.ClientState.FrozenHeight = tendermint.FrozenHeight
+		return tm
+	}
+	newSubstitute := func() *tendermint.TMLightClient {
+		tm := tendermint.NewTMLightClient()
+		cs := tendermint.NewClientState("substitute-chain", tendermint.DefaultTrustLevel,
+			trustingPeriod, ubdPeriod, maxClockDrift, types.NewHeight(0, 10),
+			ics23.GetSDKProofSpecs(), upgradePath)
+		urequire.NoError(t, tm.Initialize(*cs, *newConsState("substitute-root")))
+		return tm
+	}
+
+	t.Run("success", func(t *testing.T) {
+		subject := newSubject()
+		substitute := newSubstitute()
+
+		err := subject.RecoverClient(substitute)
+		urequire.NoError(t, err)
+
+		uassert.Equal(t, "substitute-chain", subject.ClientState.ChainID)
+		uassert.True(t, subject.ClientState.LatestHeight.EQ(types.NewHeight(0, 10)))
+		uassert.True(t, subject.ClientState.FrozenHeight.IsZero())
+		// Substitute consensus state at height (0,10) must have been copied.
+		cs, found := subject.GetConsensusState(types.NewHeight(0, 10))
+		urequire.True(t, found, "consensus state at substitute latest height not copied")
+		uassert.Equal(t, "substitute-root", string(cs.Root.Hash))
+	})
+
+	t.Run("failure: substitute not a *TMLightClient", func(t *testing.T) {
+		subject := newSubject()
+
+		err := subject.RecoverClient(nil)
+		urequire.Error(t, err)
+		urequire.ErrorContains(t, err, "substitute client type mismatch")
+	})
+
+	t.Run("success: substitute TrustingPeriod is adopted", func(t *testing.T) {
+		subject := newSubject()
+		substitute := newSubstitute()
+		substitute.ClientState.TrustingPeriod = trustingPeriod + time.Hour
+
+		err := subject.RecoverClient(substitute)
+		urequire.NoError(t, err)
+		uassert.Equal(t, int64(trustingPeriod+time.Hour), int64(subject.ClientState.TrustingPeriod))
+	})
+
+	t.Run("failure: mismatching max clock drift", func(t *testing.T) {
+		subject := newSubject()
+		substitute := newSubstitute()
+		substitute.ClientState.MaxClockDrift = maxClockDrift + time.Second
+
+		err := subject.RecoverClient(substitute)
+		urequire.Error(t, err)
+		urequire.ErrorContains(t, err, "does not match substitute client state")
+	})
+
+	t.Run("failure: mismatching trust level", func(t *testing.T) {
+		subject := newSubject()
+		substitute := newSubstitute()
+		substitute.ClientState.TrustLevel = tendermint.NewFraction(2, 3)
+
+		err := subject.RecoverClient(substitute)
+		urequire.Error(t, err)
+		urequire.ErrorContains(t, err, "does not match substitute client state")
+	})
+
+	t.Run("failure: missing consensus state at substitute latest height", func(t *testing.T) {
+		subject := newSubject()
+		substitute := newSubstitute()
+		// Drop the consensus state that Initialize stored.
+		substitute.ConsensusStateByHeight.Remove(substitute.ClientState.LatestHeight.StringNatSort())
+
+		err := subject.RecoverClient(substitute)
+		urequire.Error(t, err)
+		urequire.ErrorContains(t, err, "substitute consensus state not found")
+	})
+
+	// Assertion that interface conformance holds when calling through the
+	// lightclient.Interface type (catches future signature drift).
+	t.Run("success via Interface", func(t *testing.T) {
+		subject := newSubject()
+		var substitute lightclient.Interface = newSubstitute()
+
+		err := subject.RecoverClient(substitute)
+		urequire.NoError(t, err)
+	})
 }

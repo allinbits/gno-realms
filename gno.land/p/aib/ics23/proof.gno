@@ -542,6 +542,60 @@ func orderFromPadding(spec *InnerSpec, inner *InnerOp) (int32, error) {
 	return 0, errors.New("cannot find any valid spacing for this node")
 }
 
+// Equal returns true if the two ProofSpec instances are deeply equal across
+// every field. Use this when you need a strict content comparison (e.g. to
+// detect attempts at substituting a different spec for an existing client).
+// For the looser, "same shape" comparison historically used to route proof
+// verification through IavlSpec/TendermintSpec, use SpecEquals instead.
+func (p *ProofSpec) Equal(other *ProofSpec) bool {
+	if p == nil || other == nil {
+		return p == other
+	}
+	if p.MaxDepth != other.MaxDepth ||
+		p.MinDepth != other.MinDepth ||
+		p.PrehashKeyBeforeComparison != other.PrehashKeyBeforeComparison {
+		return false
+	}
+	if !p.LeafSpec.Equal(other.LeafSpec) {
+		return false
+	}
+	return p.InnerSpec.Equal(other.InnerSpec)
+}
+
+// Equal returns true if the two LeafOp instances are deeply equal.
+func (p *LeafOp) Equal(other *LeafOp) bool {
+	if p == nil || other == nil {
+		return p == other
+	}
+	return p.Hash == other.Hash &&
+		p.PrehashKey == other.PrehashKey &&
+		p.PrehashValue == other.PrehashValue &&
+		p.Length == other.Length &&
+		bytes.Equal(p.Prefix, other.Prefix)
+}
+
+// Equal returns true if the two InnerSpec instances are deeply equal.
+func (p *InnerSpec) Equal(other *InnerSpec) bool {
+	if p == nil || other == nil {
+		return p == other
+	}
+	if p.ChildSize != other.ChildSize ||
+		p.MinPrefixLength != other.MinPrefixLength ||
+		p.MaxPrefixLength != other.MaxPrefixLength ||
+		p.Hash != other.Hash {
+		return false
+	}
+	if len(p.ChildOrder) != len(other.ChildOrder) {
+		return false
+	}
+	for i := range p.ChildOrder {
+		if p.ChildOrder[i] != other.ChildOrder[i] {
+			return false
+		}
+	}
+	return bytes.Equal(p.EmptyChild, other.EmptyChild)
+}
+
 // over-declares equality, which we consider fine for now.
 func (p *ProofSpec) SpecEquals(spec *ProofSpec) bool {
 	// 1. Compare LeafSpecs values.

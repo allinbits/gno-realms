@@ -142,3 +142,26 @@ Emitted event:
   }
 ]
 ```
+
+## RecoverClient
+
+See [`recover-client.md`](./recover-client.md) for the end-to-end flow and
+which parameters can be adjusted during recovery.
+
+Emitted event:
+```json
+{
+  "type": "recover_client",
+  "attrs": [
+    {
+      "key": "subject_client_id",
+      "value": "07-tendermint-1"
+    },
+    {
+      "key": "client_type",
+      "value": "07-tendermint"
+    }
+  ],
+  "pkg_path": "gno.land/r/aib/ibc/core"
+}
+```

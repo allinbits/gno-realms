@@ -254,10 +254,66 @@ func (tm *TMLightClient) TimestampAtHeight(height types.Height) (uint64, error) 
 	return uint64(cs.Timestamp.Unix()), nil
 }
 
-// Implements lightclient.Interface
-func (tm *TMLightClient) RecoverClient(substituteClientID string) error {
-	// TODO
-	panic("not implemented")
+// Implements lightclient.Interface.
+//
+// RecoverClient copies the substitute's consensus state at its latest height
+// into the subject (tm), updates the subject's ChainID, LatestHeight and
+// TrustingPeriod to match the substitute, and un-freezes the subject by
+// resetting FrozenHeight. The substitute and subject client states must match
+// in TrustLevel, UnbondingPeriod, MaxClockDrift, ProofSpecs and UpgradePath.
+func (tm *TMLightClient) RecoverClient(substitute lightclient.Interface) error {
+	sub, ok := substitute.(*TMLightClient)
+	if !ok {
+		return ufmt.Errorf("substitute client type mismatch: expected *TMLightClient, got %T", substitute)
+	}
+	if !isMatchingClientState(tm.ClientState, sub.ClientState) {
+		return errors.New("subject client state does not match substitute client state")
+	}
+	subLatest := sub.ClientState.LatestHeight
+	subConsState, found := sub.GetConsensusState(subLatest)
+	if !found {
+		return ufmt.Errorf("substitute consensus state not found at height %s", subLatest)
+	}
+
+	tm.ClientState.ChainID = sub.ClientState.ChainID
+	tm.ClientState.LatestHeight = subLatest
+	tm.ClientState.TrustingPeriod = sub.ClientState.TrustingPeriod
+	tm.ClientState.FrozenHeight = types.ZeroHeight()
+	tm.SetConsensusState(subLatest, subConsState)
+	return nil
+}
+
+// isMatchingClientState returns true if the two client states share all
+// parameters that must not change during a client recovery. ChainID,
+// LatestHeight, FrozenHeight and TrustingPeriod are allowed to differ — the
+// substitute's TrustingPeriod is adopted by the subject.
+func isMatchingClientState(subject, substitute *ClientState) bool {
+	if subject.TrustLevel != substitute.TrustLevel {
+		return false
+	}
+	if subject.UnbondingPeriod != substitute.UnbondingPeriod {
+		return false
+	}
+	if subject.MaxClockDrift != substitute.MaxClockDrift {
+		return false
+	}
+	if len(subject.ProofSpecs) != len(substitute.ProofSpecs) {
+		return false
+	}
+	for i := range subject.ProofSpecs {
+		if !subject.ProofSpecs[i].Equal(substitute.ProofSpecs[i]) {
+			return false
+		}
+	}
+	if len(subject.UpgradePath) != len(substitute.UpgradePath) {
+		return false
+	}
+	for i := range subject.UpgradePath {
+		if subject.UpgradePath[i] != substitute.UpgradePath[i] {
+			return false
+		}
+	}
+	return true
 }
 
 // Implements lightclient.Interface

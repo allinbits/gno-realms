@@ -125,9 +125,44 @@ func UpgradeClient(cur realm, clientID string, clientState, consensusState, proo
 	panic("not implemented")
 }
 
-// RecoverClient recovers a frozen or expired client.
-// NOTE(tb): This must be a permissioned function called by a gov proposal.
-func RecoverClient(cur realm, clientID string) {
-	// TODO
-	panic("not implemented")
+// RecoverClient recovers a frozen or expired subject client using a healthy
+// substitute client that tracks the same counterparty chain.
+func RecoverClient(cur realm, subjectClientID, substituteClientID string) {
+	ensureAdminCaller()
+	if subjectClientID == substituteClientID {
+		panic("subject and substitute client IDs must differ")
+	}
+	subject := store.getClient(subjectClientID)
+	if subject == nil {
+		panic(ufmt.Sprintf("subject client %s not found", subjectClientID))
+	}
+	substitute := store.getClient(substituteClientID)
+	if substitute == nil {
+		panic(ufmt.Sprintf("substitute client %s not found", substituteClientID))
+	}
+	if subject.typ != substitute.typ {
+		panic(ufmt.Sprintf(
+			"subject client type %s does not match substitute client type %s",
+			subject.typ, substitute.typ,
+		))
+	}
+	if status := subject.lightClient.Status(); status != lightclient.Frozen && status != lightclient.Expired {
+		panic(ufmt.Sprintf(
+			"cannot recover subject client %s with status %s",
+			subject.id, status,
+		))
+	}
+	if status := substitute.lightClient.Status(); status != lightclient.Active {
+		panic(ufmt.Sprintf(
+			"substitute client %s must be Active, got %s",
+			substitute.id, status,
+		))
+	}
+	if err := subject.lightClient.RecoverClient(substitute.lightClient); err != nil {
+		panic(err)
+	}
+	chain.Emit(types.EventTypeRecoverClient,
+		types.AttributeKeySubjectClientID, subject.id,
+		types.AttributeKeyClientType, subject.typ,
+	)
 }
