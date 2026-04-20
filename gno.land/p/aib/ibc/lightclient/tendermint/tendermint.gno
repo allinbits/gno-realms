@@ -266,8 +266,8 @@ func (tm *TMLightClient) RecoverClient(substitute lightclient.Interface) error {
 	if !ok {
 		return ufmt.Errorf("substitute client type mismatch: expected *TMLightClient, got %T", substitute)
 	}
-	if !isMatchingClientState(tm.ClientState, sub.ClientState) {
-		return errors.New("subject client state does not match substitute client state")
+	if field := mismatchingClientStateField(tm.ClientState, sub.ClientState); field != "" {
+		return ufmt.Errorf("subject and substitute client states differ on %s", field)
 	}
 	subLatest := sub.ClientState.LatestHeight
 	subConsState, found := sub.GetConsensusState(subLatest)
@@ -283,37 +283,38 @@ func (tm *TMLightClient) RecoverClient(substitute lightclient.Interface) error {
 	return nil
 }
 
-// isMatchingClientState returns true if the two client states share all
-// parameters that must not change during a client recovery. ChainID,
+// mismatchingClientStateField returns the name of the first client-state field
+// that differs between subject and substitute, or an empty string if all
+// parameters that must not change during a client recovery match. ChainID,
 // LatestHeight, FrozenHeight and TrustingPeriod are allowed to differ — the
 // substitute's TrustingPeriod is adopted by the subject.
-func isMatchingClientState(subject, substitute *ClientState) bool {
+func mismatchingClientStateField(subject, substitute *ClientState) string {
 	if subject.TrustLevel != substitute.TrustLevel {
-		return false
+		return "TrustLevel"
 	}
 	if subject.UnbondingPeriod != substitute.UnbondingPeriod {
-		return false
+		return "UnbondingPeriod"
 	}
 	if subject.MaxClockDrift != substitute.MaxClockDrift {
-		return false
+		return "MaxClockDrift"
 	}
 	if len(subject.ProofSpecs) != len(substitute.ProofSpecs) {
-		return false
+		return "ProofSpecs"
 	}
 	for i := range subject.ProofSpecs {
 		if !subject.ProofSpecs[i].Equal(substitute.ProofSpecs[i]) {
-			return false
+			return "ProofSpecs"
 		}
 	}
 	if len(subject.UpgradePath) != len(substitute.UpgradePath) {
-		return false
+		return "UpgradePath"
 	}
 	for i := range subject.UpgradePath {
 		if subject.UpgradePath[i] != substitute.UpgradePath[i] {
-			return false
+			return "UpgradePath"
 		}
 	}
-	return true
+	return ""
 }
 
 // Implements lightclient.Interface

@@ -146,7 +146,7 @@ func TestRecoverClient(t *testing.T) {
 
 		err := subject.RecoverClient(substitute)
 		urequire.Error(t, err)
-		urequire.ErrorContains(t, err, "does not match substitute client state")
+		urequire.ErrorContains(t, err, "differ on MaxClockDrift")
 	})
 
 	t.Run("failure: mismatching trust level", func(t *testing.T) {
@@ -156,7 +156,37 @@ func TestRecoverClient(t *testing.T) {
 
 		err := subject.RecoverClient(substitute)
 		urequire.Error(t, err)
-		urequire.ErrorContains(t, err, "does not match substitute client state")
+		urequire.ErrorContains(t, err, "differ on TrustLevel")
+	})
+
+	t.Run("failure: mismatching unbonding period", func(t *testing.T) {
+		subject := newSubject()
+		substitute := newSubstitute()
+		substitute.ClientState.UnbondingPeriod = ubdPeriod + time.Hour
+
+		err := subject.RecoverClient(substitute)
+		urequire.Error(t, err)
+		urequire.ErrorContains(t, err, "differ on UnbondingPeriod")
+	})
+
+	t.Run("failure: mismatching proof specs", func(t *testing.T) {
+		subject := newSubject()
+		substitute := newSubstitute()
+		substitute.ClientState.ProofSpecs = substitute.ClientState.ProofSpecs[:1]
+
+		err := subject.RecoverClient(substitute)
+		urequire.Error(t, err)
+		urequire.ErrorContains(t, err, "differ on ProofSpecs")
+	})
+
+	t.Run("failure: mismatching upgrade path", func(t *testing.T) {
+		subject := newSubject()
+		substitute := newSubstitute()
+		substitute.ClientState.UpgradePath = []string{"otherUpgrade"}
+
+		err := subject.RecoverClient(substitute)
+		urequire.Error(t, err)
+		urequire.ErrorContains(t, err, "differ on UpgradePath")
 	})
 
 	t.Run("failure: missing consensus state at substitute latest height", func(t *testing.T) {

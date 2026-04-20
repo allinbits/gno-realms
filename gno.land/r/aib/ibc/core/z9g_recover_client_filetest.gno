@@ -98,4 +98,4 @@ func freezingHeaders(chainID string, trustedHeight types.Height,
 }
 
 // Error:
-// subject client state does not match substitute client state
+// subject and substitute client states differ on MaxClockDrift
