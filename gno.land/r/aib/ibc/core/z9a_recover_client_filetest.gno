@@ -102,6 +102,43 @@ func main() {
 	substituteConsState := tmtesting.GenConsensusState(time.Now(), tmtesting.Hash("apphash-5"), trustedValset.Hash())
 	substituteID := core.CreateClient(cross, clientState, substituteConsState)
 
+	// Advance the substitute to height (1,3) so recovery must actually adopt
+	// the substitute's LatestHeight (the subject starts at (1,2)). Signatures
+	// reused verbatim from z2a (chainID=atomone-1, height=3, apphash-3,
+	// trusted=(1,2), time-shift=1m).
+	{
+		var (
+			apphash         = tmtesting.Hash("apphash-3")
+			commitTimestamp = tmtesting.ToTime("2025-09-25T07:55:57.306746166Z")
+			newHeight       = uint64(3)
+			newTimestamp    = substituteConsState.Timestamp.Add(time.Minute * time.Duration(1))
+			valset          = tendermint.NewValset(val1, val2)
+			nextValset      = tendermint.NewValset(val1, val2)
+			trustedHeight   = clientState.LatestHeight
+
+			signatures = []tendermint.CommitSig{
+				{
+					BlockIDFlag:      tendermint.BlockIDFlagCommit,
+					ValidatorAddress: valset.Validators[0].Address,
+					Timestamp:        commitTimestamp,
+					Signature:        []byte("\x5c\xd2\x8b\xe3\x4b\x60\x3e\xaa\x75\x3c\xce\x24\xfe\x15\x75\x55\x84\xd4\xa3\xce\xbe\x0f\x94\xe9\xf7\x27\xb3\x7a\xdd\x02\x2d\xa0\x0b\xa7\x83\x7f\x50\xc3\xde\x3d\x95\x59\xb3\xad\xed\xd0\xdd\x23\x1d\x39\x9a\x8e\x1f\xc3\xcf\xdb\x1d\xa9\x93\xf5\x9a\xc0\x2b\x05"),
+				},
+				{
+					BlockIDFlag:      tendermint.BlockIDFlagCommit,
+					ValidatorAddress: valset.Validators[1].Address,
+					Timestamp:        commitTimestamp,
+					Signature:        []byte("\x34\x41\x2e\x78\x7f\xbf\x70\xef\x14\x48\xe3\x14\xd5\x83\xdc\x42\xff\x40\xf6\x5b\x71\x62\x09\xf9\x6f\x54\x63\x3e\xdb\xc5\x98\xc0\x9e\xa7\xde\x33\xac\xa7\x5f\xbb\xd6\x63\x49\xe1\xe9\x98\x86\x03\x46\x6a\x7e\xb6\x5d\xe5\x71\xe5\x1e\x5d\x4d\xd8\x8d\xbe\x2f\x01"),
+				},
+			}
+
+			msgHeader = tmtesting.NewMsgHeader(
+				"atomone-1", newTimestamp, apphash, newHeight, trustedHeight, valset,
+				nextValset, trustedValset, signatures,
+			)
+		)
+		core.UpdateClient(cross, substituteID, msgHeader)
+	}
+
 	println("----------- before recover: subject status")
 	println(core.Render("clients/" + subjectID + "/status"))
 	println("----------- before recover: substitute status")
@@ -127,7 +164,7 @@ func main() {
 // ----------- after recover: substitute status
 // {"status":"Active"}
 // ----------- after recover: subject frozen_height (must be 0/0)
-// {"id":"07-tendermint-1","type":"07-tendermint","creator":"g1wymu47drhr0kuq2098m792lytgtj2nyx77yrsm","status":"Active","counterparty_client_id":"","counterparty_merke_prefix":[],"client_state":{"chain_id":"atomone-1","latest_height":{"revision_number":1,"revision_height":2},"frozen_height":{"revision_number":0,"revision_height":0},"trust_level":{"numerator":1,"denominator":3},"trusting_period":3600,"unbonding_period":10800,"max_clock_drift":3600,"upgrade_path":[]},"last_consensus_state":{"height":{"revision_number":1,"revision_height":2},"timestamp":1234567890,"root":"tcd+q9KGSkybZgSQ4cxkVM1s50yivY2V1QSgKN5/g8c=","next_validators_hash":"OJfJuH6dfiZI2d0uAxqamqfIVqV4c4oEAZigvJ8UqFQ="}}
+// {"id":"07-tendermint-1","type":"07-tendermint","creator":"g1wymu47drhr0kuq2098m792lytgtj2nyx77yrsm","status":"Active","counterparty_client_id":"","counterparty_merke_prefix":[],"client_state":{"chain_id":"atomone-1","latest_height":{"revision_number":1,"revision_height":3},"frozen_height":{"revision_number":0,"revision_height":0},"trust_level":{"numerator":1,"denominator":3},"trusting_period":3600,"unbonding_period":10800,"max_clock_drift":3600,"upgrade_path":[]},"last_consensus_state":{"height":{"revision_number":1,"revision_height":3},"timestamp":1234567950,"root":"m9afpc+PXaYRHdGC7FkrzuzRNn8ONC1xRCzYYAPRCU8=","next_validators_hash":"OJfJuH6dfiZI2d0uAxqamqfIVqV4c4oEAZigvJ8UqFQ="}}
 
 // Events:
 // [
@@ -177,6 +214,24 @@ func main() {
 //       {
 //         "key": "consensus_heights",
 //         "value": "1/2"
+//       }
+//     ],
+//     "pkg_path": "gno.land/r/aib/ibc/core"
+//   },
+//   {
+//     "type": "update_client",
+//     "attrs": [
+//       {
+//         "key": "client_id",
+//         "value": "07-tendermint-2"
+//       },
+//       {
+//         "key": "client_type",
+//         "value": "07-tendermint"
+//       },
+//       {
+//         "key": "consensus_heights",
+//         "value": "1/3"
 //       }
 //     ],
 //     "pkg_path": "gno.land/r/aib/ibc/core"
