@@ -52,7 +52,12 @@ The following are allowed to differ and are **adopted from the substitute** by
 the subject during recovery:
 
 - `ChainID` (typically the same, but the code supports a change — for example
-  a genesis-restart on a new chain ID tracking the same state)
+  a genesis-restart on a new chain ID tracking the same state). `ChainID` and
+  `LatestHeight` are always adopted together, so their revision numbers stay
+  aligned: `ClientState.ValidateBasic` requires
+  `LatestHeight.RevisionNumber == ParseChainID(ChainID)`, and since both sides
+  of that equality come from the substitute (which passed `ValidateBasic` at
+  `CreateClient`), the invariant is preserved on the subject post-recovery.
 - `LatestHeight`
 - `TrustingPeriod` — this is the parameter-tweaking knob: if the original
   `TrustingPeriod` was set too aggressively (and partly caused the expiry),
