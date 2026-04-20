@@ -163,6 +163,7 @@ func RecoverClient(cur realm, subjectClientID, substituteClientID string) {
 	}
 	chain.Emit(types.EventTypeRecoverClient,
 		types.AttributeKeySubjectClientID, subject.id,
+		types.AttributeKeySubstituteClientID, substitute.id,
 		types.AttributeKeyClientType, subject.typ,
 	)
 }

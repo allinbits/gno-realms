@@ -10,13 +10,14 @@ const (
 	EventTypeScheduleIBCSoftwareUpgrade = "schedule_ibc_software_upgrade"
 	EventTypeUpgradeChain               = "upgrade_chain"
 
-	AttributeKeyClientID          = "client_id"
-	AttributeKeySubjectClientID   = "subject_client_id"
-	AttributeKeyClientType        = "client_type"
-	AttributeKeyConsensusHeights  = "consensus_heights"
-	AttributeKeyUpgradeStore      = "upgrade_store"
-	AttributeKeyUpgradePlanHeight = "upgrade_plan_height"
-	AttributeKeyUpgradePlanTitle  = "title"
+	AttributeKeyClientID           = "client_id"
+	AttributeKeySubjectClientID    = "subject_client_id"
+	AttributeKeySubstituteClientID = "substitute_client_id"
+	AttributeKeyClientType         = "client_type"
+	AttributeKeyConsensusHeights   = "consensus_heights"
+	AttributeKeyUpgradeStore       = "upgrade_store"
+	AttributeKeyUpgradePlanHeight  = "upgrade_plan_height"
+	AttributeKeyUpgradePlanTitle   = "title"
 )
 
 // IBC core events

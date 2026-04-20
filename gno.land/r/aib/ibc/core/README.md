@@ -158,6 +158,10 @@ Emitted event:
       "value": "07-tendermint-1"
     },
     {
+      "key": "substitute_client_id",
+      "value": "07-tendermint-2"
+    },
+    {
       "key": "client_type",
       "value": "07-tendermint"
     }
