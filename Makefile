@@ -45,7 +45,7 @@ e2e-down:
 
 e2e-test:
 	$(DC) up -d --build --force-recreate
-	cd e2e && go test -v -timeout 10m -count=1 ./...; ret=$$?; cd .. && $(DC) down -v; exit $$ret
+	cd e2e && go test -v -timeout 10m -count=1 ./...; ret=$$?; cd .. && if [ $$ret -ne 0 ]; then echo "=== relayer logs ===" && $(DC) logs relayer && echo "=== gno logs ===" && $(DC) logs gno; fi; $(DC) down -v; exit $$ret
 
 e2e-test-only:
 	cd e2e && go test -v -timeout 10m -count=1 ./...
