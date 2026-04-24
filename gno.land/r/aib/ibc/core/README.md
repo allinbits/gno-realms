@@ -169,3 +169,33 @@ Emitted event:
   "pkg_path": "gno.land/r/aib/ibc/core"
 }
 ```
+
+## UpgradeClient
+
+Upgrades the client to a new client state. The client must have an `UpgradePath`
+set in its client state. The upgrade proofs verify that the counterparty chain
+has committed to the upgraded client state and consensus state at the upgrade path.
+
+**Note:** This feature is part of the IBC spec but is rarely needed in practice.
+In practice, `UpdateClient` is sufficient for most chain upgrades - relayers
+simply send new headers after a chain upgrade, and the client catches up normally.
+`UpgradeClient` would only be needed if the IBC protocol itself changed its
+client state format, which has never occurred in the history of IBC.
+
+Emitted event:
+```json
+{
+  "type": "upgrade_client",
+  "attrs": [
+    {
+      "key": "client_id",
+      "value": "07-tendermint-1"
+    },
+    {
+      "key": "client_type",
+      "value": "07-tendermint"
+    }
+  ],
+  "pkg_path": "gno.land/r/aib/ibc/core"
+}
+```

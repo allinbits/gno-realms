@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"gno.land/p/aib/encoding/proto"
 	"gno.land/p/aib/ibc/lightclient"
 	"gno.land/p/aib/ibc/types"
 	"gno.land/p/aib/ics23"
@@ -210,4 +211,51 @@ func validateHash(h []byte) error {
 		)
 	}
 	return nil
+}
+
+func (cs ClientState) ProtoMarshal() (bz []byte) {
+	if cs.ChainID != "" {
+		bz = proto.AppendLengthDelimited(bz, 1, []byte(cs.ChainID))
+	}
+	bz = proto.AppendLengthDelimited(bz, 2, cs.TrustLevel.ProtoMarshal())
+	bz = proto.AppendLengthDelimited(bz, 3, durationMarshal(cs.TrustingPeriod))
+	bz = proto.AppendLengthDelimited(bz, 4, durationMarshal(cs.UnbondingPeriod))
+	bz = proto.AppendLengthDelimited(bz, 5, durationMarshal(cs.MaxClockDrift))
+	bz = proto.AppendLengthDelimited(bz, 6, cs.FrozenHeight.ProtoMarshal())
+	bz = proto.AppendLengthDelimited(bz, 7, cs.LatestHeight.ProtoMarshal())
+	// ProofSpecs field 8 skipped - requires complex proto serialization
+	for _, path := range cs.UpgradePath {
+		bz = proto.AppendLengthDelimited(bz, 9, []byte(path))
+	}
+	return
+}
+
+func (f Fraction) ProtoMarshal() (bz []byte) {
+	bz = proto.AppendVarint(bz, 1, f.Numerator)
+	bz = proto.AppendVarint(bz, 2, f.Denominator)
+	return
+}
+
+func durationMarshal(d time.Duration) []byte {
+	var buf []byte
+	seconds := d / time.Second
+	nanos := int32(d % time.Second)
+	if nanos < 0 {
+		nanos += int32(time.Second)
+	}
+	buf = proto.AppendVarint(buf, 1, uint64(seconds))
+	buf = proto.AppendVarint(buf, 2, uint64(nanos))
+	return buf
+}
+
+func (cs ConsensusState) ProtoMarshal() (bz []byte) {
+	bz = proto.AppendTime(bz, 1, cs.Timestamp)
+	bz = proto.AppendLengthDelimited(bz, 2, cs.Root.ProtoMarshal())
+	bz = proto.AppendLengthDelimited(bz, 3, cs.NextValidatorsHash)
+	return
+}
+
+func (mr MerkleRoot) ProtoMarshal() (bz []byte) {
+	bz = proto.AppendLengthDelimited(bz, 1, mr.Hash)
+	return
 }

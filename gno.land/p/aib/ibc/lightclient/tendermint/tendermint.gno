@@ -321,10 +321,130 @@ func mismatchingClientStateField(subject, substitute *ClientState) string {
 }
 
 // Implements lightclient.Interface
-func (tm *TMLightClient) VerifyUpgradeAndUpdateState(newClient, newConsState,
-	upgradeClientProof, upgradeConsensusStateProof []byte) error {
-	// TODO
-	panic("not implemented")
+func (tm *TMLightClient) VerifyUpgradeAndUpdateState(newClient, newConsState any,
+	upgradeClientProof, upgradeConsensusStateProof any) error {
+	upgradedClientState, ok := newClient.(ClientState)
+	if !ok {
+		return errors.New("invalid upgraded client state type")
+	}
+	if err := upgradedClientState.ValidateBasic(); err != nil {
+		return ufmt.Errorf("invalid upgraded client state: %v", err)
+	}
+
+	upgradedConsensusState, ok := newConsState.(ConsensusState)
+	if !ok {
+		return errors.New("invalid upgraded consensus state type")
+	}
+	if err := upgradedConsensusState.ValidateBasic(); err != nil {
+		return ufmt.Errorf("invalid upgraded consensus state: %v", err)
+	}
+
+	if upgradedClientState.ChainID != tm.ClientState.ChainID {
+		return ufmt.Errorf("upgraded client state chain id does not match existing client state chain id")
+	}
+	if upgradedClientState.LatestHeight.RevisionNumber != tm.ClientState.LatestHeight.RevisionNumber {
+		return ufmt.Errorf("upgraded client state revision number does not match existing client state revision number")
+	}
+
+	if field := mismatchingClientStateFieldForUpgrade(tm.ClientState, &upgradedClientState); field != "" {
+		return ufmt.Errorf("upgraded client state does not match existing client on parameter: %s", field)
+	}
+
+	lastHeight := tm.ClientState.LatestHeight
+
+	var clientProofs []ics23.CommitmentProof
+	switch p := upgradeClientProof.(type) {
+	case []ics23.CommitmentProof:
+		clientProofs = p
+	case []byte:
+		return errors.New("upgradeClientProof cannot be raw bytes, must be []ics23.CommitmentProof")
+	default:
+		return ufmt.Errorf("upgradeClientProof has unexpected type %T", upgradeClientProof)
+	}
+
+	var consensusProofs []ics23.CommitmentProof
+	switch p := upgradeConsensusStateProof.(type) {
+	case []ics23.CommitmentProof:
+		consensusProofs = p
+	case []byte:
+		return errors.New("upgradeConsensusStateProof cannot be raw bytes, must be []ics23.CommitmentProof")
+	default:
+		return ufmt.Errorf("upgradeConsensusStateProof has unexpected type %T", upgradeConsensusStateProof)
+	}
+
+	if len(clientProofs) == 0 {
+		return errors.New("upgradeClientProof cannot be empty")
+	}
+	if len(consensusProofs) == 0 {
+		return errors.New("upgradeConsensusStateProof cannot be empty")
+	}
+
+	path := getUpgradePath(tm.ClientState.UpgradePath, lastHeight)
+	clientPath := buildUpgradeMerklePath(path, "clientState")
+	clientValue := upgradedClientState.ProtoMarshal()
+	if err := tm.VerifyMembership(lastHeight, clientProofs, clientPath, clientValue); err != nil {
+		return ufmt.Errorf("failed to verify upgrade client proof: %v", err)
+	}
+
+	consensusPath := buildUpgradeMerklePath(path, "consensusState")
+	consensusValue := upgradedConsensusState.ProtoMarshal()
+	if err := tm.VerifyMembership(lastHeight, consensusProofs, consensusPath, consensusValue); err != nil {
+		return ufmt.Errorf("failed to verify upgrade consensus state proof: %v", err)
+	}
+
+	tm.ClientState = &upgradedClientState
+	upgradedConsensusState.processedTime = time.Now()
+	upgradedConsensusState.processedHeight = types.GetSelfHeight()
+	tm.SetConsensusState(upgradedClientState.LatestHeight, &upgradedConsensusState)
+
+	return nil
+}
+
+func getUpgradePath(upgradePath []string, height types.Height) []string {
+	path := make([]string, 0, len(upgradePath)+1)
+	path = append(path, upgradePath...)
+	if len(path) > 0 {
+		path = append(path, ufmt.Sprintf("%d", height.RevisionHeight))
+	}
+	return path
+}
+
+func buildUpgradeMerklePath(path []string, lastKey string) types.MerklePath {
+	keyPath := make([][]byte, 0, len(path)+1)
+	for _, k := range path {
+		keyPath = append(keyPath, []byte(k))
+	}
+	keyPath = append(keyPath, []byte(lastKey))
+	return types.MerklePath{KeyPath: keyPath}
+}
+
+func mismatchingClientStateFieldForUpgrade(subject, substitute *ClientState) string {
+	if subject.TrustLevel != substitute.TrustLevel {
+		return "TrustLevel"
+	}
+	if subject.UnbondingPeriod != substitute.UnbondingPeriod {
+		return "UnbondingPeriod"
+	}
+	if subject.MaxClockDrift != substitute.MaxClockDrift {
+		return "MaxClockDrift"
+	}
+	if len(subject.ProofSpecs) != len(substitute.ProofSpecs) {
+		return "ProofSpecs"
+	}
+	for i := range subject.ProofSpecs {
+		if !subject.ProofSpecs[i].Equal(substitute.ProofSpecs[i]) {
+			return "ProofSpecs"
+		}
+	}
+	if len(subject.UpgradePath) != len(substitute.UpgradePath) {
+		return "UpgradePath"
+	}
+	for i := range subject.UpgradePath {
+		if subject.UpgradePath[i] != substitute.UpgradePath[i] {
+			return "UpgradePath"
+		}
+	}
+	return ""
 }
 
 func (tm *TMLightClient) SetConsensusState(height types.Height, consState *ConsensusState) {
