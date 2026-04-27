@@ -223,12 +223,14 @@ func (cs ClientState) ProtoMarshal() (bz []byte) {
 	if cs.ChainID != "" {
 		bz = proto.AppendLengthDelimited(bz, 1, []byte(cs.ChainID))
 	}
-	bz = proto.AppendLengthDelimited(bz, 2, cs.TrustLevel.ProtoMarshal())
-	bz = proto.AppendLengthDelimited(bz, 3, durationMarshal(cs.TrustingPeriod))
-	bz = proto.AppendLengthDelimited(bz, 4, durationMarshal(cs.UnbondingPeriod))
-	bz = proto.AppendLengthDelimited(bz, 5, durationMarshal(cs.MaxClockDrift))
-	bz = proto.AppendLengthDelimited(bz, 6, cs.FrozenHeight.ProtoMarshal())
-	bz = proto.AppendLengthDelimited(bz, 7, cs.LatestHeight.ProtoMarshal())
+	// Fields 2..7 are marked `(gogoproto.nullable) = false` in ibc-go's
+	// .proto, so they're emitted even when zero (as length-0 messages).
+	bz = proto.AppendAlwaysLengthDelimited(bz, 2, cs.TrustLevel.ProtoMarshal())
+	bz = proto.AppendAlwaysLengthDelimited(bz, 3, durationMarshal(cs.TrustingPeriod))
+	bz = proto.AppendAlwaysLengthDelimited(bz, 4, durationMarshal(cs.UnbondingPeriod))
+	bz = proto.AppendAlwaysLengthDelimited(bz, 5, durationMarshal(cs.MaxClockDrift))
+	bz = proto.AppendAlwaysLengthDelimited(bz, 6, cs.FrozenHeight.ProtoMarshal())
+	bz = proto.AppendAlwaysLengthDelimited(bz, 7, cs.LatestHeight.ProtoMarshal())
 	for _, spec := range cs.ProofSpecs {
 		bz = proto.AppendLengthDelimited(bz, 8, spec.ProtoMarshal())
 	}
@@ -273,8 +275,11 @@ func durationMarshal(d time.Duration) []byte {
 }
 
 func (cs ConsensusState) ProtoMarshal() (bz []byte) {
-	bz = proto.AppendTime(bz, 1, cs.Timestamp)
-	bz = proto.AppendLengthDelimited(bz, 2, cs.Root.ProtoMarshal())
+	// Timestamp and Root are `(gogoproto.nullable) = false` in ibc-go;
+	// always-emit semantics. NextValidatorsHash is plain bytes — proto3
+	// default applies (omitted when empty).
+	bz = proto.AppendAlwaysLengthDelimited(bz, 1, proto.TimeMarshal(cs.Timestamp))
+	bz = proto.AppendAlwaysLengthDelimited(bz, 2, cs.Root.ProtoMarshal())
 	bz = proto.AppendLengthDelimited(bz, 3, cs.NextValidatorsHash)
 	return
 }

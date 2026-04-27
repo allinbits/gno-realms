@@ -381,7 +381,9 @@ func (tm *TMLightClient) VerifyUpgradeAndUpdateState(newClient, newConsState any
 		return ufmt.Errorf("failed to verify upgrade client proof: %v", err)
 	}
 
-	consensusPath := buildUpgradeMerklePath(path, "upgradedConsensusState", lastHeight)
+	// "upgradedConsState" matches the SDK upgrade module's KeyUpgradedConsState
+	// (note: no "ensus" — must match what the counterparty stored).
+	consensusPath := buildUpgradeMerklePath(path, "upgradedConsState", lastHeight)
 	consensusValue := proto.MarshalAny(
 		ConsensusStateTypeURL,
 		upgradedConsensusState.ProtoMarshal(),

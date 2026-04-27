@@ -52,9 +52,9 @@ func TestBuildUpgradeMerklePath(t *testing.T) {
 	})
 
 	t.Run("single-element path produces a single key with the suffix", func(t *testing.T) {
-		mp := buildUpgradeMerklePath([]string{"upgrade"}, "upgradedConsensusState", height)
+		mp := buildUpgradeMerklePath([]string{"upgrade"}, "upgradedConsState", height)
 		urequire.Equal(t, 1, len(mp.KeyPath))
-		uassert.Equal(t, "upgrade/100/upgradedConsensusState", string(mp.KeyPath[0]))
+		uassert.Equal(t, "upgrade/100/upgradedConsState", string(mp.KeyPath[0]))
 	})
 
 	t.Run("three-element path keeps each prefix segment separate", func(t *testing.T) {

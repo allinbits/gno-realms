@@ -63,11 +63,23 @@ func AppendFixed64(buf []byte, fieldNum int, v uint64) []byte {
 	return append(buf, b[:]...)
 }
 
-// AppendLengthDelimited appends a length-delimited field.
+// AppendLengthDelimited appends a length-delimited field. Returns buf
+// unchanged when bz is empty (proto3 default for optional fields).
 func AppendLengthDelimited(buf []byte, fieldNum int, bz []byte) []byte {
 	if len(bz) == 0 {
 		return buf
 	}
+	buf = AppendTag(buf, fieldNum, LEN)
+	buf = binary.AppendUvarint(buf, uint64(len(bz)))
+	return append(buf, bz...)
+}
+
+// AppendAlwaysLengthDelimited appends a length-delimited field, including
+// when bz is empty (emits a length-0 value). Required to match the wire
+// format produced by gogoproto for fields marked
+// `[(gogoproto.nullable) = false]`, which always serialize even when their
+// underlying message has no non-zero fields.
+func AppendAlwaysLengthDelimited(buf []byte, fieldNum int, bz []byte) []byte {
 	buf = AppendTag(buf, fieldNum, LEN)
 	buf = binary.AppendUvarint(buf, uint64(len(bz)))
 	return append(buf, bz...)
