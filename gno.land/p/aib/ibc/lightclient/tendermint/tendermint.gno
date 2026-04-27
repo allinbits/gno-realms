@@ -381,7 +381,10 @@ func (tm *TMLightClient) VerifyUpgradeAndUpdateState(newClient, newConsState any
 
 	path := tm.ClientState.UpgradePath
 	clientPath := buildUpgradeMerklePath(path, "upgradedClient", lastHeight)
-	clientValue := upgradedClientState.ProtoMarshal()
+	// The counterparty chain commits to the upgraded client with all
+	// customizable fields zeroed, so we must verify the proof against the
+	// same shape.
+	clientValue := upgradedClientState.ZeroCustomFields().ProtoMarshal()
 	if err := tm.VerifyMembership(lastHeight, clientProofs, clientPath, clientValue); err != nil {
 		return ufmt.Errorf("failed to verify upgrade client proof: %v", err)
 	}

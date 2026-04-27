@@ -223,11 +223,29 @@ func (cs ClientState) ProtoMarshal() (bz []byte) {
 	bz = proto.AppendLengthDelimited(bz, 5, durationMarshal(cs.MaxClockDrift))
 	bz = proto.AppendLengthDelimited(bz, 6, cs.FrozenHeight.ProtoMarshal())
 	bz = proto.AppendLengthDelimited(bz, 7, cs.LatestHeight.ProtoMarshal())
-	// ProofSpecs field 8 skipped - requires complex proto serialization
+	for _, spec := range cs.ProofSpecs {
+		bz = proto.AppendLengthDelimited(bz, 8, spec.ProtoMarshal())
+	}
 	for _, path := range cs.UpgradePath {
 		bz = proto.AppendLengthDelimited(bz, 9, []byte(path))
 	}
 	return
+}
+
+// ZeroCustomFields returns a copy of the ClientState with all
+// client-customizable fields zeroed. Only the chain-specified fields
+// (ChainID, UnbondingPeriod, LatestHeight, ProofSpecs, UpgradePath) are
+// preserved. The counterparty chain commits to this zeroed form when
+// scheduling an upgrade, so verification on the upgrade proof must be
+// performed against the same shape.
+func (cs ClientState) ZeroCustomFields() ClientState {
+	return ClientState{
+		ChainID:         cs.ChainID,
+		UnbondingPeriod: cs.UnbondingPeriod,
+		LatestHeight:    cs.LatestHeight,
+		ProofSpecs:      cs.ProofSpecs,
+		UpgradePath:     cs.UpgradePath,
+	}
 }
 
 func (f Fraction) ProtoMarshal() (bz []byte) {

@@ -25,6 +25,22 @@ func AppendVarint(buf []byte, fieldNum int, v uint64) []byte {
 	return binary.AppendUvarint(buf, v)
 }
 
+// AppendPackedVarintInt32 appends a packed repeated int32 varint field.
+// Negative values are sign-extended to 64 bits to match proto3 wire format.
+// Returns buf unchanged when values is empty (proto3 default).
+func AppendPackedVarintInt32(buf []byte, fieldNum int, values []int32) []byte {
+	if len(values) == 0 {
+		return buf
+	}
+	var packed []byte
+	for _, v := range values {
+		packed = binary.AppendUvarint(packed, uint64(int64(v)))
+	}
+	buf = AppendTag(buf, fieldNum, LEN)
+	buf = binary.AppendUvarint(buf, uint64(len(packed)))
+	return append(buf, packed...)
+}
+
 // AppendFixed64 appends a fixed 64-bit field.
 func AppendFixed64(buf []byte, fieldNum int, v uint64) []byte {
 	if v == 0 {
