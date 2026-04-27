@@ -118,8 +118,9 @@ func UpdateClient(cur realm, clientID string, clientMessage lightclient.ClientMe
 	)
 }
 
-// UpgradeClient upgrades the client to a new client state if this new client
-// was committed to by the old client at the specified upgrade height.
+// UpgradeClient upgrades the client to a new client and consensus state,
+// verified by proofs that the counterparty chain committed to those states
+// at its UpgradePath under the current client's latest consensus root.
 func UpgradeClient(cur realm, clientID string, clientState, consensusState, proofUpgradeClient, proofUpgradeConsensusState any) {
 	c := store.getClient(clientID)
 	if c == nil {

@@ -325,7 +325,7 @@ func (tm *TMLightClient) VerifyUpgradeAndUpdateState(newClient, newConsState any
 	upgradeClientProof, upgradeConsensusStateProof any) error {
 	upgradedClientState, ok := newClient.(ClientState)
 	if !ok {
-		return errors.New("invalid upgraded client state type")
+		return ufmt.Errorf("upgraded client state must be tendermint.ClientState, got %T", newClient)
 	}
 	if err := upgradedClientState.ValidateBasic(); err != nil {
 		return ufmt.Errorf("invalid upgraded client state: %v", err)
@@ -333,7 +333,7 @@ func (tm *TMLightClient) VerifyUpgradeAndUpdateState(newClient, newConsState any
 
 	upgradedConsensusState, ok := newConsState.(ConsensusState)
 	if !ok {
-		return errors.New("invalid upgraded consensus state type")
+		return ufmt.Errorf("upgraded consensus state must be tendermint.ConsensusState, got %T", newConsState)
 	}
 	if err := upgradedConsensusState.ValidateBasic(); err != nil {
 		return ufmt.Errorf("invalid upgraded consensus state: %v", err)
@@ -348,28 +348,17 @@ func (tm *TMLightClient) VerifyUpgradeAndUpdateState(newClient, newConsState any
 
 	lastHeight := tm.ClientState.LatestHeight
 
-	var clientProofs []ics23.CommitmentProof
-	switch p := upgradeClientProof.(type) {
-	case []ics23.CommitmentProof:
-		clientProofs = p
-	case []byte:
-		return errors.New("upgradeClientProof cannot be raw bytes, must be []ics23.CommitmentProof")
-	default:
-		return ufmt.Errorf("upgradeClientProof has unexpected type %T", upgradeClientProof)
+	clientProofs, ok := upgradeClientProof.([]ics23.CommitmentProof)
+	if !ok {
+		return ufmt.Errorf("upgradeClientProof must be []ics23.CommitmentProof, got %T", upgradeClientProof)
 	}
-
-	var consensusProofs []ics23.CommitmentProof
-	switch p := upgradeConsensusStateProof.(type) {
-	case []ics23.CommitmentProof:
-		consensusProofs = p
-	case []byte:
-		return errors.New("upgradeConsensusStateProof cannot be raw bytes, must be []ics23.CommitmentProof")
-	default:
-		return ufmt.Errorf("upgradeConsensusStateProof has unexpected type %T", upgradeConsensusStateProof)
-	}
-
 	if len(clientProofs) == 0 {
 		return errors.New("upgradeClientProof cannot be empty")
+	}
+
+	consensusProofs, ok := upgradeConsensusStateProof.([]ics23.CommitmentProof)
+	if !ok {
+		return ufmt.Errorf("upgradeConsensusStateProof must be []ics23.CommitmentProof, got %T", upgradeConsensusStateProof)
 	}
 	if len(consensusProofs) == 0 {
 		return errors.New("upgradeConsensusStateProof cannot be empty")
