@@ -23,3 +23,31 @@ func TestAppendFixed64(t *testing.T) {
 
 	uassert.Equal(t, "\t*\x00\x00\x00\x00\x00\x00\x00", string(bz))
 }
+
+func TestAppendPackedVarintInt32(t *testing.T) {
+	t.Run("empty omits field", func(t *testing.T) {
+		bz := AppendPackedVarintInt32(nil, 1, nil)
+		uassert.Equal(t, 0, len(bz))
+
+		bz = AppendPackedVarintInt32(nil, 1, []int32{})
+		uassert.Equal(t, 0, len(bz))
+	})
+
+	t.Run("includes zero values inside the packed payload", func(t *testing.T) {
+		bz := AppendPackedVarintInt32(nil, 1, []int32{0, 1})
+		// tag = 1<<3 | 2 = 0x0a, length = 2, payload = 0x00 0x01
+		uassert.Equal(t, "\n\x02\x00\x01", string(bz))
+	})
+
+	t.Run("multi-byte varints", func(t *testing.T) {
+		bz := AppendPackedVarintInt32(nil, 2, []int32{300, 1})
+		// tag = 2<<3 | 2 = 0x12; 300 = 0xac 0x02 (varint); 1 = 0x01
+		// length = 3
+		uassert.Equal(t, "\x12\x03\xac\x02\x01", string(bz))
+	})
+
+	t.Run("appends to existing buffer", func(t *testing.T) {
+		bz := AppendPackedVarintInt32([]byte{0xff}, 1, []int32{1})
+		uassert.Equal(t, "\xff\n\x01\x01", string(bz))
+	})
+}
