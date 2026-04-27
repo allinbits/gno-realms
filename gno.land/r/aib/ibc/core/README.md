@@ -239,6 +239,10 @@ Emitted event:
     {
       "key": "client_type",
       "value": "07-tendermint"
+    },
+    {
+      "key": "consensus_height",
+      "value": "1-100"
     }
   ],
   "pkg_path": "gno.land/r/aib/ibc/core"

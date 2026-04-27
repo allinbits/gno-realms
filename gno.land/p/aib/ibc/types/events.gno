@@ -15,6 +15,7 @@ const (
 	AttributeKeySubstituteClientID = "substitute_client_id"
 	AttributeKeyClientType         = "client_type"
 	AttributeKeyConsensusHeights   = "consensus_heights"
+	AttributeKeyConsensusHeight    = "consensus_height"
 	AttributeKeyUpgradeStore       = "upgrade_store"
 	AttributeKeyUpgradePlanHeight  = "upgrade_plan_height"
 	AttributeKeyUpgradePlanTitle   = "title"

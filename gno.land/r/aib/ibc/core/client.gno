@@ -136,6 +136,7 @@ func UpgradeClient(cur realm, clientID string, clientState, consensusState, proo
 	chain.Emit(types.EventTypeUpgradeClient,
 		types.AttributeKeyClientID, c.id,
 		types.AttributeKeyClientType, c.typ,
+		types.AttributeKeyConsensusHeight, c.lightClient.LatestHeight().String(),
 	)
 }
 
