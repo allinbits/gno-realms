@@ -339,6 +339,9 @@ func (tm *TMLightClient) VerifyUpgradeAndUpdateState(newClient, newConsState any
 		return ufmt.Errorf("invalid upgraded consensus state: %v", err)
 	}
 
+	if len(tm.ClientState.UpgradePath) == 0 {
+		return errors.New("cannot upgrade client: no upgrade path set")
+	}
 	if !upgradedClientState.LatestHeight.GT(tm.ClientState.LatestHeight) {
 		return ufmt.Errorf(
 			"upgraded client latest height (%s) must be greater than current latest height (%s)",
@@ -436,21 +439,20 @@ func calculateNewTrustingPeriod(trustingPeriod, currentUnbondingPeriod, newUnbon
 	return time.Duration(trustingSec*newUnbondingSec/currentSec) * time.Second
 }
 
+// buildUpgradeMerklePath constructs the merkle path the counterparty chain
+// stores the upgraded client/consensus state at. Each prefix element of
+// UpgradePath is kept as a separate KeyPath segment; the final element is
+// suffixed with the upgrade height and the leaf key (e.g. "upgradedClient"),
+// matching ibc-go's constructUpgrade*MerklePath. Caller must ensure
+// len(path) > 0.
 func buildUpgradeMerklePath(path []string, lastKey string, height types.Height) types.MerklePath {
-	if len(path) == 0 {
-		return types.MerklePath{KeyPath: [][]byte{[]byte(lastKey)}}
+	keyPath := make([][]byte, 0, len(path))
+	for _, k := range path[:len(path)-1] {
+		keyPath = append(keyPath, []byte(k))
 	}
-	lastPathElement := path[len(path)-1]
-	prefixPath := path[:len(path)-1]
-	mergedPath := ""
-	for i, k := range prefixPath {
-		mergedPath += k
-		if i < len(prefixPath)-1 {
-			mergedPath += "/"
-		}
-	}
-	appendedKey := ufmt.Sprintf("%s/%d/%s", lastPathElement, height.RevisionHeight, lastKey)
-	return types.MerklePath{KeyPath: [][]byte{[]byte(mergedPath), []byte(appendedKey)}}
+	appendedKey := ufmt.Sprintf("%s/%d/%s", path[len(path)-1], height.RevisionHeight, lastKey)
+	keyPath = append(keyPath, []byte(appendedKey))
+	return types.MerklePath{KeyPath: keyPath}
 }
 
 func (tm *TMLightClient) SetConsensusState(height types.Height, consState *ConsensusState) {
