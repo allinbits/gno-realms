@@ -111,6 +111,12 @@ const (
 	MaxChainIDLen = 50
 	// SentinelRoot is used as a stand-in root value for the consensus state set at the upgrade height
 	SentinelRoot = "sentinel_root"
+	// ClientStateTypeURL is the proto Any type URL counterparties use when
+	// storing the upgraded ClientState via cdc.MarshalInterface.
+	ClientStateTypeURL = "/ibc.lightclients.tendermint.v1.ClientState"
+	// ConsensusStateTypeURL is the proto Any type URL counterparties use
+	// when storing the upgraded ConsensusState via cdc.MarshalInterface.
+	ConsensusStateTypeURL = "/ibc.lightclients.tendermint.v1.ConsensusState"
 )
 
 // Implements lightclient.ClientState

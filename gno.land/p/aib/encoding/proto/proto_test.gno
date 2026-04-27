@@ -24,6 +24,21 @@ func TestAppendFixed64(t *testing.T) {
 	uassert.Equal(t, "\t*\x00\x00\x00\x00\x00\x00\x00", string(bz))
 }
 
+func TestMarshalAny(t *testing.T) {
+	t.Run("typeURL only, empty value", func(t *testing.T) {
+		bz := MarshalAny("/x.Y", nil)
+		// Field 1 (typeURL): tag 0x0a, len 4, "/x.Y"
+		uassert.Equal(t, "\n\x04/x.Y", string(bz))
+	})
+
+	t.Run("typeURL and value", func(t *testing.T) {
+		bz := MarshalAny("/x.Y", []byte{0xab, 0xcd})
+		// Field 1 (typeURL): tag 0x0a, len 4, "/x.Y"
+		// Field 2 (value):   tag 0x12, len 2, 0xab 0xcd
+		uassert.Equal(t, "\n\x04/x.Y\x12\x02\xab\xcd", string(bz))
+	})
+}
+
 func TestAppendPackedVarintInt32(t *testing.T) {
 	t.Run("empty omits field", func(t *testing.T) {
 		bz := AppendPackedVarintInt32(nil, 1, nil)

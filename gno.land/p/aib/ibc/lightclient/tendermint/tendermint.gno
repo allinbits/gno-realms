@@ -5,6 +5,7 @@ import (
 	"errors"
 	"time"
 
+	"gno.land/p/aib/encoding/proto"
 	"gno.land/p/aib/ibc/lightclient"
 	"gno.land/p/aib/ibc/types"
 	"gno.land/p/aib/ics23"
@@ -369,16 +370,22 @@ func (tm *TMLightClient) VerifyUpgradeAndUpdateState(newClient, newConsState any
 
 	path := tm.ClientState.UpgradePath
 	clientPath := buildUpgradeMerklePath(path, "upgradedClient", lastHeight)
-	// The counterparty chain commits to the upgraded client with all
-	// customizable fields zeroed, so we must verify the proof against the
-	// same shape.
-	clientValue := upgradedClientState.ZeroCustomFields().ProtoMarshal()
+	// Counterparties commit the upgraded client/consensus states wrapped in
+	// google.protobuf.Any (cdc.MarshalInterface) and with the client's
+	// customizable fields zeroed, so we verify against the same shape.
+	clientValue := proto.MarshalAny(
+		ClientStateTypeURL,
+		upgradedClientState.ZeroCustomFields().ProtoMarshal(),
+	)
 	if err := tm.VerifyMembership(lastHeight, clientProofs, clientPath, clientValue); err != nil {
 		return ufmt.Errorf("failed to verify upgrade client proof: %v", err)
 	}
 
 	consensusPath := buildUpgradeMerklePath(path, "upgradedConsensusState", lastHeight)
-	consensusValue := upgradedConsensusState.ProtoMarshal()
+	consensusValue := proto.MarshalAny(
+		ConsensusStateTypeURL,
+		upgradedConsensusState.ProtoMarshal(),
+	)
 	if err := tm.VerifyMembership(lastHeight, consensusProofs, consensusPath, consensusValue); err != nil {
 		return ufmt.Errorf("failed to verify upgrade consensus state proof: %v", err)
 	}

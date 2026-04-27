@@ -25,6 +25,17 @@ func AppendVarint(buf []byte, fieldNum int, v uint64) []byte {
 	return binary.AppendUvarint(buf, v)
 }
 
+// MarshalAny returns the wire encoding of a google.protobuf.Any message
+// holding (typeURL, value). Used to match the cdc.MarshalInterface format
+// produced by the Cosmos SDK proto codec when storing or verifying
+// interface-typed messages (e.g. ClientState in the upgrade store).
+func MarshalAny(typeURL string, value []byte) []byte {
+	var bz []byte
+	bz = AppendLengthDelimited(bz, 1, []byte(typeURL))
+	bz = AppendLengthDelimited(bz, 2, value)
+	return bz
+}
+
 // AppendPackedVarintInt32 appends a packed repeated int32 varint field.
 // Negative values are sign-extended to 64 bits to match proto3 wire format.
 // Returns buf unchanged when values is empty (proto3 default).
