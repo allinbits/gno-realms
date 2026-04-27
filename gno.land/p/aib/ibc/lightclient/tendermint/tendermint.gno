@@ -339,15 +339,11 @@ func (tm *TMLightClient) VerifyUpgradeAndUpdateState(newClient, newConsState any
 		return ufmt.Errorf("invalid upgraded consensus state: %v", err)
 	}
 
-	if upgradedClientState.ChainID != tm.ClientState.ChainID {
-		return ufmt.Errorf("upgraded client state chain id does not match existing client state chain id")
-	}
-	if upgradedClientState.LatestHeight.RevisionNumber != tm.ClientState.LatestHeight.RevisionNumber {
-		return ufmt.Errorf("upgraded client state revision number does not match existing client state revision number")
-	}
-
-	if field := mismatchingClientStateFieldForUpgrade(tm.ClientState, &upgradedClientState); field != "" {
-		return ufmt.Errorf("upgraded client state does not match existing client on parameter: %s", field)
+	if !upgradedClientState.LatestHeight.GT(tm.ClientState.LatestHeight) {
+		return ufmt.Errorf(
+			"upgraded client latest height (%s) must be greater than current latest height (%s)",
+			upgradedClientState.LatestHeight, tm.ClientState.LatestHeight,
+		)
 	}
 
 	lastHeight := tm.ClientState.LatestHeight
@@ -395,12 +391,55 @@ func (tm *TMLightClient) VerifyUpgradeAndUpdateState(newClient, newConsState any
 		return ufmt.Errorf("failed to verify upgrade consensus state proof: %v", err)
 	}
 
-	tm.ClientState = &upgradedClientState
+	// Construct the new client by combining chain-specified fields from the
+	// upgraded client (ChainID, UnbondingPeriod, LatestHeight, ProofSpecs,
+	// UpgradePath) with the customizable fields preserved from the current
+	// client (TrustLevel, TrustingPeriod, MaxClockDrift). FrozenHeight is
+	// reset on a successful upgrade. If the unbonding period shrinks, the
+	// trusting period is scaled proportionally to maintain the security
+	// ratio.
+	trustingPeriod := tm.ClientState.TrustingPeriod
+	if upgradedClientState.UnbondingPeriod < tm.ClientState.UnbondingPeriod {
+		trustingPeriod = calculateNewTrustingPeriod(
+			trustingPeriod, tm.ClientState.UnbondingPeriod, upgradedClientState.UnbondingPeriod,
+		)
+	}
+	newClientState := &ClientState{
+		ChainID:         upgradedClientState.ChainID,
+		TrustLevel:      tm.ClientState.TrustLevel,
+		TrustingPeriod:  trustingPeriod,
+		UnbondingPeriod: upgradedClientState.UnbondingPeriod,
+		MaxClockDrift:   tm.ClientState.MaxClockDrift,
+		FrozenHeight:    types.ZeroHeight(),
+		LatestHeight:    upgradedClientState.LatestHeight,
+		ProofSpecs:      upgradedClientState.ProofSpecs,
+		UpgradePath:     upgradedClientState.UpgradePath,
+	}
+	if err := newClientState.ValidateBasic(); err != nil {
+		return ufmt.Errorf("upgraded client state failed basic validation: %v", err)
+	}
+
+	tm.ClientState = newClientState
 	upgradedConsensusState.processedTime = time.Now()
 	upgradedConsensusState.processedHeight = types.GetSelfHeight()
-	tm.SetConsensusState(upgradedClientState.LatestHeight, &upgradedConsensusState)
+	tm.SetConsensusState(newClientState.LatestHeight, &upgradedConsensusState)
 
 	return nil
+}
+
+// calculateNewTrustingPeriod scales the trusting period proportionally to a
+// shorter unbonding period: newTrusting = trusting * newUnbonding /
+// currentUnbonding (with truncation). The math is performed in seconds to
+// stay within int64 range for realistic chain values; sub-second precision
+// is irrelevant for IBC trusting periods, which are measured in days.
+func calculateNewTrustingPeriod(trustingPeriod, currentUnbondingPeriod, newUnbondingPeriod time.Duration) time.Duration {
+	currentSec := int64(currentUnbondingPeriod / time.Second)
+	if currentSec == 0 {
+		return 0
+	}
+	trustingSec := int64(trustingPeriod / time.Second)
+	newUnbondingSec := int64(newUnbondingPeriod / time.Second)
+	return time.Duration(trustingSec*newUnbondingSec/currentSec) * time.Second
 }
 
 func buildUpgradeMerklePath(path []string, lastKey string, height types.Height) types.MerklePath {
@@ -418,35 +457,6 @@ func buildUpgradeMerklePath(path []string, lastKey string, height types.Height) 
 	}
 	appendedKey := ufmt.Sprintf("%s/%d/%s", lastPathElement, height.RevisionHeight, lastKey)
 	return types.MerklePath{KeyPath: [][]byte{[]byte(mergedPath), []byte(appendedKey)}}
-}
-
-func mismatchingClientStateFieldForUpgrade(subject, substitute *ClientState) string {
-	if subject.TrustLevel != substitute.TrustLevel {
-		return "TrustLevel"
-	}
-	if subject.UnbondingPeriod != substitute.UnbondingPeriod {
-		return "UnbondingPeriod"
-	}
-	if subject.MaxClockDrift != substitute.MaxClockDrift {
-		return "MaxClockDrift"
-	}
-	if len(subject.ProofSpecs) != len(substitute.ProofSpecs) {
-		return "ProofSpecs"
-	}
-	for i := range subject.ProofSpecs {
-		if !subject.ProofSpecs[i].Equal(substitute.ProofSpecs[i]) {
-			return "ProofSpecs"
-		}
-	}
-	if len(subject.UpgradePath) != len(substitute.UpgradePath) {
-		return "UpgradePath"
-	}
-	for i := range subject.UpgradePath {
-		if subject.UpgradePath[i] != substitute.UpgradePath[i] {
-			return "UpgradePath"
-		}
-	}
-	return ""
 }
 
 func (tm *TMLightClient) SetConsensusState(height types.Height, consState *ConsensusState) {
