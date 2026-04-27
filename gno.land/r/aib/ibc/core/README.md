@@ -172,15 +172,24 @@ Emitted event:
 
 ## UpgradeClient
 
-Upgrades the client to a new client state. The client must have an `UpgradePath`
-set in its client state. The upgrade proofs verify that the counterparty chain
-has committed to the upgraded client state and consensus state at the upgrade path.
+Upgrades the client to a new client state and consensus state committed by
+the counterparty chain at the upgrade path. Used when the counterparty
+performs a breaking upgrade — e.g. a `ChainID` or revision-number change,
+or a change to security parameters such as `UnbondingPeriod` or
+`ProofSpecs` — that `UpdateClient` cannot follow.
 
-**Note:** This feature is part of the IBC spec but is rarely needed in practice.
-In practice, `UpdateClient` is sufficient for most chain upgrades - relayers
-simply send new headers after a chain upgrade, and the client catches up normally.
-`UpgradeClient` would only be needed if the IBC protocol itself changed its
-client state format, which has never occurred in the history of IBC.
+Preconditions:
+- The client's `UpgradePath` must be set.
+- The upgraded client's `LatestHeight` must be greater than the current
+  latest height.
+- The proofs must verify membership of the upgraded client and consensus
+  state at the upgrade path under the current latest consensus root.
+
+On success, the chain-specified fields (`ChainID`, `UnbondingPeriod`,
+`LatestHeight`, `ProofSpecs`, `UpgradePath`) are taken from the upgraded
+client; the customizable fields (`TrustLevel`, `TrustingPeriod`,
+`MaxClockDrift`) are preserved from the current client, with
+`TrustingPeriod` scaled proportionally if the unbonding period shrank.
 
 Emitted event:
 ```json
