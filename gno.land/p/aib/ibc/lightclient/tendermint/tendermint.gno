@@ -379,14 +379,14 @@ func (tm *TMLightClient) VerifyUpgradeAndUpdateState(newClient, newConsState any
 		return errors.New("upgradeConsensusStateProof cannot be empty")
 	}
 
-	path := getUpgradePath(tm.ClientState.UpgradePath, lastHeight)
-	clientPath := buildUpgradeMerklePath(path, "clientState")
+	path := tm.ClientState.UpgradePath
+	clientPath := buildUpgradeMerklePath(path, "upgradedClient", lastHeight)
 	clientValue := upgradedClientState.ProtoMarshal()
 	if err := tm.VerifyMembership(lastHeight, clientProofs, clientPath, clientValue); err != nil {
 		return ufmt.Errorf("failed to verify upgrade client proof: %v", err)
 	}
 
-	consensusPath := buildUpgradeMerklePath(path, "consensusState")
+	consensusPath := buildUpgradeMerklePath(path, "upgradedConsensusState", lastHeight)
 	consensusValue := upgradedConsensusState.ProtoMarshal()
 	if err := tm.VerifyMembership(lastHeight, consensusProofs, consensusPath, consensusValue); err != nil {
 		return ufmt.Errorf("failed to verify upgrade consensus state proof: %v", err)
@@ -400,22 +400,21 @@ func (tm *TMLightClient) VerifyUpgradeAndUpdateState(newClient, newConsState any
 	return nil
 }
 
-func getUpgradePath(upgradePath []string, height types.Height) []string {
-	path := make([]string, 0, len(upgradePath)+1)
-	path = append(path, upgradePath...)
-	if len(path) > 0 {
-		path = append(path, ufmt.Sprintf("%d", height.RevisionHeight))
+func buildUpgradeMerklePath(path []string, lastKey string, height types.Height) types.MerklePath {
+	if len(path) == 0 {
+		return types.MerklePath{KeyPath: [][]byte{[]byte(lastKey)}}
 	}
-	return path
-}
-
-func buildUpgradeMerklePath(path []string, lastKey string) types.MerklePath {
-	keyPath := make([][]byte, 0, len(path)+1)
-	for _, k := range path {
-		keyPath = append(keyPath, []byte(k))
+	lastPathElement := path[len(path)-1]
+	prefixPath := path[:len(path)-1]
+	mergedPath := ""
+	for i, k := range prefixPath {
+		mergedPath += k
+		if i < len(prefixPath)-1 {
+			mergedPath += "/"
+		}
 	}
-	keyPath = append(keyPath, []byte(lastKey))
-	return types.MerklePath{KeyPath: keyPath}
+	appendedKey := ufmt.Sprintf("%s/%d/%s", lastPathElement, height.RevisionHeight, lastKey)
+	return types.MerklePath{KeyPath: [][]byte{[]byte(mergedPath), []byte(appendedKey)}}
 }
 
 func mismatchingClientStateFieldForUpgrade(subject, substitute *ClientState) string {
