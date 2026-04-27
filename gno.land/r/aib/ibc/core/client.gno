@@ -122,6 +122,7 @@ func UpdateClient(cur realm, clientID string, clientMessage lightclient.ClientMe
 // verified by proofs that the counterparty chain committed to those states
 // at its UpgradePath under the current client's latest consensus root.
 func UpgradeClient(cur realm, clientID string, clientState, consensusState, proofUpgradeClient, proofUpgradeConsensusState any) {
+	ensureAuthorizedRelayer()
 	c := store.getClient(clientID)
 	if c == nil {
 		panic(ufmt.Sprintf("client %s not found", clientID))

@@ -409,6 +409,11 @@ func (tm *TMLightClient) VerifyUpgradeAndUpdateState(newClient, newConsState any
 	}
 
 	tm.ClientState = newClientState
+	// The upgraded consensus state is committed before the new chain
+	// produces any blocks, so its Root is a placeholder. Overwrite it with
+	// the well-known sentinel value so this consensus state cannot be used
+	// to verify packet proofs — real Roots arrive later via UpdateClient.
+	upgradedConsensusState.Root = NewMerkleRoot([]byte(SentinelRoot))
 	upgradedConsensusState.processedTime = time.Now()
 	upgradedConsensusState.processedHeight = types.GetSelfHeight()
 	tm.SetConsensusState(newClientState.LatestHeight, &upgradedConsensusState)

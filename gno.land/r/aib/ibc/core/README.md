@@ -178,18 +178,54 @@ performs a breaking upgrade — e.g. a `ChainID` or revision-number change,
 or a change to security parameters such as `UnbondingPeriod` or
 `ProofSpecs` — that `UpdateClient` cannot follow.
 
-Preconditions:
+### Lifecycle
+
+1. **Counterparty schedules the upgrade.** Before the upgrade height, the
+   counterparty chain commits the upgraded `ClientState` and
+   `ConsensusState` to its store at well-known paths derived from the
+   client's `UpgradePath` (e.g. `upgrade/upgradedIBCState/{H}/upgradedClient`
+   and `.../upgradedConsensusState`). The committed `ClientState` has its
+   client-customizable fields (`TrustLevel`, `TrustingPeriod`,
+   `MaxClockDrift`, `FrozenHeight`) zeroed; the committed `ConsensusState`
+   carries a sentinel `Root` because the new chain hasn't produced blocks
+   yet.
+
+2. **Relayer reads and submits.** Once the chain has reached the upgrade
+   height, a relayer reads the committed states and the corresponding
+   ICS-23 membership proofs and calls `UpgradeClient`.
+
+3. **Verification.** This realm checks that `LatestHeight` is greater than
+   the current latest height, then verifies both proofs against the
+   current client's latest consensus root. The proofs are checked against
+   the *zeroed* client and against the consensus state as the chain
+   committed it.
+
+4. **State transition.** The new client state is built by mixing fields
+   (see below). The stored consensus state has its `Root` set to the
+   sentinel value — it cannot be used to verify packet proofs. Real
+   roots arrive afterwards via `UpdateClient` once the new chain is
+   producing headers.
+
+5. **Resume.** Subsequent `UpdateClient` calls bring real headers from
+   the new chain; packet flow resumes against those real consensus states.
+
+### Preconditions
+
 - The client's `UpgradePath` must be set.
+- The client's status must be `Active`.
 - The upgraded client's `LatestHeight` must be greater than the current
   latest height.
 - The proofs must verify membership of the upgraded client and consensus
   state at the upgrade path under the current latest consensus root.
+
+### Field mapping
 
 On success, the chain-specified fields (`ChainID`, `UnbondingPeriod`,
 `LatestHeight`, `ProofSpecs`, `UpgradePath`) are taken from the upgraded
 client; the customizable fields (`TrustLevel`, `TrustingPeriod`,
 `MaxClockDrift`) are preserved from the current client, with
 `TrustingPeriod` scaled proportionally if the unbonding period shrank.
+`FrozenHeight` is reset.
 
 Emitted event:
 ```json
