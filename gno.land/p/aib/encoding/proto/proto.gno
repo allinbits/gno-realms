@@ -104,6 +104,25 @@ func AppendTime(buf []byte, fieldNum int, t time.Time) []byte {
 	return AppendLengthDelimited(buf, fieldNum, TimeMarshal(t))
 }
 
+// DurationMarshal returns the inner proto encoding of a
+// google.protobuf.Duration (without the length-delimited field wrapper).
+func DurationMarshal(d time.Duration) []byte {
+	var buf []byte
+	seconds := d / time.Second
+	nanos := int32(d % time.Second)
+	if nanos < 0 {
+		nanos += int32(time.Second)
+	}
+	buf = AppendVarint(buf, 1, uint64(seconds))
+	buf = AppendVarint(buf, 2, uint64(nanos))
+	return buf
+}
+
+// AppendDuration appends a google.protobuf.Duration field.
+func AppendDuration(buf []byte, fieldNum int, d time.Duration) []byte {
+	return AppendLengthDelimited(buf, fieldNum, DurationMarshal(d))
+}
+
 // AppendTag appends a protobuf tag (field number and wire type)
 func AppendTag(buf []byte, fieldNum int, wireType WireType) []byte {
 	tag := (fieldNum << 3) | int(wireType)

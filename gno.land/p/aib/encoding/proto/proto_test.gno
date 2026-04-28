@@ -2,6 +2,7 @@ package proto
 
 import (
 	"testing"
+	"time"
 
 	"gno.land/p/nt/uassert/v0"
 )
@@ -22,6 +23,74 @@ func TestAppendFixed64(t *testing.T) {
 	bz := AppendFixed64(nil, 1, 42)
 
 	uassert.Equal(t, "\t*\x00\x00\x00\x00\x00\x00\x00", string(bz))
+}
+
+func TestTimeMarshal(t *testing.T) {
+	t.Run("zero time omits both fields", func(t *testing.T) {
+		// time.Time{} has Unix == -62135596800 (year 1) but the proto3
+		// encoding here treats it as a varint: nonzero seconds, zero nanos.
+		bz := TimeMarshal(time.Unix(0, 0).UTC())
+		// seconds=0 omitted, nanos=0 omitted
+		uassert.Equal(t, 0, len(bz))
+	})
+
+	t.Run("seconds only", func(t *testing.T) {
+		bz := TimeMarshal(time.Unix(1700000000, 0).UTC())
+		// field 1 seconds: tag 0x08, varint 1700000000 = 0x80 0xe2 0xcf 0xaa 0x06
+		uassert.Equal(t, "\x08\x80\xe2\xcf\xaa\x06", string(bz))
+	})
+
+	t.Run("seconds and nanos", func(t *testing.T) {
+		bz := TimeMarshal(time.Unix(1, 500).UTC())
+		// field 1: 08 01 ; field 2: 10 f4 03 (nanos = 500)
+		uassert.Equal(t, "\x08\x01\x10\xf4\x03", string(bz))
+	})
+}
+
+func TestAppendTime(t *testing.T) {
+	bz := AppendTime(nil, 3, time.Unix(1700000000, 0).UTC())
+	// field 3 LEN: tag 0x1a, length 6, then TimeMarshal output
+	uassert.Equal(t, "\x1a\x06\x08\x80\xe2\xcf\xaa\x06", string(bz))
+}
+
+func TestDurationMarshal(t *testing.T) {
+	t.Run("zero duration encodes to nothing", func(t *testing.T) {
+		bz := DurationMarshal(0)
+		uassert.Equal(t, 0, len(bz))
+	})
+
+	t.Run("seconds only", func(t *testing.T) {
+		bz := DurationMarshal(3 * time.Second)
+		// field 1 seconds=3: tag 0x08, varint 0x03
+		uassert.Equal(t, "\x08\x03", string(bz))
+	})
+
+	t.Run("nanos only", func(t *testing.T) {
+		bz := DurationMarshal(500 * time.Nanosecond)
+		// field 2 nanos=500: tag 0x10, varint 500 = 0xf4 0x03
+		uassert.Equal(t, "\x10\xf4\x03", string(bz))
+	})
+
+	t.Run("seconds and nanos", func(t *testing.T) {
+		bz := DurationMarshal(time.Second + 500*time.Nanosecond)
+		uassert.Equal(t, "\x08\x01\x10\xf4\x03", string(bz))
+	})
+
+	t.Run("negative nanos are normalized into the next-lower second", func(t *testing.T) {
+		// proto3 Duration requires nanos in [0, 1e9). For a negative
+		// total duration we add a full second to nanos to get a
+		// non-negative remainder.
+		bz := DurationMarshal(-500 * time.Nanosecond)
+		// seconds = 0 (omitted), nanos = 1e9 - 500 = 999_999_500
+		// 999_999_500 in varint: 0x8c 0x90 0xeb 0xdc 0x03
+		uassert.Equal(t, "\x10\x8c\x90\xeb\xdc\x03", string(bz))
+	})
+}
+
+func TestAppendDuration(t *testing.T) {
+	bz := AppendDuration(nil, 4, 3*time.Second)
+	// field 4 LEN: tag 0x22, length 2, then DurationMarshal output
+	uassert.Equal(t, "\x22\x02\x08\x03", string(bz))
 }
 
 func TestMarshalAny(t *testing.T) {

@@ -226,9 +226,9 @@ func (cs ClientState) ProtoMarshal() (bz []byte) {
 	// Fields 2..7 are marked `(gogoproto.nullable) = false` in ibc-go's
 	// .proto, so they're emitted even when zero (as length-0 messages).
 	bz = proto.AppendAlwaysLengthDelimited(bz, 2, cs.TrustLevel.ProtoMarshal())
-	bz = proto.AppendAlwaysLengthDelimited(bz, 3, durationMarshal(cs.TrustingPeriod))
-	bz = proto.AppendAlwaysLengthDelimited(bz, 4, durationMarshal(cs.UnbondingPeriod))
-	bz = proto.AppendAlwaysLengthDelimited(bz, 5, durationMarshal(cs.MaxClockDrift))
+	bz = proto.AppendAlwaysLengthDelimited(bz, 3, proto.DurationMarshal(cs.TrustingPeriod))
+	bz = proto.AppendAlwaysLengthDelimited(bz, 4, proto.DurationMarshal(cs.UnbondingPeriod))
+	bz = proto.AppendAlwaysLengthDelimited(bz, 5, proto.DurationMarshal(cs.MaxClockDrift))
 	bz = proto.AppendAlwaysLengthDelimited(bz, 6, cs.FrozenHeight.ProtoMarshal())
 	bz = proto.AppendAlwaysLengthDelimited(bz, 7, cs.LatestHeight.ProtoMarshal())
 	for _, spec := range cs.ProofSpecs {
@@ -260,18 +260,6 @@ func (f Fraction) ProtoMarshal() (bz []byte) {
 	bz = proto.AppendVarint(bz, 1, f.Numerator)
 	bz = proto.AppendVarint(bz, 2, f.Denominator)
 	return
-}
-
-func durationMarshal(d time.Duration) []byte {
-	var buf []byte
-	seconds := d / time.Second
-	nanos := int32(d % time.Second)
-	if nanos < 0 {
-		nanos += int32(time.Second)
-	}
-	buf = proto.AppendVarint(buf, 1, uint64(seconds))
-	buf = proto.AppendVarint(buf, 2, uint64(nanos))
-	return buf
 }
 
 func (cs ConsensusState) ProtoMarshal() (bz []byte) {
