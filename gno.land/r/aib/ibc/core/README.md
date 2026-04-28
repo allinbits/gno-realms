@@ -145,6 +145,8 @@ Emitted event:
 
 ## RecoverClient
 
+See [`zz_recover_client_example_filetest.gno`](./zz_recover_client_example_filetest.gno)
+
 See [`recover-client.md`](./recover-client.md) for the end-to-end flow and
 which parameters can be adjusted during recovery.
 
@@ -164,6 +166,36 @@ Emitted event:
     {
       "key": "client_type",
       "value": "07-tendermint"
+    }
+  ],
+  "pkg_path": "gno.land/r/aib/ibc/core"
+}
+```
+
+## UpgradeClient
+
+See [`zz_upgrade_client_example_filetest.gno`](./zz_upgrade_client_example_filetest.gno)
+
+See [`upgrade-client.md`](./upgrade-client.md) for the lifecycle, the
+proof shape, and the field mapping between the current client and the
+upgraded client.
+
+Emitted event:
+```json
+{
+  "type": "upgrade_client",
+  "attrs": [
+    {
+      "key": "client_id",
+      "value": "07-tendermint-1"
+    },
+    {
+      "key": "client_type",
+      "value": "07-tendermint"
+    },
+    {
+      "key": "consensus_height",
+      "value": "1-100"
     }
   ],
   "pkg_path": "gno.land/r/aib/ibc/core"

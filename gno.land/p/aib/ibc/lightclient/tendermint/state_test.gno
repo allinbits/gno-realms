@@ -10,6 +10,7 @@ import (
 	"gno.land/p/aib/ibc/lightclient/tendermint"
 	"gno.land/p/aib/ibc/types"
 	"gno.land/p/aib/ics23"
+	"gno.land/p/nt/uassert/v0"
 )
 
 const (
@@ -233,4 +234,66 @@ func TestConsensusStateValidateBasic(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestClientStateZeroCustomFields(t *testing.T) {
+	cs := tendermint.ClientState{
+		ChainID:         "chain-a",
+		TrustLevel:      tendermint.NewFraction(2, 3),
+		TrustingPeriod:  trustingPeriod,
+		UnbondingPeriod: ubdPeriod,
+		MaxClockDrift:   maxClockDrift,
+		FrozenHeight:    types.NewHeight(0, 5),
+		LatestHeight:    types.NewHeight(1, 100),
+		ProofSpecs:      ics23.GetSDKProofSpecs(),
+		UpgradePath:     []string{"upgrade", "upgradedIBCState"},
+	}
+
+	zeroed := cs.ZeroCustomFields()
+
+	// Preserved chain-specified fields.
+	uassert.Equal(t, "chain-a", zeroed.ChainID)
+	uassert.Equal(t, int64(ubdPeriod), int64(zeroed.UnbondingPeriod))
+	uassert.True(t, zeroed.LatestHeight.EQ(types.NewHeight(1, 100)))
+	uassert.Equal(t, len(cs.ProofSpecs), len(zeroed.ProofSpecs))
+	uassert.Equal(t, len(cs.UpgradePath), len(zeroed.UpgradePath))
+
+	// Zeroed customizable fields.
+	uassert.Equal(t, uint64(0), zeroed.TrustLevel.Numerator)
+	uassert.Equal(t, uint64(0), zeroed.TrustLevel.Denominator)
+	uassert.Equal(t, int64(0), int64(zeroed.TrustingPeriod))
+	uassert.Equal(t, int64(0), int64(zeroed.MaxClockDrift))
+	uassert.True(t, zeroed.FrozenHeight.IsZero())
+
+	// Caller's value untouched.
+	uassert.Equal(t, int64(trustingPeriod), int64(cs.TrustingPeriod))
+}
+
+func TestClientStateProtoMarshalSerializesProofSpecs(t *testing.T) {
+	// Build a ZeroCustomFields client state and confirm its marshal
+	// includes a ProofSpecs field (8) for each spec the chain pinned.
+	// We aren't comparing against an external golden; we just need to
+	// verify the field 8 tag (0x42) appears once per spec.
+	cs := tendermint.ClientState{
+		ChainID:         "chain-a",
+		UnbondingPeriod: ubdPeriod,
+		LatestHeight:    types.NewHeight(1, 100),
+		ProofSpecs:      ics23.GetSDKProofSpecs(),
+		UpgradePath:     []string{"upgrade", "upgradedIBCState"},
+	}
+
+	bz := cs.ProtoMarshal()
+
+	// 0x42 = (8<<3)|2 — the LEN-wire tag for field 8.
+	got := 0
+	for _, b := range bz {
+		if b == 0x42 {
+			got++
+		}
+	}
+	// SDK has 2 proof specs (Iavl, Tendermint), so the tag appears at
+	// least twice. (Could appear inside nested bytes too — that's why
+	// we use >=. The point is: it's not zero, which means ProofSpecs is
+	// no longer skipped.)
+	uassert.True(t, got >= 2, "expected ProofSpecs field 8 tag to appear at least twice")
 }

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"time"
 
+	"gno.land/p/aib/encoding/proto"
 	"gno.land/p/aib/ibc/lightclient"
 	"gno.land/p/aib/ibc/types"
 	"gno.land/p/aib/ics23"
@@ -322,9 +323,145 @@ func mismatchingClientStateField(subject, substitute *ClientState) string {
 
 // Implements lightclient.Interface
 func (tm *TMLightClient) VerifyUpgradeAndUpdateState(newClient, newConsState,
-	upgradeClientProof, upgradeConsensusStateProof []byte) error {
-	// TODO
-	panic("not implemented")
+	upgradeClientProof, upgradeConsensusStateProof any) error {
+	upgradedClientState, ok := newClient.(ClientState)
+	if !ok {
+		return ufmt.Errorf("upgraded client state must be tendermint.ClientState, got %T", newClient)
+	}
+	if err := upgradedClientState.ValidateBasic(); err != nil {
+		return ufmt.Errorf("invalid upgraded client state: %v", err)
+	}
+
+	upgradedConsensusState, ok := newConsState.(ConsensusState)
+	if !ok {
+		return ufmt.Errorf("upgraded consensus state must be tendermint.ConsensusState, got %T", newConsState)
+	}
+	if err := upgradedConsensusState.ValidateBasic(); err != nil {
+		return ufmt.Errorf("invalid upgraded consensus state: %v", err)
+	}
+
+	if len(tm.ClientState.UpgradePath) == 0 {
+		return errors.New("cannot upgrade client: no upgrade path set")
+	}
+	if !upgradedClientState.LatestHeight.GT(tm.ClientState.LatestHeight) {
+		return ufmt.Errorf(
+			"upgraded client latest height (%s) must be greater than current latest height (%s)",
+			upgradedClientState.LatestHeight, tm.ClientState.LatestHeight,
+		)
+	}
+
+	lastHeight := tm.ClientState.LatestHeight
+
+	clientProofs, ok := upgradeClientProof.([]ics23.CommitmentProof)
+	if !ok {
+		return ufmt.Errorf("upgradeClientProof must be []ics23.CommitmentProof, got %T", upgradeClientProof)
+	}
+	if len(clientProofs) == 0 {
+		return errors.New("upgradeClientProof cannot be empty")
+	}
+
+	consensusProofs, ok := upgradeConsensusStateProof.([]ics23.CommitmentProof)
+	if !ok {
+		return ufmt.Errorf("upgradeConsensusStateProof must be []ics23.CommitmentProof, got %T", upgradeConsensusStateProof)
+	}
+	if len(consensusProofs) == 0 {
+		return errors.New("upgradeConsensusStateProof cannot be empty")
+	}
+
+	path := tm.ClientState.UpgradePath
+	clientPath := buildUpgradeMerklePath(path, "upgradedClient", lastHeight)
+	// Counterparties commit the upgraded client/consensus states wrapped in
+	// google.protobuf.Any (cdc.MarshalInterface) and with the client's
+	// customizable fields zeroed, so we verify against the same shape.
+	clientValue := proto.MarshalAny(
+		ClientStateTypeURL,
+		upgradedClientState.ZeroCustomFields().ProtoMarshal(),
+	)
+	if err := tm.VerifyMembership(lastHeight, clientProofs, clientPath, clientValue); err != nil {
+		return ufmt.Errorf("failed to verify upgrade client proof: %v", err)
+	}
+
+	// "upgradedConsState" matches the SDK upgrade module's KeyUpgradedConsState
+	// (note: no "ensus" — must match what the counterparty stored).
+	consensusPath := buildUpgradeMerklePath(path, "upgradedConsState", lastHeight)
+	consensusValue := proto.MarshalAny(
+		ConsensusStateTypeURL,
+		upgradedConsensusState.ProtoMarshal(),
+	)
+	if err := tm.VerifyMembership(lastHeight, consensusProofs, consensusPath, consensusValue); err != nil {
+		return ufmt.Errorf("failed to verify upgrade consensus state proof: %v", err)
+	}
+
+	// Construct the new client by combining chain-specified fields from the
+	// upgraded client (ChainID, UnbondingPeriod, LatestHeight, ProofSpecs,
+	// UpgradePath) with the customizable fields preserved from the current
+	// client (TrustLevel, TrustingPeriod, MaxClockDrift). FrozenHeight is
+	// reset on a successful upgrade. If the unbonding period shrinks, the
+	// trusting period is scaled proportionally to maintain the security
+	// ratio.
+	trustingPeriod := tm.ClientState.TrustingPeriod
+	if upgradedClientState.UnbondingPeriod < tm.ClientState.UnbondingPeriod {
+		trustingPeriod = calculateNewTrustingPeriod(
+			trustingPeriod, tm.ClientState.UnbondingPeriod, upgradedClientState.UnbondingPeriod,
+		)
+	}
+	newClientState := &ClientState{
+		ChainID:         upgradedClientState.ChainID,
+		TrustLevel:      tm.ClientState.TrustLevel,
+		TrustingPeriod:  trustingPeriod,
+		UnbondingPeriod: upgradedClientState.UnbondingPeriod,
+		MaxClockDrift:   tm.ClientState.MaxClockDrift,
+		FrozenHeight:    types.ZeroHeight(),
+		LatestHeight:    upgradedClientState.LatestHeight,
+		ProofSpecs:      upgradedClientState.ProofSpecs,
+		UpgradePath:     upgradedClientState.UpgradePath,
+	}
+	if err := newClientState.ValidateBasic(); err != nil {
+		return ufmt.Errorf("upgraded client state failed basic validation: %v", err)
+	}
+
+	tm.ClientState = newClientState
+	// The upgraded consensus state is committed before the new chain
+	// produces any blocks, so its Root is a placeholder. Overwrite it with
+	// the well-known sentinel value so this consensus state cannot be used
+	// to verify packet proofs — real Roots arrive later via UpdateClient.
+	upgradedConsensusState.Root = NewMerkleRoot([]byte(SentinelRoot))
+	upgradedConsensusState.processedTime = time.Now()
+	upgradedConsensusState.processedHeight = types.GetSelfHeight()
+	tm.SetConsensusState(newClientState.LatestHeight, &upgradedConsensusState)
+
+	return nil
+}
+
+// calculateNewTrustingPeriod scales the trusting period proportionally to a
+// shorter unbonding period: newTrusting = trusting * newUnbonding /
+// currentUnbonding (with truncation). The math is performed in seconds to
+// stay within int64 range for realistic chain values; sub-second precision
+// is irrelevant for IBC trusting periods, which are measured in days.
+func calculateNewTrustingPeriod(trustingPeriod, currentUnbondingPeriod, newUnbondingPeriod time.Duration) time.Duration {
+	currentSec := int64(currentUnbondingPeriod / time.Second)
+	if currentSec == 0 {
+		return 0
+	}
+	trustingSec := int64(trustingPeriod / time.Second)
+	newUnbondingSec := int64(newUnbondingPeriod / time.Second)
+	return time.Duration(trustingSec*newUnbondingSec/currentSec) * time.Second
+}
+
+// buildUpgradeMerklePath constructs the merkle path the counterparty chain
+// stores the upgraded client/consensus state at. Each prefix element of
+// UpgradePath is kept as a separate KeyPath segment; the final element is
+// suffixed with the upgrade height and the leaf key (e.g. "upgradedClient"),
+// matching ibc-go's constructUpgrade*MerklePath. Caller must ensure
+// len(path) > 0.
+func buildUpgradeMerklePath(path []string, lastKey string, height types.Height) types.MerklePath {
+	keyPath := make([][]byte, 0, len(path))
+	for _, k := range path[:len(path)-1] {
+		keyPath = append(keyPath, []byte(k))
+	}
+	appendedKey := ufmt.Sprintf("%s/%d/%s", path[len(path)-1], height.RevisionHeight, lastKey)
+	keyPath = append(keyPath, []byte(appendedKey))
+	return types.MerklePath{KeyPath: keyPath}
 }
 
 func (tm *TMLightClient) SetConsensusState(height types.Height, consState *ConsensusState) {

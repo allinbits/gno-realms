@@ -4,6 +4,7 @@ import (
 	"chain"
 	"chain/runtime"
 
+	"gno.land/p/aib/ibc/host"
 	"gno.land/p/aib/ibc/lightclient"
 	"gno.land/p/aib/ibc/types"
 	"gno.land/p/nt/ufmt/v0"
@@ -118,11 +119,29 @@ func UpdateClient(cur realm, clientID string, clientMessage lightclient.ClientMe
 	)
 }
 
-// UpdateClient upgrades the client to a new client state if this new client
-// was committed to by the old client at the specified upgrade height.
+// UpgradeClient upgrades the client to a new client and consensus state,
+// verified by proofs that the counterparty chain committed to those states
+// at its UpgradePath under the current client's latest consensus root.
 func UpgradeClient(cur realm, clientID string, clientState, consensusState, proofUpgradeClient, proofUpgradeConsensusState any) {
-	// TODO
-	panic("not implemented")
+	if err := host.ClientIdentifierValidator(clientID); err != nil {
+		panic(err)
+	}
+	ensureAuthorizedRelayer()
+	c := store.getClient(clientID)
+	if c == nil {
+		panic(ufmt.Sprintf("client %s not found", clientID))
+	}
+	if status := c.lightClient.Status(); status != lightclient.Active {
+		panic(ufmt.Sprintf("cannot upgrade client (%s) with status %s", c.id, status))
+	}
+	if err := c.lightClient.VerifyUpgradeAndUpdateState(clientState, consensusState, proofUpgradeClient, proofUpgradeConsensusState); err != nil {
+		panic(err)
+	}
+	chain.Emit(types.EventTypeUpgradeClient,
+		types.AttributeKeyClientID, c.id,
+		types.AttributeKeyClientType, c.typ,
+		types.AttributeKeyConsensusHeight, c.lightClient.LatestHeight().String(),
+	)
 }
 
 // RecoverClient recovers a frozen or expired subject client using a healthy
