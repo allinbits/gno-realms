@@ -64,7 +64,7 @@ services:
   relayer:
     image: ghcr.io/allinbits/ibc-v2-ts-relayer:latest
     entrypoint: ["/entrypoint.sh"]
-    command: ["ibc-v2-ts-relayer", "relay"]
+    command: ["ibc-v2-ts-relayer", "relay", "--gas-adjustment", "2"]
     volumes:
       - ./relayer/entrypoint.sh:/entrypoint.sh
     cap_add:
