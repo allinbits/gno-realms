@@ -322,7 +322,7 @@ func mismatchingClientStateField(subject, substitute *ClientState) string {
 }
 
 // Implements lightclient.Interface
-func (tm *TMLightClient) VerifyUpgradeAndUpdateState(newClient, newConsState any,
+func (tm *TMLightClient) VerifyUpgradeAndUpdateState(newClient, newConsState,
 	upgradeClientProof, upgradeConsensusStateProof any) error {
 	upgradedClientState, ok := newClient.(ClientState)
 	if !ok {
