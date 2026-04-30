@@ -201,8 +201,8 @@ func queryAtomOneBalance(restURL, addr, denom string) (int64, error) {
 
 // IBCDenom represents the denom info returned by the ibc-go transfer Denom query.
 type IBCDenom struct {
-	Base  string    `json:"base"`
-	Trace []IBCHop  `json:"trace"`
+	Base  string   `json:"base"`
+	Trace []IBCHop `json:"trace"`
 }
 
 type IBCHop struct {
@@ -318,6 +318,90 @@ func computeIBCDenomHash(clientID, denom string) string {
 	path := fmt.Sprintf("transfer/%s/%s", clientID, denom)
 	hash := sha256.Sum256([]byte(path))
 	return strings.ToUpper(fmt.Sprintf("%x", hash))
+}
+
+// queryVAASHighestValsetUpdateID returns the highest valset update ID from VAAS consumer.
+func queryVAASHighestValsetUpdateID(containerID string) (uint64, error) {
+	content, err := gnoQuery(containerID, "r/aib/ibc/apps/vaas/consumer", "highest_valset_update_id")
+	if err != nil {
+		return 0, err
+	}
+	var resp struct {
+		HighestValsetUpdateID uint64 `json:"highest_valset_update_id"`
+	}
+	if err := json.Unmarshal([]byte(content), &resp); err != nil {
+		return 0, fmt.Errorf("parse highest valset update ID: %w (raw: %s)", err, content)
+	}
+	return resp.HighestValsetUpdateID, nil
+}
+
+// queryVAASValidatorCount returns the number of validators from VAAS consumer.
+func queryVAASValidatorCount(containerID string) (int, error) {
+	content, err := gnoQuery(containerID, "r/aib/ibc/apps/vaas/consumer", "validator_count")
+	if err != nil {
+		return 0, err
+	}
+	var resp struct {
+		ValidatorCount int `json:"validator_count"`
+	}
+	if err := json.Unmarshal([]byte(content), &resp); err != nil {
+		return 0, fmt.Errorf("parse validator count: %w (raw: %s)", err, content)
+	}
+	return resp.ValidatorCount, nil
+}
+
+// queryVAASTotalVotingPower returns the total voting power from VAAS consumer.
+func queryVAASTotalVotingPower(containerID string) (int64, error) {
+	content, err := gnoQuery(containerID, "r/aib/ibc/apps/vaas/consumer", "total_voting_power")
+	if err != nil {
+		return 0, err
+	}
+	var resp struct {
+		TotalVotingPower int64 `json:"total_voting_power"`
+	}
+	if err := json.Unmarshal([]byte(content), &resp); err != nil {
+		return 0, fmt.Errorf("parse total voting power: %w (raw: %s)", err, content)
+	}
+	return resp.TotalVotingPower, nil
+}
+
+// queryVAASAllValidators returns all validators from VAAS consumer.
+func queryVAASAllValidators(containerID string) ([]struct {
+	PubKey string `json:"pub_key"`
+	Power  int64  `json:"power"`
+}, error) {
+	content, err := gnoQuery(containerID, "r/aib/ibc/apps/vaas/consumer", "validators")
+	if err != nil {
+		return nil, err
+	}
+	var resp struct {
+		Validators []struct {
+			PubKey string `json:"pub_key"`
+			Power  int64  `json:"power"`
+		} `json:"validators"`
+	}
+	if err := json.Unmarshal([]byte(content), &resp); err != nil {
+		return nil, fmt.Errorf("parse validators: %w (raw: %s)", err, content)
+	}
+	return resp.Validators, nil
+}
+
+// queryVAASProviderClientID returns the provider client ID from VAAS consumer.
+func queryVAASProviderClientID(containerID string) (string, bool) {
+	content, err := gnoQuery(containerID, "r/aib/ibc/apps/vaas/consumer", "provider_client_id")
+	if err != nil {
+		return "", false
+	}
+	var resp struct {
+		ProviderClientID string `json:"provider_client_id"`
+	}
+	if err := json.Unmarshal([]byte(content), &resp); err != nil {
+		return "", false
+	}
+	if resp.ProviderClientID == "" {
+		return "", false
+	}
+	return resp.ProviderClientID, true
 }
 
 // gnoPkgAddress computes the Gno package address for a given package path.

@@ -12,8 +12,8 @@ echo "Configuring relayer..."
     ibc-v2-ts-relayer add-mnemonic -c $GNO_CHAIN_ID --mnemonic \"$RELAYER_MNEMONIC\"
 
     echo 'Adding gas prices...'
-    ibc-v2-ts-relayer add-gas-price -c $ATOMONE_CHAIN_ID 0.025uphoton
-    ibc-v2-ts-relayer add-gas-price -c $GNO_CHAIN_ID 0.025ugnot
+    ibc-v2-ts-relayer add-gas-price -c $ATOMONE_CHAIN_ID 0.025uphoton --gas-adjustment 2.0
+    ibc-v2-ts-relayer add-gas-price -c $GNO_CHAIN_ID 0.025ugnot --gas-adjustment 2.0
 
     echo 'Adding relay path...'
     ibc-v2-ts-relayer add-path \
