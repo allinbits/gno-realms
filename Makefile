@@ -59,6 +59,9 @@ e2e-logs:
 e2e-build:
 	$(DC) build
 
+e2e-build-no-cache:
+	$(DC) build --no-cache
+
 # --- Fork management ---
 
 export FORK_REPO   := github.com/allinbits/gno

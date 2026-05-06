@@ -30,7 +30,7 @@ func (s *E2ETestSuite) sendVSCPacket(validators []validatorUpdate, valsetUpdateI
 
 	msg := buildMsgSendPacketVAAS(
 		s.atomoneClientID, s.atomOneSenderAddress,
-		"provider", "consumer",
+		"vaasprovider", "vaasconsumer",
 		vscJSON, time.Now().Add(time.Hour).Unix(),
 	)
 	s.signAndBroadcastAtomOneTx(s.atomOneSenderAddress, msg)
