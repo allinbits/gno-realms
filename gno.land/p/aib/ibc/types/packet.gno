@@ -20,7 +20,8 @@ const (
 	PacketStatus_Success PacketStatus = 1
 	// PACKET_STATUS_FAILURE indicates a failed packet receipt.
 	PacketStatus_Failure PacketStatus = 2
-	// PACKET_STATUS_ASYNC indicates an async packet receipt.
+	// PACKET_STATUS_ASYNC indicates that the packet was received and its
+	// acknowledgement will be written later by the application.
 	PacketStatus_Async PacketStatus = 3
 )
 

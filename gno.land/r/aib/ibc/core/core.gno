@@ -3,6 +3,7 @@ package core
 import (
 	"bytes"
 	"chain"
+	"chain/runtime"
 	"encoding/hex"
 	"time"
 
@@ -165,6 +166,12 @@ func RecvPacket(cur realm, msg types.MsgRecvPacket) types.ResponseResultType {
 		types.AttributeKeyEncodedPacketHex, hex.EncodeToString(msg.Packet.ProtoMarshal()),
 	)
 
+	c.writeRecvPacketAcknowledgement(msg.Packet)
+
+	return types.RESPONSE_SUCCESS
+}
+
+func (c *client) writeRecvPacketAcknowledgement(packet types.Packet) {
 	var (
 		// build up the recv results for each application callback.
 		ack = types.Acknowledgement{
@@ -174,11 +181,11 @@ func RecvPacket(cur realm, msg types.MsgRecvPacket) types.ResponseResultType {
 	)
 
 	// Invoke registed app OnRecvPacket() for each payload.DestinationPort.
-	for i, payload := range msg.Packet.Payloads {
+	for i, payload := range packet.Payloads {
 		app := store.route(payload.DestinationPort)
 		res := app.OnRecvPacket(
-			cross, msg.Packet.SourceClient, msg.Packet.DestinationClient,
-			msg.Packet.Sequence, payload,
+			cross, packet.SourceClient, packet.DestinationClient,
+			packet.Sequence, payload,
 		)
 		if res.Status == types.PacketStatus_Failure {
 			isSuccess = false
@@ -188,6 +195,13 @@ func RecvPacket(cur realm, msg types.MsgRecvPacket) types.ResponseResultType {
 				AppAcknowledgements: [][]byte{types.UniversalErrorAcknowledgement()},
 			}
 			break
+		}
+		if res.Status == types.PacketStatus_Async {
+			if len(packet.Payloads) > 1 {
+				panic("async ack not supported for multi-payload packets")
+			}
+			c.savePendingAsyncAck(packet, app.pkgPath)
+			return
 		}
 
 		// successful app acknowledgement cannot equal sentinel error
@@ -206,25 +220,56 @@ func RecvPacket(cur realm, msg types.MsgRecvPacket) types.ResponseResultType {
 	// Sanity check to ensure returned acknowledgement and calculated isSuccess
 	// boolean matches
 	if ack.Success() != isSuccess {
-		panic("acknowledgement success does not match isSuccess")
+		panic("acknowledgement success flag mismatch")
 	}
 	if err := ack.Validate(); err != nil {
 		panic(err)
 	}
 	// set the acknowledgement so that it can be verified on the other side
-	c.setPacketAcknowledgement(msg.Packet.Sequence, types.CommitAcknowledgement(ack))
+	c.setPacketAcknowledgement(packet.Sequence, types.CommitAcknowledgement(ack))
+	emitWriteAcknowledgement(packet, ack)
+}
 
-	// Emit other events related to the ack
+func WriteAcknowledgement(cur realm, clientID string, sequence uint64, ack types.Acknowledgement) {
+	c := store.getClient(clientID)
+	if c == nil {
+		panic(ufmt.Sprintf("client %s not found", clientID))
+	}
+
+	pending, found := c.getPendingAsyncAck(sequence)
+	if !found {
+		panic(ufmt.Sprintf("no pending async ack for client=%s sequence=%d", clientID, sequence))
+	}
+
+	callerPath := runtime.PreviousRealm().PkgPath()
+	if callerPath != pending.authorizedPath {
+		panic(ufmt.Sprintf(
+			"caller %s is not authorized to write ack for sequence %d (expected %s)",
+			callerPath, sequence, pending.authorizedPath,
+		))
+	}
+
+	if c.hasPacketAcknowledgement(sequence) {
+		panic(ufmt.Sprintf("acknowledgement already written for sequence %d", sequence))
+	}
+	if err := ack.Validate(); err != nil {
+		panic(err)
+	}
+
+	c.setPacketAcknowledgement(sequence, types.CommitAcknowledgement(ack))
+	c.deletePendingAsyncAck(sequence)
+	emitWriteAcknowledgement(pending.packet, ack)
+}
+
+func emitWriteAcknowledgement(packet types.Packet, ack types.Acknowledgement) {
 	chain.Emit(types.EventTypeWriteAck,
-		types.AttributeKeySrcClient, msg.Packet.SourceClient,
-		types.AttributeKeyDstClient, msg.Packet.DestinationClient,
-		types.AttributeKeySequence, ufmt.Sprintf("%d", msg.Packet.Sequence),
-		types.AttributeKeyTimeoutTimestamp, ufmt.Sprintf("%d", msg.Packet.TimeoutTimestamp),
-		types.AttributeKeyEncodedPacketHex, hex.EncodeToString(msg.Packet.ProtoMarshal()),
+		types.AttributeKeySrcClient, packet.SourceClient,
+		types.AttributeKeyDstClient, packet.DestinationClient,
+		types.AttributeKeySequence, ufmt.Sprintf("%d", packet.Sequence),
+		types.AttributeKeyTimeoutTimestamp, ufmt.Sprintf("%d", packet.TimeoutTimestamp),
+		types.AttributeKeyEncodedPacketHex, hex.EncodeToString(packet.ProtoMarshal()),
 		types.AttributeKeyEncodedAckHex, hex.EncodeToString(ack.ProtoMarshal()),
 	)
-
-	return types.RESPONSE_SUCCESS
 }
 
 func Acknowledgement(cur realm, msg types.MsgAcknowledgement) types.ResponseResultType {

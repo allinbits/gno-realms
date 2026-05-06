@@ -46,12 +46,18 @@ type client struct {
 	packetCommitmentsBySeq      *bptree.BPTree // sequence:commitment
 	packetReceiptsBySeq         *bptree.BPTree // sequence:receipt
 	packetAcknowledgementsBySeq *bptree.BPTree // sequence:ack
+	pendingAsyncAcksBySeq       *bptree.BPTree // sequence:pendingAsyncAck
 }
 
 type ibcApp struct {
 	app.IBCApp
 	pkgPath string
 	address address
+}
+
+type pendingAsyncAck struct {
+	packet         types.Packet
+	authorizedPath string
 }
 
 func (c *client) getPacketCommitment(sequence uint64) []byte {
@@ -126,6 +132,36 @@ func (c *client) getPacketAcknowledgement(sequence uint64) []byte {
 	return v.([]byte)
 }
 
+func (c *client) savePendingAsyncAck(packet types.Packet, authorizedPath string) {
+	sequence := packet.Sequence
+	if c.hasPendingAsyncAck(sequence) {
+		panic(ufmt.Sprintf("pending async ack already exists for sequence %d", sequence))
+	}
+	if c.hasPacketAcknowledgement(sequence) {
+		panic(ufmt.Sprintf("acknowledgement already written for sequence %d", sequence))
+	}
+	c.pendingAsyncAcksBySeq.Set(seqid.ID(sequence).Binary(), &pendingAsyncAck{
+		packet:         packet,
+		authorizedPath: authorizedPath,
+	})
+}
+
+func (c *client) getPendingAsyncAck(sequence uint64) (*pendingAsyncAck, bool) {
+	v, found := c.pendingAsyncAcksBySeq.Get(seqid.ID(sequence).Binary())
+	if !found {
+		return nil, false
+	}
+	return v.(*pendingAsyncAck), true
+}
+
+func (c *client) deletePendingAsyncAck(sequence uint64) {
+	c.pendingAsyncAcksBySeq.Remove(seqid.ID(sequence).Binary())
+}
+
+func (c *client) hasPendingAsyncAck(sequence uint64) bool {
+	return c.pendingAsyncAcksBySeq.Has(seqid.ID(sequence).Binary())
+}
+
 // SetPacketAcknowledgement writes the acknowledgement hash under the
 // acknowledgement path
 // This is a public path that is standardized by the IBC V2 specification.
@@ -163,6 +199,7 @@ func (cs *Store) addClient(typ string, creator address) *client {
 		packetCommitmentsBySeq:      bptree.NewBPTree32(),
 		packetReceiptsBySeq:         bptree.NewBPTree32(),
 		packetAcknowledgementsBySeq: bptree.NewBPTree32(),
+		pendingAsyncAcksBySeq:       bptree.NewBPTree32(),
 	}
 	switch typ {
 	case lightclient.Tendermint:
