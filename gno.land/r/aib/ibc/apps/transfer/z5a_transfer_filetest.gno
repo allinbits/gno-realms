@@ -2,6 +2,7 @@ package main
 
 import (
 	"chain"
+	"chain/runtime"
 	"testing"
 	"time"
 
@@ -14,6 +15,7 @@ import (
 
 // Transfer: success for native coins
 func main() {
+	println("PKGPATH0", runtime.CurrentRealm().PkgPath())
 	var (
 		chainID        = "chain-id-2"
 		clientState    = tmtesting.NewClientState(chainID, types.NewHeight(2, 2))

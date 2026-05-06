@@ -38,7 +38,7 @@ func Transfer(cur realm, clientID, receiver, denom string, amount int64, timeout
 	case grc20reg.Get(denom) != nil:
 		// Non-IBC GRC20 token: convert to alias.
 		// Escrow via TransferFrom happens in OnSendPacket.
-		if sent := cur.SentCoins(); len(sent) > 0 {
+		if sent := sentCoins(); len(sent) > 0 {
 			panic("GRC20 transfer must not include native coins")
 		}
 		// Replace the denom with a slash-free alias for the IBC packet.
@@ -52,7 +52,7 @@ func Transfer(cur realm, clientID, receiver, denom string, amount int64, timeout
 		panic(ufmt.Sprintf("GRC20 token %s not found in grc20reg", denom))
 	default:
 		// Native coin: verify SentCoins matches.
-		sent := cur.SentCoins()
+		sent := sentCoins()
 		if len(sent) != 1 || sent[0].Amount == 0 {
 			panic("native transfer requires one non-zero coin to be sent")
 		}
@@ -69,7 +69,7 @@ func Transfer(cur realm, clientID, receiver, denom string, amount int64, timeout
 // VoucherSend is a convenience helper to send an IBC voucher token from the
 // caller to the provided recipient.
 func VoucherSend(cur realm, ibcDenom string, to address, amount int64) {
-	if sent := cur.SentCoins(); len(sent) > 0 {
+	if sent := sentCoins(); len(sent) > 0 {
 		panic("voucher transfer must not include native coins")
 	}
 	inst := getVoucher(ibcDenom)
@@ -85,7 +85,7 @@ func VoucherSend(cur realm, ibcDenom string, to address, amount int64) {
 // VoucherApprove is a convenience helper to set a spender allowance for an IBC
 // voucher token on behalf of the caller.
 func VoucherApprove(cur realm, ibcDenom string, spender address, amount int64) {
-	if sent := cur.SentCoins(); len(sent) > 0 {
+	if sent := sentCoins(); len(sent) > 0 {
 		panic("voucher approval must not include native coins")
 	}
 	inst := getVoucher(ibcDenom)
@@ -180,4 +180,12 @@ func unescrowNative(receiver string, coin chain.Coin) error {
 	banker.SendCoins(from, to, amount)
 	subEscrowForDenom(coin)
 	return nil
+}
+
+func sentCoins() []chain.Coin {
+	println("PKGPATH", runtime.CurrentRealm().PkgPath())
+	if !runtime.CurrentRealm().IsUserCall() {
+		return nil
+	}
+	return banker.OriginSend()
 }

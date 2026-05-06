@@ -124,7 +124,7 @@ func (a *App) OnSendPacket(
 		addEscrowForDenom(coin)
 	} else {
 		// Native token: ensure that sent coin matches the FungibleTokenPacketData
-		sent := cur.SentCoins()
+		sent := sentCoins()
 		if len(sent) != 1 || sent[0].Amount == 0 {
 			return ufmt.Errorf("OnSendPacket requires one non-zero coin to be sent for native token transfer")
 		}
