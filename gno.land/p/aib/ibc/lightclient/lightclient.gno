@@ -99,9 +99,10 @@ type Interface interface {
 	TimestampAtHeight(types.Height) (uint64, error)
 
 	// RecoverClient must verify that the provided substitute may be used to
-	// update the subject client.  The light client module must set the updated
-	// client and consensus states within the clientStore for the subject client.
-	RecoverClient(substituteClientID string) error
+	// recover the subject (receiver) client, and copy the substitute's updated
+	// client and consensus state into the subject. The caller is responsible
+	// for verifying Status() on both sides and authorization beforehand.
+	RecoverClient(substitute Interface) error
 
 	// Upgrade functions NOTE: proof heights are not included as upgrade to a new
 	// revision is expected to pass only on the last height committed by the

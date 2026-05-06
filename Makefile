@@ -26,8 +26,9 @@ test:
 # on the default gno remote, but exist in the fork's examples.
 mod-download:
 	go tool gnodev -empty-blocks -resolver root=. \
-		-resolver root=$(shell go tool gno env GNOROOT)/examples > /dev/null 2>&1 & \
-	while ! curl -s http://127.0.0.1:26657/status > /dev/null 2>&1; do sleep 1; done; \
+		-resolver root=$(shell go tool gno env GNOROOT)/examples \
+		-paths "gno.land/r/aib/ibc/core,gno.land/r/aib/ibc/apps/transfer,gno.land/r/aib/ibc/apps/testing/grc20test" & \
+	while ! curl -sf 'http://127.0.0.1:26657/abci_query?path=%22.app/version%22' 2>/dev/null | grep -q '"response"'; do sleep 1; done; \
 	go tool gno clean -modcache=true; \
 	go tool gno mod download -remote-overrides gno.land=http://127.0.0.1:26657
 
@@ -44,7 +45,7 @@ e2e-down:
 
 e2e-test:
 	$(DC) up -d --build --force-recreate
-	cd e2e && go test -v -timeout 10m -count=1 ./...; ret=$$?; cd .. && $(DC) down -v; exit $$ret
+	cd e2e && go test -v -timeout 10m -count=1 ./...; ret=$$?; cd .. && if [ $$ret -ne 0 ]; then echo "=== relayer logs ===" && $(DC) logs relayer && echo "=== gno logs ===" && $(DC) logs gno; fi; $(DC) down -v; exit $$ret
 
 e2e-test-only:
 	cd e2e && go test -v -timeout 10m -count=1 ./...

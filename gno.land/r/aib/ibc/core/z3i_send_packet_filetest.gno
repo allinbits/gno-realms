@@ -12,8 +12,6 @@ import (
 
 // SendPacket fails app returns an error
 func main() {
-	core.SetAdmin(cross, "g1wymu47drhr0kuq2098m792lytgtj2nyx77yrsm")
-	core.AddRelayer(cross, "g1wymu47drhr0kuq2098m792lytgtj2nyx77yrsm")
 	var (
 		chainID        = "chain-id-2"
 		clientState    = tmtesting.NewClientState(chainID, types.NewHeight(2, 2))

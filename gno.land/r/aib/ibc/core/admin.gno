@@ -52,7 +52,11 @@ func ensureAdminCaller() {
 }
 
 // ensureAuthorizedRelayer panics if the caller is not in the relayer whitelist.
+// If the whitelist is empty, any relayer is allowed.
 func ensureAuthorizedRelayer() {
+	if relayers.Size() == 0 {
+		return
+	}
 	caller := runtime.OriginCaller()
 	if !relayers.Has(string(caller)) {
 		panic(ufmt.Sprintf("unauthorized relayer %s", caller))

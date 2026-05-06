@@ -20,6 +20,7 @@ import (
 func Render(path string) string {
 	router := mux.NewRouter()
 	router.HandleFunc("", renderHome)
+	router.HandleFunc("admin", renderAdmin)
 	router.HandleFunc("apps", renderApps)
 	router.HandleFunc("clients", renderClients)
 	router.HandleFunc("clients/{id}", renderClient)
@@ -84,6 +85,7 @@ func renderHome(w *mux.ResponseWriter, r *mux.Request) {
 		out.WriteString("No apps registered yet.\n\n")
 	}
 	out.WriteString("## JSON endpoints\n\n")
+	out.WriteString("- [`admin`](/r/aib/ibc/core:admin): admin and relayers\n")
 	out.WriteString("- [`apps`](/r/aib/ibc/core:apps): list registered IBC applications\n")
 	out.WriteString("- [`clients`](/r/aib/ibc/core:clients): list clients (`?page`, `?limit`)\n")
 	out.WriteString("- `clients/{id}`: get client details\n")
@@ -422,4 +424,20 @@ func nodeError(msg string, args ...any) *json.Node {
 	return json.ObjectNode("", map[string]*json.Node{
 		"error": json.StringNode("", ufmt.Sprintf(msg, args...)),
 	})
+}
+
+func renderAdmin(w *mux.ResponseWriter, r *mux.Request) {
+	var out strings.Builder
+	out.WriteString("## Admin & Relayers\n\n")
+	out.WriteString(ufmt.Sprintf("- **Admin**: %s\n", renderAddr(admin)))
+	if relayers.Size() == 0 {
+		out.WriteString("- **Relayers**: any (whitelist empty)\n")
+	} else {
+		out.WriteString("- **Relayers**:\n")
+		relayers.Iterate("", "", func(k string, v any) bool {
+			out.WriteString(ufmt.Sprintf("  - %s\n", renderAddr(address(k))))
+			return false
+		})
+	}
+	w.Write(out.String())
 }

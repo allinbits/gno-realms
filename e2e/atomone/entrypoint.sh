@@ -34,6 +34,12 @@ atomoned genesis gentx validator "500000000uatone" \
 # Collect gentxs
 atomoned genesis collect-gentxs --home /root/.atomone
 
+# Patch dynamicfee fee_denom to uphoton. atomone main now defaults this to
+# "stake" regardless of --default-denom, which causes the relayer (configured
+# with 0.025uphoton) to be rejected at fee deduction.
+GENESIS=/root/.atomone/config/genesis.json
+sed -i 's/"fee_denom": "stake"/"fee_denom": "uphoton"/' "$GENESIS"
+
 # Configure for fast blocks and external access
 CONFIG_DIR=/root/.atomone/config
 

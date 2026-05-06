@@ -9,8 +9,6 @@ import (
 )
 
 func main() {
-	core.SetAdmin(cross, "g1wymu47drhr0kuq2098m792lytgtj2nyx77yrsm")
-	core.AddRelayer(cross, "g1wymu47drhr0kuq2098m792lytgtj2nyx77yrsm")
 	var (
 		chainID        = "chain-id-2"
 		clientState    = tmtesting.NewClientState(chainID, types.NewHeight(2, 2))
@@ -40,6 +38,7 @@ func main() {
 //
 // ## JSON endpoints
 //
+// - [`admin`](/r/aib/ibc/core:admin): admin and relayers
 // - [`apps`](/r/aib/ibc/core:apps): list registered IBC applications
 // - [`clients`](/r/aib/ibc/core:clients): list clients (`?page`, `?limit`)
 // - `clients/{id}`: get client details

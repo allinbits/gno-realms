@@ -27,8 +27,9 @@ COPY gno.land /aibgno/gno.land
 ENV GNOROOT=/src/gno
 RUN cd /aibgno && \
     gnodev -empty-blocks -resolver root=. \
-        -resolver root=$GNOROOT/examples > /dev/null 2>&1 & \
-    while ! wget -q -O /dev/null http://127.0.0.1:26657/status 2>/dev/null; do sleep 1; done && \
+        -resolver root=$GNOROOT/examples \
+        -paths "gno.land/r/aib/ibc/core,gno.land/r/aib/ibc/apps/transfer,gno.land/r/aib/ibc/apps/testing/grc20test" > /dev/null 2>&1 & \
+    while ! wget -q -O- 'http://127.0.0.1:26657/abci_query?path=%22.app/version%22' 2>/dev/null | grep -q '"response"'; do sleep 1; done && \
     gno clean -modcache=true && \
     cd /aibgno/gno.land/r/aib/ibc/apps/transfer && \
     gno mod download -remote-overrides gno.land=http://127.0.0.1:26657

@@ -12,8 +12,6 @@ import (
 // UpdateClient fails on non-adjacent height because trusted valset has no VP
 // in commit signatures.
 func main() {
-	core.SetAdmin(cross, "g1wymu47drhr0kuq2098m792lytgtj2nyx77yrsm")
-	core.AddRelayer(cross, "g1wymu47drhr0kuq2098m792lytgtj2nyx77yrsm")
 	// CreateClient and RegisterCounterparty
 	var (
 		chainID     = "atomone-1"
