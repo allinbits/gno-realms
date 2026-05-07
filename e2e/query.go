@@ -63,11 +63,11 @@ func gnoQuery(containerID, realmPath, renderArgs string) (string, error) {
 	// Parse output: "height: N\ndata: <content>\n"
 	// The data may span multiple lines, so find the first "data: " prefix.
 	const prefix = "data: "
-	idx := strings.Index(stdout, prefix)
-	if idx < 0 {
+	_, after, ok := strings.Cut(stdout, prefix)
+	if !ok {
 		return "", fmt.Errorf("unexpected gnokey output (no 'data: ' prefix): %s", stdout)
 	}
-	content := strings.TrimSpace(stdout[idx+len(prefix):])
+	content := strings.TrimSpace(after)
 	return content, nil
 }
 
@@ -163,15 +163,15 @@ func queryGnoBalance(containerID, addr, denom string) (int64, error) {
 	}
 	// Output: "height: N\ndata: \"100ugnot\"\n"
 	const prefix = "data: "
-	idx := strings.Index(stdout, prefix)
-	if idx < 0 {
+	_, after, ok := strings.Cut(stdout, prefix)
+	if !ok {
 		return 0, fmt.Errorf("unexpected output (no 'data: ' prefix): %s", stdout)
 	}
-	data := strings.Trim(strings.TrimSpace(stdout[idx+len(prefix):]), "\"")
+	data := strings.Trim(strings.TrimSpace(after), "\"")
 	// data is like "9988968600ugnot" or "100ugnot,50foo"
 	for coin := range strings.SplitSeq(data, ",") {
-		if strings.HasSuffix(coin, denom) {
-			amountStr := strings.TrimSuffix(coin, denom)
+		if before, ok := strings.CutSuffix(coin, denom); ok {
+			amountStr := before
 			return strconv.ParseInt(amountStr, 10, 64)
 		}
 	}
@@ -246,11 +246,11 @@ func gnoEval(containerID, realmPath, expr string) (string, error) {
 		return "", fmt.Errorf("gnokey qeval %s: %w: %s", data, err, stderr)
 	}
 	const prefix = "data: "
-	idx := strings.Index(stdout, prefix)
-	if idx < 0 {
+	_, after, ok := strings.Cut(stdout, prefix)
+	if !ok {
 		return "", fmt.Errorf("unexpected gnokey output (no 'data: ' prefix): %s", stdout)
 	}
-	content := strings.TrimSpace(stdout[idx+len(prefix):])
+	content := strings.TrimSpace(after)
 	return content, nil
 }
 
@@ -413,4 +413,21 @@ func gnoPkgAddress(pkgPath string) string {
 		panic(fmt.Sprintf("bech32 encode: %v", err))
 	}
 	return addr
+}
+
+func queryGovProposalStatus(restURL string, proposalID uint64) (string, error) {
+	url := fmt.Sprintf("%s/cosmos/gov/v1/proposals/%d", restURL, proposalID)
+	body, err := httpGet(url)
+	if err != nil {
+		return "", err
+	}
+	var resp struct {
+		Proposal struct {
+			Status string `json:"status"`
+		} `json:"proposal"`
+	}
+	if err := json.Unmarshal(body, &resp); err != nil {
+		return "", fmt.Errorf("parse proposal response: %w", err)
+	}
+	return resp.Proposal.Status, nil
 }

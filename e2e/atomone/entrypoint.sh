@@ -34,11 +34,27 @@ atomoned genesis gentx validator "500000000uatone" \
 # Collect gentxs
 atomoned genesis collect-gentxs --home /root/.atomone
 
+GENESIS=/root/.atomone/config/genesis.json
+
 # Patch dynamicfee fee_denom to uphoton. atomone main now defaults this to
 # "stake" regardless of --default-denom, which causes the relayer (configured
 # with 0.025uphoton) to be rejected at fee deduction.
-GENESIS=/root/.atomone/config/genesis.json
 sed -i 's/"fee_denom": "stake"/"fee_denom": "uphoton"/' "$GENESIS"
+
+# Shorten gov voting period for e2e tests (default is 48h).
+# atomoned uses jq-compatible JSON; use a temporary python snippet to patch.
+python3 -c "
+import json, sys
+with open('$GENESIS') as f:
+    g = json.load(f)
+gov = g['app_state']['gov']
+gov['params']['voting_period'] = '10s'
+if 'min_deposit' in gov['params']:
+    for c in gov['params']['min_deposit']:
+        c['amount'] = '1'
+with open('$GENESIS', 'w') as f:
+    json.dump(g, f, indent=2)
+"
 
 # Configure for fast blocks and external access
 CONFIG_DIR=/root/.atomone/config

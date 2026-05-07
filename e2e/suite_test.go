@@ -143,9 +143,9 @@ func (s *E2ETestSuite) gnoKeyAddress(keyName string) string {
 	// Output format: "0. keyname (local) - addr: g1... pub: gpub1..."
 	for line := range strings.SplitSeq(stdout, "\n") {
 		if strings.Contains(line, keyName) {
-			idx := strings.Index(line, "addr: ")
-			if idx >= 0 {
-				rest := line[idx+len("addr: "):]
+			_, after, ok := strings.Cut(line, "addr: ")
+			if ok {
+				rest := after
 				return strings.Fields(rest)[0]
 			}
 		}

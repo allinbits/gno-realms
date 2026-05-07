@@ -1,20 +1,19 @@
 package e2e
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
+	"strconv"
+	"strings"
 	"time"
-
-	channeltypesv2 "github.com/cosmos/ibc-go/v10/modules/core/04-channel/v2/types"
 )
 
-// validatorUpdate represents a validator update in VSC packet data.
 type validatorUpdate struct {
 	PubKey map[string]string `json:"pub_key"`
 	Power  string            `json:"power"`
 }
 
-// vscPacketData represents the VSC packet data structure.
 type vscPacketData struct {
 	ValidatorUpdates []validatorUpdate `json:"validator_updates"`
 	ValsetUpdateID   string            `json:"valset_update_id"`
@@ -28,13 +27,91 @@ func (s *E2ETestSuite) sendVSCPacket(validators []validatorUpdate, valsetUpdateI
 	vscJSON, err := json.Marshal(vscData)
 	s.Require().NoError(err, "marshal VSC packet data")
 
-	msg := buildMsgSendPacketVAAS(
-		s.atomoneClientID, s.atomOneSenderAddress,
-		"vaasprovider", "vaasconsumer",
-		vscJSON, time.Now().Add(time.Hour).Unix(),
+	timeout := time.Now().Add(time.Hour).Unix()
+	payload := map[string]any{
+		"source_port":      "vaasprovider",
+		"destination_port": "vaasconsumer",
+		"version":          "1",
+		"encoding":         "application/json",
+		"value":            vscJSON,
+	}
+	msgSendPacket := map[string]any{
+		"@type":             "/ibc.core.channel.v2.MsgSendPacket",
+		"source_client":     s.atomoneClientID,
+		"timeout_timestamp": fmt.Sprint(uint64(timeout)),
+		"signer":            s.atomOneSenderAddress,
+		"payload":           payload,
+	}
+	proposal := map[string]any{
+		"messages":  []any{msgSendPacket},
+		"metadata":  "",
+		"deposit":   "1uatone",
+		"title":     fmt.Sprintf("VSC packet %d", valsetUpdateID),
+		"summary":   fmt.Sprintf("Send VSC packet with valset_update_id=%d", valsetUpdateID),
+		"expedited": true,
+	}
+	proposalJSON, err := json.Marshal(proposal)
+	s.Require().NoError(err, "marshal proposal JSON")
+
+	ctx := context.Background()
+
+	_, stderr, err := dockerExecStdin(ctx, s.atomoneContainer, string(proposalJSON),
+		"bash", "-c", "cat > /tmp/vsc_proposal.json")
+	s.Require().NoError(err, "write proposal file: %s", stderr)
+
+	submitCtx, submitCancel := context.WithTimeout(ctx, 30*time.Second)
+	defer submitCancel()
+	stdout, stderr, err := dockerExec(submitCtx, s.atomoneContainer,
+		"atomoned", "tx", "gov", "submit-proposal", "/tmp/vsc_proposal.json",
+		"--from", s.atomOneSenderAddress,
+		"--chain-id", s.cfg.AtomoneChainID,
+		"--keyring-backend", "test",
+		"--home", "/root/.atomone",
+		"--node", "tcp://localhost:26657",
+		"--yes", "--output", "json",
 	)
-	s.signAndBroadcastAtomOneTx(s.atomOneSenderAddress, msg)
-	s.T().Logf("VSC packet submitted: valset_update_id=%d, validators=%d", valsetUpdateID, len(validators))
+	s.Require().NoError(err, "submit proposal: %s", stderr)
+
+	var submitResult struct {
+		Events []struct {
+			Type  string `json:"type"`
+			Attrs []struct {
+				Key   string `json:"key"`
+				Value string `json:"value"`
+			} `json:"attributes"`
+		} `json:"events"`
+	}
+	s.Require().NoError(json.Unmarshal([]byte(strings.TrimSpace(stdout)), &submitResult))
+
+	var proposalID string
+	for _, ev := range submitResult.Events {
+		if ev.Type == "submit_proposal" {
+			for _, attr := range ev.Attrs {
+				if attr.Key == "proposal_id" {
+					proposalID = attr.Value
+				}
+			}
+		}
+	}
+	s.Require().NotEmpty(proposalID, "proposal_id not found in submit events: %s", stdout)
+	s.T().Logf("Proposal %s submitted", proposalID)
+
+	voteCtx, voteCancel := context.WithTimeout(ctx, 30*time.Second)
+	defer voteCancel()
+	_, stderr, err = dockerExec(voteCtx, s.atomoneContainer,
+		"atomoned", "tx", "gov", "vote", proposalID, "yes",
+		"--from", s.atomOneSenderAddress,
+		"--chain-id", s.cfg.AtomoneChainID,
+		"--keyring-backend", "test",
+		"--home", "/root/.atomone",
+		"--node", "tcp://localhost:26657",
+		"--yes", "--output", "json",
+	)
+	s.Require().NoError(err, "vote on proposal: %s", stderr)
+	s.T().Logf("Voted YES on proposal %s", proposalID)
+
+	s.waitForGovProposalPassed(proposalID)
+	s.T().Logf("VSC packet proposal %s executed: valset_update_id=%d, validators=%d", proposalID, valsetUpdateID, len(validators))
 }
 
 func (s *E2ETestSuite) waitForVAASValsetUpdateID(expected uint64) {
@@ -151,19 +228,15 @@ func (s *E2ETestSuite) TestIBCVAASRemoveValidator() {
 	s.T().Logf("Validator removal verified: validators=%d, total_power=%d", len(validators), totalPower)
 }
 
-func buildMsgSendPacketVAAS(
-	sourceClient, sender string,
-	sourcePort, destinationPort string,
-	packetData []byte,
-	timeoutTimestamp int64,
-) *channeltypesv2.MsgSendPacket {
-	payload := channeltypesv2.NewPayload(
-		sourcePort, destinationPort,
-		"1",                // Version
-		"application/json", // Encoding
-		packetData,
-	)
-	return channeltypesv2.NewMsgSendPacket(
-		sourceClient, uint64(timeoutTimestamp), sender, payload,
-	)
+func (s *E2ETestSuite) waitForGovProposalPassed(proposalID string) {
+	id, err := strconv.ParseUint(proposalID, 10, 64)
+	s.Require().NoError(err, "parse proposal ID")
+
+	s.waitForCondition(1*time.Minute, 2*time.Second, func() bool {
+		status, err := queryGovProposalStatus(s.cfg.AtomoneREST, id)
+		if err != nil {
+			return false
+		}
+		return status == "PROPOSAL_STATUS_PASSED" || status == "PROPOSAL_STATUS_EXECUTED"
+	}, fmt.Sprintf("gov proposal %s not passed", proposalID))
 }
