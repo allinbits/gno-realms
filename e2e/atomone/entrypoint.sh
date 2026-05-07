@@ -41,20 +41,10 @@ GENESIS=/root/.atomone/config/genesis.json
 # with 0.025uphoton) to be rejected at fee deduction.
 sed -i 's/"fee_denom": "stake"/"fee_denom": "uphoton"/' "$GENESIS"
 
-# Shorten gov voting period for e2e tests (default is 48h).
-# atomoned uses jq-compatible JSON; use a temporary python snippet to patch.
-python3 -c "
-import json, sys
-with open('$GENESIS') as f:
-    g = json.load(f)
-gov = g['app_state']['gov']
-gov['params']['voting_period'] = '10s'
-if 'min_deposit' in gov['params']:
-    for c in gov['params']['min_deposit']:
-        c['amount'] = '1'
-with open('$GENESIS', 'w') as f:
-    json.dump(g, f, indent=2)
-"
+# Shorten gov voting period and lower min deposit for e2e tests.
+jq '.app_state.gov.params.voting_period = "10s" |
+    .app_state.gov.params.min_deposit = [{"denom": "uatone", "amount": "1"}]' \
+    "$GENESIS" > /tmp/genesis_patched.json && mv /tmp/genesis_patched.json "$GENESIS"
 
 # Configure for fast blocks and external access
 CONFIG_DIR=/root/.atomone/config

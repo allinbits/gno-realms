@@ -2,6 +2,7 @@ package e2e
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"strconv"
@@ -33,14 +34,14 @@ func (s *E2ETestSuite) sendVSCPacket(validators []validatorUpdate, valsetUpdateI
 		"destination_port": "vaasconsumer",
 		"version":          "1",
 		"encoding":         "application/json",
-		"value":            vscJSON,
+		"value":            base64.StdEncoding.EncodeToString(vscJSON),
 	}
 	msgSendPacket := map[string]any{
 		"@type":             "/ibc.core.channel.v2.MsgSendPacket",
 		"source_client":     s.atomoneClientID,
 		"timeout_timestamp": fmt.Sprint(uint64(timeout)),
 		"signer":            s.atomOneSenderAddress,
-		"payload":           payload,
+		"payloads":          []any{payload},
 	}
 	proposal := map[string]any{
 		"messages":  []any{msgSendPacket},
@@ -68,46 +69,109 @@ func (s *E2ETestSuite) sendVSCPacket(validators []validatorUpdate, valsetUpdateI
 		"--keyring-backend", "test",
 		"--home", "/root/.atomone",
 		"--node", "tcp://localhost:26657",
+		"--gas-prices", "0.025uphoton",
 		"--yes", "--output", "json",
 	)
 	s.Require().NoError(err, "submit proposal: %s", stderr)
 
 	var submitResult struct {
-		Events []struct {
-			Type  string `json:"type"`
-			Attrs []struct {
-				Key   string `json:"key"`
-				Value string `json:"value"`
-			} `json:"attributes"`
-		} `json:"events"`
+		TxHash string `json:"txhash"`
+		Code   int    `json:"code"`
+		RawLog string `json:"raw_log"`
 	}
 	s.Require().NoError(json.Unmarshal([]byte(strings.TrimSpace(stdout)), &submitResult))
+	s.Require().Equal(0, submitResult.Code, "submit proposal tx failed: %s", submitResult.RawLog)
+	s.Require().NotEmpty(submitResult.TxHash)
 
 	var proposalID string
-	for _, ev := range submitResult.Events {
-		if ev.Type == "submit_proposal" {
-			for _, attr := range ev.Attrs {
-				if attr.Key == "proposal_id" {
-					proposalID = attr.Value
+	s.Require().Eventually(func() bool {
+		qCtx, qCancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer qCancel()
+		txOut, _, err := dockerExec(qCtx, s.atomoneContainer,
+			"atomoned", "q", "tx", submitResult.TxHash,
+			"--node", "tcp://localhost:26657",
+			"--output", "json",
+		)
+		if err != nil {
+			return false
+		}
+		var txResult struct {
+			Code int `json:"code"`
+			Logs []struct {
+				Events []struct {
+					Type  string `json:"type"`
+					Attrs []struct {
+						Key   string `json:"key"`
+						Value string `json:"value"`
+					} `json:"attributes"`
+				} `json:"events"`
+			} `json:"logs"`
+		}
+		if err := json.Unmarshal([]byte(strings.TrimSpace(txOut)), &txResult); err != nil {
+			return false
+		}
+		if txResult.Code != 0 {
+			return false
+		}
+		for _, log := range txResult.Logs {
+			for _, ev := range log.Events {
+				if ev.Type == "submit_proposal" {
+					for _, attr := range ev.Attrs {
+						if attr.Key == "proposal_id" {
+							proposalID = attr.Value
+							return true
+						}
+					}
 				}
 			}
 		}
-	}
-	s.Require().NotEmpty(proposalID, "proposal_id not found in submit events: %s", stdout)
+		return false
+	}, 15*time.Second, time.Second, "proposal_id not found for tx %s", submitResult.TxHash)
+
 	s.T().Logf("Proposal %s submitted", proposalID)
 
 	voteCtx, voteCancel := context.WithTimeout(ctx, 30*time.Second)
 	defer voteCancel()
-	_, stderr, err = dockerExec(voteCtx, s.atomoneContainer,
+	stdout, stderr, err = dockerExec(voteCtx, s.atomoneContainer,
 		"atomoned", "tx", "gov", "vote", proposalID, "yes",
 		"--from", s.atomOneSenderAddress,
 		"--chain-id", s.cfg.AtomoneChainID,
 		"--keyring-backend", "test",
 		"--home", "/root/.atomone",
 		"--node", "tcp://localhost:26657",
+		"--gas-prices", "0.025uphoton",
 		"--yes", "--output", "json",
 	)
 	s.Require().NoError(err, "vote on proposal: %s", stderr)
+
+	var voteResult struct {
+		TxHash string `json:"txhash"`
+		Code   int    `json:"code"`
+		RawLog string `json:"raw_log"`
+	}
+	s.Require().NoError(json.Unmarshal([]byte(strings.TrimSpace(stdout)), &voteResult))
+	s.Require().Equal(0, voteResult.Code, "vote tx failed: %s", voteResult.RawLog)
+
+	s.Require().Eventually(func() bool {
+		qCtx, qCancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer qCancel()
+		txOut, _, err := dockerExec(qCtx, s.atomoneContainer,
+			"atomoned", "q", "tx", voteResult.TxHash,
+			"--node", "tcp://localhost:26657",
+			"--output", "json",
+		)
+		if err != nil {
+			return false
+		}
+		var txResult struct {
+			Code int `json:"code"`
+		}
+		if err := json.Unmarshal([]byte(strings.TrimSpace(txOut)), &txResult); err != nil {
+			return false
+		}
+		return txResult.Code == 0
+	}, 15*time.Second, time.Second, "vote tx %s not confirmed", voteResult.TxHash)
+
 	s.T().Logf("Voted YES on proposal %s", proposalID)
 
 	s.waitForGovProposalPassed(proposalID)

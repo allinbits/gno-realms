@@ -126,7 +126,6 @@ func (a *App) OnRecvPacket(
 		chain.Emit(EventTypeChannelEstablished,
 			AttributeKeyModule, ModuleName,
 			"client_id", sourceClient,
-			"routing_mode", "ibc_v2",
 		)
 	}
 
@@ -145,7 +144,6 @@ func (a *App) OnRecvPacket(
 		AttributeKeyValsetUpdateID, strconv.FormatUint(vscData.ValsetUpdateId, 10),
 		AttributeKeyNumUpdates, strconv.Itoa(len(vscData.ValidatorUpdates)),
 		AttributeKeyAckSuccess, "true",
-		"routing_mode", "ibc_v2",
 		"source_client", sourceClient,
 	)
 
