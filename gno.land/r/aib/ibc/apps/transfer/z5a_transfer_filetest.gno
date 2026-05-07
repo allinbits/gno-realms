@@ -2,7 +2,6 @@ package main
 
 import (
 	"chain"
-	"chain/runtime"
 	"testing"
 	"time"
 
@@ -15,7 +14,6 @@ import (
 
 // Transfer: success for native coins
 func main() {
-	println("PKGPATH0", runtime.CurrentRealm().PkgPath())
 	var (
 		chainID        = "chain-id-2"
 		clientState    = tmtesting.NewClientState(chainID, types.NewHeight(2, 2))
@@ -26,6 +24,7 @@ func main() {
 	clientID := core.CreateClient(cross, clientState, consensusState)
 	core.RegisterCounterparty(cross, clientID, [][]byte{[]byte("iavlStoreKey"), []byte("prefix2")}, "07-tendermint-2")
 
+	testing.SetRealm(testing.NewUserRealm("g1wymu47drhr0kuq2098m792lytgtj2nyx77yrsm"))
 	testing.SetOriginSend(chain.NewCoins(chain.NewCoin("ugnot", 100)))
 
 	println("----------- assert render total_escrow/ugnot before Transfer")

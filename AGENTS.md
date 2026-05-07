@@ -137,7 +137,7 @@ IBC voucher tokens (minted on RecvPacket for cross-chain tokens) use **GRC20 tok
 
 ### What Uses Native Banker
 - **Escrow/unescrow** of native tokens (ugnot, etc.) still uses `chain/banker`
-- Native token escrow in `OnSendPacket` uses `banker.OriginSend()` to verify coins sent with the transaction
+- `Transfer()` is the only valid entry point for native coin transfers. It verifies the user attached the matching `-send` via `banker.OriginSend()` guarded by `runtime.PreviousRealm().IsUserCall()`. The `IsUserCall` guard is what makes `OriginSend()` trustworthy — it ensures the coins actually landed at this realm, not at an intermediate code realm that forwarded the call. The verified coin is handed off to `OnSendPacket` through a package-level pointer (`pendingNativeEscrow`) cleared by a `defer` in `Transfer` so it never leaks across txs. `OnSendPacket` doesn't re-read `OriginSend()` because its `PreviousRealm()` is the core realm and the guard would always fail there; relying on the upstream `Transfer` check is structurally simpler than re-deriving it.
 
 ### Voucher Render Endpoints
 - `voucher/ibc/{hash}` - Token info (name, symbol, total supply)

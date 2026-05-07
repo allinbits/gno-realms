@@ -36,6 +36,7 @@ func main() {
 
 	// Transfer the 100ugnot we want to ack
 	coins := chain.NewCoins(chain.NewCoin("ugnot", 100))
+	testing.SetRealm(testing.NewUserRealm("g1wymu47drhr0kuq2098m792lytgtj2nyx77yrsm"))
 	testing.SetOriginSend(coins)
 	println("----------- assert render total_escrow/ugnot before Transfer")
 	println(transfer.Render("total_escrow/ugnot"))
