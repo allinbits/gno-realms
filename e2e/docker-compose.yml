@@ -24,7 +24,7 @@ services:
       args:
         - FORK_REPO
         - FORK_BRANCH
-    entrypoint: ["/whitelist.sh"]
+    entrypoint: ["bash", "/whitelist.sh"]
     volumes:
       - ./gno/whitelist.sh:/whitelist.sh
     env_file: .env

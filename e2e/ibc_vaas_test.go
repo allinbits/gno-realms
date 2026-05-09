@@ -95,8 +95,38 @@ func (s *E2ETestSuite) sendVSCPacket(validators []validatorUpdate, valsetUpdateI
 		if err != nil {
 			return false
 		}
-		proposalID = extractProposalID(txOut)
-		return proposalID != ""
+		var txResult struct {
+			Code int `json:"code"`
+		}
+		if err := json.Unmarshal([]byte(strings.TrimSpace(txOut)), &txResult); err != nil {
+			return false
+		}
+		if txResult.Code != 0 {
+			return false
+		}
+		qCtx2, qCancel2 := context.WithTimeout(context.Background(), 10*time.Second)
+		defer qCancel2()
+		proposalsOut, _, err := dockerExec(qCtx2, s.atomoneContainer,
+			"atomoned", "q", "gov", "proposals", "--reverse", "--limit", "1",
+			"--node", "tcp://localhost:26657",
+			"--output", "json",
+		)
+		if err != nil {
+			return false
+		}
+		var proposals struct {
+			Proposals []struct {
+				ID string `json:"id"`
+			} `json:"proposals"`
+		}
+		if err := json.Unmarshal([]byte(strings.TrimSpace(proposalsOut)), &proposals); err != nil {
+			return false
+		}
+		if len(proposals.Proposals) == 0 {
+			return false
+		}
+		proposalID = proposals.Proposals[0].ID
+		return true
 	}, 15*time.Second, time.Second, "proposal_id not found for tx %s", submitResult.TxHash)
 
 	s.T().Logf("Proposal %s submitted", proposalID)
@@ -274,53 +304,4 @@ func (s *E2ETestSuite) waitForGovProposalPassed(proposalID string) {
 		}
 		return status == "PROPOSAL_STATUS_PASSED" || status == "PROPOSAL_STATUS_EXECUTED"
 	}, fmt.Sprintf("gov proposal %s not passed", proposalID))
-}
-
-func extractProposalID(txOut string) string {
-	type eventAttr struct {
-		Key   string `json:"key"`
-		Value string `json:"value"`
-	}
-	type event struct {
-		Type       string      `json:"type"`
-		Attributes []eventAttr `json:"attributes"`
-	}
-
-	var flat struct {
-		Code   int     `json:"code"`
-		Events []event `json:"events"`
-	}
-	if err := json.Unmarshal([]byte(strings.TrimSpace(txOut)), &flat); err == nil && flat.Code == 0 {
-		for _, ev := range flat.Events {
-			if ev.Type == "submit_proposal" {
-				for _, attr := range ev.Attributes {
-					if attr.Key == "proposal_id" {
-						return attr.Value
-					}
-				}
-			}
-		}
-	}
-
-	var nested struct {
-		Code int `json:"code"`
-		Logs []struct {
-			Events []event `json:"events"`
-		} `json:"logs"`
-	}
-	if err := json.Unmarshal([]byte(strings.TrimSpace(txOut)), &nested); err == nil && nested.Code == 0 {
-		for _, log := range nested.Logs {
-			for _, ev := range log.Events {
-				if ev.Type == "submit_proposal" {
-					for _, attr := range ev.Attributes {
-						if attr.Key == "proposal_id" {
-							return attr.Value
-						}
-					}
-				}
-			}
-		}
-	}
-
-	return ""
 }
