@@ -91,11 +91,6 @@ func setCCValidator(val CrossChainValidator) {
 	store.validators.Set(val.PubKey, &val)
 }
 
-// deleteCCValidator removes a cross-chain validator by public key.
-func deleteCCValidator(pubKey string) {
-	store.validators.Remove(pubKey)
-}
-
 // GetCCValidator returns a cross-chain validator by public key.
 // Returns the validator and true if found, or an empty validator and false if not.
 func GetCCValidator(pubKey string) (CrossChainValidator, bool) {
@@ -186,100 +181,59 @@ func applyValidatorChanges(changes []ValidatorUpdate) {
 
 		if found {
 			if change.Power <= 0 {
-				// Remove existing validator from local store
-				deleteCCValidator(change.PubKey)
-				// Propagate removal to chain validator set
+				store.validators.Remove(change.PubKey)
 				propagateValidatorRemoval(change)
 			} else {
-				// Update existing validator's power in local store
-				setCCValidator(CrossChainValidator{
-					PubKey: change.PubKey,
-					Power:  change.Power,
-				})
-				// Propagate update to chain validator set
-				propagateValidatorUpdate(change)
+				val := CrossChainValidator{PubKey: change.PubKey, Power: change.Power}
+				store.validators.Set(val.PubKey, &val)
+				propagateValidatorToChain(change)
 			}
 		} else if change.Power > 0 {
-			// Add new validator to local store
-			setCCValidator(CrossChainValidator{
-				PubKey: change.PubKey,
-				Power:  change.Power,
-			})
-			// Propagate addition to chain validator set
-			propagateValidatorAddition(change)
+			val := CrossChainValidator{PubKey: change.PubKey, Power: change.Power}
+			store.validators.Set(val.PubKey, &val)
+			propagateValidatorToChain(change)
 		}
-		// else: update for non-positive power on non-existing validator — skip
 	}
+}
+
+// decodePubKeyBytes extracts and decodes the raw key bytes from a public key
+// string in "<type>:<base64value>" format.
+func decodePubKeyBytes(pubKey string) []byte {
+	idx := 0
+	for i := 0; i < len(pubKey); i++ {
+		if pubKey[i] == ':' {
+			idx = i + 1
+			break
+		}
+	}
+	keyBytes, err := base64.StdEncoding.DecodeString(pubKey[idx:])
+	if err != nil {
+		panic("invalid base64 in pubkey: " + err.Error())
+	}
+	return keyBytes
 }
 
 // deriveAddressFromPubKey derives a bech32 address from a public key.
-// The public key is in format "<type>:<base64value>".
 // Uses SHA256 hash and takes the first 20 bytes, then encodes as bech32.
 func deriveAddressFromPubKey(pubKey string) address {
-	// Extract base64 part after the colon
-	idx := 0
-	for i := 0; i < len(pubKey); i++ {
-		if pubKey[i] == ':' {
-			idx = i + 1
-			break
-		}
-	}
-	base64Key := pubKey[idx:]
-
-	// Decode base64
-	keyBytes, err := base64.StdEncoding.DecodeString(base64Key)
-	if err != nil {
-		panic("invalid base64 in pubkey: " + err.Error())
-	}
-
-	// Hash with SHA256 and take first 20 bytes (like Tendermint/Tendermint2)
-	hash := sha256.Sum256(keyBytes)
-	addrBytes := hash[:20]
-
+	hash := sha256.Sum256(decodePubKeyBytes(pubKey))
 	// Encode as bech32 with "g" prefix (gno address format)
 	// TODO: After https://github.com/gnolang/gno/pull/4873 this should not be hardcoded.
-	bechAddr, err := bech32.EncodeFromBase256("g", addrBytes)
+	bechAddr, err := bech32.EncodeFromBase256("g", hash[:20])
 	if err != nil {
 		panic("failed to encode address as bech32: " + err.Error())
 	}
-
 	return address(bechAddr)
 }
 
-// encodePubKeyAsBech32 encodes a public key in bech32 format.
-// The public key is in format "<type>:<base64value>".
+// encodePubKeyAsBech32 encodes the raw key bytes from a public key in bech32
+// format with "pub" prefix.
 func encodePubKeyAsBech32(pubKey string) string {
-	// Extract base64 part after the colon
-	idx := 0
-	for i := 0; i < len(pubKey); i++ {
-		if pubKey[i] == ':' {
-			idx = i + 1
-			break
-		}
-	}
-	base64Key := pubKey[idx:]
-
-	// Decode base64
-	keyBytes, err := base64.StdEncoding.DecodeString(base64Key)
-	if err != nil {
-		panic("invalid base64 in pubkey: " + err.Error())
-	}
-
-	// Encode as bech32 with "pub" prefix
-	bechPub, err := bech32.EncodeFromBase256("pub", keyBytes)
+	bechPub, err := bech32.EncodeFromBase256("pub", decodePubKeyBytes(pubKey))
 	if err != nil {
 		panic("failed to encode pubkey as bech32: " + err.Error())
 	}
-
 	return bechPub
-}
-
-// propagateValidatorAddition adds a validator to the chain validator set.
-// This realm must be whitelisted in r/sys/validators/v2 to succeed.
-// If the realm is not whitelisted (e.g. in test environments), propagation is
-// skipped silently — the update is still applied to the local consumer store.
-func propagateValidatorAddition(update ValidatorUpdate) {
-	propagateValidatorToChain(update)
 }
 
 // propagateValidatorRemoval removes a validator from the chain validator set.
@@ -297,14 +251,6 @@ func propagateValidatorRemoval(update ValidatorUpdate) {
 		return
 	}
 	validators.RemoveValidator(cross, addr)
-}
-
-// propagateValidatorUpdate updates a validator's power in the chain validator set.
-// If the realm is not whitelisted, propagation is skipped silently.
-// If the validator already exists with the same power, the call is skipped
-// to avoid the ErrValidatorExists panic from r/sys/validators/v2.
-func propagateValidatorUpdate(update ValidatorUpdate) {
-	propagateValidatorToChain(update)
 }
 
 // propagateValidatorToChain adds or updates a validator in the chain validator set.
