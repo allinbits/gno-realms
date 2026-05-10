@@ -41,9 +41,13 @@ GENESIS=/root/.atomone/config/genesis.json
 # with 0.025uphoton) to be rejected at fee deduction.
 sed -i 's/"fee_denom": "stake"/"fee_denom": "uphoton"/' "$GENESIS"
 
-# Shorten gov voting period and lower min deposit for e2e tests.
+# Shorten gov voting period and lower deposits for e2e tests.
+# AtomOne uses a dynamic deposit system (min_deposit is deprecated and rejected).
+# Must patch the throttler floor values instead.
 jq '.app_state.gov.params.voting_period = "10s" |
-    .app_state.gov.params.min_deposit = [{"denom": "uatone", "amount": "1"}]' \
+    .app_state.gov.params.min_deposit = [] |
+    .app_state.gov.params.min_deposit_throttler.floor_value = [{"denom": "uatone", "amount": "1"}] |
+    .app_state.gov.params.min_initial_deposit_throttler.floor_value = [{"denom": "uatone", "amount": "1"}]' \
     "$GENESIS" > /tmp/genesis_patched.json && mv /tmp/genesis_patched.json "$GENESIS"
 
 # Configure for fast blocks and external access

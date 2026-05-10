@@ -327,12 +327,16 @@ func queryVAASHighestValsetUpdateID(containerID string) (uint64, error) {
 		return 0, err
 	}
 	var resp struct {
-		HighestValsetUpdateID uint64 `json:"highest_valset_update_id"`
+		HighestValsetUpdateID string `json:"highest_valset_update_id"`
 	}
 	if err := json.Unmarshal([]byte(content), &resp); err != nil {
 		return 0, fmt.Errorf("parse highest valset update ID: %w (raw: %s)", err, content)
 	}
-	return resp.HighestValsetUpdateID, nil
+	id, err := strconv.ParseUint(resp.HighestValsetUpdateID, 10, 64)
+	if err != nil {
+		return 0, fmt.Errorf("parse highest valset update ID: %w (raw: %s)", err, content)
+	}
+	return id, nil
 }
 
 // queryVAASValidatorCount returns the number of validators from VAAS consumer.
@@ -342,12 +346,16 @@ func queryVAASValidatorCount(containerID string) (int, error) {
 		return 0, err
 	}
 	var resp struct {
-		ValidatorCount int `json:"validator_count"`
+		ValidatorCount string `json:"validator_count"`
 	}
 	if err := json.Unmarshal([]byte(content), &resp); err != nil {
 		return 0, fmt.Errorf("parse validator count: %w (raw: %s)", err, content)
 	}
-	return resp.ValidatorCount, nil
+	count, err := strconv.Atoi(resp.ValidatorCount)
+	if err != nil {
+		return 0, fmt.Errorf("parse validator count: %w (raw: %s)", err, content)
+	}
+	return count, nil
 }
 
 // queryVAASTotalVotingPower returns the total voting power from VAAS consumer.
@@ -357,18 +365,22 @@ func queryVAASTotalVotingPower(containerID string) (int64, error) {
 		return 0, err
 	}
 	var resp struct {
-		TotalVotingPower int64 `json:"total_voting_power"`
+		TotalVotingPower string `json:"total_voting_power"`
 	}
 	if err := json.Unmarshal([]byte(content), &resp); err != nil {
 		return 0, fmt.Errorf("parse total voting power: %w (raw: %s)", err, content)
 	}
-	return resp.TotalVotingPower, nil
+	power, err := strconv.ParseInt(resp.TotalVotingPower, 10, 64)
+	if err != nil {
+		return 0, fmt.Errorf("parse total voting power: %w (raw: %s)", err, content)
+	}
+	return power, nil
 }
 
 // queryVAASAllValidators returns all validators from VAAS consumer.
 func queryVAASAllValidators(containerID string) ([]struct {
-	PubKey string `json:"pub_key"`
-	Power  int64  `json:"power"`
+	PubKey string
+	Power  int64
 }, error) {
 	content, err := gnoQuery(containerID, "r/aib/ibc/apps/vaas/consumer", "validators")
 	if err != nil {
@@ -377,13 +389,25 @@ func queryVAASAllValidators(containerID string) ([]struct {
 	var resp struct {
 		Validators []struct {
 			PubKey string `json:"pub_key"`
-			Power  int64  `json:"power"`
+			Power  string `json:"power"`
 		} `json:"validators"`
 	}
 	if err := json.Unmarshal([]byte(content), &resp); err != nil {
 		return nil, fmt.Errorf("parse validators: %w (raw: %s)", err, content)
 	}
-	return resp.Validators, nil
+	result := make([]struct {
+		PubKey string
+		Power  int64
+	}, len(resp.Validators))
+	for i, v := range resp.Validators {
+		result[i].PubKey = v.PubKey
+		power, err := strconv.ParseInt(v.Power, 10, 64)
+		if err != nil {
+			return nil, fmt.Errorf("parse validator power: %w (raw: %s)", err, v.Power)
+		}
+		result[i].Power = power
+	}
+	return result, nil
 }
 
 // queryVAASProviderClientID returns the provider client ID from VAAS consumer.

@@ -279,20 +279,7 @@ func encodePubKeyAsBech32(pubKey string) string {
 // If the realm is not whitelisted (e.g. in test environments), propagation is
 // skipped silently — the update is still applied to the local consumer store.
 func propagateValidatorAddition(update ValidatorUpdate) {
-	if !validators.IsAllowedRealm(consumerPkgPath) {
-		return
-	}
-
-	addr := deriveAddressFromPubKey(update.PubKey)
-	pubKeyBech32 := encodePubKeyAsBech32(update.PubKey)
-
-	val := pVals.Validator{
-		Address:     addr,
-		PubKey:      pubKeyBech32,
-		VotingPower: uint64(update.Power),
-	}
-
-	validators.AddValidator(cross, val)
+	propagateValidatorToChain(update)
 }
 
 // propagateValidatorRemoval removes a validator from the chain validator set.
@@ -314,18 +301,30 @@ func propagateValidatorRemoval(update ValidatorUpdate) {
 
 // propagateValidatorUpdate updates a validator's power in the chain validator set.
 // If the realm is not whitelisted, propagation is skipped silently.
-// If the validator is not yet present in the chain set (e.g. because the local
-// store was set up out-of-band without a prior propagation), it is added instead.
-// The PoA protocol's AddValidator supports upsert semantics: it updates the power
-// when the validator already exists with a different power, and adds it when absent.
+// If the validator already exists with the same power, the call is skipped
+// to avoid the ErrValidatorExists panic from r/sys/validators/v2.
 func propagateValidatorUpdate(update ValidatorUpdate) {
+	propagateValidatorToChain(update)
+}
+
+// propagateValidatorToChain adds or updates a validator in the chain validator set.
+// It checks whether the validator already exists with the same power to avoid
+// the ErrValidatorExists panic from the underlying PoA implementation.
+func propagateValidatorToChain(update ValidatorUpdate) {
 	if !validators.IsAllowedRealm(consumerPkgPath) {
 		return
 	}
 
 	addr := deriveAddressFromPubKey(update.PubKey)
-	pubKeyBech32 := encodePubKeyAsBech32(update.PubKey)
 
+	if validators.IsValidator(addr) {
+		existing := validators.GetValidator(addr)
+		if existing.VotingPower == uint64(update.Power) {
+			return
+		}
+	}
+
+	pubKeyBech32 := encodePubKeyAsBech32(update.PubKey)
 	val := pVals.Validator{
 		Address:     addr,
 		PubKey:      pubKeyBech32,

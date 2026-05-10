@@ -32,7 +32,7 @@ func (s *E2ETestSuite) sendVSCPacket(validators []validatorUpdate, valsetUpdateI
 	payload := map[string]any{
 		"source_port":      "vaasprovider",
 		"destination_port": "vaasconsumer",
-		"version":          "1",
+		"version":          "vaas-v1",
 		"encoding":         "application/json",
 		"value":            base64.StdEncoding.EncodeToString(vscJSON),
 	}
@@ -40,7 +40,7 @@ func (s *E2ETestSuite) sendVSCPacket(validators []validatorUpdate, valsetUpdateI
 		"@type":             "/ibc.core.channel.v2.MsgSendPacket",
 		"source_client":     s.atomoneClientID,
 		"timeout_timestamp": fmt.Sprint(uint64(timeout)),
-		"signer":            s.atomOneSenderAddress,
+		"signer":            s.atomoneGovAddress,
 		"payloads":          []any{payload},
 	}
 	proposal := map[string]any{
@@ -70,6 +70,7 @@ func (s *E2ETestSuite) sendVSCPacket(validators []validatorUpdate, valsetUpdateI
 		"--home", "/root/.atomone",
 		"--node", "tcp://localhost:26657",
 		"--gas-prices", "0.025uphoton",
+		"--gas", "auto", "--gas-adjustment", "1.5",
 		"--yes", "--output", "json",
 	)
 	s.Require().NoError(err, "submit proposal: %s", stderr)
@@ -87,31 +88,36 @@ func (s *E2ETestSuite) sendVSCPacket(validators []validatorUpdate, valsetUpdateI
 	s.Require().Eventually(func() bool {
 		qCtx, qCancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer qCancel()
-		txOut, _, err := dockerExec(qCtx, s.atomoneContainer,
+		txOut, txErr, err := dockerExec(qCtx, s.atomoneContainer,
 			"atomoned", "q", "tx", submitResult.TxHash,
 			"--node", "tcp://localhost:26657",
 			"--output", "json",
 		)
 		if err != nil {
+			s.T().Logf("query tx error: %v, stderr: %s", err, txErr)
 			return false
 		}
 		var txResult struct {
-			Code int `json:"code"`
+			Code   int    `json:"code"`
+			RawLog string `json:"raw_log"`
 		}
 		if err := json.Unmarshal([]byte(strings.TrimSpace(txOut)), &txResult); err != nil {
+			s.T().Logf("unmarshal tx error: %v, output: %s", err, txOut[:min(len(txOut), 200)])
 			return false
 		}
 		if txResult.Code != 0 {
+			s.T().Logf("submit proposal tx failed (code=%d): %s", txResult.Code, txResult.RawLog)
 			return false
 		}
 		qCtx2, qCancel2 := context.WithTimeout(context.Background(), 10*time.Second)
 		defer qCancel2()
-		proposalsOut, _, err := dockerExec(qCtx2, s.atomoneContainer,
-			"atomoned", "q", "gov", "proposals", "--reverse", "--limit", "1",
+		proposalsOut, propErr, err := dockerExec(qCtx2, s.atomoneContainer,
+			"atomoned", "q", "gov", "proposals", "--page-limit", "1", "--page-reverse",
 			"--node", "tcp://localhost:26657",
 			"--output", "json",
 		)
 		if err != nil {
+			s.T().Logf("query proposals error: %v, stderr: %s", err, propErr)
 			return false
 		}
 		var proposals struct {
@@ -120,9 +126,11 @@ func (s *E2ETestSuite) sendVSCPacket(validators []validatorUpdate, valsetUpdateI
 			} `json:"proposals"`
 		}
 		if err := json.Unmarshal([]byte(strings.TrimSpace(proposalsOut)), &proposals); err != nil {
+			s.T().Logf("unmarshal proposals error: %v, output: %s", err, proposalsOut[:min(len(proposalsOut), 200)])
 			return false
 		}
 		if len(proposals.Proposals) == 0 {
+			s.T().Logf("no proposals found yet (tx confirmed)")
 			return false
 		}
 		proposalID = proposals.Proposals[0].ID
@@ -207,16 +215,15 @@ func (s *E2ETestSuite) TestIBCVAASProviderToConsumer() {
 		{PubKey: map[string]string{"ed25519": "bPFcGOi1P2myrQtfEz6bJikBE3WoW2VHuzMEkjx2jKQ="}, Power: "50"},
 	}
 
-	s.sendVSCPacket(validators, 1)
-	s.waitForVAASValsetUpdateID(1)
+	id1 := s.allocValsetUpdateID()
+	s.sendVSCPacket(validators, id1)
+	s.waitForVAASValsetUpdateID(id1)
 	s.waitForVAASMinValidatorCount(len(validators))
 
-	// Verify provider client ID is set
 	providerClientID, hasProvider := queryVAASProviderClientID(s.gnoContainer)
 	r.True(hasProvider, "provider client ID should be set")
-	r.Equal(s.gnoClientID, providerClientID, "provider client ID should match Gno client ID")
+	r.Equal(s.atomoneClientID, providerClientID, "provider client ID should match AtomOne client ID")
 
-	// Verify total voting power
 	totalPower, err := queryVAASTotalVotingPower(s.gnoContainer)
 	r.NoError(err, "query total voting power")
 	r.Equal(int64(150), totalPower, "total voting power should be 150")
@@ -231,17 +238,19 @@ func (s *E2ETestSuite) TestIBCVAASProviderToConsumer() {
 func (s *E2ETestSuite) TestIBCVAASUpdateExistingValidator() {
 	r := s.Require()
 
+	id1 := s.allocValsetUpdateID()
 	s.sendVSCPacket([]validatorUpdate{
 		{PubKey: map[string]string{"ed25519": "aPFcGOi1P2myrQtfEz6bJikBE3WoW2VHuzMEkjx2jKQ="}, Power: "100"},
-	}, 1)
-	s.waitForVAASValsetUpdateID(1)
+	}, id1)
+	s.waitForVAASValsetUpdateID(id1)
 
 	s.T().Log("Initial valset applied, sending update")
 
+	id2 := s.allocValsetUpdateID()
 	s.sendVSCPacket([]validatorUpdate{
 		{PubKey: map[string]string{"ed25519": "aPFcGOi1P2myrQtfEz6bJikBE3WoW2VHuzMEkjx2jKQ="}, Power: "200"},
-	}, 2)
-	s.waitForVAASValsetUpdateID(2)
+	}, id2)
+	s.waitForVAASValsetUpdateID(id2)
 
 	validators, err := queryVAASAllValidators(s.gnoContainer)
 	r.NoError(err, "query all validators")
@@ -259,18 +268,20 @@ func (s *E2ETestSuite) TestIBCVAASUpdateExistingValidator() {
 func (s *E2ETestSuite) TestIBCVAASRemoveValidator() {
 	r := s.Require()
 
+	id1 := s.allocValsetUpdateID()
 	s.sendVSCPacket([]validatorUpdate{
 		{PubKey: map[string]string{"ed25519": "aPFcGOi1P2myrQtfEz6bJikBE3WoW2VHuzMEkjx2jKQ="}, Power: "100"},
 		{PubKey: map[string]string{"ed25519": "bPFcGOi1P2myrQtfEz6bJikBE3WoW2VHuzMEkjx2jKQ="}, Power: "50"},
-	}, 1)
+	}, id1)
 	s.waitForVAASMinValidatorCount(2)
 
 	s.T().Log("Initial validators established, removing one")
 
+	id2 := s.allocValsetUpdateID()
 	s.sendVSCPacket([]validatorUpdate{
 		{PubKey: map[string]string{"ed25519": "bPFcGOi1P2myrQtfEz6bJikBE3WoW2VHuzMEkjx2jKQ="}, Power: "0"},
-	}, 2)
-	s.waitForVAASValsetUpdateID(2)
+	}, id2)
+	s.waitForVAASValsetUpdateID(id2)
 
 	r.Eventually(func() bool {
 		count, err := queryVAASValidatorCount(s.gnoContainer)
