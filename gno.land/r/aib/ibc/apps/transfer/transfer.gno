@@ -84,9 +84,6 @@ func Transfer(cur realm, clientID, receiver, denom string, amount int64, timeout
 // VoucherSend is a convenience helper to send an IBC voucher token from the
 // caller to the provided recipient.
 func VoucherSend(cur realm, ibcDenom string, to address, amount int64) {
-	if runtime.PreviousRealm().IsUserCall() && len(banker.OriginSend()) > 0 {
-		panic("voucher transfer must not include native coins")
-	}
 	inst := getVoucher(ibcDenom)
 	if inst == nil {
 		panic(ufmt.Errorf("voucher token not found for denom %s", ibcDenom))
@@ -100,9 +97,6 @@ func VoucherSend(cur realm, ibcDenom string, to address, amount int64) {
 // VoucherApprove is a convenience helper to set a spender allowance for an IBC
 // voucher token on behalf of the caller.
 func VoucherApprove(cur realm, ibcDenom string, spender address, amount int64) {
-	if runtime.PreviousRealm().IsUserCall() && len(banker.OriginSend()) > 0 {
-		panic("voucher approval must not include native coins")
-	}
 	inst := getVoucher(ibcDenom)
 	if inst == nil {
 		panic(ufmt.Errorf("voucher token not found for denom %s", ibcDenom))
