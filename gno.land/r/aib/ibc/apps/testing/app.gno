@@ -140,6 +140,14 @@ func (a *App) OnTimeoutPacket(
 			Sequence:          sequence,
 			Payload:           payload,
 		})
+	// If a prior OnRecvPacket returned PacketStatus_Async, the child packet's
+	// timeout signals that the forwarded leg failed; write the deferred parent
+	// ack now (mirrors the ack-side path in OnAcknowledgementPacket).
+	if a.pendingAsyncParent != nil {
+		parent := a.pendingAsyncParent
+		a.pendingAsyncParent = nil
+		core.WriteAcknowledgement(cross, parent.ClientID, parent.Sequence, asyncDeferredAck)
+	}
 	return a.Calls.OnTimeoutPacketReturn
 }
 
