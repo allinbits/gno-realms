@@ -1,6 +1,7 @@
 package core
 
 import (
+	"bytes"
 	"testing"
 
 	"gno.land/p/aib/ibc/lightclient"
@@ -21,7 +22,7 @@ func TestWriteAcknowledgementSuccess(t *testing.T) {
 
 	uassert.False(t, c.hasPendingAsyncAck(packet.Sequence))
 	uassert.True(t, c.hasPacketAcknowledgement(packet.Sequence))
-	if !equalBytes(types.CommitAcknowledgement(ack), c.getPacketAcknowledgement(packet.Sequence)) {
+	if !bytes.Equal(types.CommitAcknowledgement(ack), c.getPacketAcknowledgement(packet.Sequence)) {
 		t.Fatal("unexpected acknowledgement commitment")
 	}
 }
@@ -81,7 +82,7 @@ func TestPendingAsyncAckStoreRoundTrip(t *testing.T) {
 
 	pending, found := c.getPendingAsyncAck(packet.Sequence)
 	uassert.True(t, found)
-	uassert.Equal(t, asyncAckTestCallerPath, pending.authorizedPath)
+	uassert.Equal(t, asyncAckTestCallerPath, pending.appPkgPath)
 	uassert.Equal(t, packet.Sequence, pending.packet.Sequence)
 	uassert.Equal(t, packet.SourceClient, pending.packet.SourceClient)
 	uassert.Equal(t, packet.DestinationClient, pending.packet.DestinationClient)
@@ -233,16 +234,4 @@ func (a *asyncAckTestApp) OnAcknowledgementPacket(
 	payload types.Payload,
 ) error {
 	return nil
-}
-
-func equalBytes(a []byte, b []byte) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for i := 0; i < len(a); i++ {
-		if a[i] != b[i] {
-			return false
-		}
-	}
-	return true
 }

@@ -242,10 +242,10 @@ func WriteAcknowledgement(cur realm, clientID string, sequence uint64, ack types
 	}
 
 	callerPath := runtime.PreviousRealm().PkgPath()
-	if callerPath != pending.authorizedPath {
+	if callerPath != pending.appPkgPath {
 		panic(ufmt.Sprintf(
 			"caller %s is not authorized to write ack for sequence %d (expected %s)",
-			callerPath, sequence, pending.authorizedPath,
+			callerPath, sequence, pending.appPkgPath,
 		))
 	}
 

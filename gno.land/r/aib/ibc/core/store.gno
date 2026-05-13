@@ -56,8 +56,8 @@ type ibcApp struct {
 }
 
 type pendingAsyncAck struct {
-	packet         types.Packet
-	authorizedPath string
+	packet     types.Packet
+	appPkgPath string
 }
 
 func (c *client) getPacketCommitment(sequence uint64) []byte {
@@ -132,7 +132,7 @@ func (c *client) getPacketAcknowledgement(sequence uint64) []byte {
 	return v.([]byte)
 }
 
-func (c *client) savePendingAsyncAck(packet types.Packet, authorizedPath string) {
+func (c *client) savePendingAsyncAck(packet types.Packet, appPkgPath string) {
 	sequence := packet.Sequence
 	if c.hasPendingAsyncAck(sequence) {
 		panic(ufmt.Sprintf("pending async ack already exists for sequence %d", sequence))
@@ -141,8 +141,8 @@ func (c *client) savePendingAsyncAck(packet types.Packet, authorizedPath string)
 		panic(ufmt.Sprintf("acknowledgement already written for sequence %d", sequence))
 	}
 	c.pendingAsyncAcksBySeq.Set(seqid.ID(sequence).Binary(), &pendingAsyncAck{
-		packet:         packet,
-		authorizedPath: authorizedPath,
+		packet:     packet,
+		appPkgPath: appPkgPath,
 	})
 }
 
