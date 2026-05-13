@@ -107,6 +107,54 @@ Emitted event:
 ]
 ```
 
+## WriteAcknowledgement
+
+For the standard synchronous flow, `RecvPacket` writes the application
+acknowledgement itself. An application may instead return
+`PacketStatus_Async` from `OnRecvPacket`, in which case the ack is deferred
+until the application calls `WriteAcknowledgement` later (typically from a
+subsequent `OnAcknowledgementPacket` or `OnTimeoutPacket` callback while
+forwarding the parent packet). Async acks only support single-payload
+packets, and only the realm whose `OnRecvPacket` returned async is
+authorized to write the ack.
+
+See [`z10a_async_ack_filetest.gno`](./z10a_async_ack_filetest.gno) for the
+full A → B → C forward-and-ack call graph.
+
+Emitted event:
+```json
+{
+  "type": "write_acknowledgement",
+  "attrs": [
+    {
+      "key": "packet_source_client",
+      "value": "07-tendermint-42"
+    },
+    {
+      "key": "packet_dest_client",
+      "value": "07-tendermint-1"
+    },
+    {
+      "key": "packet_sequence",
+      "value": "1"
+    },
+    {
+      "key": "packet_timeout_timestamp",
+      "value": "1234571490"
+    },
+    {
+      "key": "encoded_packet_hex",
+      "value": "0801121030372d74656e6465726d696e742d34321a0f30372d74656e6465726d696e742d3120e2a1d8cc042a280a056170704944120561707049441a02763122106170706c69636174696f6e2f6a736f6e2a027b7d"
+    },
+    {
+      "key": "encoded_acknowledgement_hex",
+      "value": "0a0101"
+    }
+  ],
+  "pkg_path": "gno.land/r/aib/ibc/core"
+}
+```
+
 ## Acknowledgement
 
 See [`zz_acknowledgement_example_filetest.gno`](./zz_acknowledgement_example_filetest.gno)
