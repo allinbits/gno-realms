@@ -8,11 +8,11 @@ import (
 
 	"gno.land/p/nt/avl/v0"
 	pVals "gno.land/p/sys/validators"
-	validators "gno.land/r/sys/validators/v2"
+	validators "gno.land/r/sys/validators/v3"
 )
 
 // consumerPkgPath is the canonical package path of this realm.
-// It is used to check whether this realm is whitelisted in r/sys/validators/v2
+// It is used to check whether this realm is whitelisted in r/sys/validators/v3
 // before attempting to propagate validator set changes to the chain.
 const consumerPkgPath = "gno.land/r/aib/ibc/apps/vaas/consumer"
 
@@ -174,7 +174,7 @@ func GetHeightValsetUpdateID(height uint64) uint64 {
 //   - If the validator does not exist and the power is <= 0, skip it.
 //
 // This also propagates the changes to the chain's validator set via
-// r/sys/validators/v2.
+// r/sys/validators/v3.
 func applyValidatorChanges(changes []ValidatorUpdate) {
 	for _, change := range changes {
 		_, found := getCCValidator(change.PubKey)
