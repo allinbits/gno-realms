@@ -129,11 +129,12 @@ func AppendTag(buf []byte, fieldNum int, wireType WireType) []byte {
 	return binary.AppendUvarint(buf, uint64(tag))
 }
 
-// DecodeVarint reads a varint from the byte slice and returns the value and new position
+// DecodeVarint reads a varint from buf at pos. Rejects inputs longer than
+// MaxVarintLen64 to bound work on malformed input.
 func DecodeVarint(buf []byte, pos int) (uint64, int, error) {
 	var result uint64
 	var shift uint
-	for {
+	for i := 0; i < binary.MaxVarintLen64; i++ {
 		if pos >= len(buf) {
 			return 0, pos, ufmt.Errorf("buffer underflow while reading varint")
 		}
@@ -141,14 +142,15 @@ func DecodeVarint(buf []byte, pos int) (uint64, int, error) {
 		pos++
 		result |= uint64(b&0x7F) << shift
 		if b&0x80 == 0 {
-			break
+			return result, pos, nil
 		}
 		shift += 7
 	}
-	return result, pos, nil
+	return 0, pos, ufmt.Errorf("varint exceeds %d bytes", binary.MaxVarintLen64)
 }
 
-// DecodeString reads a string (length-prefixed) from the byte slice
+// DecodeString reads a length-prefixed string from buf. Length is compared
+// in uint64 to reject values that would overflow int.
 func DecodeString(buf []byte, pos int) (string, int, error) {
 	length, newPos, err := DecodeVarint(buf, pos)
 	if err != nil {
@@ -156,10 +158,10 @@ func DecodeString(buf []byte, pos int) (string, int, error) {
 	}
 	pos = newPos
 
-	if pos+int(length) > len(buf) {
+	if length > uint64(len(buf)-pos) {
 		return "", pos, ufmt.Errorf("buffer underflow while reading string")
 	}
 
-	str := string(buf[pos : pos+int(length)])
-	return str, pos + int(length), nil
+	end := pos + int(length)
+	return string(buf[pos:end]), end, nil
 }
