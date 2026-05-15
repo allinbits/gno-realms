@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"strconv"
 
+	"gno.land/p/aib/encoding/proto"
 	"gno.land/p/nt/avl/v0"
 	validators "gno.land/r/sys/validators/v3"
 )
@@ -225,14 +226,42 @@ func deriveAddressFromPubKey(pubKey string) address {
 	return address(bechAddr)
 }
 
-// encodePubKeyAsBech32 encodes the raw key bytes from a public key in bech32
-// format with "pub" prefix.
+// encodePubKeyAsBech32 encodes the public key as a bech32 "gpub" string
+// containing a protobuf Any with the correct type URL for the key algorithm.
+// This matches the format expected by chain.PubKeyAddress and the valset entries.
 func encodePubKeyAsBech32(pubKey string) string {
-	bechPub, err := bech32.EncodeFromBase256("gpub", decodePubKeyBytes(pubKey))
+	keyType := pubKeyType(pubKey)
+	rawKey := decodePubKeyBytes(pubKey)
+
+	var typeURL string
+	switch keyType {
+	case "ed25519":
+		typeURL = "/tm.PubKeyEd25519"
+	case "secp256k1":
+		typeURL = "/tm.PubKeySecp256k1"
+	default:
+		panic("unsupported key type: " + keyType)
+	}
+
+	pkValue := proto.AppendLengthDelimited(nil, 1, rawKey)
+	anyBytes := proto.MarshalAny(typeURL, pkValue)
+
+	bechPub, err := bech32.EncodeFromBase256("gpub", anyBytes)
 	if err != nil {
 		panic("failed to encode pubkey as bech32: " + err.Error())
 	}
 	return bechPub
+}
+
+// pubKeyType extracts the key type from a public key string in
+// "<type>:<base64value>" format.
+func pubKeyType(pubKey string) string {
+	for i := 0; i < len(pubKey); i++ {
+		if pubKey[i] == ':' {
+			return pubKey[:i]
+		}
+	}
+	panic("invalid pubkey format: missing ':' separator")
 }
 
 // propagateValidatorRemoval removes a validator from the chain validator set.

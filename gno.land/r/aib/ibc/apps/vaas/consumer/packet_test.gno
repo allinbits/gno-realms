@@ -391,18 +391,24 @@ func TestUnmarshalLegacyStringPubKey(t *testing.T) {
 }
 
 func TestApplyValidatorChanges(t *testing.T) {
-	// Reset store for each test
 	resetStore := func() {
 		store.validators = nil
 		store.validators = newTree()
 	}
 
+	pkA := MakePubKey("ed25519", "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=")
+	pkB := MakePubKey("ed25519", "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE=")
+	pkC := MakePubKey("ed25519", "AgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgI=")
+	pkD := MakePubKey("ed25519", "AwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwM=")
+	pkE := MakePubKey("ed25519", "BAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQ=")
+	pkZ := MakePubKey("ed25519", "BQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQU=")
+
 	t.Run("add new validators", func(t *testing.T) {
 		resetStore()
 
 		changes := []ValidatorUpdate{
-			{PubKey: MakePubKey("ed25519", "AAAA"), Power: 100},
-			{PubKey: MakePubKey("ed25519", "BBBB"), Power: 50},
+			{PubKey: pkA, Power: 100},
+			{PubKey: pkB, Power: 50},
 		}
 		applyValidatorChanges(changes)
 		if GetCCValidatorCount() != 2 {
@@ -416,15 +422,13 @@ func TestApplyValidatorChanges(t *testing.T) {
 	t.Run("update existing validator power", func(t *testing.T) {
 		resetStore()
 
-		// Add initial validator
-		setCCValidator(CrossChainValidator{PubKey: MakePubKey("ed25519", "AAAA"), Power: 100})
+		setCCValidator(CrossChainValidator{PubKey: pkA, Power: 100})
 
-		// Update power
 		changes := []ValidatorUpdate{
-			{PubKey: MakePubKey("ed25519", "AAAA"), Power: 200},
+			{PubKey: pkA, Power: 200},
 		}
 		applyValidatorChanges(changes)
-		val, found := getCCValidator(MakePubKey("ed25519", "AAAA"))
+		val, found := getCCValidator(pkA)
 		if !found {
 			t.Fatal("validator not found after update")
 		}
@@ -436,14 +440,13 @@ func TestApplyValidatorChanges(t *testing.T) {
 	t.Run("remove existing validator with zero power", func(t *testing.T) {
 		resetStore()
 
-		// Add initial validator
-		setCCValidator(CrossChainValidator{PubKey: MakePubKey("ed25519", "AAAA"), Power: 100})
+		setCCValidator(CrossChainValidator{PubKey: pkA, Power: 100})
 
 		changes := []ValidatorUpdate{
-			{PubKey: MakePubKey("ed25519", "AAAA"), Power: 0},
+			{PubKey: pkA, Power: 0},
 		}
 		applyValidatorChanges(changes)
-		_, found := getCCValidator(MakePubKey("ed25519", "AAAA"))
+		_, found := getCCValidator(pkA)
 		if found {
 			t.Error("validator should have been removed")
 		}
@@ -456,7 +459,7 @@ func TestApplyValidatorChanges(t *testing.T) {
 		resetStore()
 
 		changes := []ValidatorUpdate{
-			{PubKey: MakePubKey("ed25519", "ZZZZ"), Power: 0},
+			{PubKey: pkZ, Power: 0},
 		}
 		applyValidatorChanges(changes)
 		if GetCCValidatorCount() != 0 {
@@ -467,53 +470,47 @@ func TestApplyValidatorChanges(t *testing.T) {
 	t.Run("mixed operations", func(t *testing.T) {
 		resetStore()
 
-		// Set up initial validators
-		setCCValidator(CrossChainValidator{PubKey: MakePubKey("ed25519", "AAAA"), Power: 100})
-		setCCValidator(CrossChainValidator{PubKey: MakePubKey("ed25519", "BBBB"), Power: 50})
-		setCCValidator(CrossChainValidator{PubKey: MakePubKey("ed25519", "CCCC"), Power: 75})
+		setCCValidator(CrossChainValidator{PubKey: pkA, Power: 100})
+		setCCValidator(CrossChainValidator{PubKey: pkB, Power: 50})
+		setCCValidator(CrossChainValidator{PubKey: pkC, Power: 75})
 
 		changes := []ValidatorUpdate{
-			{PubKey: MakePubKey("ed25519", "AAAA"), Power: 0},   // remove
-			{PubKey: MakePubKey("ed25519", "BBBB"), Power: 200}, // update
-			{PubKey: MakePubKey("ed25519", "DDDD"), Power: 30},  // add new
-			{PubKey: MakePubKey("ed25519", "EEEE"), Power: 0},   // skip (non-existing, zero power)
+			{PubKey: pkA, Power: 0},   // remove
+			{PubKey: pkB, Power: 200}, // update
+			{PubKey: pkD, Power: 30},  // add new
+			{PubKey: pkE, Power: 0},   // skip (non-existing, zero power)
 		}
 		applyValidatorChanges(changes)
 
-		// AAAA should be removed
-		_, found := getCCValidator(MakePubKey("ed25519", "AAAA"))
+		_, found := getCCValidator(pkA)
 		if found {
-			t.Error("AAAA should have been removed")
+			t.Error("pkA should have been removed")
 		}
 
-		// BBBB should be updated
-		val, found := getCCValidator(MakePubKey("ed25519", "BBBB"))
+		val, found := getCCValidator(pkB)
 		if !found {
-			t.Fatal("BBBB not found")
+			t.Fatal("pkB not found")
 		}
 		if val.Power != 200 {
-			t.Errorf("BBBB expected power 200, got %d", val.Power)
+			t.Errorf("pkB expected power 200, got %d", val.Power)
 		}
 
-		// CCCC should be unchanged
-		val, found = getCCValidator(MakePubKey("ed25519", "CCCC"))
+		val, found = getCCValidator(pkC)
 		if !found {
-			t.Fatal("CCCC not found")
+			t.Fatal("pkC not found")
 		}
 		if val.Power != 75 {
-			t.Errorf("CCCC expected power 75, got %d", val.Power)
+			t.Errorf("pkC expected power 75, got %d", val.Power)
 		}
 
-		// DDDD should be added
-		val, found = getCCValidator(MakePubKey("ed25519", "DDDD"))
+		val, found = getCCValidator(pkD)
 		if !found {
-			t.Fatal("DDDD not found")
+			t.Fatal("pkD not found")
 		}
 		if val.Power != 30 {
-			t.Errorf("DDDD expected power 30, got %d", val.Power)
+			t.Errorf("pkD expected power 30, got %d", val.Power)
 		}
 
-		// Total: BBBB(200) + CCCC(75) + DDDD(30) = 305
 		if GetTotalVotingPower() != 305 {
 			t.Errorf("expected total power 305, got %d", GetTotalVotingPower())
 		}
