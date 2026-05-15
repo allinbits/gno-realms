@@ -7,7 +7,6 @@ import (
 	"strconv"
 
 	"gno.land/p/nt/avl/v0"
-	pVals "gno.land/p/sys/validators"
 	validators "gno.land/r/sys/validators/v3"
 )
 
@@ -254,8 +253,6 @@ func propagateValidatorRemoval(update ValidatorUpdate) {
 }
 
 // propagateValidatorToChain adds or updates a validator in the chain validator set.
-// It checks whether the validator already exists with the same power to avoid
-// the ErrValidatorExists panic from the underlying PoA implementation.
 func propagateValidatorToChain(update ValidatorUpdate) {
 	if !validators.IsAllowedRealm(consumerPkgPath) {
 		return
@@ -271,10 +268,8 @@ func propagateValidatorToChain(update ValidatorUpdate) {
 	}
 
 	pubKeyBech32 := encodePubKeyAsBech32(update.PubKey)
-	val := pVals.Validator{
-		Address:     addr,
-		PubKey:      pubKeyBech32,
-		VotingPower: uint64(update.Power),
-	}
-	validators.AddValidator(cross, val)
+	validators.AddValidator(cross, validators.ValoperChange{
+		OperatorAddress: addr,
+		Power:           uint64(update.Power),
+	}, pubKeyBech32, addr)
 }
