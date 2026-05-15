@@ -129,8 +129,7 @@ func AppendTag(buf []byte, fieldNum int, wireType WireType) []byte {
 	return binary.AppendUvarint(buf, uint64(tag))
 }
 
-// DecodeVarint reads a varint from buf at pos. Rejects inputs longer than
-// MaxVarintLen64 to bound work on malformed input.
+// DecodeVarint reads a varint from the byte slice and returns the value and new position
 func DecodeVarint(buf []byte, pos int) (uint64, int, error) {
 	var result uint64
 	var shift uint
@@ -149,8 +148,7 @@ func DecodeVarint(buf []byte, pos int) (uint64, int, error) {
 	return 0, pos, ufmt.Errorf("varint exceeds %d bytes", binary.MaxVarintLen64)
 }
 
-// DecodeString reads a length-prefixed string from buf. Length is compared
-// in uint64 to reject values that would overflow int.
+// DecodeString reads a string (length-prefixed) from the byte slice
 func DecodeString(buf []byte, pos int) (string, int, error) {
 	length, newPos, err := DecodeVarint(buf, pos)
 	if err != nil {
