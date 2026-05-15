@@ -207,7 +207,7 @@ func (s *E2ETestSuite) waitForVAASMinValidatorCount(expected int) {
 	}, fmt.Sprintf("validator count >= %d not reached on Gno", expected))
 }
 
-func (s *E2ETestSuite) TestIBCVAASProviderToConsumer() {
+func (s *E2ETestSuite) TestZZIBCVAASProviderToConsumer() {
 	r := s.Require()
 
 	validators := []validatorUpdate{
@@ -235,7 +235,7 @@ func (s *E2ETestSuite) TestIBCVAASProviderToConsumer() {
 	s.T().Logf("VSC packet verified: validators=%d, total_power=%d", len(allValidators), totalPower)
 }
 
-func (s *E2ETestSuite) TestIBCVAASUpdateExistingValidator() {
+func (s *E2ETestSuite) TestZZIBCVAASUpdateExistingValidator() {
 	r := s.Require()
 
 	id1 := s.allocValsetUpdateID()
@@ -265,7 +265,7 @@ func (s *E2ETestSuite) TestIBCVAASUpdateExistingValidator() {
 	s.T().Logf("Validator update verified: pubkey=%s, power=%d", validators[0].PubKey, totalPower)
 }
 
-func (s *E2ETestSuite) TestIBCVAASRemoveValidator() {
+func (s *E2ETestSuite) TestZZIBCVAASRemoveValidator() {
 	r := s.Require()
 
 	id1 := s.allocValsetUpdateID()
