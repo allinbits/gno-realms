@@ -23,6 +23,7 @@ type E2ETestSuite struct {
 	gnoContainer         string
 	atomoneGovAddress    string
 	nextValsetUpdateID   uint64
+	gnoValidatorPubKey   string
 }
 
 func TestE2E(t *testing.T) {
@@ -80,6 +81,12 @@ func (s *E2ETestSuite) SetupSuite() {
 	s.atomoneGovAddress = govResult.Account.Value.Address
 	s.T().Logf("AtomOne gov address: %s", s.atomoneGovAddress)
 	s.nextValsetUpdateID = 1
+
+	// Get the gnodev validator's ed25519 pubkey (needed by VAAS tests)
+	s.gnoValidatorPubKey, err = queryGnoValidatorPubKey(s.gnoContainer)
+	s.Require().NoError(err, "query gno validator pubkey")
+	s.Require().NotEmpty(s.gnoValidatorPubKey)
+	s.T().Logf("Gno validator pubkey: %s", s.gnoValidatorPubKey)
 
 	// Recover test key in gnokey for Gno→AtomOne transfers
 	s.recoverGnoKey("test", cfg.TestMnemonic)

@@ -439,6 +439,37 @@ func gnoPkgAddress(pkgPath string) string {
 	return addr
 }
 
+// queryGnoValidatorPubKey returns the base64 ed25519 pubkey of the gnodev
+// validator via the Tendermint RPC /validators endpoint (using curl inside
+// the container, since gnokey query only supports ABCI paths).
+func queryGnoValidatorPubKey(containerID string) (string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	stdout, stderr, err := dockerExec(ctx, containerID,
+		"curl", "-sS", "http://localhost:26657/validators",
+	)
+	if err != nil {
+		return "", fmt.Errorf("query validators: %w: %s", err, stderr)
+	}
+
+	var resp struct {
+		Result struct {
+			Validators []struct {
+				PubKey struct {
+					Value string `json:"value"`
+				} `json:"pub_key"`
+			} `json:"validators"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal([]byte(stdout), &resp); err != nil {
+		return "", fmt.Errorf("parse validators: %w (raw: %s)", err, stdout)
+	}
+	if len(resp.Result.Validators) == 0 {
+		return "", fmt.Errorf("no validators found")
+	}
+	return resp.Result.Validators[0].PubKey.Value, nil
+}
+
 func queryGovProposalStatus(restURL string, proposalID uint64) (string, error) {
 	url := fmt.Sprintf("%s/cosmos/gov/v1/proposals/%d", restURL, proposalID)
 	body, err := httpGet(url)

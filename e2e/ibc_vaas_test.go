@@ -211,7 +211,7 @@ func (s *E2ETestSuite) TestZZIBCVAASProviderToConsumer() {
 	r := s.Require()
 
 	validators := []validatorUpdate{
-		{PubKey: map[string]string{"ed25519": "aPFcGOi1P2myrQtfEz6bJikBE3WoW2VHuzMEkjx2jKQ="}, Power: "100"},
+		{PubKey: map[string]string{"ed25519": s.gnoValidatorPubKey}, Power: "500"},
 		{PubKey: map[string]string{"ed25519": "bPFcGOi1P2myrQtfEz6bJikBE3WoW2VHuzMEkjx2jKQ="}, Power: "50"},
 	}
 
@@ -226,7 +226,7 @@ func (s *E2ETestSuite) TestZZIBCVAASProviderToConsumer() {
 
 	totalPower, err := queryVAASTotalVotingPower(s.gnoContainer)
 	r.NoError(err, "query total voting power")
-	r.Equal(int64(150), totalPower, "total voting power should be 150")
+	r.Equal(int64(550), totalPower, "total voting power should be 550")
 
 	allValidators, err := queryVAASAllValidators(s.gnoContainer)
 	r.NoError(err, "query all validators")
@@ -240,7 +240,7 @@ func (s *E2ETestSuite) TestZZIBCVAASUpdateExistingValidator() {
 
 	id1 := s.allocValsetUpdateID()
 	s.sendVSCPacket([]validatorUpdate{
-		{PubKey: map[string]string{"ed25519": "aPFcGOi1P2myrQtfEz6bJikBE3WoW2VHuzMEkjx2jKQ="}, Power: "100"},
+		{PubKey: map[string]string{"ed25519": s.gnoValidatorPubKey}, Power: "100"},
 	}, id1)
 	s.waitForVAASValsetUpdateID(id1)
 
@@ -248,14 +248,14 @@ func (s *E2ETestSuite) TestZZIBCVAASUpdateExistingValidator() {
 
 	id2 := s.allocValsetUpdateID()
 	s.sendVSCPacket([]validatorUpdate{
-		{PubKey: map[string]string{"ed25519": "aPFcGOi1P2myrQtfEz6bJikBE3WoW2VHuzMEkjx2jKQ="}, Power: "200"},
+		{PubKey: map[string]string{"ed25519": s.gnoValidatorPubKey}, Power: "200"},
 	}, id2)
 	s.waitForVAASValsetUpdateID(id2)
 
 	validators, err := queryVAASAllValidators(s.gnoContainer)
 	r.NoError(err, "query all validators")
 	r.Len(validators, 1, "should still have 1 validator")
-	r.Equal("ed25519:aPFcGOi1P2myrQtfEz6bJikBE3WoW2VHuzMEkjx2jKQ=", validators[0].PubKey)
+	r.Equal("ed25519:"+s.gnoValidatorPubKey, validators[0].PubKey)
 	r.Equal(int64(200), validators[0].Power, "validator power should be updated to 200")
 
 	totalPower, err := queryVAASTotalVotingPower(s.gnoContainer)
@@ -270,7 +270,7 @@ func (s *E2ETestSuite) TestZZIBCVAASRemoveValidator() {
 
 	id1 := s.allocValsetUpdateID()
 	s.sendVSCPacket([]validatorUpdate{
-		{PubKey: map[string]string{"ed25519": "aPFcGOi1P2myrQtfEz6bJikBE3WoW2VHuzMEkjx2jKQ="}, Power: "100"},
+		{PubKey: map[string]string{"ed25519": s.gnoValidatorPubKey}, Power: "500"},
 		{PubKey: map[string]string{"ed25519": "bPFcGOi1P2myrQtfEz6bJikBE3WoW2VHuzMEkjx2jKQ="}, Power: "50"},
 	}, id1)
 	s.waitForVAASMinValidatorCount(2)
@@ -294,12 +294,12 @@ func (s *E2ETestSuite) TestZZIBCVAASRemoveValidator() {
 	validators, err := queryVAASAllValidators(s.gnoContainer)
 	r.NoError(err, "query all validators")
 	r.Len(validators, 1, "should have 1 validator remaining")
-	r.Equal("ed25519:aPFcGOi1P2myrQtfEz6bJikBE3WoW2VHuzMEkjx2jKQ=", validators[0].PubKey)
-	r.Equal(int64(100), validators[0].Power, "remaining validator power should be 100")
+	r.Equal("ed25519:"+s.gnoValidatorPubKey, validators[0].PubKey)
+	r.Equal(int64(500), validators[0].Power, "remaining validator power should be 500")
 
 	totalPower, err := queryVAASTotalVotingPower(s.gnoContainer)
 	r.NoError(err, "query total voting power")
-	r.Equal(int64(100), totalPower, "total voting power should be 100")
+	r.Equal(int64(500), totalPower, "total voting power should be 500")
 
 	s.T().Logf("Validator removal verified: validators=%d, total_power=%d", len(validators), totalPower)
 }
