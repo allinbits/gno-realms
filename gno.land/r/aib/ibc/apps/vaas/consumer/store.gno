@@ -228,7 +228,7 @@ func deriveAddressFromPubKey(pubKey string) address {
 // encodePubKeyAsBech32 encodes the raw key bytes from a public key in bech32
 // format with "pub" prefix.
 func encodePubKeyAsBech32(pubKey string) string {
-	bechPub, err := bech32.EncodeFromBase256("pub", decodePubKeyBytes(pubKey))
+	bechPub, err := bech32.EncodeFromBase256("gpub", decodePubKeyBytes(pubKey))
 	if err != nil {
 		panic("failed to encode pubkey as bech32: " + err.Error())
 	}
