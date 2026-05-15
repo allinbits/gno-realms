@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 
+	"gno.land/p/aib/encoding/proto"
 	"gno.land/p/nt/ufmt/v0"
 )
 
@@ -180,4 +181,10 @@ func SetRevisionNumber(chainID string, revision uint64) (string, error) {
 	// swap out revision number with given revision
 	splitStr[len(splitStr)-1] = strconv.FormatUint(revision, 10)
 	return strings.Join(splitStr, "-"), nil
+}
+
+func (h Height) ProtoMarshal() (bz []byte) {
+	bz = proto.AppendVarint(bz, 1, h.RevisionNumber)
+	bz = proto.AppendVarint(bz, 2, h.RevisionHeight)
+	return
 }

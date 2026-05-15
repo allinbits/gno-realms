@@ -5,14 +5,14 @@ import (
 	"strings"
 
 	"gno.land/p/demo/tokens/grc20"
-	"gno.land/p/nt/avl/v0"
+	"gno.land/p/nt/bptree/v0"
 	"gno.land/r/demo/defi/grc20reg"
 )
 
 var (
-	denoms        *avl.Tree // ibcDenom:Denom
-	totalEscrow   *avl.Tree // denom:chain.Coin
-	voucherTokens *avl.Tree // ibcDenom:*voucher
+	denoms        *bptree.BPTree // ibcDenom:Denom
+	totalEscrow   *bptree.BPTree // denom:chain.Coin
+	voucherTokens *bptree.BPTree // ibcDenom:*voucher
 )
 
 // voucher holds a voucher token and its private ledger for mint/burn.
@@ -22,9 +22,9 @@ type voucher struct {
 }
 
 func init() {
-	denoms = avl.NewTree()
-	totalEscrow = avl.NewTree()
-	voucherTokens = avl.NewTree()
+	denoms = bptree.NewBPTree32()
+	totalEscrow = bptree.NewBPTree32()
+	voucherTokens = bptree.NewBPTree32()
 }
 
 func hasDenom(voucherDenom string) bool {

@@ -25,6 +25,33 @@ func AppendVarint(buf []byte, fieldNum int, v uint64) []byte {
 	return binary.AppendUvarint(buf, v)
 }
 
+// MarshalAny returns the wire encoding of a google.protobuf.Any message
+// holding (typeURL, value). Used to match the cdc.MarshalInterface format
+// produced by the Cosmos SDK proto codec when storing or verifying
+// interface-typed messages (e.g. ClientState in the upgrade store).
+func MarshalAny(typeURL string, value []byte) []byte {
+	var bz []byte
+	bz = AppendLengthDelimited(bz, 1, []byte(typeURL))
+	bz = AppendLengthDelimited(bz, 2, value)
+	return bz
+}
+
+// AppendPackedVarintInt32 appends a packed repeated int32 varint field.
+// Negative values are sign-extended to 64 bits to match proto3 wire format.
+// Returns buf unchanged when values is empty (proto3 default).
+func AppendPackedVarintInt32(buf []byte, fieldNum int, values []int32) []byte {
+	if len(values) == 0 {
+		return buf
+	}
+	var packed []byte
+	for _, v := range values {
+		packed = binary.AppendUvarint(packed, uint64(int64(v)))
+	}
+	buf = AppendTag(buf, fieldNum, LEN)
+	buf = binary.AppendUvarint(buf, uint64(len(packed)))
+	return append(buf, packed...)
+}
+
 // AppendFixed64 appends a fixed 64-bit field.
 func AppendFixed64(buf []byte, fieldNum int, v uint64) []byte {
 	if v == 0 {
@@ -36,11 +63,23 @@ func AppendFixed64(buf []byte, fieldNum int, v uint64) []byte {
 	return append(buf, b[:]...)
 }
 
-// AppendLengthDelimited appends a length-delimited field.
+// AppendLengthDelimited appends a length-delimited field. Returns buf
+// unchanged when bz is empty (proto3 default for optional fields).
 func AppendLengthDelimited(buf []byte, fieldNum int, bz []byte) []byte {
 	if len(bz) == 0 {
 		return buf
 	}
+	buf = AppendTag(buf, fieldNum, LEN)
+	buf = binary.AppendUvarint(buf, uint64(len(bz)))
+	return append(buf, bz...)
+}
+
+// AppendAlwaysLengthDelimited appends a length-delimited field, including
+// when bz is empty (emits a length-0 value). Required to match the wire
+// format produced by gogoproto for fields marked
+// `[(gogoproto.nullable) = false]`, which always serialize even when their
+// underlying message has no non-zero fields.
+func AppendAlwaysLengthDelimited(buf []byte, fieldNum int, bz []byte) []byte {
 	buf = AppendTag(buf, fieldNum, LEN)
 	buf = binary.AppendUvarint(buf, uint64(len(bz)))
 	return append(buf, bz...)
@@ -63,6 +102,25 @@ func TimeMarshal(t time.Time) []byte {
 // AppendTime appends a google.protobuf.Timestamp field.
 func AppendTime(buf []byte, fieldNum int, t time.Time) []byte {
 	return AppendLengthDelimited(buf, fieldNum, TimeMarshal(t))
+}
+
+// DurationMarshal returns the inner proto encoding of a
+// google.protobuf.Duration (without the length-delimited field wrapper).
+func DurationMarshal(d time.Duration) []byte {
+	var buf []byte
+	seconds := d / time.Second
+	nanos := int32(d % time.Second)
+	if nanos < 0 {
+		nanos += int32(time.Second)
+	}
+	buf = AppendVarint(buf, 1, uint64(seconds))
+	buf = AppendVarint(buf, 2, uint64(nanos))
+	return buf
+}
+
+// AppendDuration appends a google.protobuf.Duration field.
+func AppendDuration(buf []byte, fieldNum int, d time.Duration) []byte {
+	return AppendLengthDelimited(buf, fieldNum, DurationMarshal(d))
 }
 
 // AppendTag appends a protobuf tag (field number and wire type)

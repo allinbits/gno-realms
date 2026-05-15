@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"gno.land/p/aib/encoding/proto"
 	"gno.land/p/aib/ibc/lightclient"
 	"gno.land/p/aib/ibc/types"
 	"gno.land/p/aib/ics23"
@@ -110,6 +111,12 @@ const (
 	MaxChainIDLen = 50
 	// SentinelRoot is used as a stand-in root value for the consensus state set at the upgrade height
 	SentinelRoot = "sentinel_root"
+	// ClientStateTypeURL is the proto Any type URL counterparties use when
+	// storing the upgraded ClientState via cdc.MarshalInterface.
+	ClientStateTypeURL = "/ibc.lightclients.tendermint.v1.ClientState"
+	// ConsensusStateTypeURL is the proto Any type URL counterparties use
+	// when storing the upgraded ConsensusState via cdc.MarshalInterface.
+	ConsensusStateTypeURL = "/ibc.lightclients.tendermint.v1.ConsensusState"
 )
 
 // Implements lightclient.ClientState
@@ -210,4 +217,62 @@ func validateHash(h []byte) error {
 		)
 	}
 	return nil
+}
+
+func (cs ClientState) ProtoMarshal() (bz []byte) {
+	if cs.ChainID != "" {
+		bz = proto.AppendLengthDelimited(bz, 1, []byte(cs.ChainID))
+	}
+	// Fields 2..7 are marked `(gogoproto.nullable) = false` in ibc-go's
+	// .proto, so they're emitted even when zero (as length-0 messages).
+	bz = proto.AppendAlwaysLengthDelimited(bz, 2, cs.TrustLevel.ProtoMarshal())
+	bz = proto.AppendAlwaysLengthDelimited(bz, 3, proto.DurationMarshal(cs.TrustingPeriod))
+	bz = proto.AppendAlwaysLengthDelimited(bz, 4, proto.DurationMarshal(cs.UnbondingPeriod))
+	bz = proto.AppendAlwaysLengthDelimited(bz, 5, proto.DurationMarshal(cs.MaxClockDrift))
+	bz = proto.AppendAlwaysLengthDelimited(bz, 6, cs.FrozenHeight.ProtoMarshal())
+	bz = proto.AppendAlwaysLengthDelimited(bz, 7, cs.LatestHeight.ProtoMarshal())
+	for _, spec := range cs.ProofSpecs {
+		bz = proto.AppendLengthDelimited(bz, 8, spec.ProtoMarshal())
+	}
+	for _, path := range cs.UpgradePath {
+		bz = proto.AppendLengthDelimited(bz, 9, []byte(path))
+	}
+	return
+}
+
+// ZeroCustomFields returns a copy of the ClientState with all
+// client-customizable fields zeroed. Only the chain-specified fields
+// (ChainID, UnbondingPeriod, LatestHeight, ProofSpecs, UpgradePath) are
+// preserved. The counterparty chain commits to this zeroed form when
+// scheduling an upgrade, so verification on the upgrade proof must be
+// performed against the same shape.
+func (cs ClientState) ZeroCustomFields() ClientState {
+	return ClientState{
+		ChainID:         cs.ChainID,
+		UnbondingPeriod: cs.UnbondingPeriod,
+		LatestHeight:    cs.LatestHeight,
+		ProofSpecs:      cs.ProofSpecs,
+		UpgradePath:     cs.UpgradePath,
+	}
+}
+
+func (f Fraction) ProtoMarshal() (bz []byte) {
+	bz = proto.AppendVarint(bz, 1, f.Numerator)
+	bz = proto.AppendVarint(bz, 2, f.Denominator)
+	return
+}
+
+func (cs ConsensusState) ProtoMarshal() (bz []byte) {
+	// Timestamp and Root are `(gogoproto.nullable) = false` in ibc-go;
+	// always-emit semantics. NextValidatorsHash is plain bytes — proto3
+	// default applies (omitted when empty).
+	bz = proto.AppendAlwaysLengthDelimited(bz, 1, proto.TimeMarshal(cs.Timestamp))
+	bz = proto.AppendAlwaysLengthDelimited(bz, 2, cs.Root.ProtoMarshal())
+	bz = proto.AppendLengthDelimited(bz, 3, cs.NextValidatorsHash)
+	return
+}
+
+func (mr MerkleRoot) ProtoMarshal() (bz []byte) {
+	bz = proto.AppendLengthDelimited(bz, 1, mr.Hash)
+	return
 }

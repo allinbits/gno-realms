@@ -1,5 +1,9 @@
 package ics23
 
+import (
+	"gno.land/p/aib/encoding/proto"
+)
+
 // GetSDKSpecs returns the proof specs of an SDK chain.
 func GetSDKProofSpecs() []*ProofSpec {
 	return []*ProofSpec{IavlSpec(), TendermintSpec()}
@@ -92,4 +96,52 @@ type InnerSpec struct {
 	EmptyChild []byte
 	// hash is the algorithm that must be used for each InnerOp
 	Hash HashOp
+}
+
+// ProtoMarshal returns the proto3 wire encoding of the ProofSpec, matching
+// the format produced by gogoproto in cosmos/ics23. A nil receiver is encoded
+// as an empty byte slice (proto3 unset message).
+func (p *ProofSpec) ProtoMarshal() []byte {
+	if p == nil {
+		return nil
+	}
+	var bz []byte
+	bz = proto.AppendLengthDelimited(bz, 1, p.LeafSpec.ProtoMarshal())
+	bz = proto.AppendLengthDelimited(bz, 2, p.InnerSpec.ProtoMarshal())
+	bz = proto.AppendVarint(bz, 3, uint64(int64(p.MaxDepth)))
+	bz = proto.AppendVarint(bz, 4, uint64(int64(p.MinDepth)))
+	if p.PrehashKeyBeforeComparison {
+		bz = proto.AppendVarint(bz, 5, 1)
+	}
+	return bz
+}
+
+// ProtoMarshal returns the proto3 wire encoding of the LeafOp.
+func (p *LeafOp) ProtoMarshal() []byte {
+	if p == nil {
+		return nil
+	}
+	var bz []byte
+	bz = proto.AppendVarint(bz, 1, uint64(int64(p.Hash)))
+	bz = proto.AppendVarint(bz, 2, uint64(int64(p.PrehashKey)))
+	bz = proto.AppendVarint(bz, 3, uint64(int64(p.PrehashValue)))
+	bz = proto.AppendVarint(bz, 4, uint64(int64(p.Length)))
+	bz = proto.AppendLengthDelimited(bz, 5, p.Prefix)
+	return bz
+}
+
+// ProtoMarshal returns the proto3 wire encoding of the InnerSpec. ChildOrder
+// is encoded as a packed repeated int32 field per proto3 default.
+func (p *InnerSpec) ProtoMarshal() []byte {
+	if p == nil {
+		return nil
+	}
+	var bz []byte
+	bz = proto.AppendPackedVarintInt32(bz, 1, p.ChildOrder)
+	bz = proto.AppendVarint(bz, 2, uint64(int64(p.ChildSize)))
+	bz = proto.AppendVarint(bz, 3, uint64(int64(p.MinPrefixLength)))
+	bz = proto.AppendVarint(bz, 4, uint64(int64(p.MaxPrefixLength)))
+	bz = proto.AppendLengthDelimited(bz, 5, p.EmptyChild)
+	bz = proto.AppendVarint(bz, 6, uint64(int64(p.Hash)))
+	return bz
 }

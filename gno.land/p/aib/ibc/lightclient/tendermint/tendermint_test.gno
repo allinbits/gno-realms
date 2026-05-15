@@ -210,3 +210,124 @@ func TestRecoverClient(t *testing.T) {
 		urequire.NoError(t, err)
 	})
 }
+
+func TestVerifyUpgradeAndUpdateStateFailures(t *testing.T) {
+	currentHeight := types.NewHeight(0, 5)
+	upgradedHeight := types.NewHeight(0, 10)
+
+	newClient := func() *tendermint.TMLightClient {
+		tm := tendermint.NewTMLightClient()
+		cs := tendermint.NewClientState(chainID, tendermint.DefaultTrustLevel,
+			trustingPeriod, ubdPeriod, maxClockDrift, currentHeight,
+			ics23.GetSDKProofSpecs(), upgradePath)
+		validHash := make([]byte, 32)
+		for i := range validHash {
+			validHash[i] = byte(i + 1)
+		}
+		consState := &tendermint.ConsensusState{
+			Timestamp:          time.Now().UTC(),
+			Root:               tendermint.NewMerkleRoot([]byte("current-root")),
+			NextValidatorsHash: validHash,
+		}
+		urequire.NoError(t, tm.Initialize(*cs, *consState))
+		return tm
+	}
+
+	validUpgradedClient := tendermint.ClientState{
+		ChainID:         "chain-after-upgrade",
+		TrustLevel:      tendermint.DefaultTrustLevel,
+		TrustingPeriod:  trustingPeriod,
+		UnbondingPeriod: ubdPeriod,
+		MaxClockDrift:   maxClockDrift,
+		LatestHeight:    upgradedHeight,
+		ProofSpecs:      ics23.GetSDKProofSpecs(),
+		UpgradePath:     upgradePath,
+	}
+	thirtyTwoBytes := make([]byte, 32)
+	for i := range thirtyTwoBytes {
+		thirtyTwoBytes[i] = byte(i)
+	}
+	validUpgradedConsState := tendermint.ConsensusState{
+		Timestamp:          time.Now().UTC(),
+		Root:               tendermint.NewMerkleRoot([]byte("upgraded-root")),
+		NextValidatorsHash: thirtyTwoBytes,
+	}
+	dummyProof := []ics23.CommitmentProof{ics23.CommitmentProof_Exist{Exist: &ics23.ExistenceProof{}}}
+
+	t.Run("failure: newClient wrong type", func(t *testing.T) {
+		tm := newClient()
+		err := tm.VerifyUpgradeAndUpdateState("not-a-client-state", validUpgradedConsState, dummyProof, dummyProof)
+		urequire.Error(t, err)
+		urequire.ErrorContains(t, err, "must be tendermint.ClientState")
+	})
+
+	t.Run("failure: invalid upgraded client state", func(t *testing.T) {
+		tm := newClient()
+		bad := validUpgradedClient
+		bad.ChainID = "" // fails ValidateBasic
+		err := tm.VerifyUpgradeAndUpdateState(bad, validUpgradedConsState, dummyProof, dummyProof)
+		urequire.Error(t, err)
+		urequire.ErrorContains(t, err, "invalid upgraded client state")
+	})
+
+	t.Run("failure: newConsState wrong type", func(t *testing.T) {
+		tm := newClient()
+		err := tm.VerifyUpgradeAndUpdateState(validUpgradedClient, "not-a-consensus-state", dummyProof, dummyProof)
+		urequire.Error(t, err)
+		urequire.ErrorContains(t, err, "must be tendermint.ConsensusState")
+	})
+
+	t.Run("failure: invalid upgraded consensus state", func(t *testing.T) {
+		tm := newClient()
+		bad := validUpgradedConsState
+		bad.Root = tendermint.MerkleRoot{} // empty root → ValidateBasic fails
+		err := tm.VerifyUpgradeAndUpdateState(validUpgradedClient, bad, dummyProof, dummyProof)
+		urequire.Error(t, err)
+		urequire.ErrorContains(t, err, "invalid upgraded consensus state")
+	})
+
+	t.Run("failure: empty UpgradePath on current client", func(t *testing.T) {
+		tm := newClient()
+		tm.ClientState.UpgradePath = nil
+		err := tm.VerifyUpgradeAndUpdateState(validUpgradedClient, validUpgradedConsState, dummyProof, dummyProof)
+		urequire.Error(t, err)
+		urequire.ErrorContains(t, err, "no upgrade path set")
+	})
+
+	t.Run("failure: upgraded latest height not greater than current", func(t *testing.T) {
+		tm := newClient()
+		notGreater := validUpgradedClient
+		notGreater.LatestHeight = currentHeight
+		err := tm.VerifyUpgradeAndUpdateState(notGreater, validUpgradedConsState, dummyProof, dummyProof)
+		urequire.Error(t, err)
+		urequire.ErrorContains(t, err, "must be greater than current latest height")
+	})
+
+	t.Run("failure: clientProof wrong type", func(t *testing.T) {
+		tm := newClient()
+		err := tm.VerifyUpgradeAndUpdateState(validUpgradedClient, validUpgradedConsState, []byte("raw"), dummyProof)
+		urequire.Error(t, err)
+		urequire.ErrorContains(t, err, "upgradeClientProof must be []ics23.CommitmentProof")
+	})
+
+	t.Run("failure: clientProof empty", func(t *testing.T) {
+		tm := newClient()
+		err := tm.VerifyUpgradeAndUpdateState(validUpgradedClient, validUpgradedConsState, []ics23.CommitmentProof{}, dummyProof)
+		urequire.Error(t, err)
+		urequire.ErrorContains(t, err, "upgradeClientProof cannot be empty")
+	})
+
+	t.Run("failure: consensusProof wrong type", func(t *testing.T) {
+		tm := newClient()
+		err := tm.VerifyUpgradeAndUpdateState(validUpgradedClient, validUpgradedConsState, dummyProof, "not-a-proof")
+		urequire.Error(t, err)
+		urequire.ErrorContains(t, err, "upgradeConsensusStateProof must be []ics23.CommitmentProof")
+	})
+
+	t.Run("failure: consensusProof empty", func(t *testing.T) {
+		tm := newClient()
+		err := tm.VerifyUpgradeAndUpdateState(validUpgradedClient, validUpgradedConsState, dummyProof, []ics23.CommitmentProof{})
+		urequire.Error(t, err)
+		urequire.ErrorContains(t, err, "upgradeConsensusStateProof cannot be empty")
+	})
+}

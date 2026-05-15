@@ -3,7 +3,7 @@ package jsonpage
 import (
 	"strconv"
 
-	"gno.land/p/nt/avl/v0"
+	"gno.land/p/nt/bptree/v0"
 	"gno.land/p/nt/mux/v0"
 	"gno.land/p/onbloc/json"
 )
@@ -18,9 +18,9 @@ const (
 )
 
 // Render returns a paginated JSON output.
-// CONTRACT: provide non-nil renderer func or values from the avl.Tree must
+// CONTRACT: provide non-nil renderer func or values from the bptree.BPTree must
 // implement JSONRenderer.
-func Render(t avl.ITree, r *mux.Request, renderer func(string, any) *json.Node) *json.Node {
+func Render(t bptree.ITree, r *mux.Request, renderer func(string, any) *json.Node) *json.Node {
 	var (
 		page  = 1
 		limit = defaultLimit
@@ -36,7 +36,7 @@ func Render(t avl.ITree, r *mux.Request, renderer func(string, any) *json.Node) 
 	return render(t, page, limit, renderer, false)
 }
 
-func render(t avl.ITree, page, limit int, renderer func(string, any) *json.Node, reverse bool) *json.Node {
+func render(t bptree.ITree, page, limit int, renderer func(string, any) *json.Node, reverse bool) *json.Node {
 	total := t.Size()
 	if limit == 0 || limit > total {
 		limit = total

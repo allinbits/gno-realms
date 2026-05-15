@@ -8,7 +8,7 @@ import (
 	"gno.land/p/aib/ibc/lightclient"
 	"gno.land/p/aib/ibc/lightclient/tendermint"
 	"gno.land/p/aib/ibc/types"
-	"gno.land/p/nt/avl/v0"
+	"gno.land/p/nt/bptree/v0"
 	"gno.land/p/nt/seqid/v0"
 	"gno.land/p/nt/ufmt/v0"
 )
@@ -21,14 +21,14 @@ func init() {
 
 type Store struct {
 	clientSeq  seqid.ID
-	clientByID *avl.Tree // id:client
+	clientByID *bptree.BPTree // id:client
 
 	routes map[string]ibcApp
 }
 
 func newStore() *Store {
 	return &Store{
-		clientByID: avl.NewTree(),
+		clientByID: bptree.NewBPTree32(),
 		routes:     make(map[string]ibcApp),
 	}
 }
@@ -43,9 +43,9 @@ type client struct {
 	lightClient lightclient.Interface
 
 	sendSeq                     seqid.ID
-	packetCommitmentsBySeq      *avl.Tree // sequence:commitment
-	packetReceiptsBySeq         *avl.Tree // sequence:receipt
-	packetAcknowledgementsBySeq *avl.Tree // sequence:ack
+	packetCommitmentsBySeq      *bptree.BPTree // sequence:commitment
+	packetReceiptsBySeq         *bptree.BPTree // sequence:receipt
+	packetAcknowledgementsBySeq *bptree.BPTree // sequence:ack
 }
 
 type ibcApp struct {
@@ -160,9 +160,9 @@ func (cs *Store) addClient(typ string, creator address) *client {
 		typ:     typ,
 		creator: creator,
 
-		packetCommitmentsBySeq:      avl.NewTree(),
-		packetReceiptsBySeq:         avl.NewTree(),
-		packetAcknowledgementsBySeq: avl.NewTree(),
+		packetCommitmentsBySeq:      bptree.NewBPTree32(),
+		packetReceiptsBySeq:         bptree.NewBPTree32(),
+		packetAcknowledgementsBySeq: bptree.NewBPTree32(),
 	}
 	switch typ {
 	case lightclient.Tendermint:

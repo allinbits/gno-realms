@@ -5,7 +5,7 @@ import (
 	"strconv"
 	"testing"
 
-	"gno.land/p/nt/avl/v0"
+	"gno.land/p/nt/bptree/v0"
 	"gno.land/p/nt/mux/v0"
 	"gno.land/p/nt/uassert/v0"
 	"gno.land/p/onbloc/json"
@@ -19,26 +19,26 @@ func (s String) RenderJSON() *json.Node {
 }
 
 func TestRender(t *testing.T) {
-	emptyTree := avl.NewTree()
-	tree100 := avl.NewTree()
+	emptyTree := bptree.NewBPTree32()
+	tree100 := bptree.NewBPTree32()
 	for i := 0; i < 100; i++ {
 		tree100.Set(strconv.Itoa(i), i)
 	}
-	tree150 := avl.NewTree()
+	tree150 := bptree.NewBPTree32()
 	for i := 0; i < 150; i++ {
 		tree150.Set(strconv.Itoa(i), i)
 	}
 	intRenderer := func(k string, v any) *json.Node {
 		return json.NumberNode("", float64(v.(int)))
 	}
-	treeWithValueRenderer := avl.NewTree()
+	treeWithValueRenderer := bptree.NewBPTree32()
 	for i := 0; i < 5; i++ {
 		s := strconv.Itoa(i)
 		treeWithValueRenderer.Set(s, String(s))
 	}
 	tests := []struct {
 		name         string
-		tree         *avl.Tree
+		tree         *bptree.BPTree
 		renderer     func(string, any) *json.Node
 		query        string
 		expectedJSON string

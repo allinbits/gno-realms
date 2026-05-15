@@ -1,6 +1,7 @@
 package ics23_test
 
 import (
+	"encoding/hex"
 	"testing"
 
 	"gno.land/p/aib/ics23"
@@ -109,4 +110,68 @@ func TestInnerSpecEqual(t *testing.T) {
 
 	b.ChildSize = 32
 	uassert.False(t, a.Equal(b))
+}
+
+func TestLeafOpProtoMarshal(t *testing.T) {
+	t.Run("nil receiver returns nil", func(t *testing.T) {
+		var nilLeaf *ics23.LeafOp
+		uassert.Equal(t, 0, len(nilLeaf.ProtoMarshal()))
+	})
+
+	t.Run("matches expected wire format for IavlSpec.LeafSpec", func(t *testing.T) {
+		bz := ics23.IavlSpec().LeafSpec.ProtoMarshal()
+		// Field 1 (Hash=SHA256=1):     08 01
+		// Field 2 (PrehashKey=0):      omitted
+		// Field 3 (PrehashValue=1):    18 01
+		// Field 4 (Length=VAR_PROTO=1):20 01
+		// Field 5 (Prefix=[0x00]):     2a 01 00
+		uassert.Equal(t, "0801180120012a0100", hex.EncodeToString(bz))
+	})
+}
+
+func TestInnerSpecProtoMarshal(t *testing.T) {
+	t.Run("nil receiver returns nil", func(t *testing.T) {
+		var nilInner *ics23.InnerSpec
+		uassert.Equal(t, 0, len(nilInner.ProtoMarshal()))
+	})
+
+	t.Run("matches expected wire format for IavlSpec.InnerSpec", func(t *testing.T) {
+		bz := ics23.IavlSpec().InnerSpec.ProtoMarshal()
+		// Field 1 (ChildOrder=[0,1] packed): 0a 02 00 01
+		// Field 2 (ChildSize=33):            10 21
+		// Field 3 (MinPrefixLength=4):       18 04
+		// Field 4 (MaxPrefixLength=12):      20 0c
+		// Field 5 (EmptyChild=nil):          omitted
+		// Field 6 (Hash=SHA256=1):           30 01
+		uassert.Equal(t, "0a02000110211804200c3001", hex.EncodeToString(bz))
+	})
+}
+
+func TestProofSpecProtoMarshal(t *testing.T) {
+	t.Run("nil receiver returns nil", func(t *testing.T) {
+		var nilSpec *ics23.ProofSpec
+		uassert.Equal(t, 0, len(nilSpec.ProtoMarshal()))
+	})
+
+	t.Run("matches expected wire format for IavlSpec", func(t *testing.T) {
+		bz := ics23.IavlSpec().ProtoMarshal()
+		// Field 1 (LeafSpec, len=9):  0a 09 <leaf bytes>
+		// Field 2 (InnerSpec, len=12):12 0c <inner bytes>
+		// Fields 3,4,5: omitted (zero defaults)
+		want := "0a090801180120012a0100" + "120c0a02000110211804200c3001"
+		uassert.Equal(t, want, hex.EncodeToString(bz))
+	})
+
+	t.Run("optional fields are emitted when set", func(t *testing.T) {
+		spec := &ics23.ProofSpec{
+			MaxDepth:                   8,
+			MinDepth:                   1,
+			PrehashKeyBeforeComparison: true,
+		}
+		bz := spec.ProtoMarshal()
+		// Field 3 (MaxDepth=8):                         18 08
+		// Field 4 (MinDepth=1):                         20 01
+		// Field 5 (PrehashKeyBeforeComparison=true):    28 01
+		uassert.Equal(t, "180820012801", hex.EncodeToString(bz))
+	})
 }

@@ -10,7 +10,7 @@ import (
 	"gno.land/p/aib/ibc/lightclient/tendermint"
 	"gno.land/p/aib/ibc/types"
 	"gno.land/p/aib/jsonpage"
-	"gno.land/p/nt/avl/v0"
+	"gno.land/p/nt/bptree/v0"
 	"gno.land/p/nt/mux/v0"
 	"gno.land/p/nt/seqid/v0"
 	"gno.land/p/nt/ufmt/v0"
@@ -250,7 +250,7 @@ func renderClientPacketAcknowledgement(w *mux.ResponseWriter, r *mux.Request) {
 	renderCommitment(w, r, c.packetAcknowledgementsBySeq)
 }
 
-func renderCommitment(w *mux.ResponseWriter, r *mux.Request, tree *avl.Tree) {
+func renderCommitment(w *mux.ResponseWriter, r *mux.Request, tree *bptree.BPTree) {
 	seqStr := r.GetVar("sequence")
 	seq, err := strconv.ParseUint(seqStr, 10, 64)
 	if err != nil {
@@ -265,7 +265,7 @@ func renderCommitment(w *mux.ResponseWriter, r *mux.Request, tree *avl.Tree) {
 	renderNode(w, commitmentNode(seq, v.([]byte)))
 }
 
-func renderCommitments(w *mux.ResponseWriter, r *mux.Request, tree *avl.Tree) {
+func renderCommitments(w *mux.ResponseWriter, r *mux.Request, tree *bptree.BPTree) {
 	renderNode(w, jsonpage.Render(tree, r, func(k string, v any) *json.Node {
 		id, _ := seqid.FromBinary(k)
 		return commitmentNode(uint64(id), v.([]byte))

@@ -29,6 +29,7 @@ func main() {
 	core.RegisterCounterparty(cross, clientID, [][]byte{[]byte("iavlStoreKey"), []byte("prefix2")}, counterpartyID)
 
 	// Transfer the 100ugnot we want to ack
+	testing.SetRealm(testing.NewUserRealm("g1wymu47drhr0kuq2098m792lytgtj2nyx77yrsm"))
 	testing.SetOriginSend(chain.NewCoins(chain.NewCoin("ugnot", 100)))
 	println("----------- assert render total_escrow/ugnot before Transfer")
 	println(transfer.Render("total_escrow/ugnot"))

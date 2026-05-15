@@ -123,15 +123,20 @@ func (a *App) OnSendPacket(
 		}
 		addEscrowForDenom(coin)
 	} else {
-		// Native token: ensure that sent coin matches the FungibleTokenPacketData
-		sent := cur.SentCoins()
-		if len(sent) != 1 || sent[0].Amount == 0 {
-			return ufmt.Errorf("OnSendPacket requires one non-zero coin to be sent for native token transfer")
+		// Native token: OnSendPacket cannot safely read banker.OriginSend()
+		// here because PreviousRealm() is the core realm (not the EOA), so
+		// the escrow envelope is verified upstream by Transfer() and handed
+		// off via pendingNativeEscrow. A direct caller of core.SendPacket
+		// for a native packet will find the slot nil and be rejected.
+		// Transfer's defer is responsible for clearing the slot.
+		if pendingNativeEscrow == nil {
+			return ufmt.Errorf("native packet must be initiated through transfer.Transfer")
 		}
-		if coin.Denom != sent[0].Denom || coin.Amount != sent[0].Amount {
+		expected := *pendingNativeEscrow
+		if coin.Denom != expected.Denom || coin.Amount != expected.Amount {
 			return ufmt.Errorf(
-				"coin sent %s is not equal to fungible packet data token %s",
-				sent[0], coin,
+				"escrowed coin %s is not equal to fungible packet data token %s",
+				expected, coin,
 			)
 		}
 		// Escrow the coin on realm balance

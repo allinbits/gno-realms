@@ -1,6 +1,7 @@
 package main
 
 import (
+	"chain"
 	"testing"
 	"time"
 
@@ -11,7 +12,10 @@ import (
 	"gno.land/r/aib/ibc/core"
 )
 
-// OnSendPacket: caller did not send any coins
+// Transfer: native denom is rejected when the caller is not a direct user
+// call. This is the maketx-run / wrapper-realm scenario the IsUserCall guard
+// exists to block: -send can land elsewhere than this realm, so OriginSend
+// cannot be trusted.
 func main() {
 	var (
 		chainID        = "chain-id-2"
@@ -23,9 +27,12 @@ func main() {
 	clientID := core.CreateClient(cross, clientState, consensusState)
 	core.RegisterCounterparty(cross, clientID, [][]byte{[]byte("iavlStoreKey"), []byte("prefix2")}, "07-tendermint-2")
 
-	testing.SetRealm(testing.NewUserRealm("g1wymu47drhr0kuq2098m792lytgtj2nyx77yrsm"))
+	// Deliberately no testing.SetRealm(NewUserRealm(...)) — default package
+	// main caller fails IsUserCall(), matching maketx run / wrapper realm.
+	// OriginSend is set to prove the guard fires before any amount check.
+	testing.SetOriginSend(chain.NewCoins(chain.NewCoin("ugnot", 100)))
 	transfer.Transfer(cross, clientID, "atone1user", "ugnot", 100, uint64(time.Now().Add(time.Hour).Unix()), "")
 }
 
 // Error:
-// native transfer requires one non-zero coin to be sent
+// native transfer must be a direct user call (maketx call)

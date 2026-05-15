@@ -167,7 +167,7 @@ proof := []ics23.CommitmentProof{
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ret := genProofCode(tt.key, tt.value)
+			ret := genProofCode("iavlStoreKey", tt.key, tt.value)
 
 			assert.Equal(t, tt.expectedRet, ret)
 		})

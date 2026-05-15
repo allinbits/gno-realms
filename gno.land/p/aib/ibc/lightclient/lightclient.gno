@@ -113,7 +113,7 @@ type Interface interface {
 	// modified before the last planned height.  If the upgrade is verified, the
 	// upgraded client and consensus states must be set in the client store.
 	VerifyUpgradeAndUpdateState(newClient, newConsState, upgradeClientProof,
-		upgradeConsensusStateProof []byte) error
+		upgradeConsensusStateProof any) error
 }
 
 // ClientState defines the required common functions for light clients.

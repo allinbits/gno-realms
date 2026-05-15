@@ -3,13 +3,13 @@ package core
 import (
 	"chain/runtime"
 
-	"gno.land/p/nt/avl/v0"
+	"gno.land/p/nt/bptree/v0"
 	"gno.land/p/nt/ufmt/v0"
 )
 
 var (
 	admin    address
-	relayers = avl.NewTree()
+	relayers = bptree.NewBPTree32()
 )
 
 func init() {

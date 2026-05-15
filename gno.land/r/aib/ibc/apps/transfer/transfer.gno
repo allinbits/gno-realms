@@ -38,7 +38,10 @@ func Transfer(cur realm, clientID, receiver, denom string, amount int64, timeout
 	case grc20reg.Get(denom) != nil:
 		// Non-IBC GRC20 token: convert to alias.
 		// Escrow via TransferFrom happens in OnSendPacket.
-		if sent := cur.SentCoins(); len(sent) > 0 {
+		// Only catch the "stuck coins" mistake on direct user calls;
+		// when a wrapper realm calls us, OriginSend describes the outer
+		// tx envelope and the coins did not land at this realm.
+		if runtime.PreviousRealm().IsUserCall() && len(banker.OriginSend()) > 0 {
 			panic("GRC20 transfer must not include native coins")
 		}
 		// Replace the denom with a slash-free alias for the IBC packet.
@@ -51,8 +54,14 @@ func Transfer(cur realm, clientID, receiver, denom string, amount int64, timeout
 		// confusing "requires one non-zero coin to be sent" error.
 		panic(ufmt.Sprintf("GRC20 token %s not found in grc20reg", denom))
 	default:
-		// Native coin: verify SentCoins matches.
-		sent := cur.SentCoins()
+		// Native coin: only direct user-call (maketx call) is accepted, so
+		// banker.OriginSend() describes coins that actually landed at this
+		// realm. Intermediate code realms or `maketx run` ephemeral realms
+		// can attach -send to the tx but spend it elsewhere.
+		if !runtime.PreviousRealm().IsUserCall() {
+			panic("native transfer must be a direct user call (maketx call)")
+		}
+		sent := banker.OriginSend()
 		if len(sent) != 1 || sent[0].Amount == 0 {
 			panic("native transfer requires one non-zero coin to be sent")
 		}
@@ -62,6 +71,12 @@ func Transfer(cur realm, clientID, receiver, denom string, amount int64, timeout
 				sent[0], denom, amount,
 			))
 		}
+		// Hand the verified escrow off to OnSendPacket, which can no longer
+		// safely read OriginSend (its PreviousRealm is the core realm).
+		// The defer below guarantees we clear the slot in any exit path so
+		// a leftover never bleeds into a later call.
+		pendingNativeEscrow = &sent[0]
+		defer func() { pendingNativeEscrow = nil }()
 	}
 	return transfer(clientID, receiver, denom, amount, timeoutTimestamp, memo)
 }
@@ -69,9 +84,6 @@ func Transfer(cur realm, clientID, receiver, denom string, amount int64, timeout
 // VoucherSend is a convenience helper to send an IBC voucher token from the
 // caller to the provided recipient.
 func VoucherSend(cur realm, ibcDenom string, to address, amount int64) {
-	if sent := cur.SentCoins(); len(sent) > 0 {
-		panic("voucher transfer must not include native coins")
-	}
 	inst := getVoucher(ibcDenom)
 	if inst == nil {
 		panic(ufmt.Errorf("voucher token not found for denom %s", ibcDenom))
@@ -85,9 +97,6 @@ func VoucherSend(cur realm, ibcDenom string, to address, amount int64) {
 // VoucherApprove is a convenience helper to set a spender allowance for an IBC
 // voucher token on behalf of the caller.
 func VoucherApprove(cur realm, ibcDenom string, spender address, amount int64) {
-	if sent := cur.SentCoins(); len(sent) > 0 {
-		panic("voucher approval must not include native coins")
-	}
 	inst := getVoucher(ibcDenom)
 	if inst == nil {
 		panic(ufmt.Errorf("voucher token not found for denom %s", ibcDenom))
@@ -181,3 +190,13 @@ func unescrowNative(receiver string, coin chain.Coin) error {
 	subEscrowForDenom(coin)
 	return nil
 }
+
+// pendingNativeEscrow is set by Transfer's native branch and read by
+// OnSendPacket. It bridges the user-call boundary check (only doable from
+// Transfer, where PreviousRealm() is the EOA) to the actual escrow update
+// (done in OnSendPacket).
+//
+// Gno persists package-level vars to the realm store at end of tx, so this
+// MUST be cleared before Transfer returns to avoid leaking into the next
+// tx. Transfer uses a defer to guarantee the reset on every exit path.
+var pendingNativeEscrow *chain.Coin

@@ -10,7 +10,7 @@ token type is detected automatically from the `denom` argument:
 
 | Token type | Denom format | Example | Mechanism |
 |---|---|---|---|
-| Native coin | plain string | `ugnot` | Escrowed via `SentCoins` |
+| Native coin | plain string | `ugnot` | Escrowed via `banker.OriginSend` (direct user-call only) |
 | IBC voucher | `ibc/{hash}` | `ibc/CAEF9C...` | Burned from sender |
 | GRC20 token | grc20reg key | `gno.land/r/demo/foo.FOO` | Escrowed via `TransferFrom` |
 
@@ -31,7 +31,11 @@ func Transfer(
 ### Native coin
 
 The coin must be attached to the transaction via the `-send` flag and must match
-`denom` and `amount`.
+`denom` and `amount`. Only direct user calls (`gnokey maketx call`) are
+accepted: `Transfer` reads `banker.OriginSend()` guarded by
+`runtime.PreviousRealm().IsUserCall()` to ensure the coins actually landed at
+this realm. Calls from intermediate code realms or `maketx run` ephemeral
+realms are rejected.
 
 ```
 gnokey maketx call -pkgpath gno.land/r/aib/ibc/apps/transfer -func Transfer \
