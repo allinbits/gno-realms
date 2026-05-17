@@ -1,5 +1,7 @@
 package main
 
+// PKGPATH: gno.land/r/aib/main
+
 import (
 	"encoding/hex"
 	"time"
@@ -10,6 +12,56 @@ import (
 	appstesting "gno.land/r/aib/ibc/apps/testing"
 	"gno.land/r/aib/ibc/core"
 )
+
+// forwardingApp wraps the base mock and writes the deferred parent ack from
+// inside OnAcknowledgementPacket. Defined here (rather than in apps/testing)
+// so that apps/testing does not need to import core, which would create an
+// import cycle with this directory's filetests during gnodev deploy. Pending
+// state is held in package-level vars because the receiver is read-only when
+// invoked across realms via the IBCApp interface.
+type forwardingApp struct {
+	*appstesting.App
+}
+
+var (
+	pendingClientID  string
+	pendingSequence  uint64
+	asyncDeferredAck = types.Acknowledgement{
+		AppAcknowledgements: [][]byte{{0x02}},
+	}
+)
+
+func (f *forwardingApp) OnRecvPacket(
+	_ realm,
+	sourceClient string,
+	destinationClient string,
+	sequence uint64,
+	payload types.Payload,
+) types.RecvPacketResult {
+	res := f.App.OnRecvPacket(cross, sourceClient, destinationClient, sequence, payload)
+	if res.Status == types.PacketStatus_Async {
+		pendingClientID = destinationClient
+		pendingSequence = sequence
+	}
+	return res
+}
+
+func (f *forwardingApp) OnAcknowledgementPacket(
+	_ realm,
+	sourceClient string,
+	destinationClient string,
+	sequence uint64,
+	acknowledgement []byte,
+	payload types.Payload,
+) error {
+	err := f.App.OnAcknowledgementPacket(cross, sourceClient, destinationClient, sequence, acknowledgement, payload)
+	if pendingClientID != "" {
+		clientID, seq := pendingClientID, pendingSequence
+		pendingClientID, pendingSequence = "", 0
+		core.WriteAcknowledgement(cross, clientID, seq, asyncDeferredAck)
+	}
+	return err
+}
 
 // Async ack via OnAcknowledgementPacket. Mirrors the PFM/ZKGM forwarded-ack
 // flow on the middle chain of an A -> B -> C forward, where this realm acts
@@ -52,16 +104,16 @@ func main() {
 	)
 	core.RegisterCounterparty(cross, clientToC, [][]byte{[]byte("iavlStoreKey"), []byte("prefix3")}, chainCClientIDForUs)
 
-	// Register the mock app. RegisterApp is the testing realm's wrapper so
-	// the pkgPath stored is gno.land/r/aib/ibc/apps/testing, matching the
-	// previous-realm that core will see when the mock calls
+	// Register the forwarding mock from this realm, so the pkgPath stored
+	// in core is gno.land/r/aib/main — the same realm that later calls
 	// core.WriteAcknowledgement from inside OnAcknowledgementPacket.
 	var (
-		app       = appstesting.NewApp(cross)
+		base      = appstesting.NewApp(cross)
+		app       = &forwardingApp{App: base}
 		appPortID = "appID"
 	)
 	app.SetOnRecvPacketReturn(types.RecvPacketResult{Status: types.PacketStatus_Async})
-	app.RegisterApp(cross, appPortID)
+	core.RegisterApp(cross, appPortID, app)
 
 	// Send the child packet to chain C. Its eventual ack will trigger the
 	// mock's OnAcknowledgementPacket and the deferred parent ack write.

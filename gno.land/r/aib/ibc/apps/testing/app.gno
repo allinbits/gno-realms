@@ -4,7 +4,6 @@ import (
 	"gno.land/p/aib/ibc/app"
 	"gno.land/p/aib/ibc/types"
 	"gno.land/p/nt/ufmt/v0"
-	"gno.land/r/aib/ibc/core"
 )
 
 type (
@@ -20,10 +19,6 @@ type (
 			OnAcknowledgementPacket       []Args
 			OnAcknowledgementPacketReturn error
 		}
-		// pendingAsyncParent records the (clientID, sequence) captured by
-		// OnRecvPacket when it returned PacketStatus_Async, so a later
-		// OnAcknowledgementPacket can write the deferred ack.
-		pendingAsyncParent *asyncParent
 	}
 	Args struct {
 		SourceClient      string
@@ -32,19 +27,7 @@ type (
 		Payload           types.Payload
 		Ack               []byte
 	}
-	asyncParent struct {
-		ClientID string
-		Sequence uint64
-	}
 )
-
-// asyncDeferredAck is the placeholder ack that the mock writes via
-// core.WriteAcknowledgement when an OnAcknowledgementPacket fires while a
-// parent packet is async-pending. The byte value is arbitrary - IBC core
-// only stores the commitment hash and apps own the wire format.
-var asyncDeferredAck = types.Acknowledgement{
-	AppAcknowledgements: [][]byte{{0x02}},
-}
 
 var (
 	_    app.IBCApp = &App{}
@@ -58,14 +41,6 @@ func NewApp(_ realm) *App {
 	// Other than that it is not used.
 	apps = append(apps, app)
 	return app
-}
-
-// RegisterApp registers the mock App with core from inside this realm so the
-// stored ibcApp.pkgPath is "gno.land/r/aib/ibc/apps/testing". This is what
-// later lets OnAcknowledgementPacket's call to core.WriteAcknowledgement pass
-// the pkgPath authorization gate for the async-pending parent packet.
-func (a *App) RegisterApp(_ realm, portID string) {
-	core.RegisterApp(cross, portID, a)
 }
 
 // Implements app.IBCApp
@@ -112,12 +87,6 @@ func (a *App) OnRecvPacket(
 		Acknowledgement: make([]byte, len(a.Calls.OnRecvPacketReturn.Acknowledgement)),
 	}
 	copy(res.Acknowledgement, a.Calls.OnRecvPacketReturn.Acknowledgement)
-	if res.Status == types.PacketStatus_Async {
-		a.pendingAsyncParent = &asyncParent{
-			ClientID: destinationClient,
-			Sequence: sequence,
-		}
-	}
 	return res
 }
 
@@ -140,14 +109,6 @@ func (a *App) OnTimeoutPacket(
 			Sequence:          sequence,
 			Payload:           payload,
 		})
-	// If a prior OnRecvPacket returned PacketStatus_Async, the child packet's
-	// timeout signals that the forwarded leg failed; write the deferred parent
-	// ack now (mirrors the ack-side path in OnAcknowledgementPacket).
-	if a.pendingAsyncParent != nil {
-		parent := a.pendingAsyncParent
-		a.pendingAsyncParent = nil
-		core.WriteAcknowledgement(cross, parent.ClientID, parent.Sequence, asyncDeferredAck)
-	}
 	return a.Calls.OnTimeoutPacketReturn
 }
 
@@ -168,15 +129,6 @@ func (a *App) OnAcknowledgementPacket(
 			Payload:           payload,
 			Ack:               acknowledgement,
 		})
-	// If a prior OnRecvPacket returned PacketStatus_Async, write the deferred
-	// ack for that parent packet now. This is the canonical PFM/ZKGM flow:
-	// the child's ack callback writes the parent's ack via
-	// core.WriteAcknowledgement.
-	if a.pendingAsyncParent != nil {
-		parent := a.pendingAsyncParent
-		a.pendingAsyncParent = nil
-		core.WriteAcknowledgement(cross, parent.ClientID, parent.Sequence, asyncDeferredAck)
-	}
 	return a.Calls.OnAcknowledgementPacketReturn
 }
 
