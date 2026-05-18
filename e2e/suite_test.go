@@ -69,7 +69,7 @@ func (s *E2ETestSuite) SetupSuite() {
 		"--node", "tcp://localhost:26657",
 		"--output", "json",
 	)
-	s.Require().NoError(err, "query gov module account: %s")
+	s.Require().NoError(err, "query gov module account")
 	var govResult struct {
 		Account struct {
 			Value struct {

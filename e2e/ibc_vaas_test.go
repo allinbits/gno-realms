@@ -220,8 +220,8 @@ func (s *E2ETestSuite) TestZZIBCVAASProviderToConsumer() {
 	s.waitForVAASValsetUpdateID(id1)
 	s.waitForVAASMinValidatorCount(len(validators))
 
-	providerClientID, hasProvider := queryVAASProviderClientID(s.gnoContainer)
-	r.True(hasProvider, "provider client ID should be set")
+	providerClientID, err := queryVAASProviderClientID(s.gnoContainer)
+	r.NoError(err, "provider client ID should be set")
 	r.Equal(s.atomoneClientID, providerClientID, "provider client ID should match AtomOne client ID")
 
 	totalPower, err := queryVAASTotalVotingPower(s.gnoContainer)

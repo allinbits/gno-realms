@@ -411,21 +411,21 @@ func queryVAASAllValidators(containerID string) ([]struct {
 }
 
 // queryVAASProviderClientID returns the provider client ID from VAAS consumer.
-func queryVAASProviderClientID(containerID string) (string, bool) {
+func queryVAASProviderClientID(containerID string) (string, error) {
 	content, err := gnoQuery(containerID, "r/aib/ibc/apps/vaas/consumer", "provider_client_id")
 	if err != nil {
-		return "", false
+		return "", err
 	}
 	var resp struct {
 		ProviderClientID string `json:"provider_client_id"`
 	}
 	if err := json.Unmarshal([]byte(content), &resp); err != nil {
-		return "", false
+		return "", fmt.Errorf("unmarshal VAAS provider client ID: %w", err)
 	}
 	if resp.ProviderClientID == "" {
-		return "", false
+		return "", fmt.Errorf("provider client ID is empty")
 	}
-	return resp.ProviderClientID, true
+	return resp.ProviderClientID, nil
 }
 
 // gnoPkgAddress computes the Gno package address for a given package path.
