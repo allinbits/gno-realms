@@ -1,10 +1,12 @@
 package proto
 
 import (
+	"encoding/binary"
 	"testing"
 	"time"
 
 	"gno.land/p/nt/uassert/v0"
+	"gno.land/p/nt/urequire/v0"
 )
 
 func TestAppendLengthDelimited(t *testing.T) {
@@ -133,5 +135,89 @@ func TestAppendPackedVarintInt32(t *testing.T) {
 	t.Run("appends to existing buffer", func(t *testing.T) {
 		bz := AppendPackedVarintInt32([]byte{0xff}, 1, []int32{1})
 		uassert.Equal(t, "\xff\n\x01\x01", string(bz))
+	})
+}
+
+func TestDecodeVarint(t *testing.T) {
+	maxUint64Varint := []byte{0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x01}
+	overlongVarint := []byte{0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x02}
+
+	testCases := []struct {
+		name   string
+		buf    []byte
+		pos    int
+		expVal uint64
+		expPos int
+		expErr string
+	}{
+		{"single byte zero", []byte{0x00}, 0, 0, 1, ""},
+		{"single byte 1", []byte{0x01}, 0, 1, 1, ""},
+		{"two-byte 150", []byte{0x96, 0x01}, 0, 150, 2, ""},
+		{"non-zero start position", []byte{0xff, 0x96, 0x01, 0xff}, 1, 150, 3, ""},
+		{"max uint64 (10-byte varint)", maxUint64Varint, 0, 1<<64 - 1, 10, ""},
+		{"empty buffer", []byte{}, 0, 0, 0, "buffer underflow"},
+		{"truncated continuation", []byte{0x80}, 0, 0, 0, "buffer underflow"},
+		{"10-byte varint overflowing uint64 rejected", overlongVarint, 0, 0, 10, "varint overflows uint64"},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			v, p, err := DecodeVarint(tc.buf, tc.pos)
+			if tc.expErr == "" {
+				urequire.NoError(t, err)
+				uassert.Equal(t, tc.expVal, v)
+				uassert.Equal(t, tc.expPos, p)
+				return
+			}
+			urequire.ErrorContains(t, err, tc.expErr)
+			uassert.Equal(t, tc.expPos, p)
+		})
+	}
+}
+
+func TestDecodeString(t *testing.T) {
+	t.Run("happy path", func(t *testing.T) {
+		buf := append(binary.AppendUvarint(nil, 5), []byte("hello")...)
+		got, p, err := DecodeString(buf, 0)
+		urequire.NoError(t, err)
+		uassert.Equal(t, "hello", got)
+		uassert.Equal(t, len(buf), p)
+	})
+
+	t.Run("empty string", func(t *testing.T) {
+		buf := binary.AppendUvarint(nil, 0)
+		got, p, err := DecodeString(buf, 0)
+		urequire.NoError(t, err)
+		uassert.Equal(t, "", got)
+		uassert.Equal(t, len(buf), p)
+	})
+
+	t.Run("truncated body", func(t *testing.T) {
+		buf := append(binary.AppendUvarint(nil, 10), []byte("abc")...)
+		_, _, err := DecodeString(buf, 0)
+		urequire.ErrorContains(t, err, "buffer underflow")
+	})
+
+	t.Run("length 2^63 must not panic on int cast", func(t *testing.T) {
+		buf := append(binary.AppendUvarint(nil, 1<<63), []byte("hi")...)
+		_, _, err := DecodeString(buf, 0)
+		urequire.ErrorContains(t, err, "buffer underflow")
+	})
+
+	t.Run("varint length parse error propagates", func(t *testing.T) {
+		buf := []byte{0x80}
+		_, _, err := DecodeString(buf, 0)
+		urequire.ErrorContains(t, err, "varint")
+	})
+
+	t.Run("non-zero start position", func(t *testing.T) {
+		// prefix byte + varint(5) + "hello" + trailing byte
+		buf := []byte{0xff}
+		buf = append(buf, binary.AppendUvarint(nil, 5)...)
+		buf = append(buf, []byte("hello\xff")...)
+		got, p, err := DecodeString(buf, 1)
+		urequire.NoError(t, err)
+		uassert.Equal(t, "hello", got)
+		uassert.Equal(t, len(buf)-1, p)
 	})
 }
