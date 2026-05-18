@@ -59,10 +59,13 @@ e2e-logs:
 e2e-build:
 	$(DC) build
 
+e2e-build-no-cache:
+	$(DC) build --no-cache
+
 # --- Fork management ---
 
 export FORK_REPO   := github.com/allinbits/gno
-export FORK_BRANCH := ibc-fork
+export FORK_BRANCH := ibc-fork-allowall-v3
 
 update-fork:
 	$(eval HASH := $(shell git ls-remote https://$(FORK_REPO).git refs/heads/$(FORK_BRANCH) | awk '{print $$1}'))

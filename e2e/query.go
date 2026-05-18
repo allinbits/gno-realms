@@ -63,11 +63,11 @@ func gnoQuery(containerID, realmPath, renderArgs string) (string, error) {
 	// Parse output: "height: N\ndata: <content>\n"
 	// The data may span multiple lines, so find the first "data: " prefix.
 	const prefix = "data: "
-	idx := strings.Index(stdout, prefix)
-	if idx < 0 {
+	_, after, ok := strings.Cut(stdout, prefix)
+	if !ok {
 		return "", fmt.Errorf("unexpected gnokey output (no 'data: ' prefix): %s", stdout)
 	}
-	content := strings.TrimSpace(stdout[idx+len(prefix):])
+	content := strings.TrimSpace(after)
 	return content, nil
 }
 
@@ -163,15 +163,15 @@ func queryGnoBalance(containerID, addr, denom string) (int64, error) {
 	}
 	// Output: "height: N\ndata: \"100ugnot\"\n"
 	const prefix = "data: "
-	idx := strings.Index(stdout, prefix)
-	if idx < 0 {
+	_, after, ok := strings.Cut(stdout, prefix)
+	if !ok {
 		return 0, fmt.Errorf("unexpected output (no 'data: ' prefix): %s", stdout)
 	}
-	data := strings.Trim(strings.TrimSpace(stdout[idx+len(prefix):]), "\"")
+	data := strings.Trim(strings.TrimSpace(after), "\"")
 	// data is like "9988968600ugnot" or "100ugnot,50foo"
 	for coin := range strings.SplitSeq(data, ",") {
-		if strings.HasSuffix(coin, denom) {
-			amountStr := strings.TrimSuffix(coin, denom)
+		if before, ok := strings.CutSuffix(coin, denom); ok {
+			amountStr := before
 			return strconv.ParseInt(amountStr, 10, 64)
 		}
 	}
@@ -201,8 +201,8 @@ func queryAtomOneBalance(restURL, addr, denom string) (int64, error) {
 
 // IBCDenom represents the denom info returned by the ibc-go transfer Denom query.
 type IBCDenom struct {
-	Base  string    `json:"base"`
-	Trace []IBCHop  `json:"trace"`
+	Base  string   `json:"base"`
+	Trace []IBCHop `json:"trace"`
 }
 
 type IBCHop struct {
@@ -246,11 +246,11 @@ func gnoEval(containerID, realmPath, expr string) (string, error) {
 		return "", fmt.Errorf("gnokey qeval %s: %w: %s", data, err, stderr)
 	}
 	const prefix = "data: "
-	idx := strings.Index(stdout, prefix)
-	if idx < 0 {
+	_, after, ok := strings.Cut(stdout, prefix)
+	if !ok {
 		return "", fmt.Errorf("unexpected gnokey output (no 'data: ' prefix): %s", stdout)
 	}
-	content := strings.TrimSpace(stdout[idx+len(prefix):])
+	content := strings.TrimSpace(after)
 	return content, nil
 }
 
@@ -320,6 +320,114 @@ func computeIBCDenomHash(clientID, denom string) string {
 	return strings.ToUpper(fmt.Sprintf("%x", hash))
 }
 
+// queryVAASHighestValsetUpdateID returns the highest valset update ID from VAAS consumer.
+func queryVAASHighestValsetUpdateID(containerID string) (uint64, error) {
+	content, err := gnoQuery(containerID, "r/aib/ibc/apps/vaas/consumer", "highest_valset_update_id")
+	if err != nil {
+		return 0, err
+	}
+	var resp struct {
+		HighestValsetUpdateID string `json:"highest_valset_update_id"`
+	}
+	if err := json.Unmarshal([]byte(content), &resp); err != nil {
+		return 0, fmt.Errorf("parse highest valset update ID: %w (raw: %s)", err, content)
+	}
+	id, err := strconv.ParseUint(resp.HighestValsetUpdateID, 10, 64)
+	if err != nil {
+		return 0, fmt.Errorf("parse highest valset update ID: %w (raw: %s)", err, content)
+	}
+	return id, nil
+}
+
+// queryVAASValidatorCount returns the number of validators from VAAS consumer.
+func queryVAASValidatorCount(containerID string) (int, error) {
+	content, err := gnoQuery(containerID, "r/aib/ibc/apps/vaas/consumer", "validator_count")
+	if err != nil {
+		return 0, err
+	}
+	var resp struct {
+		ValidatorCount string `json:"validator_count"`
+	}
+	if err := json.Unmarshal([]byte(content), &resp); err != nil {
+		return 0, fmt.Errorf("parse validator count: %w (raw: %s)", err, content)
+	}
+	count, err := strconv.Atoi(resp.ValidatorCount)
+	if err != nil {
+		return 0, fmt.Errorf("parse validator count: %w (raw: %s)", err, content)
+	}
+	return count, nil
+}
+
+// queryVAASTotalVotingPower returns the total voting power from VAAS consumer.
+func queryVAASTotalVotingPower(containerID string) (int64, error) {
+	content, err := gnoQuery(containerID, "r/aib/ibc/apps/vaas/consumer", "total_voting_power")
+	if err != nil {
+		return 0, err
+	}
+	var resp struct {
+		TotalVotingPower string `json:"total_voting_power"`
+	}
+	if err := json.Unmarshal([]byte(content), &resp); err != nil {
+		return 0, fmt.Errorf("parse total voting power: %w (raw: %s)", err, content)
+	}
+	power, err := strconv.ParseInt(resp.TotalVotingPower, 10, 64)
+	if err != nil {
+		return 0, fmt.Errorf("parse total voting power: %w (raw: %s)", err, content)
+	}
+	return power, nil
+}
+
+// queryVAASAllValidators returns all validators from VAAS consumer.
+func queryVAASAllValidators(containerID string) ([]struct {
+	PubKey string
+	Power  int64
+}, error) {
+	content, err := gnoQuery(containerID, "r/aib/ibc/apps/vaas/consumer", "validators")
+	if err != nil {
+		return nil, err
+	}
+	var resp struct {
+		Validators []struct {
+			PubKey string `json:"pub_key"`
+			Power  string `json:"power"`
+		} `json:"validators"`
+	}
+	if err := json.Unmarshal([]byte(content), &resp); err != nil {
+		return nil, fmt.Errorf("parse validators: %w (raw: %s)", err, content)
+	}
+	result := make([]struct {
+		PubKey string
+		Power  int64
+	}, len(resp.Validators))
+	for i, v := range resp.Validators {
+		result[i].PubKey = v.PubKey
+		power, err := strconv.ParseInt(v.Power, 10, 64)
+		if err != nil {
+			return nil, fmt.Errorf("parse validator power: %w (raw: %s)", err, v.Power)
+		}
+		result[i].Power = power
+	}
+	return result, nil
+}
+
+// queryVAASProviderClientID returns the provider client ID from VAAS consumer.
+func queryVAASProviderClientID(containerID string) (string, error) {
+	content, err := gnoQuery(containerID, "r/aib/ibc/apps/vaas/consumer", "provider_client_id")
+	if err != nil {
+		return "", err
+	}
+	var resp struct {
+		ProviderClientID string `json:"provider_client_id"`
+	}
+	if err := json.Unmarshal([]byte(content), &resp); err != nil {
+		return "", fmt.Errorf("unmarshal VAAS provider client ID: %w", err)
+	}
+	if resp.ProviderClientID == "" {
+		return "", fmt.Errorf("provider client ID is empty")
+	}
+	return resp.ProviderClientID, nil
+}
+
 // gnoPkgAddress computes the Gno package address for a given package path.
 // Replicates Gno's DerivePkgBech32Addr without importing the full Gno module.
 func gnoPkgAddress(pkgPath string) string {
@@ -329,4 +437,52 @@ func gnoPkgAddress(pkgPath string) string {
 		panic(fmt.Sprintf("bech32 encode: %v", err))
 	}
 	return addr
+}
+
+// queryGnoValidatorPubKey returns the base64 ed25519 pubkey of the gnodev
+// validator via the Tendermint RPC /validators endpoint (using curl inside
+// the container, since gnokey query only supports ABCI paths).
+func queryGnoValidatorPubKey(containerID string) (string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	stdout, stderr, err := dockerExec(ctx, containerID,
+		"curl", "-sS", "http://localhost:26657/validators",
+	)
+	if err != nil {
+		return "", fmt.Errorf("query validators: %w: %s", err, stderr)
+	}
+
+	var resp struct {
+		Result struct {
+			Validators []struct {
+				PubKey struct {
+					Value string `json:"value"`
+				} `json:"pub_key"`
+			} `json:"validators"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal([]byte(stdout), &resp); err != nil {
+		return "", fmt.Errorf("parse validators: %w (raw: %s)", err, stdout)
+	}
+	if len(resp.Result.Validators) == 0 {
+		return "", fmt.Errorf("no validators found")
+	}
+	return resp.Result.Validators[0].PubKey.Value, nil
+}
+
+func queryGovProposalStatus(restURL string, proposalID uint64) (string, error) {
+	url := fmt.Sprintf("%s/cosmos/gov/v1/proposals/%d", restURL, proposalID)
+	body, err := httpGet(url)
+	if err != nil {
+		return "", err
+	}
+	var resp struct {
+		Proposal struct {
+			Status string `json:"status"`
+		} `json:"proposal"`
+	}
+	if err := json.Unmarshal(body, &resp); err != nil {
+		return "", fmt.Errorf("parse proposal response: %w", err)
+	}
+	return resp.Proposal.Status, nil
 }

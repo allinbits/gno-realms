@@ -2,6 +2,7 @@ package e2e
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os/exec"
 	"strings"
@@ -20,6 +21,9 @@ type E2ETestSuite struct {
 	gnoSenderAddress     string
 	atomoneContainer     string
 	gnoContainer         string
+	atomoneGovAddress    string
+	nextValsetUpdateID   uint64
+	gnoValidatorPubKey   string
 }
 
 func TestE2E(t *testing.T) {
@@ -57,6 +61,33 @@ func (s *E2ETestSuite) SetupSuite() {
 	s.Require().NotEmpty(s.atomOneSenderAddress)
 	s.T().Logf("AtomOne sender address: %s", s.atomOneSenderAddress)
 
+	// Get gov module account address (needed for proposal messages)
+	govCtx, govCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer govCancel()
+	govOut, _, err := dockerExec(govCtx, s.atomoneContainer,
+		"atomoned", "q", "auth", "module-account", "gov",
+		"--node", "tcp://localhost:26657",
+		"--output", "json",
+	)
+	s.Require().NoError(err, "query gov module account")
+	var govResult struct {
+		Account struct {
+			Value struct {
+				Address string `json:"address"`
+			} `json:"value"`
+		} `json:"account"`
+	}
+	s.Require().NoError(json.Unmarshal([]byte(strings.TrimSpace(govOut)), &govResult))
+	s.atomoneGovAddress = govResult.Account.Value.Address
+	s.T().Logf("AtomOne gov address: %s", s.atomoneGovAddress)
+	s.nextValsetUpdateID = 1
+
+	// Get the gnodev validator's ed25519 pubkey (needed by VAAS tests)
+	s.gnoValidatorPubKey, err = queryGnoValidatorPubKey(s.gnoContainer)
+	s.Require().NoError(err, "query gno validator pubkey")
+	s.Require().NotEmpty(s.gnoValidatorPubKey)
+	s.T().Logf("Gno validator pubkey: %s", s.gnoValidatorPubKey)
+
 	// Recover test key in gnokey for Gno→AtomOne transfers
 	s.recoverGnoKey("test", cfg.TestMnemonic)
 	s.gnoSenderAddress = s.gnoKeyAddress("test")
@@ -90,6 +121,12 @@ func (s *E2ETestSuite) waitForCondition(timeout, tick time.Duration, condition f
 			}
 		}
 	}
+}
+
+func (s *E2ETestSuite) allocValsetUpdateID() uint64 {
+	id := s.nextValsetUpdateID
+	s.nextValsetUpdateID++
+	return id
 }
 
 func (s *E2ETestSuite) waitForIBCClients() {
@@ -143,9 +180,9 @@ func (s *E2ETestSuite) gnoKeyAddress(keyName string) string {
 	// Output format: "0. keyname (local) - addr: g1... pub: gpub1..."
 	for line := range strings.SplitSeq(stdout, "\n") {
 		if strings.Contains(line, keyName) {
-			idx := strings.Index(line, "addr: ")
-			if idx >= 0 {
-				rest := line[idx+len("addr: "):]
+			_, after, ok := strings.Cut(line, "addr: ")
+			if ok {
+				rest := after
 				return strings.Fields(rest)[0]
 			}
 		}
