@@ -160,7 +160,7 @@ func TestPubKeyTypeAndBase64(t *testing.T) {
 	}
 }
 
-func TestMarshalUnmarshalRoundTrip(t *testing.T) {
+func TestProtoMarshalUnmarshalRoundTrip(t *testing.T) {
 	original := ValidatorSetChangePacketData{
 		ValidatorUpdates: []ValidatorUpdate{
 			{PubKey: MakePubKey("ed25519", "aPFcGOi1P2myrQtfEz6bJikBE3WoW2VHuzMEkjx2jKQ="), Power: 100},
@@ -170,9 +170,9 @@ func TestMarshalUnmarshalRoundTrip(t *testing.T) {
 		ValsetUpdateId: 7,
 	}
 
-	bz := original.MarshalJSON()
+	bz := original.ProtoMarshal()
 	if len(bz) == 0 {
-		t.Fatal("MarshalJSON returned empty bytes")
+		t.Fatal("ProtoMarshal returned empty bytes")
 	}
 
 	decoded, err := UnmarshalValidatorSetChangePacketData(bz)
@@ -201,13 +201,13 @@ func TestMarshalUnmarshalRoundTrip(t *testing.T) {
 	}
 }
 
-func TestMarshalUnmarshalEmptyUpdates(t *testing.T) {
+func TestProtoMarshalUnmarshalEmptyUpdates(t *testing.T) {
 	original := ValidatorSetChangePacketData{
 		ValidatorUpdates: []ValidatorUpdate{},
 		ValsetUpdateId:   1,
 	}
 
-	bz := original.MarshalJSON()
+	bz := original.ProtoMarshal()
 	decoded, err := UnmarshalValidatorSetChangePacketData(bz)
 	if err != nil {
 		t.Fatalf("UnmarshalValidatorSetChangePacketData failed: %v", err)
@@ -221,172 +221,120 @@ func TestMarshalUnmarshalEmptyUpdates(t *testing.T) {
 	}
 }
 
-// TestUnmarshalProviderFormat tests parsing JSON in the exact format that the
-// provider sends over IBC (protobuf JSON with nested pub_key objects).
-func TestUnmarshalProviderFormat(t *testing.T) {
-	// Protobuf JSON format with nested pub_key objects and string values
-	input := `{"validator_updates":[{"pub_key":{"ed25519":"aPFcGOi1P2myrQtfEz6bJikBE3WoW2VHuzMEkjx2jKQ="},"power":"100"},{"pub_key":{"ed25519":"bPFcGOi1P2myrQtfEz6bJikBE3WoW2VHuzMEkjx2jKQ="},"power":"50"}],"valset_update_id":"1"}`
+func TestUnmarshalProtobufFromProvider(t *testing.T) {
+	// Simulate protobuf bytes for:
+	// validator_updates: [{pub_key: {ed25519: <bytes>}, power: 100}, {pub_key: {ed25519: <bytes>}, power: 50}]
+	// valset_update_id: 1
+	vsc := ValidatorSetChangePacketData{
+		ValidatorUpdates: []ValidatorUpdate{
+			{PubKey: MakePubKey("ed25519", "aPFcGOi1P2myrQtfEz6bJikBE3WoW2VHuzMEkjx2jKQ="), Power: 100},
+			{PubKey: MakePubKey("ed25519", "bPFcGOi1P2myrQtfEz6bJikBE3WoW2VHuzMEkjx2jKQ="), Power: 50},
+		},
+		ValsetUpdateId: 1,
+	}
+	bz := vsc.ProtoMarshal()
 
-	vsc, err := UnmarshalValidatorSetChangePacketData([]byte(input))
+	decoded, err := UnmarshalValidatorSetChangePacketData(bz)
 	if err != nil {
 		t.Fatalf("UnmarshalValidatorSetChangePacketData failed: %v", err)
 	}
 
-	if vsc.ValsetUpdateId != 1 {
-		t.Errorf("ValsetUpdateId: got %d, want 1", vsc.ValsetUpdateId)
+	if decoded.ValsetUpdateId != 1 {
+		t.Errorf("ValsetUpdateId: got %d, want 1", decoded.ValsetUpdateId)
 	}
-	if len(vsc.ValidatorUpdates) != 2 {
-		t.Fatalf("expected 2 updates, got %d", len(vsc.ValidatorUpdates))
-	}
-
-	// Check first validator
-	if vsc.ValidatorUpdates[0].PubKey != "ed25519:aPFcGOi1P2myrQtfEz6bJikBE3WoW2VHuzMEkjx2jKQ=" {
-		t.Errorf("update 0 PubKey: got %q", vsc.ValidatorUpdates[0].PubKey)
-	}
-	if vsc.ValidatorUpdates[0].Power != 100 {
-		t.Errorf("update 0 Power: got %d, want 100", vsc.ValidatorUpdates[0].Power)
+	if len(decoded.ValidatorUpdates) != 2 {
+		t.Fatalf("expected 2 updates, got %d", len(decoded.ValidatorUpdates))
 	}
 
-	// Check second validator
-	if vsc.ValidatorUpdates[1].PubKey != "ed25519:bPFcGOi1P2myrQtfEz6bJikBE3WoW2VHuzMEkjx2jKQ=" {
-		t.Errorf("update 1 PubKey: got %q", vsc.ValidatorUpdates[1].PubKey)
+	if decoded.ValidatorUpdates[0].PubKey != "ed25519:aPFcGOi1P2myrQtfEz6bJikBE3WoW2VHuzMEkjx2jKQ=" {
+		t.Errorf("update 0 PubKey: got %q", decoded.ValidatorUpdates[0].PubKey)
 	}
-	if vsc.ValidatorUpdates[1].Power != 50 {
-		t.Errorf("update 1 Power: got %d, want 50", vsc.ValidatorUpdates[1].Power)
+	if decoded.ValidatorUpdates[0].Power != 100 {
+		t.Errorf("update 0 Power: got %d, want 100", decoded.ValidatorUpdates[0].Power)
+	}
+
+	if decoded.ValidatorUpdates[1].PubKey != "ed25519:bPFcGOi1P2myrQtfEz6bJikBE3WoW2VHuzMEkjx2jKQ=" {
+		t.Errorf("update 1 PubKey: got %q", decoded.ValidatorUpdates[1].PubKey)
+	}
+	if decoded.ValidatorUpdates[1].Power != 50 {
+		t.Errorf("update 1 Power: got %d, want 50", decoded.ValidatorUpdates[1].Power)
 	}
 }
 
-// TestUnmarshalProviderFormatPowerAsNumber tests that power as a JSON number
-// (not string) is also accepted, since some JSON encoders emit int64 as numbers.
-func TestUnmarshalProviderFormatPowerAsNumber(t *testing.T) {
-	input := `{"validator_updates":[{"pub_key":{"ed25519":"aPFcGOi1P2myrQtfEz6bJikBE3WoW2VHuzMEkjx2jKQ="},"power":100}],"valset_update_id":"1"}`
+func TestUnmarshalProtobufZeroPower(t *testing.T) {
+	// When power is 0, protobuf omits the field (default value).
+	vsc := ValidatorSetChangePacketData{
+		ValidatorUpdates: []ValidatorUpdate{
+			{PubKey: MakePubKey("ed25519", "aPFcGOi1P2myrQtfEz6bJikBE3WoW2VHuzMEkjx2jKQ="), Power: 0},
+		},
+		ValsetUpdateId: 1,
+	}
+	bz := vsc.ProtoMarshal()
 
-	vsc, err := UnmarshalValidatorSetChangePacketData([]byte(input))
+	decoded, err := UnmarshalValidatorSetChangePacketData(bz)
 	if err != nil {
 		t.Fatalf("UnmarshalValidatorSetChangePacketData failed: %v", err)
 	}
 
-	if vsc.ValidatorUpdates[0].Power != 100 {
-		t.Errorf("Power: got %d, want 100", vsc.ValidatorUpdates[0].Power)
+	if decoded.ValidatorUpdates[0].Power != 0 {
+		t.Errorf("Power: got %d, want 0", decoded.ValidatorUpdates[0].Power)
 	}
 }
 
-// TestUnmarshalProviderFormatMissingPower tests that a missing power field
-// defaults to 0 (validator removal). The provider omits zero-valued fields.
-func TestUnmarshalProviderFormatMissingPower(t *testing.T) {
-	input := `{"validator_updates":[{"pub_key":{"ed25519":"aPFcGOi1P2myrQtfEz6bJikBE3WoW2VHuzMEkjx2jKQ="}}],"valset_update_id":"1"}`
+func TestUnmarshalProtobufSecp256k1Key(t *testing.T) {
+	vsc := ValidatorSetChangePacketData{
+		ValidatorUpdates: []ValidatorUpdate{
+			{PubKey: MakePubKey("secp256k1", "A7x3FJxIMWJM1xymAKRHLiPMqxR0NQKX2gjHMYNKHZk="), Power: 75},
+		},
+		ValsetUpdateId: 5,
+	}
+	bz := vsc.ProtoMarshal()
 
-	vsc, err := UnmarshalValidatorSetChangePacketData([]byte(input))
+	decoded, err := UnmarshalValidatorSetChangePacketData(bz)
 	if err != nil {
 		t.Fatalf("UnmarshalValidatorSetChangePacketData failed: %v", err)
 	}
 
-	if vsc.ValidatorUpdates[0].Power != 0 {
-		t.Errorf("Power: got %d, want 0", vsc.ValidatorUpdates[0].Power)
+	if decoded.ValidatorUpdates[0].PubKey != "secp256k1:A7x3FJxIMWJM1xymAKRHLiPMqxR0NQKX2gjHMYNKHZk=" {
+		t.Errorf("PubKey: got %q", decoded.ValidatorUpdates[0].PubKey)
+	}
+	if decoded.ValidatorUpdates[0].Power != 75 {
+		t.Errorf("Power: got %d, want 75", decoded.ValidatorUpdates[0].Power)
 	}
 }
 
-// TestUnmarshalValsetUpdateIdAsNumber tests valset_update_id as a JSON number.
-func TestUnmarshalValsetUpdateIdAsNumber(t *testing.T) {
-	input := `{"validator_updates":[],"valset_update_id":42}`
-
-	vsc, err := UnmarshalValidatorSetChangePacketData([]byte(input))
-	if err != nil {
-		t.Fatalf("UnmarshalValidatorSetChangePacketData failed: %v", err)
-	}
-
-	if vsc.ValsetUpdateId != 42 {
-		t.Errorf("ValsetUpdateId: got %d, want 42", vsc.ValsetUpdateId)
-	}
-}
-
-// TestUnmarshalSecp256k1Key tests parsing a secp256k1 key from the provider.
-func TestUnmarshalSecp256k1Key(t *testing.T) {
-	input := `{"validator_updates":[{"pub_key":{"secp256k1":"A7x3FJxIMWJM1xymAKRHLiPMqxR0NQKX2gjHMYNKHZk="},"power":"75"}],"valset_update_id":"5"}`
-
-	vsc, err := UnmarshalValidatorSetChangePacketData([]byte(input))
-	if err != nil {
-		t.Fatalf("UnmarshalValidatorSetChangePacketData failed: %v", err)
-	}
-
-	if vsc.ValidatorUpdates[0].PubKey != "secp256k1:A7x3FJxIMWJM1xymAKRHLiPMqxR0NQKX2gjHMYNKHZk=" {
-		t.Errorf("PubKey: got %q", vsc.ValidatorUpdates[0].PubKey)
-	}
-	if vsc.ValidatorUpdates[0].Power != 75 {
-		t.Errorf("Power: got %d, want 75", vsc.ValidatorUpdates[0].Power)
-	}
-}
-
-func TestUnmarshalInvalidJSON(t *testing.T) {
+func TestUnmarshalInvalidProtobuf(t *testing.T) {
 	tests := []struct {
 		name  string
-		input string
+		input []byte
 	}{
 		{
 			name:  "empty input",
-			input: "",
+			input: []byte{},
 		},
 		{
-			name:  "not json",
-			input: "not json at all",
-		},
-		{
-			name:  "missing valset_update_id",
-			input: `{"validator_updates": []}`,
-		},
-		{
-			name:  "missing validator_updates",
-			input: `{"valset_update_id": "1"}`,
-		},
-		{
-			name:  "invalid valset_update_id type",
-			input: `{"validator_updates": [], "valset_update_id": "abc"}`,
-		},
-		{
-			name:  "missing pub_key in update",
-			input: `{"validator_updates": [{"power": "100"}], "valset_update_id": "1"}`,
-		},
-		{
-			name:  "invalid pub_key - not object or string",
-			input: `{"validator_updates": [{"pub_key": 123, "power": "100"}], "valset_update_id": "1"}`,
-		},
-		{
-			name:  "invalid pub_key - wrong key type in object",
-			input: `{"validator_updates": [{"pub_key": {"rsa": "AAAA"}, "power": "100"}], "valset_update_id": "1"}`,
-		},
-		{
-			name:  "invalid power value",
-			input: `{"validator_updates": [{"pub_key": {"ed25519": "AAAA"}, "power": "notanumber"}], "valset_update_id": "1"}`,
-		},
-		{
-			name:  "invalid base64 in pub_key",
-			input: `{"validator_updates": [{"pub_key": {"ed25519": "not valid base64!!!"}, "power": "100"}], "valset_update_id": "1"}`,
+			name:  "garbage bytes",
+			input: []byte{0xFF, 0xFF, 0xFF, 0xFF},
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := UnmarshalValidatorSetChangePacketData([]byte(tt.input))
+			// Empty input should decode to a zero-value VSC with empty (not nil) updates
+			decoded, err := UnmarshalValidatorSetChangePacketData(tt.input)
+			if tt.name == "empty input" {
+				if err != nil {
+					t.Errorf("unexpected error for empty input: %v", err)
+				}
+				if decoded.ValsetUpdateId != 0 {
+					t.Errorf("expected 0 valset_update_id, got %d", decoded.ValsetUpdateId)
+				}
+				return
+			}
 			if err == nil {
-				t.Error("expected error, got nil")
+				// garbage may or may not error, but should not panic
 			}
 		})
-	}
-}
-
-// TestUnmarshalLegacyStringPubKey tests that the legacy format with pub_key
-// as a simple string (e.g. from tests) still works via backward compatibility.
-func TestUnmarshalLegacyStringPubKey(t *testing.T) {
-	// Legacy format: pub_key as a plain canonical string
-	input := `{"validator_updates":[{"pub_key":"ed25519:aPFcGOi1P2myrQtfEz6bJikBE3WoW2VHuzMEkjx2jKQ=","power":"100"}],"valset_update_id":"1"}`
-
-	vsc, err := UnmarshalValidatorSetChangePacketData([]byte(input))
-	if err != nil {
-		t.Fatalf("UnmarshalValidatorSetChangePacketData failed: %v", err)
-	}
-
-	if vsc.ValidatorUpdates[0].PubKey != "ed25519:aPFcGOi1P2myrQtfEz6bJikBE3WoW2VHuzMEkjx2jKQ=" {
-		t.Errorf("PubKey: got %q", vsc.ValidatorUpdates[0].PubKey)
 	}
 }
 

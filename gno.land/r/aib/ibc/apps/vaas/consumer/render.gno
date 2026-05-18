@@ -37,7 +37,7 @@ func renderConfig() string {
 		"port_id":          json.StringNode("", PortID),
 		"provider_port_id": json.StringNode("", ProviderPortID),
 		"version":          json.StringNode("", Version),
-		"encoding":         json.StringNode("", EncodingJSON),
+		"encoding":         json.StringNode("", EncodingProtobuf),
 	}).String()
 }
 
@@ -137,7 +137,7 @@ func renderMarkdown() string {
 	s += ufmt.Sprintf("- **Port ID:** `%s`\n", PortID)
 	s += ufmt.Sprintf("- **Provider Port ID:** `%s`\n", ProviderPortID)
 	s += ufmt.Sprintf("- **Version:** `%s`\n", Version)
-	s += ufmt.Sprintf("- **Encoding:** `%s`\n", EncodingJSON)
+	s += ufmt.Sprintf("- **Encoding:** `%s`\n", EncodingProtobuf)
 
 	return s
 }

@@ -35,28 +35,37 @@ Packets from the provider must arrive on port `vaasprovider`.
 | Port ID          | `vaasconsumer`     |
 | Provider Port ID | `vaasprovider`     |
 | Version          | `vaas-v1`          |
-| Encoding         | `application/json` |
+| Encoding         | `application/x-protobuf` |
 
 ## Packet format
 
-The provider sends `ValidatorSetChangePacketData` as JSON:
+The provider sends `ValidatorSetChangePacketData` as protobuf:
 
-```json
-{
-  "validator_updates": [
-    {"pub_key": {"ed25519": "<base64>"}, "power": "<int64>"},
-    ...
-  ],
-  "valset_update_id": "<uint64>"
+```protobuf
+message ValidatorSetChangePacketData {
+  repeated ValidatorUpdate validator_updates = 1;
+  uint64 valset_update_id = 2;
+}
+
+message ValidatorUpdate {
+  PublicKey pub_key = 1;
+  int64 power = 2;
+}
+
+message PublicKey {
+  oneof sum {
+    bytes ed25519   = 1;
+    bytes secp256k1 = 2;
+  }
 }
 ```
 
-- `pub_key` is a nested object with one key: `ed25519` or `secp256k1`
-- `power` can be a string or number. Omitted means 0 (validator removal).
+- `pub_key` contains raw key bytes under field 1 (ed25519) or field 2 (secp256k1)
+- `power` is an int64 varint. Omitted (0) means validator removal.
 - `valset_update_id` is a strictly positive, monotonically increasing counter
 
 Public keys are stored internally as `<type>:<base64>` (e.g.
-`ed25519:aPFcGOi1P2myrQtfEz6bJikBE3WoW2VHuzMEjjx2jKQ=`).
+`ed25519:aPFcGOi1P2myrQtfEz6bJikBE3WoW2VHuzMEkjx2jKQ=`).
 
 ## Out-of-order packets
 

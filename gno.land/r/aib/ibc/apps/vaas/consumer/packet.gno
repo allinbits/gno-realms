@@ -2,10 +2,10 @@ package consumer
 
 import (
 	"encoding/base64"
-	"strconv"
+	"encoding/binary"
 
+	"gno.land/p/aib/encoding/proto"
 	"gno.land/p/nt/ufmt/v0"
-	"gno.land/p/onbloc/json"
 )
 
 // ValidatorUpdate represents a single validator update from the provider chain.
@@ -42,14 +42,21 @@ func (vu ValidatorUpdate) PubKeyBase64() string {
 // ValidatorSetChangePacketData is the IBC packet data sent by the provider
 // chain to communicate validator set changes to the consumer chain.
 //
-// Expected JSON format:
+// Protobuf wire format:
 //
-//	{
-//	  "validator_updates": [
-//	    {"pub_key": {"ed25519": "<base64>"}, "power": "<int64>"},
-//	    ...
-//	  ],
-//	  "valset_update_id": "<uint64>"
+//	message ValidatorSetChangePacketData {
+//	  repeated ValidatorUpdate validator_updates = 1;
+//	  uint64 valset_update_id = 2;
+//	}
+//	message ValidatorUpdate {
+//	  PublicKey pub_key = 1;
+//	  int64 power = 2;
+//	}
+//	message PublicKey {
+//	  oneof sum {
+//	    bytes ed25519   = 1;
+//	    bytes secp256k1 = 2;
+//	  }
 //	}
 //
 // Note: zero-value fields may be omitted (e.g. power=0 may be absent).
@@ -90,199 +97,274 @@ func (vsc ValidatorSetChangePacketData) Validate() error {
 	return nil
 }
 
-// MarshalJSON returns the JSON encoding of the packet data in the format
-// expected by the provider.
+// ProtoMarshal returns the protobuf encoding of the packet data.
 //
-// Format:
-//
-//	{
-//	  "validator_updates": [
-//	    {"pub_key": {"ed25519": "<base64>"}, "power": "<int64>"},
-//	    ...
-//	  ],
-//	  "valset_update_id": "<uint64>"
+//	message ValidatorSetChangePacketData {
+//	  repeated ValidatorUpdate validator_updates = 1;
+//	  uint64 valset_update_id = 2;
 //	}
-func (vsc ValidatorSetChangePacketData) MarshalJSON() []byte {
-	updates := make([]*json.Node, len(vsc.ValidatorUpdates))
-	for i, vu := range vsc.ValidatorUpdates {
-		keyType := vu.PubKeyType()
-		keyBase64 := vu.PubKeyBase64()
+//
+//	message ValidatorUpdate {
+//	  PublicKey pub_key = 1;
+//	  int64 power = 2;
+//	}
+//
+//	message PublicKey {
+//	  oneof sum {
+//	    bytes ed25519   = 1;
+//	    bytes secp256k1 = 2;
+//	  }
+//	}
+func (vsc ValidatorSetChangePacketData) ProtoMarshal() []byte {
+	var buf []byte
 
-		pubKeyNode := json.ObjectNode("", map[string]*json.Node{
-			keyType: json.StringNode("", keyBase64),
-		})
-
-		updateFields := map[string]*json.Node{
-			"pub_key": pubKeyNode,
-		}
-
-		// Omit power if 0 (matches provider behavior)
-		if vu.Power != 0 {
-			updateFields["power"] = json.StringNode("", strconv.FormatInt(vu.Power, 10))
-		}
-
-		updates[i] = json.ObjectNode("", updateFields)
+	// Field 1: validator_updates (repeated, length-delimited)
+	for _, vu := range vsc.ValidatorUpdates {
+		updateBz := marshalValidatorUpdate(vu)
+		buf = proto.AppendLengthDelimited(buf, 1, updateBz)
 	}
 
-	node := json.ObjectNode("", map[string]*json.Node{
-		"validator_updates": json.ArrayNode("", updates),
-		"valset_update_id":  json.StringNode("", strconv.FormatUint(vsc.ValsetUpdateId, 10)),
-	})
+	// Field 2: valset_update_id (varint)
+	buf = proto.AppendVarint(buf, 2, vsc.ValsetUpdateId)
 
-	bz, _ := json.Marshal(node)
-	return bz
+	return buf
 }
 
-// UnmarshalValidatorSetChangePacketData decodes JSON bytes into a
+// marshalValidatorUpdate encodes a single ValidatorUpdate into protobuf bytes.
+func marshalValidatorUpdate(vu ValidatorUpdate) []byte {
+	var buf []byte
+
+	// Field 1: pub_key (embedded message PublicKey)
+	pubKeyBz := marshalPublicKey(vu.PubKeyType(), vu.PubKeyBase64())
+	buf = proto.AppendAlwaysLengthDelimited(buf, 1, pubKeyBz)
+
+	// Field 2: power (varint, int64 zigzag encoded)
+	powerU64 := uint64(vu.Power)
+	if powerU64 != 0 {
+		buf = proto.AppendTag(buf, 2, proto.VARINT)
+		buf = binary.AppendUvarint(buf, powerU64)
+	}
+
+	return buf
+}
+
+// marshalPublicKey encodes a public key into protobuf bytes.
+// fieldNum 1 = ed25519, fieldNum 2 = secp256k1.
+func marshalPublicKey(keyType, base64Value string) []byte {
+	keyBytes, _ := base64.StdEncoding.DecodeString(base64Value)
+
+	switch keyType {
+	case "ed25519":
+		var buf []byte
+		return proto.AppendLengthDelimited(buf, 1, keyBytes)
+	case "secp256k1":
+		var buf []byte
+		return proto.AppendLengthDelimited(buf, 2, keyBytes)
+	default:
+		return nil
+	}
+}
+
+// ProtoUnmarshalValidatorSetChangePacketData decodes protobuf bytes into a
 // ValidatorSetChangePacketData.
-//
-// Handles:
-//   - pub_key as nested object: {"ed25519": "<base64>"} or {"secp256k1": "<base64>"}
-//   - power as string ("100") or number (100), or missing (defaults to 0)
-//   - valset_update_id as string ("1") or number (1)
-func UnmarshalValidatorSetChangePacketData(bz []byte) (ValidatorSetChangePacketData, error) {
+func ProtoUnmarshalValidatorSetChangePacketData(bz []byte) (ValidatorSetChangePacketData, error) {
 	var vsc ValidatorSetChangePacketData
+	var pos int
 
-	root, err := json.Unmarshal(bz)
-	if err != nil {
-		return vsc, ufmt.Errorf("failed to unmarshal VSC packet data: %v", err)
-	}
-
-	// Parse valset_update_id (string or number)
-	vidNode, err := root.GetKey("valset_update_id")
-	if err != nil {
-		return vsc, ufmt.Errorf("missing valset_update_id: %v", err)
-	}
-	vid, err := parseUint64Node(vidNode)
-	if err != nil {
-		return vsc, ufmt.Errorf("invalid valset_update_id: %v", err)
-	}
-	vsc.ValsetUpdateId = vid
-
-	// Parse validator_updates
-	updatesNode, err := root.GetKey("validator_updates")
-	if err != nil {
-		return vsc, ufmt.Errorf("missing validator_updates: %v", err)
-	}
-
-	updates, err := updatesNode.GetArray()
-	if err != nil {
-		return vsc, ufmt.Errorf("invalid validator_updates: %v", err)
-	}
-
-	vsc.ValidatorUpdates = make([]ValidatorUpdate, len(updates))
-	for i, uNode := range updates {
-		pkNode, err := uNode.GetKey("pub_key")
+	for pos < len(bz) {
+		key, newPos, err := proto.DecodeVarint(bz, pos)
 		if err != nil {
-			return vsc, ufmt.Errorf("missing pub_key in update #%d: %v", i, err)
+			return vsc, ufmt.Errorf("error reading field tag: %v", err)
 		}
+		pos = newPos
 
-		pubKey, err := parsePubKeyNode(pkNode)
-		if err != nil {
-			return vsc, ufmt.Errorf("invalid pub_key in update #%d: %v", i, err)
-		}
+		fieldNum := key >> 3
+		wireType := key & 0x07
 
-		// Parse power: may be string, number, or missing (default 0).
-		// The provider omits power when it is 0.
-		var power int64
-		pwNode, pwErr := uNode.GetKey("power")
-		if pwErr == nil {
-			power, err = parseInt64Node(pwNode)
+		switch fieldNum {
+		case 1: // validator_updates (length-delimited)
+			if wireType != 2 {
+				return vsc, ufmt.Errorf("unexpected wire type %d for field %d", wireType, fieldNum)
+			}
+			updateBz, newPos, err := proto.DecodeString(bz, pos)
 			if err != nil {
-				return vsc, ufmt.Errorf("invalid power in update #%d: %v", i, err)
+				return vsc, ufmt.Errorf("error reading validator_update: %v", err)
+			}
+			pos = newPos
+
+			vu, err := unmarshalValidatorUpdate([]byte(updateBz))
+			if err != nil {
+				return vsc, err
+			}
+			vsc.ValidatorUpdates = append(vsc.ValidatorUpdates, vu)
+
+		case 2: // valset_update_id (varint)
+			if wireType != 0 {
+				return vsc, ufmt.Errorf("unexpected wire type %d for field %d", wireType, fieldNum)
+			}
+			val, newPos, err := proto.DecodeVarint(bz, pos)
+			if err != nil {
+				return vsc, ufmt.Errorf("error reading valset_update_id: %v", err)
+			}
+			pos = newPos
+			vsc.ValsetUpdateId = val
+
+		default:
+			// Skip unknown fields
+			pos, err = skipField(bz, pos, wireType)
+			if err != nil {
+				return vsc, err
 			}
 		}
-		// else: power missing => default 0 (validator removal)
+	}
 
-		vsc.ValidatorUpdates[i] = ValidatorUpdate{
-			PubKey: pubKey,
-			Power:  power,
-		}
+	// Ensure ValidatorUpdates is non-nil (empty slice, not nil) when there are no updates
+	// so that Validate() doesn't fail on nil.
+	if vsc.ValidatorUpdates == nil {
+		vsc.ValidatorUpdates = []ValidatorUpdate{}
 	}
 
 	return vsc, nil
 }
 
-// parsePubKeyNode parses a pub_key JSON node, supporting:
-// - Nested object format (from provider): {"ed25519": "<base64>"} or {"secp256k1": "<base64>"}
-// - Simple string format (legacy/testing): "ed25519:<base64>" or just a plain key string
-//
-// Returns the canonical string form: "ed25519:<base64>" or "secp256k1:<base64>".
-func parsePubKeyNode(node *json.Node) (string, error) {
-	// Try as string first (legacy/testing format)
-	if s, err := node.GetString(); err == nil {
-		// If it already contains ":", assume canonical format
-		for i := 0; i < len(s); i++ {
-			if s[i] == ':' {
-				return s, nil
+// unmarshalValidatorUpdate decodes a single ValidatorUpdate from protobuf bytes.
+func unmarshalValidatorUpdate(bz []byte) (ValidatorUpdate, error) {
+	var vu ValidatorUpdate
+	var pos int
+
+	for pos < len(bz) {
+		key, newPos, err := proto.DecodeVarint(bz, pos)
+		if err != nil {
+			return vu, ufmt.Errorf("error reading field tag: %v", err)
+		}
+		pos = newPos
+
+		fieldNum := key >> 3
+		wireType := key & 0x07
+
+		switch fieldNum {
+		case 1: // pub_key (embedded message)
+			if wireType != 2 {
+				return vu, ufmt.Errorf("unexpected wire type %d for pub_key", wireType)
+			}
+			pubKeyBz, newPos, err := proto.DecodeString(bz, pos)
+			if err != nil {
+				return vu, ufmt.Errorf("error reading pub_key: %v", err)
+			}
+			pos = newPos
+
+			keyType, keyBytes, err := unmarshalPublicKey([]byte(pubKeyBz))
+			if err != nil {
+				return vu, err
+			}
+			vu.PubKey = keyType + ":" + base64.StdEncoding.EncodeToString(keyBytes)
+
+		case 2: // power (varint)
+			if wireType != 0 {
+				return vu, ufmt.Errorf("unexpected wire type %d for power", wireType)
+			}
+			val, newPos, err := proto.DecodeVarint(bz, pos)
+			if err != nil {
+				return vu, ufmt.Errorf("error reading power: %v", err)
+			}
+			pos = newPos
+			vu.Power = int64(val)
+
+		default:
+			pos, err = skipField(bz, pos, wireType)
+			if err != nil {
+				return vu, err
 			}
 		}
-		// Plain string without ":" — unsupported bare key format
-		// Still return it for backward compatibility
-		return s, nil
 	}
 
-	// Try as object (protobuf JSON format from provider)
-	// The object has exactly one key which is the key type
-	for _, keyType := range []string{"ed25519", "secp256k1"} {
-		valNode, err := node.GetKey(keyType)
-		if err != nil {
-			continue
-		}
-		b64, err := valNode.GetString()
-		if err != nil {
-			return "", ufmt.Errorf("pub_key.%s must be a base64 string", keyType)
-		}
-		// Validate that it's valid base64
-		if _, err := base64.StdEncoding.DecodeString(b64); err != nil {
-			return "", ufmt.Errorf("pub_key.%s is not valid base64: %v", keyType, err)
-		}
-		return keyType + ":" + b64, nil
-	}
-
-	return "", ufmt.Errorf("pub_key must be an object with 'ed25519' or 'secp256k1' key")
+	return vu, nil
 }
 
-// parseUint64Node parses a JSON node as uint64, supporting both string and number formats.
-func parseUint64Node(node *json.Node) (uint64, error) {
-	// Try as string first
-	if s, err := node.GetString(); err == nil {
-		v, err := strconv.ParseUint(s, 10, 64)
+// unmarshalPublicKey decodes a PublicKey message, returning the key type and raw bytes.
+func unmarshalPublicKey(bz []byte) (string, []byte, error) {
+	var pos int
+
+	for pos < len(bz) {
+		key, newPos, err := proto.DecodeVarint(bz, pos)
 		if err != nil {
-			return 0, ufmt.Errorf("cannot parse %q as uint64: %v", s, err)
+			return "", nil, ufmt.Errorf("error reading public key field tag: %v", err)
 		}
-		return v, nil
-	}
-	// Try as number
-	if n, err := node.GetNumeric(); err == nil {
-		// n is a float64, convert carefully
-		if n < 0 {
-			return 0, ufmt.Errorf("negative value %v for uint64", n)
+		pos = newPos
+
+		fieldNum := key >> 3
+		wireType := key & 0x07
+
+		if wireType != 2 {
+			return "", nil, ufmt.Errorf("unexpected wire type %d for public key field %d", wireType, fieldNum)
 		}
-		return uint64(n), nil
+
+		valueStr, newPos, err := proto.DecodeString(bz, pos)
+		if err != nil {
+			return "", nil, ufmt.Errorf("error reading public key value: %v", err)
+		}
+		pos = newPos
+		valueBytes := []byte(valueStr)
+
+		switch fieldNum {
+		case 1:
+			return "ed25519", valueBytes, nil
+		case 2:
+			return "secp256k1", valueBytes, nil
+		default:
+			return "", nil, ufmt.Errorf("unknown public key field %d", fieldNum)
+		}
 	}
-	return 0, ufmt.Errorf("value is neither string nor number")
+
+	return "", nil, ufmt.Errorf("empty public key message")
 }
 
-// parseInt64Node parses a JSON node as int64, supporting both string and number formats.
-func parseInt64Node(node *json.Node) (int64, error) {
-	// Try as string first
-	if s, err := node.GetString(); err == nil {
-		v, err := strconv.ParseInt(s, 10, 64)
+// skipField advances past an unknown protobuf field.
+func skipField(bz []byte, pos int, wireType uint64) (int, error) {
+	switch wireType {
+	case 0: // varint
+		_, newPos, err := proto.DecodeVarint(bz, pos)
 		if err != nil {
-			return 0, ufmt.Errorf("cannot parse %q as int64: %v", s, err)
+			return pos, err
 		}
-		return v, nil
+		return newPos, nil
+	case 1: // 64-bit
+		if pos+8 > len(bz) {
+			return pos, ufmt.Errorf("buffer underflow while skipping fixed64")
+		}
+		return pos + 8, nil
+	case 2: // length-delimited
+		length, newPos, err := proto.DecodeVarint(bz, pos)
+		if err != nil {
+			return pos, err
+		}
+		end := newPos + int(length)
+		if end > len(bz) {
+			return newPos, ufmt.Errorf("buffer underflow while skipping length-delimited field")
+		}
+		return end, nil
+	case 5: // 32-bit
+		if pos+4 > len(bz) {
+			return pos, ufmt.Errorf("buffer underflow while skipping fixed32")
+		}
+		return pos + 4, nil
+	default:
+		return pos, ufmt.Errorf("unknown wire type %d", wireType)
 	}
-	// Try as number
-	if n, err := node.GetNumeric(); err == nil {
-		return int64(n), nil
+}
+
+// UnmarshalValidatorSetChangePacketData decodes protobuf bytes into a
+// ValidatorSetChangePacketData.
+func UnmarshalValidatorSetChangePacketData(bz []byte) (ValidatorSetChangePacketData, error) {
+	vsc, err := ProtoUnmarshalValidatorSetChangePacketData(bz)
+	if err != nil {
+		return vsc, ufmt.Errorf("failed to unmarshal VSC packet data: %v", err)
 	}
-	return 0, ufmt.Errorf("value is neither string nor number")
+
+	return vsc, nil
 }
 
 // MakePubKey creates a canonical pubkey string from type and base64 value.
-// This is a helper for tests and internal use.
 func MakePubKey(keyType, base64Value string) string {
 	return keyType + ":" + base64Value
 }

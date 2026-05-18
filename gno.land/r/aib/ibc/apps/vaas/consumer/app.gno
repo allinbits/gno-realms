@@ -15,11 +15,11 @@ import (
 // It receives validator set change (VSC) packets from the provider chain
 // and applies them to the consumer chain's validator set.
 //
-// The provider sends ValidatorSetChangePacketData packets encoded as JSON with:
+// The provider sends ValidatorSetChangePacketData packets encoded as protobuf with:
 //   - SourcePort: "provider"
 //   - DestinationPort: "consumer"
 //   - Version: "1"
-//   - Encoding: "application/json"
+//   - Encoding: "application/x-protobuf"
 type App struct{}
 
 const (
@@ -32,8 +32,8 @@ const (
 	// Version is the IBC application version for the VAAS protocol.
 	Version = "vaas-v1"
 
-	// EncodingJSON is the encoding identifier for JSON-encoded payloads.
-	EncodingJSON = "application/json"
+	// EncodingProtobuf is the encoding identifier for protobuf-encoded payloads.
+	EncodingProtobuf = "application/x-protobuf"
 )
 
 func init() {
@@ -87,7 +87,7 @@ func (a *App) OnRecvPacket(
 	if payload.Version != Version {
 		return types.RecvPacketResult{Status: types.PacketStatus_Failure}
 	}
-	if payload.Encoding != EncodingJSON {
+	if payload.Encoding != EncodingProtobuf {
 		return types.RecvPacketResult{Status: types.PacketStatus_Failure}
 	}
 
