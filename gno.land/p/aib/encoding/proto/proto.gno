@@ -131,21 +131,17 @@ func AppendTag(buf []byte, fieldNum int, wireType WireType) []byte {
 
 // DecodeVarint reads a varint from the byte slice and returns the value and new position
 func DecodeVarint(buf []byte, pos int) (uint64, int, error) {
-	var result uint64
-	var shift uint
-	for i := 0; i < binary.MaxVarintLen64; i++ {
-		if pos >= len(buf) {
-			return 0, pos, ufmt.Errorf("buffer underflow while reading varint")
-		}
-		b := buf[pos]
-		pos++
-		result |= uint64(b&0x7F) << shift
-		if b&0x80 == 0 {
-			return result, pos, nil
-		}
-		shift += 7
+	if pos > len(buf) {
+		return 0, pos, ufmt.Errorf("buffer underflow while reading varint")
 	}
-	return 0, pos, ufmt.Errorf("varint exceeds %d bytes", binary.MaxVarintLen64)
+	v, n := binary.Uvarint(buf[pos:])
+	if n == 0 {
+		return 0, pos, ufmt.Errorf("buffer underflow while reading varint")
+	}
+	if n < 0 {
+		return 0, pos + (-n), ufmt.Errorf("varint overflows uint64")
+	}
+	return v, pos + n, nil
 }
 
 // DecodeString reads a string (length-prefixed) from the byte slice

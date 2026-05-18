@@ -153,10 +153,11 @@ func TestDecodeVarint(t *testing.T) {
 		{"single byte zero", []byte{0x00}, 0, 0, 1, ""},
 		{"single byte 1", []byte{0x01}, 0, 1, 1, ""},
 		{"two-byte 150", []byte{0x96, 0x01}, 0, 150, 2, ""},
+		{"non-zero start position", []byte{0xff, 0x96, 0x01, 0xff}, 1, 150, 3, ""},
 		{"max uint64 (10-byte varint)", maxUint64Varint, 0, 1<<64 - 1, 10, ""},
 		{"empty buffer", []byte{}, 0, 0, 0, "buffer underflow"},
-		{"truncated continuation", []byte{0x80}, 0, 0, 1, "buffer underflow"},
-		{"overlong (11 bytes) rejected", overlongVarint, 0, 0, 10, "varint exceeds 10 bytes"},
+		{"truncated continuation", []byte{0x80}, 0, 0, 0, "buffer underflow"},
+		{"10-byte varint overflowing uint64 rejected", overlongVarint, 0, 0, 10, "varint overflows uint64"},
 	}
 
 	for _, tc := range testCases {
@@ -169,6 +170,7 @@ func TestDecodeVarint(t *testing.T) {
 				return
 			}
 			urequire.ErrorContains(t, err, tc.expErr)
+			uassert.Equal(t, tc.expPos, p)
 		})
 	}
 }
@@ -206,5 +208,16 @@ func TestDecodeString(t *testing.T) {
 		buf := []byte{0x80}
 		_, _, err := DecodeString(buf, 0)
 		urequire.ErrorContains(t, err, "varint")
+	})
+
+	t.Run("non-zero start position", func(t *testing.T) {
+		// prefix byte + varint(5) + "hello" + trailing byte
+		buf := []byte{0xff}
+		buf = append(buf, binary.AppendUvarint(nil, 5)...)
+		buf = append(buf, []byte("hello\xff")...)
+		got, p, err := DecodeString(buf, 1)
+		urequire.NoError(t, err)
+		uassert.Equal(t, "hello", got)
+		uassert.Equal(t, len(buf)-1, p)
 	})
 }
