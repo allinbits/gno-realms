@@ -175,9 +175,9 @@ func TestProtoMarshalUnmarshalRoundTrip(t *testing.T) {
 		t.Fatal("ProtoMarshal returned empty bytes")
 	}
 
-	decoded, err := UnmarshalValidatorSetChangePacketData(bz)
+	decoded, err := ProtoUnmarshalValidatorSetChangePacketData(bz)
 	if err != nil {
-		t.Fatalf("UnmarshalValidatorSetChangePacketData failed: %v", err)
+		t.Fatalf("ProtoUnmarshalValidatorSetChangePacketData failed: %v", err)
 	}
 
 	if decoded.ValsetUpdateId != original.ValsetUpdateId {
@@ -208,9 +208,9 @@ func TestProtoMarshalUnmarshalEmptyUpdates(t *testing.T) {
 	}
 
 	bz := original.ProtoMarshal()
-	decoded, err := UnmarshalValidatorSetChangePacketData(bz)
+	decoded, err := ProtoUnmarshalValidatorSetChangePacketData(bz)
 	if err != nil {
-		t.Fatalf("UnmarshalValidatorSetChangePacketData failed: %v", err)
+		t.Fatalf("ProtoUnmarshalValidatorSetChangePacketData failed: %v", err)
 	}
 
 	if decoded.ValsetUpdateId != 1 {
@@ -234,9 +234,9 @@ func TestUnmarshalProtobufFromProvider(t *testing.T) {
 	}
 	bz := vsc.ProtoMarshal()
 
-	decoded, err := UnmarshalValidatorSetChangePacketData(bz)
+	decoded, err := ProtoUnmarshalValidatorSetChangePacketData(bz)
 	if err != nil {
-		t.Fatalf("UnmarshalValidatorSetChangePacketData failed: %v", err)
+		t.Fatalf("ProtoUnmarshalValidatorSetChangePacketData failed: %v", err)
 	}
 
 	if decoded.ValsetUpdateId != 1 {
@@ -271,9 +271,9 @@ func TestUnmarshalProtobufZeroPower(t *testing.T) {
 	}
 	bz := vsc.ProtoMarshal()
 
-	decoded, err := UnmarshalValidatorSetChangePacketData(bz)
+	decoded, err := ProtoUnmarshalValidatorSetChangePacketData(bz)
 	if err != nil {
-		t.Fatalf("UnmarshalValidatorSetChangePacketData failed: %v", err)
+		t.Fatalf("ProtoUnmarshalValidatorSetChangePacketData failed: %v", err)
 	}
 
 	if decoded.ValidatorUpdates[0].Power != 0 {
@@ -290,9 +290,9 @@ func TestUnmarshalProtobufSecp256k1Key(t *testing.T) {
 	}
 	bz := vsc.ProtoMarshal()
 
-	decoded, err := UnmarshalValidatorSetChangePacketData(bz)
+	decoded, err := ProtoUnmarshalValidatorSetChangePacketData(bz)
 	if err != nil {
-		t.Fatalf("UnmarshalValidatorSetChangePacketData failed: %v", err)
+		t.Fatalf("ProtoUnmarshalValidatorSetChangePacketData failed: %v", err)
 	}
 
 	if decoded.ValidatorUpdates[0].PubKey != "secp256k1:A7x3FJxIMWJM1xymAKRHLiPMqxR0NQKX2gjHMYNKHZk=" {
@@ -321,7 +321,7 @@ func TestUnmarshalInvalidProtobuf(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// Empty input should decode to a zero-value VSC with empty (not nil) updates
-			decoded, err := UnmarshalValidatorSetChangePacketData(tt.input)
+			decoded, err := ProtoUnmarshalValidatorSetChangePacketData(tt.input)
 			if tt.name == "empty input" {
 				if err != nil {
 					t.Errorf("unexpected error for empty input: %v", err)

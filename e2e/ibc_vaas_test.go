@@ -3,6 +3,7 @@ package e2e
 import (
 	"context"
 	"encoding/base64"
+	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"strconv"
@@ -11,30 +12,90 @@ import (
 )
 
 type validatorUpdate struct {
-	PubKey map[string]string `json:"pub_key"`
-	Power  string            `json:"power"`
+	PubKey map[string]string
+	Power  string
 }
 
-type vscPacketData struct {
-	ValidatorUpdates []validatorUpdate `json:"validator_updates"`
-	ValsetUpdateID   string            `json:"valset_update_id"`
+func appendTag(buf []byte, fieldNum int, wireType int) []byte {
+	tag := (fieldNum << 3) | wireType
+	return binary.AppendUvarint(buf, uint64(tag))
+}
+
+func appendProtoVarint(buf []byte, fieldNum int, v uint64) []byte {
+	if v == 0 {
+		return buf
+	}
+	buf = appendTag(buf, fieldNum, 0)
+	return binary.AppendUvarint(buf, v)
+}
+
+func appendLengthDelimited(buf []byte, fieldNum int, bz []byte) []byte {
+	if len(bz) == 0 {
+		return buf
+	}
+	buf = appendTag(buf, fieldNum, 2)
+	buf = binary.AppendUvarint(buf, uint64(len(bz)))
+	return append(buf, bz...)
+}
+
+func appendAlwaysLengthDelimited(buf []byte, fieldNum int, bz []byte) []byte {
+	buf = appendTag(buf, fieldNum, 2)
+	buf = binary.AppendUvarint(buf, uint64(len(bz)))
+	return append(buf, bz...)
+}
+
+func marshalPublicKey(keyType string, keyBytes []byte) []byte {
+	var buf []byte
+	switch keyType {
+	case "ed25519":
+		return appendLengthDelimited(buf, 1, keyBytes)
+	case "secp256k1":
+		return appendLengthDelimited(buf, 2, keyBytes)
+	default:
+		return nil
+	}
+}
+
+func marshalValidatorUpdate(keyType string, keyBytes []byte, power int64) []byte {
+	var buf []byte
+	pubKeyBz := marshalPublicKey(keyType, keyBytes)
+	buf = appendAlwaysLengthDelimited(buf, 1, pubKeyBz)
+	if power != 0 {
+		buf = appendTag(buf, 2, 0)
+		buf = binary.AppendUvarint(buf, uint64(power))
+	}
+	return buf
+}
+
+func marshalVSCProtobuf(validators []validatorUpdate, valsetUpdateID uint64) []byte {
+	var buf []byte
+	for _, vu := range validators {
+		var keyType string
+		var keyB64 string
+		for k, v := range vu.PubKey {
+			keyType = k
+			keyB64 = v
+			break
+		}
+		keyBytes, _ := base64.StdEncoding.DecodeString(keyB64)
+		power, _ := strconv.ParseInt(vu.Power, 10, 64)
+		updateBz := marshalValidatorUpdate(keyType, keyBytes, power)
+		buf = appendLengthDelimited(buf, 1, updateBz)
+	}
+	buf = appendProtoVarint(buf, 2, valsetUpdateID)
+	return buf
 }
 
 func (s *E2ETestSuite) sendVSCPacket(validators []validatorUpdate, valsetUpdateID uint64) {
-	vscData := vscPacketData{
-		ValidatorUpdates: validators,
-		ValsetUpdateID:   fmt.Sprint(valsetUpdateID),
-	}
-	vscJSON, err := json.Marshal(vscData)
-	s.Require().NoError(err, "marshal VSC packet data")
+	vscProto := marshalVSCProtobuf(validators, valsetUpdateID)
 
 	timeout := time.Now().Add(time.Hour).Unix()
 	payload := map[string]any{
 		"source_port":      "vaasprovider",
 		"destination_port": "vaasconsumer",
 		"version":          "vaas-v1",
-		"encoding":         "application/json",
-		"value":            base64.StdEncoding.EncodeToString(vscJSON),
+		"encoding":         "application/x-protobuf",
+		"value":            base64.StdEncoding.EncodeToString(vscProto),
 	}
 	msgSendPacket := map[string]any{
 		"@type":             "/ibc.core.channel.v2.MsgSendPacket",

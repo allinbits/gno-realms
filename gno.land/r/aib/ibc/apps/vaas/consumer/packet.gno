@@ -353,17 +353,6 @@ func skipField(bz []byte, pos int, wireType uint64) (int, error) {
 	}
 }
 
-// UnmarshalValidatorSetChangePacketData decodes protobuf bytes into a
-// ValidatorSetChangePacketData.
-func UnmarshalValidatorSetChangePacketData(bz []byte) (ValidatorSetChangePacketData, error) {
-	vsc, err := ProtoUnmarshalValidatorSetChangePacketData(bz)
-	if err != nil {
-		return vsc, ufmt.Errorf("failed to unmarshal VSC packet data: %v", err)
-	}
-
-	return vsc, nil
-}
-
 // MakePubKey creates a canonical pubkey string from type and base64 value.
 func MakePubKey(keyType, base64Value string) string {
 	return keyType + ":" + base64Value

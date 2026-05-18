@@ -92,7 +92,7 @@ func (a *App) OnRecvPacket(
 	}
 
 	// Decode the VSC packet data.
-	vscData, err := UnmarshalValidatorSetChangePacketData(payload.Value)
+	vscData, err := ProtoUnmarshalValidatorSetChangePacketData(payload.Value)
 	if err != nil {
 		return types.RecvPacketResult{Status: types.PacketStatus_Failure}
 	}
