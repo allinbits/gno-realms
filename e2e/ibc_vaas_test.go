@@ -124,30 +124,32 @@ func (s *E2ETestSuite) createConsumerOnProvider() {
 	s.T().Logf("Consumer registered on provider (txhash=%s), waiting for launch...", txResult.TxHash)
 
 	// Wait for the tx to be committed and the consumer to be processed in BeginBlock
+	loggedOnce := false
 	s.waitForCondition(60*time.Second, 2*time.Second, func() bool {
-		queryOut, _, err := dockerExec(ctx, s.atomoneContainer,
+		queryOut, queryErr, err := dockerExec(ctx, s.atomoneContainer,
 			"atomoned", "q", "provider", "consumer-genesis", "0",
 			"--home", "/root/.atomone",
 			"--node", "tcp://localhost:26657",
 			"--output", "json",
 		)
 		if err != nil {
-			s.T().Logf("consumer-genesis query error: %v", err)
+			if !loggedOnce {
+				s.T().Logf("consumer-genesis query failed: %v, stderr: %s", err, truncate(queryErr, 500))
+				loggedOnce = true
+			}
 			return false
 		}
 		if strings.Contains(queryOut, "not found") || strings.Contains(queryOut, "Error") {
-			phaseOut, _, _ := dockerExec(ctx, s.atomoneContainer,
-				"atomoned", "q", "provider", "consumer-chains",
-				"--home", "/root/.atomone",
-				"--node", "tcp://localhost:26657",
-				"--output", "json",
-			)
-			s.T().Logf("consumer not launched yet, chains query: out=%s", truncate(phaseOut, 200))
+			if !loggedOnce {
+				s.T().Logf("consumer not launched yet, response: %s", truncate(queryOut, 300))
+				loggedOnce = true
+			}
 			return false
 		}
 		return true
 	}, "consumer genesis not found on provider (consumer not launched)")
 
+	s.dumpAtomoneLogs()
 	s.T().Log("Consumer launched on provider")
 }
 
