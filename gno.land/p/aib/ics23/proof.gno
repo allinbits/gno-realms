@@ -372,10 +372,17 @@ func IsRightMost(spec *InnerSpec, path []*InnerOp) (bool, error) {
 //	For step in LPath[0..len-1], validate step is right-most node
 //	For step in RPath[0..len-1], validate step is left-most node
 func IsLeftNeighbor(spec *InnerSpec, left []*InnerOp, right []*InnerOp) (bool, error) {
+	if len(left) == 0 || len(right) == 0 {
+		return false, nil
+	}
+
 	// count common tail (from end, near root)
 	left, topleft := left[:len(left)-1], left[len(left)-1]
 	right, topright := right[:len(right)-1], right[len(right)-1]
 	for bytes.Equal(topleft.Prefix, topright.Prefix) && bytes.Equal(topleft.Suffix, topright.Suffix) {
+		if len(left) == 0 || len(right) == 0 {
+			return false, nil
+		}
 		left, topleft = left[:len(left)-1], left[len(left)-1]
 		right, topright = right[:len(right)-1], right[len(right)-1]
 	}
