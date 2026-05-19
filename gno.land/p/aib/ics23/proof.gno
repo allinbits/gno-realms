@@ -389,7 +389,11 @@ func IsLeftNeighbor(spec *InnerSpec, left []*InnerOp, right []*InnerOp) (bool, e
 
 	// now topleft and topright are the first divergent nodes
 	// make sure they are left and right of each other
-	if !isLeftStep(spec, topleft, topright) {
+	ok, err := isLeftStep(spec, topleft, topright)
+	if err != nil {
+		return false, err
+	}
+	if !ok {
 		return false, nil
 	}
 
@@ -415,18 +419,18 @@ func IsLeftNeighbor(spec *InnerSpec, left []*InnerOp, right []*InnerOp) (bool, e
 
 // isLeftStep assumes left and right have common parents
 // checks if left is exactly one slot to the left of right
-func isLeftStep(spec *InnerSpec, left *InnerOp, right *InnerOp) bool {
+func isLeftStep(spec *InnerSpec, left *InnerOp, right *InnerOp) (bool, error) {
 	leftidx, err := orderFromPadding(spec, left)
 	if err != nil {
-		panic(err)
+		return false, err
 	}
 	rightidx, err := orderFromPadding(spec, right)
 	if err != nil {
-		panic(err)
+		return false, err
 	}
 
 	// TODO: is it possible there are empty (nil) children???
-	return rightidx == leftidx+1
+	return rightidx == leftidx+1, nil
 }
 
 // checks if an op has the expected padding
