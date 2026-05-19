@@ -175,3 +175,48 @@ func TestProofSpecProtoMarshal(t *testing.T) {
 		uassert.Equal(t, "180820012801", hex.EncodeToString(bz))
 	})
 }
+
+func TestIsLeftNeighbor_NoPanicOnEdgeCases(t *testing.T) {
+	spec := ics23.IavlSpec().InnerSpec
+	childSize := int(spec.ChildSize)
+
+	validOp := func() *ics23.InnerOp {
+		return &ics23.InnerOp{Prefix: []byte("aaaa"), Suffix: make([]byte, childSize)}
+	}
+	convergingOp := func() *ics23.InnerOp {
+		return &ics23.InnerOp{Prefix: []byte("aaaa"), Suffix: make([]byte, childSize)}
+	}
+	malformedOp := func() *ics23.InnerOp {
+		return &ics23.InnerOp{Prefix: make([]byte, 100), Suffix: nil}
+	}
+
+	cases := []struct {
+		name      string
+		left      []*ics23.InnerOp
+		right     []*ics23.InnerOp
+		expectErr bool
+	}{
+		{"empty left path", nil, []*ics23.InnerOp{validOp()}, false},
+		{"empty right path", []*ics23.InnerOp{validOp()}, nil, false},
+		{"common suffix exhausted", []*ics23.InnerOp{convergingOp()}, []*ics23.InnerOp{convergingOp()}, false},
+		{"malformed left prefix", []*ics23.InnerOp{malformedOp()}, []*ics23.InnerOp{validOp()}, true},
+		{"malformed right prefix", []*ics23.InnerOp{validOp()}, []*ics23.InnerOp{malformedOp()}, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var (
+				ok  bool
+				err error
+			)
+			uassert.NotPanics(t, func() {
+				ok, err = ics23.IsLeftNeighbor(spec, tc.left, tc.right)
+			})
+			uassert.False(t, ok, "expected isNeighbor=false")
+			if tc.expectErr {
+				uassert.Error(t, err, "expected error for malformed input")
+			} else {
+				uassert.NoError(t, err)
+			}
+		})
+	}
+}
