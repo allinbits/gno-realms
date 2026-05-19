@@ -121,13 +121,16 @@ func (s *E2ETestSuite) createConsumerOnProvider() {
 	s.Require().NoError(json.Unmarshal([]byte(strings.TrimSpace(txStdout)), &txResult))
 	s.Require().Equal(0, txResult.Code, "create-consumer tx failed (txhash=%s): %s", txResult.TxHash, txResult.RawLog)
 
-	s.T().Logf("Consumer registered on provider (txhash=%s), waiting for launch...", txResult.TxHash)
+	// Extract consumer ID from the tx events
+	consumerID := s.getConsumerIDFromTx(txResult.TxHash)
+	s.Require().NotEmpty(consumerID, "consumer ID not found in tx events")
+	s.T().Logf("Consumer %s registered on provider (txhash=%s), waiting for launch...", consumerID, txResult.TxHash)
 
 	// Wait for the tx to be committed and the consumer to be processed in BeginBlock
 	loggedOnce := false
 	s.waitForCondition(60*time.Second, 2*time.Second, func() bool {
 		queryOut, queryErr, err := dockerExec(ctx, s.atomoneContainer,
-			"atomoned", "q", "provider", "consumer-genesis", "0",
+			"atomoned", "q", "provider", "consumer-genesis", consumerID,
 			"--home", "/root/.atomone",
 			"--node", "tcp://localhost:26657",
 			"--output", "json",
@@ -151,6 +154,40 @@ func (s *E2ETestSuite) createConsumerOnProvider() {
 
 	s.dumpAtomoneLogs()
 	s.T().Log("Consumer launched on provider")
+}
+
+// getConsumerIDFromTx queries the tx by hash and extracts the consumer_id from events.
+func (s *E2ETestSuite) getConsumerIDFromTx(txHash string) string {
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	stdout, stderr, err := dockerExec(ctx, s.atomoneContainer,
+		"atomoned", "q", "tx", txHash,
+		"--node", "tcp://localhost:26657",
+		"--output", "json",
+	)
+	s.Require().NoError(err, "query tx %s: %s", txHash, stderr)
+
+	var txResp struct {
+		Events []struct {
+			Type  string `json:"type"`
+			Attrs []struct {
+				Key   string `json:"key"`
+				Value string `json:"value"`
+			} `json:"attributes"`
+		} `json:"events"`
+	}
+	s.Require().NoError(json.Unmarshal([]byte(strings.TrimSpace(stdout)), &txResp))
+
+	for _, ev := range txResp.Events {
+		if ev.Type == "create_consumer" {
+			for _, attr := range ev.Attrs {
+				if attr.Key == "consumer_id" {
+					return attr.Value
+				}
+			}
+		}
+	}
+	return ""
 }
 
 // dumpAtomoneLogs prints recent AtomOne container logs for debugging.
