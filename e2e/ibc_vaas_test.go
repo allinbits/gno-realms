@@ -108,18 +108,23 @@ func (s *E2ETestSuite) createConsumerOnProvider() {
 		"--gas", "auto", "--gas-adjustment", "1.5",
 		"--yes", "--output", "json",
 	)
-	s.Require().NoError(err, "create-consumer tx: %s", txStderr)
+	if err != nil {
+		s.dumpAtomoneLogs()
+	}
+	s.Require().NoError(err, "create-consumer tx: stdout=%s stderr=%s", txStdout, txStderr)
 
 	var txResult struct {
 		Code   int    `json:"code"`
 		RawLog string `json:"raw_log"`
+		TxHash string `json:"txhash"`
 	}
 	s.Require().NoError(json.Unmarshal([]byte(strings.TrimSpace(txStdout)), &txResult))
-	s.Require().Equal(0, txResult.Code, "create-consumer tx failed: %s", txResult.RawLog)
+	s.Require().Equal(0, txResult.Code, "create-consumer tx failed (txhash=%s): %s", txResult.TxHash, txResult.RawLog)
 
-	s.T().Log("Consumer registered on provider, waiting for launch...")
+	s.T().Logf("Consumer registered on provider (txhash=%s), waiting for launch...", txResult.TxHash)
 
-	s.waitForCondition(30*time.Second, 2*time.Second, func() bool {
+	// Wait for the tx to be committed and the consumer to be processed in BeginBlock
+	s.waitForCondition(60*time.Second, 2*time.Second, func() bool {
 		queryOut, _, err := dockerExec(ctx, s.atomoneContainer,
 			"atomoned", "q", "provider", "consumer-genesis", "0",
 			"--home", "/root/.atomone",
@@ -127,12 +132,43 @@ func (s *E2ETestSuite) createConsumerOnProvider() {
 			"--output", "json",
 		)
 		if err != nil {
+			s.T().Logf("consumer-genesis query error: %v", err)
 			return false
 		}
-		return queryOut != "" && !strings.Contains(queryOut, "not found") && !strings.Contains(queryOut, "Error")
+		if strings.Contains(queryOut, "not found") || strings.Contains(queryOut, "Error") {
+			phaseOut, _, _ := dockerExec(ctx, s.atomoneContainer,
+				"atomoned", "q", "provider", "consumer-chains",
+				"--home", "/root/.atomone",
+				"--node", "tcp://localhost:26657",
+				"--output", "json",
+			)
+			s.T().Logf("consumer not launched yet, chains query: out=%s", truncate(phaseOut, 200))
+			return false
+		}
+		return true
 	}, "consumer genesis not found on provider (consumer not launched)")
 
 	s.T().Log("Consumer launched on provider")
+}
+
+// dumpAtomoneLogs prints recent AtomOne container logs for debugging.
+func (s *E2ETestSuite) dumpAtomoneLogs() {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	logs, _, err := dockerExec(ctx, s.atomoneContainer,
+		"bash", "-c", "cat /root/.atomone/data/atomoned.log 2>/dev/null || echo 'no log file'")
+	if err != nil {
+		s.T().Logf("Failed to dump atomone logs: %v", err)
+		return
+	}
+	s.T().Logf("=== AtomOne logs ===\n%s\n=== End AtomOne logs ===", truncate(logs, 3000))
+}
+
+func truncate(s string, maxLen int) string {
+	if len(s) <= maxLen {
+		return s
+	}
+	return s[:maxLen] + "...(truncated)"
 }
 
 func (s *E2ETestSuite) getValidatorOperatorAddress() string {
