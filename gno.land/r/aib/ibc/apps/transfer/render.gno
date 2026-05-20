@@ -3,12 +3,16 @@ package transfer
 import (
 	"chain"
 	"chain/runtime"
+	"strconv"
 	"strings"
+	"time"
 
 	"gno.land/p/aib/jsonpage"
+	"gno.land/p/moul/txlink"
 	"gno.land/p/nt/mux/v0"
 	"gno.land/p/nt/ufmt/v0"
 	"gno.land/p/onbloc/json"
+	"gno.land/r/aib/ibc/core"
 )
 
 func Render(path string) string {
@@ -27,6 +31,7 @@ func renderHome(w *mux.ResponseWriter, r *mux.Request) {
 	var out strings.Builder
 	out.WriteString("# IBC transfer\n\n")
 	out.WriteString("ICS-20 style transfer state and voucher token queries.\n\n")
+	out.WriteString(renderTransferLinks())
 	out.WriteString(ufmt.Sprintf("## Vouchers (%d)\n\n", denoms.Size()))
 	if denoms.Size() > 0 {
 		out.WriteString("| Denom | Base | Path | Supply | GRC20 |\n")
@@ -159,6 +164,90 @@ func renderVoucherBalance(w *mux.ResponseWriter, r *mux.Request) {
 		"address": json.StringNode("", addr),
 		"balance": json.NumberNode("", float64(balance)),
 	}))
+}
+
+// renderTransferLinks returns the "## Transfer" section: a set of txlinks
+// that wallets can turn into MsgCalls to Transfer. Each link leaves at least
+// one argument empty so the user fills it in their wallet.
+func renderTransferLinks() string {
+	var out strings.Builder
+	out.WriteString("## Transfer\n\n")
+
+	clientIDs := core.ClientIDs()
+	if len(clientIDs) == 0 {
+		out.WriteString("No IBC client registered yet — create one in [`/r/aib/ibc/core`](/r/aib/ibc/core) before transferring.\n\n")
+		return out.String()
+	}
+
+	out.WriteString("Trigger an IBC transfer from your wallet. Pick the client of the destination chain:\n\n")
+	for _, clientID := range clientIDs {
+		out.WriteString(ufmt.Sprintf(
+			"- [send via `%s`](%s) ([client details](/r/aib/ibc/core:clients/%s))\n",
+			clientID, newTransferLink(clientID, "", "").URL(), clientID,
+		))
+	}
+
+	// Per-voucher links: send back via IBC, plus local GRC20 send/approve.
+	// All pre-fill the voucher denom; the user only fills the counterparty
+	// and amount (and timeout for the IBC send) in their wallet.
+	if denoms.Size() > 0 {
+		out.WriteString("\n### Per-voucher actions\n\n")
+		denoms.IterateByOffset(0, denoms.Size(), func(_ string, v any) bool {
+			d := v.(Denom)
+			if d.IsNative() {
+				return false
+			}
+			sourceClient := d.Trace[0].ClientId
+			ibcDenom := d.IBCDenom()
+			out.WriteString(ufmt.Sprintf(
+				"- `%s` (%s): [send back](%s) via `%s` — [send](%s) — [approve](%s)\n",
+				shortDenom(ibcDenom), d.Base,
+				newTransferLink(sourceClient, "", ibcDenom).URL(),
+				sourceClient,
+				newVoucherSendLink(ibcDenom).URL(),
+				newVoucherApproveLink(ibcDenom).URL(),
+			))
+			return false
+		})
+	}
+	out.WriteString("\n")
+	return out.String()
+}
+
+// newVoucherSendLink builds a txlink to VoucherSend with the ibc denom
+// pre-filled. The user fills `to` and `amount` in their wallet.
+func newVoucherSendLink(ibcDenom string) *txlink.TxBuilder {
+	return txlink.NewLink("VoucherSend").AddArgs(
+		"ibcDenom", ibcDenom,
+		"to", "",
+		"amount", "",
+	)
+}
+
+// newVoucherApproveLink builds a txlink to VoucherApprove with the ibc denom
+// pre-filled. The user fills `spender` and `amount` in their wallet.
+func newVoucherApproveLink(ibcDenom string) *txlink.TxBuilder {
+	return txlink.NewLink("VoucherApprove").AddArgs(
+		"ibcDenom", ibcDenom,
+		"spender", "",
+		"amount", "",
+	)
+}
+
+// newTransferLink builds a txlink to the Transfer function with the given
+// pre-filled arguments. Empty values are left wallet-settable.
+// timeoutTimestamp defaults to one hour from now (in unix seconds), matching
+// what the e2e tests use; the user can still override it in their wallet.
+func newTransferLink(clientID, receiver, denom string) *txlink.TxBuilder {
+	timeoutTimestamp := strconv.FormatInt(time.Now().Add(time.Hour).Unix(), 10)
+	return txlink.NewLink("Transfer").AddArgs(
+		"clientID", clientID,
+		"receiver", receiver,
+		"denom", denom,
+		"amount", "",
+		"timeoutTimestamp", timeoutTimestamp,
+		"memo", "",
+	)
 }
 
 // stripDomain removes the domain from a gno pkg path for use in URLs.

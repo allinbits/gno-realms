@@ -11,6 +11,10 @@ func main() {
 //
 // ICS-20 style transfer state and voucher token queries.
 //
+// ## Transfer
+//
+// No IBC client registered yet — create one in [`/r/aib/ibc/core`](/r/aib/ibc/core) before transferring.
+//
 // ## Vouchers (0)
 //
 // No vouchers yet.

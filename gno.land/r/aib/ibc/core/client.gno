@@ -46,6 +46,18 @@ func CreateClient(cur realm, clientState lightclient.ClientState, consensusState
 	return c.id
 }
 
+// ClientIDs returns the list of known client identifiers, sorted lexically by
+// id (the underlying b+tree order). Intended for read-only callers (UIs,
+// other realms building txlinks).
+func ClientIDs() []string {
+	ids := make([]string, 0, store.clientByID.Size())
+	store.clientByID.IterateByOffset(0, store.clientByID.Size(), func(k string, _ any) bool {
+		ids = append(ids, k)
+		return false
+	})
+	return ids
+}
+
 // RegisterCounterparty will register the IBC v2 counterparty info for the
 // given clientID. It must be called by the same relayer that called
 // CreateClient.
