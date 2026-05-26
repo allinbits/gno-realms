@@ -3,7 +3,7 @@ package transfer
 import (
 	"bytes"
 	"chain"
-	"chain/runtime"
+	"chain/runtime/unsafe"
 	"errors"
 	"strconv"
 	"strings"
@@ -28,9 +28,9 @@ const (
 	escrowAddressVersion = V1
 )
 
-func init() {
+func init(cur realm) {
 	// Register the app in the IBC router.
-	core.RegisterApp(cross, PortID, &App{})
+	core.RegisterApp(cross(cur), PortID, &App{})
 }
 
 var _ app.IBCApp = &App{}
@@ -74,7 +74,9 @@ func (a *App) OnSendPacket(
 		return err
 	}
 
-	signer := runtime.OriginCaller().String()
+	// Mirror transfer.transfer(): the packet Sender is the EOA that signed
+	// the tx. unsafe.OriginCaller is tx-level identity (no cur equivalent).
+	signer := unsafe.OriginCaller().String()
 	if data.Sender != signer {
 		return ufmt.Errorf("invalid FungibleTokenPacketData: sender %s is different from signer %s", data.Sender, signer)
 	}
@@ -117,8 +119,8 @@ func (a *App) OnSendPacket(
 		if grc20Token == nil {
 			return ufmt.Errorf("GRC20 token %s not found in grc20reg", denomKey)
 		}
-		teller := grc20Token.RealmTeller()
-		if err := teller.TransferFrom(address(data.Sender), runtime.CurrentRealm().Address(), coin.Amount); err != nil {
+		teller := grc20Token.RealmTeller(0, cur)
+		if err := teller.TransferFrom(0, cur, address(data.Sender), cur.Address(), coin.Amount); err != nil {
 			return ufmt.Errorf("escrow GRC20 %s error: %v", denomKey, err)
 		}
 		addEscrowForDenom(coin)
@@ -156,7 +158,7 @@ func (a *App) OnSendPacket(
 
 // Implements app.IBCApp
 func (a *App) OnRecvPacket(
-	_ realm,
+	cur realm,
 	sourceClient string,
 	destinationClient string,
 	sequence uint64,
@@ -244,9 +246,9 @@ func (a *App) OnRecvPacket(
 		coin := chain.NewCoin(token.Denom.IBCDenom(), transferAmount)
 
 		if isGRC20Alias(coin.Denom) {
-			ackErr = unescrowGRC20(data.Receiver, coin)
+			ackErr = unescrowGRC20(0, cur, data.Receiver, coin)
 		} else {
-			ackErr = unescrowNative(data.Receiver, coin)
+			ackErr = unescrowNative(0, cur, data.Receiver, coin)
 		}
 		if ackErr != nil {
 			ack = types.NewErrorAppAcknowledgement(ackErr)
@@ -278,7 +280,7 @@ func (a *App) OnRecvPacket(
 			ack = types.NewErrorAppAcknowledgement(ackErr)
 			return types.RecvPacketResult{Status: types.PacketStatus_Failure}
 		}
-		inst := getOrCreateVoucher(token.Denom.Base, voucherDenom)
+		inst := getOrCreateVoucher(0, cur, token.Denom.Base, voucherDenom)
 		if err := inst.ledger.Mint(address(data.Receiver), amount); err != nil {
 			ackErr = ufmt.Errorf("mint voucher error: %v", err)
 			ack = types.NewErrorAppAcknowledgement(ackErr)
@@ -296,7 +298,7 @@ func (a *App) OnRecvPacket(
 // if the acknowledgement failed, then the sender is refunded their tokens.
 // Implements app.IBCApp
 func (a *App) OnAcknowledgementPacket(
-	_ realm,
+	cur realm,
 	sourceClient string,
 	destinationClient string,
 	sequence uint64,
@@ -328,7 +330,7 @@ func (a *App) OnAcknowledgementPacket(
 		// needs to be executed and no error needs to be returned
 	} else {
 		// refund sender in case of ack error
-		if err := refundPacketToken(payload.SourcePort, sourceClient, data.Sender, token); err != nil {
+		if err := refundPacketToken(0, cur, payload.SourcePort, sourceClient, data.Sender, token); err != nil {
 			return err
 		}
 	}
@@ -358,7 +360,7 @@ func (a *App) OnAcknowledgementPacket(
 // to the sender
 // Implements app.IBCApp
 func (a *App) OnTimeoutPacket(
-	_ realm,
+	cur realm,
 	sourceClient string,
 	destinationClient string,
 	sequence uint64,
@@ -369,7 +371,7 @@ func (a *App) OnTimeoutPacket(
 	if err != nil {
 		return err
 	}
-	if err := refundPacketToken(payload.SourcePort, sourceClient, data.Sender, token); err != nil {
+	if err := refundPacketToken(0, cur, payload.SourcePort, sourceClient, data.Sender, token); err != nil {
 		return err
 	}
 	// Emit events

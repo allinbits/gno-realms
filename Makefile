@@ -25,10 +25,15 @@ test:
 # This is needed because some dependencies (e.g. p/onbloc/*) are not available
 # on the default gno remote, but exist in the fork's examples.
 mod-download:
-	go tool gnodev -empty-blocks -resolver root=. \
+	go tool gnodev -interactive=false -empty-blocks -resolver root=. \
 		-resolver root=$(shell go tool gno env GNOROOT)/examples \
-		-paths "gno.land/r/aib/ibc/core,gno.land/r/aib/ibc/apps/transfer,gno.land/r/aib/ibc/apps/testing/grc20test" & \
-	while ! curl -sf 'http://127.0.0.1:26657/abci_query?path=%22.app/version%22' 2>/dev/null | grep -q '"response"'; do sleep 1; done; \
+		-paths "gno.land/r/aib/ibc/core,gno.land/r/aib/ibc/apps/transfer,gno.land/r/aib/ibc/apps/testing/grc20test" </dev/null & \
+	gnodev_pid=$$!; \
+	trap "kill $$gnodev_pid 2>/dev/null" EXIT; \
+	while ! curl -sf 'http://127.0.0.1:26657/abci_query?path=%22.app/version%22' 2>/dev/null | grep -q '"response"'; do \
+		if ! kill -0 $$gnodev_pid 2>/dev/null; then echo "gnodev exited before becoming ready" >&2; exit 1; fi; \
+		sleep 1; \
+	done; \
 	go tool gno clean -modcache=true; \
 	go tool gno mod download -remote-overrides gno.land=http://127.0.0.1:26657
 
@@ -65,7 +70,7 @@ e2e-build-no-cache:
 # --- Fork management ---
 
 export FORK_REPO   := github.com/allinbits/gno
-export FORK_BRANCH := ibc-fork-allowall-v3
+export FORK_BRANCH := ibc-fork-allowall-v3-pr4831
 
 update-fork:
 	$(eval HASH := $(shell git ls-remote https://$(FORK_REPO).git refs/heads/$(FORK_BRANCH) | awk '{print $$1}'))

@@ -1,8 +1,6 @@
 package core
 
 import (
-	"chain/runtime"
-
 	"gno.land/p/aib/ibc/app"
 	"gno.land/p/aib/ibc/host"
 	"gno.land/p/nt/ufmt/v0"
@@ -11,7 +9,7 @@ import (
 // RegisterApp registers an IBCApp, the portID is determined using the package
 // path of the caller, hence it must an other realm.
 func RegisterApp(cur realm, portID string, app app.IBCApp) {
-	caller := runtime.PreviousRealm()
+	caller := cur.Previous()
 	if caller.IsUser() {
 		panic("RegisterApp can only be called from an other realm")
 	}

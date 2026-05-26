@@ -15,6 +15,17 @@ type Token struct {
 	Amount string
 }
 
+// NewToken constructs a Token with the given native base denom and amount
+// (no trace, no prefix hops). Provided so external callers — which cannot
+// construct foreign-stamped composite literals under v2 borrow rule #1 —
+// can still build Token values for tests and packet assembly.
+func NewToken(baseDenom, amount string) Token {
+	return Token{
+		Denom:  NewDenom(baseDenom),
+		Amount: amount,
+	}
+}
+
 // ToCoin converts a Token to an chain.Coin.
 //
 // The function parses the Token.Amount field and returns a new sdk.Coin with

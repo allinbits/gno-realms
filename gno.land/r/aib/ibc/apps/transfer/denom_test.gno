@@ -62,7 +62,7 @@ func TestExtractDenomFromPath(t *testing.T) {
 		{
 			name:     "empty denom",
 			fullPath: "",
-			expDenom: transfer.Denom{},
+			expDenom: transfer.NewDenom(""),
 		},
 		{
 			name:     "base denom no slashes",

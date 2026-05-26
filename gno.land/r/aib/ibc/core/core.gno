@@ -3,7 +3,6 @@ package core
 import (
 	"bytes"
 	"chain"
-	"chain/runtime"
 	"encoding/hex"
 	"time"
 
@@ -86,7 +85,7 @@ func SendPacket(cur realm, msg types.MsgSendPacket) (sequence uint64) {
 	for i, payload := range msg.Payloads {
 		app := store.route(payload.SourcePort)
 		err := app.OnSendPacket(
-			cross, msg.SourceClient, c.counterpartyClientID, sequence, payload,
+			cross(cur), msg.SourceClient, c.counterpartyClientID, sequence, payload,
 		)
 		if err != nil {
 			panic(ufmt.Sprintf(
@@ -166,12 +165,15 @@ func RecvPacket(cur realm, msg types.MsgRecvPacket) types.ResponseResultType {
 		types.AttributeKeyEncodedPacketHex, hex.EncodeToString(msg.Packet.ProtoMarshal()),
 	)
 
-	c.writeRecvPacketAcknowledgement(msg.Packet)
+	c.writeRecvPacketAcknowledgement(0, cur, msg.Packet)
 
 	return types.RESPONSE_SUCCESS
 }
 
-func (c *client) writeRecvPacketAcknowledgement(packet types.Packet) {
+// writeRecvPacketAcknowledgement is a non-crossing helper: rlm is the caller's
+// live cur, threaded as a non-first param via the `_ int, rlm realm` shape so
+// the cross to each app's OnRecvPacket can be issued from RecvPacket's frame.
+func (c *client) writeRecvPacketAcknowledgement(_ int, rlm realm, packet types.Packet) {
 	var (
 		// build up the recv results for each application callback.
 		ack = types.Acknowledgement{
@@ -184,7 +186,7 @@ func (c *client) writeRecvPacketAcknowledgement(packet types.Packet) {
 	for i, payload := range packet.Payloads {
 		app := store.route(payload.DestinationPort)
 		res := app.OnRecvPacket(
-			cross, packet.SourceClient, packet.DestinationClient,
+			cross(rlm), packet.SourceClient, packet.DestinationClient,
 			packet.Sequence, payload,
 		)
 		if res.Status == types.PacketStatus_Failure {
@@ -241,7 +243,7 @@ func WriteAcknowledgement(cur realm, clientID string, sequence uint64, ack types
 		panic(ufmt.Sprintf("no pending async ack for client=%s sequence=%d", clientID, sequence))
 	}
 
-	callerPath := runtime.PreviousRealm().PkgPath()
+	callerPath := cur.Previous().PkgPath()
 	if callerPath != pending.appPkgPath {
 		panic(ufmt.Sprintf(
 			"caller %s is not authorized to write ack for sequence %d (expected %s)",
@@ -356,7 +358,7 @@ func Acknowledgement(cur realm, msg types.MsgAcknowledgement) types.ResponseResu
 			ack = types.UniversalErrorAcknowledgement()
 		}
 		err := app.OnAcknowledgementPacket(
-			cross, msg.Packet.SourceClient, msg.Packet.DestinationClient,
+			cross(cur), msg.Packet.SourceClient, msg.Packet.DestinationClient,
 			msg.Packet.Sequence, ack, payload,
 		)
 		if err != nil {
@@ -447,7 +449,7 @@ func Timeout(cur realm, msg types.MsgTimeout) types.ResponseResultType {
 	for i, payload := range msg.Packet.Payloads {
 		app := store.route(payload.SourcePort)
 		err := app.OnTimeoutPacket(
-			cross, msg.Packet.SourceClient, msg.Packet.DestinationClient,
+			cross(cur), msg.Packet.SourceClient, msg.Packet.DestinationClient,
 			msg.Packet.Sequence, payload,
 		)
 		if err != nil {

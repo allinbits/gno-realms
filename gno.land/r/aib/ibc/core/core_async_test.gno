@@ -11,14 +11,14 @@ import (
 
 const asyncAckTestCallerPath = "gno.land/r/aib/ibc/core"
 
-func TestWriteAcknowledgementSuccess(t *testing.T) {
+func TestWriteAcknowledgementSuccess(cur realm, t *testing.T) {
 	c := newAsyncAckTestClient()
 	packet := newAsyncAckTestPacket(c.id, 1)
 	ack := newAsyncAckTestAck()
 
 	c.savePendingAsyncAck(packet, asyncAckTestCallerPath)
 
-	WriteAcknowledgement(cross, c.id, packet.Sequence, ack)
+	WriteAcknowledgement(cross(cur), c.id, packet.Sequence, ack)
 
 	uassert.False(t, c.hasPendingAsyncAck(packet.Sequence))
 	uassert.True(t, c.hasPacketAcknowledgement(packet.Sequence))
@@ -27,48 +27,48 @@ func TestWriteAcknowledgementSuccess(t *testing.T) {
 	}
 }
 
-func TestWriteAcknowledgementWithoutAsyncRejected(t *testing.T) {
+func TestWriteAcknowledgementWithoutAsyncRejected(cur realm, t *testing.T) {
 	c := newAsyncAckTestClient()
 
-	uassert.AbortsContains(t, "no pending async ack", func() {
-		WriteAcknowledgement(cross, c.id, 1, newAsyncAckTestAck())
+	uassert.AbortsContains(t, cur, "no pending async ack", func() {
+		WriteAcknowledgement(cross(cur), c.id, 1, newAsyncAckTestAck())
 	})
 }
 
-func TestWriteAcknowledgementWrongCallerPreservesPending(t *testing.T) {
+func TestWriteAcknowledgementWrongCallerPreservesPending(cur realm, t *testing.T) {
 	c := newAsyncAckTestClient()
 	packet := newAsyncAckTestPacket(c.id, 1)
 	c.savePendingAsyncAck(packet, "gno.land/r/aib/ibc/not-the-caller")
 
-	uassert.AbortsContains(t, "is not authorized to write ack", func() {
-		WriteAcknowledgement(cross, c.id, packet.Sequence, newAsyncAckTestAck())
+	uassert.AbortsContains(t, cur, "is not authorized to write ack", func() {
+		WriteAcknowledgement(cross(cur), c.id, packet.Sequence, newAsyncAckTestAck())
 	})
 
 	uassert.True(t, c.hasPendingAsyncAck(packet.Sequence))
 	uassert.False(t, c.hasPacketAcknowledgement(packet.Sequence))
 }
 
-func TestWriteAcknowledgementDuplicateRejected(t *testing.T) {
+func TestWriteAcknowledgementDuplicateRejected(cur realm, t *testing.T) {
 	c := newAsyncAckTestClient()
 	packet := newAsyncAckTestPacket(c.id, 1)
 	c.savePendingAsyncAck(packet, asyncAckTestCallerPath)
 
-	WriteAcknowledgement(cross, c.id, packet.Sequence, newAsyncAckTestAck())
+	WriteAcknowledgement(cross(cur), c.id, packet.Sequence, newAsyncAckTestAck())
 
-	uassert.AbortsContains(t, "no pending async ack", func() {
-		WriteAcknowledgement(cross, c.id, packet.Sequence, newAsyncAckTestAck())
+	uassert.AbortsContains(t, cur, "no pending async ack", func() {
+		WriteAcknowledgement(cross(cur), c.id, packet.Sequence, newAsyncAckTestAck())
 	})
 }
 
-func TestWriteAcknowledgementAlreadyAckedRejected(t *testing.T) {
+func TestWriteAcknowledgementAlreadyAckedRejected(cur realm, t *testing.T) {
 	c := newAsyncAckTestClient()
 	packet := newAsyncAckTestPacket(c.id, 1)
 	ack := newAsyncAckTestAck()
 	c.savePendingAsyncAck(packet, asyncAckTestCallerPath)
 	c.setPacketAcknowledgement(packet.Sequence, types.CommitAcknowledgement(ack))
 
-	uassert.AbortsContains(t, "acknowledgement already written", func() {
-		WriteAcknowledgement(cross, c.id, packet.Sequence, ack)
+	uassert.AbortsContains(t, cur, "acknowledgement already written", func() {
+		WriteAcknowledgement(cross(cur), c.id, packet.Sequence, ack)
 	})
 
 	uassert.True(t, c.hasPendingAsyncAck(packet.Sequence))
@@ -91,7 +91,7 @@ func TestPendingAsyncAckStoreRoundTrip(t *testing.T) {
 	uassert.False(t, c.hasPendingAsyncAck(packet.Sequence))
 }
 
-func TestRecvPacketAsyncDefersAck(t *testing.T) {
+func TestRecvPacketAsyncDefersAck(cur realm, t *testing.T) {
 	c := newAsyncAckTestClient()
 	packet := newAsyncAckTestPacket(c.id, 1)
 	store.routes["appID"] = ibcApp{
@@ -101,13 +101,13 @@ func TestRecvPacketAsyncDefersAck(t *testing.T) {
 		pkgPath: asyncAckTestCallerPath,
 	}
 
-	c.writeRecvPacketAcknowledgement(packet)
+	c.writeRecvPacketAcknowledgement(0, cur, packet)
 
 	uassert.True(t, c.hasPendingAsyncAck(packet.Sequence))
 	uassert.False(t, c.hasPacketAcknowledgement(packet.Sequence))
 }
 
-func TestRecvPacketMultiPayloadAsyncRejected(t *testing.T) {
+func TestRecvPacketMultiPayloadAsyncRejected(cur realm, t *testing.T) {
 	c := newAsyncAckTestClient()
 	packet := newAsyncAckTestPacket(c.id, 1)
 	packet.Payloads = append(packet.Payloads, packet.Payloads[0])
@@ -118,12 +118,12 @@ func TestRecvPacketMultiPayloadAsyncRejected(t *testing.T) {
 		pkgPath: asyncAckTestCallerPath,
 	}
 
-	uassert.PanicsContains(t, "async ack not supported for multi-payload packets", func() {
-		c.writeRecvPacketAcknowledgement(packet)
+	uassert.PanicsContains(t, cur, "async ack not supported for multi-payload packets", func() {
+		c.writeRecvPacketAcknowledgement(0, cur, packet)
 	})
 }
 
-func TestRecvPacketSuccessWritesAck(t *testing.T) {
+func TestRecvPacketSuccessWritesAck(cur realm, t *testing.T) {
 	c := newAsyncAckTestClient()
 	packet := newAsyncAckTestPacket(c.id, 1)
 	ack := []byte{0x02}
@@ -135,29 +135,29 @@ func TestRecvPacketSuccessWritesAck(t *testing.T) {
 		pkgPath: asyncAckTestCallerPath,
 	}
 
-	c.writeRecvPacketAcknowledgement(packet)
+	c.writeRecvPacketAcknowledgement(0, cur, packet)
 
 	uassert.False(t, c.hasPendingAsyncAck(packet.Sequence))
 	uassert.True(t, c.hasPacketAcknowledgement(packet.Sequence))
 }
 
-func TestSavePendingAsyncAckRejectsDuplicate(t *testing.T) {
+func TestSavePendingAsyncAckRejectsDuplicate(cur realm, t *testing.T) {
 	c := newAsyncAckTestClient()
 	packet := newAsyncAckTestPacket(c.id, 1)
 	c.savePendingAsyncAck(packet, asyncAckTestCallerPath)
 
-	uassert.PanicsContains(t, "pending async ack already exists", func() {
+	uassert.PanicsContains(t, cur, "pending async ack already exists", func() {
 		c.savePendingAsyncAck(packet, asyncAckTestCallerPath)
 	})
 }
 
-func TestSavePendingAsyncAckRejectsAlreadyAcked(t *testing.T) {
+func TestSavePendingAsyncAckRejectsAlreadyAcked(cur realm, t *testing.T) {
 	c := newAsyncAckTestClient()
 	packet := newAsyncAckTestPacket(c.id, 1)
 	ack := newAsyncAckTestAck()
 	c.setPacketAcknowledgement(packet.Sequence, types.CommitAcknowledgement(ack))
 
-	uassert.PanicsContains(t, "acknowledgement already written", func() {
+	uassert.PanicsContains(t, cur, "acknowledgement already written", func() {
 		c.savePendingAsyncAck(packet, asyncAckTestCallerPath)
 	})
 }

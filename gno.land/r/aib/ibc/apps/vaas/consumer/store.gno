@@ -174,24 +174,25 @@ func GetHeightValsetUpdateID(height uint64) uint64 {
 //   - If the validator does not exist and the power is <= 0, skip it.
 //
 // This also propagates the changes to the chain's validator set via
-// r/sys/validators/v3.
-func applyValidatorChanges(changes []ValidatorUpdate) {
+// r/sys/validators/v3. Non-crossing helper; rlm is needed to issue the
+// cross calls into validators.AddValidator / RemoveValidator.
+func applyValidatorChanges(_ int, rlm realm, changes []ValidatorUpdate) {
 	for _, change := range changes {
 		_, found := getCCValidator(change.PubKey)
 
 		if found {
 			if change.Power <= 0 {
 				store.validators.Remove(change.PubKey)
-				propagateValidatorRemoval(change)
+				propagateValidatorRemoval(0, rlm, change)
 			} else {
 				val := CrossChainValidator{PubKey: change.PubKey, Power: change.Power}
 				store.validators.Set(val.PubKey, &val)
-				propagateValidatorToChain(change)
+				propagateValidatorToChain(0, rlm, change)
 			}
 		} else if change.Power > 0 {
 			val := CrossChainValidator{PubKey: change.PubKey, Power: change.Power}
 			store.validators.Set(val.PubKey, &val)
-			propagateValidatorToChain(change)
+			propagateValidatorToChain(0, rlm, change)
 		}
 	}
 }
@@ -268,7 +269,7 @@ func pubKeyType(pubKey string) string {
 // If the realm is not whitelisted, or if the validator is not present in the
 // chain set (e.g. because the local store was set up out-of-band), this is a
 // no-op.
-func propagateValidatorRemoval(update ValidatorUpdate) {
+func propagateValidatorRemoval(_ int, rlm realm, update ValidatorUpdate) {
 	if !validators.IsAllowedRealm(consumerPkgPath) {
 		return
 	}
@@ -278,11 +279,11 @@ func propagateValidatorRemoval(update ValidatorUpdate) {
 		// Already absent from the chain validator set — nothing to do.
 		return
 	}
-	validators.RemoveValidator(cross, addr)
+	validators.RemoveValidator(cross(rlm), addr)
 }
 
 // propagateValidatorToChain adds or updates a validator in the chain validator set.
-func propagateValidatorToChain(update ValidatorUpdate) {
+func propagateValidatorToChain(_ int, rlm realm, update ValidatorUpdate) {
 	if !validators.IsAllowedRealm(consumerPkgPath) {
 		return
 	}
@@ -297,8 +298,10 @@ func propagateValidatorToChain(update ValidatorUpdate) {
 	}
 
 	pubKeyBech32 := encodePubKeyAsBech32(update.PubKey)
-	validators.AddValidator(cross, validators.ValoperChange{
-		OperatorAddress: addr,
-		Power:           uint64(update.Power),
-	}, pubKeyBech32, addr)
+	// Use the constructor instead of a composite literal: ValoperChange is
+	// /r/-declared in /r/sys/validators/v3, and v2 borrow rule #1 blocks
+	// composite literals of foreign /r/ types from any other realm.
+	validators.AddValidator(cross(rlm),
+		validators.NewValoperChange(addr, uint64(update.Power)),
+		pubKeyBech32, addr)
 }

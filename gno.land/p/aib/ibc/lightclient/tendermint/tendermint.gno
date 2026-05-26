@@ -30,9 +30,18 @@ var _ lightclient.Interface = (*TMLightClient)(nil)
 func (tm *TMLightClient) Initialize(clientState lightclient.ClientState, consensusState lightclient.ConsensusState) error {
 	cs := clientState.(ClientState)
 	tm.ClientState = &cs
-	consState := consensusState.(ConsensusState)
-	consState.processedTime = time.Now()
-	consState.processedHeight = types.GetSelfHeight()
+	in := consensusState.(ConsensusState)
+	// Construct a fresh ConsensusState in our own (caller's) realm context
+	// rather than mutating the inbound value: the inbound value carries the
+	// constructor realm's PkgID stamp, and borrow rule #2 makes writes to
+	// foreign-stamped fields panic with "readonly tainted object".
+	consState := ConsensusState{
+		Timestamp:          in.Timestamp,
+		Root:               in.Root,
+		NextValidatorsHash: in.NextValidatorsHash,
+		processedTime:      time.Now(),
+		processedHeight:    types.GetSelfHeight(),
+	}
 	tm.SetConsensusState(cs.LatestHeight, &consState)
 	return nil
 }
@@ -116,7 +125,12 @@ var FrozenHeight = types.NewHeight(0, 1)
 
 // Implements lightclient.Interface
 func (tm *TMLightClient) UpdateStateOnMisbehaviour(clientMsg lightclient.ClientMessage) {
-	tm.ClientState.FrozenHeight = FrozenHeight
+	// Whole-slot replace instead of field-write: tm.ClientState was
+	// constructed in the caller's realm (the relayer's MsgCreateClient
+	// payload) so its fields are foreign-stamped and v2's borrow rule
+	// rejects direct writes. tm.ClientState (the slot) lives on tm,
+	// which is core-owned, so reassigning the pointer is fine.
+	tm.ClientState = cloneClientStateWithFrozenHeight(tm.ClientState, FrozenHeight)
 }
 
 // Implements lightclient.Interface
@@ -133,9 +147,10 @@ func (tm *TMLightClient) UpdateState(clientMsg lightclient.ClientMessage) []type
 		// perform no-op
 		return []types.Height{msgHeight}
 	}
-	// Update latestHeight if required
+	// Update latestHeight if required. Whole-slot replace; see
+	// UpdateStateOnMisbehaviour for the v2 borrow-rule rationale.
 	if msgHeight.GT(tm.ClientState.LatestHeight) {
-		tm.ClientState.LatestHeight = msgHeight
+		tm.ClientState = cloneClientStateWithLatestHeight(tm.ClientState, msgHeight)
 	}
 	// Build and store new consensus state from clientMsg
 	consState := &ConsensusState{
@@ -279,12 +294,54 @@ func (tm *TMLightClient) RecoverClient(substitute lightclient.Interface) error {
 		return ufmt.Errorf("substitute consensus state not found at height %s", subLatest)
 	}
 
-	tm.ClientState.ChainID = sub.ClientState.ChainID
-	tm.ClientState.LatestHeight = subLatest
-	tm.ClientState.TrustingPeriod = sub.ClientState.TrustingPeriod
-	tm.ClientState.FrozenHeight = types.ZeroHeight()
+	// Whole-slot replace, single allocation. See UpdateStateOnMisbehaviour
+	// for the v2 borrow-rule rationale on why per-field writes don't work.
+	tm.ClientState = &ClientState{
+		ChainID:         sub.ClientState.ChainID,
+		TrustLevel:      tm.ClientState.TrustLevel,
+		TrustingPeriod:  sub.ClientState.TrustingPeriod,
+		UnbondingPeriod: tm.ClientState.UnbondingPeriod,
+		MaxClockDrift:   tm.ClientState.MaxClockDrift,
+		FrozenHeight:    types.ZeroHeight(),
+		LatestHeight:    subLatest,
+		ProofSpecs:      tm.ClientState.ProofSpecs,
+		UpgradePath:     tm.ClientState.UpgradePath,
+	}
 	tm.SetConsensusState(subLatest, subConsState)
 	return nil
+}
+
+// cloneClientStateWithFrozenHeight returns a fresh *ClientState in the
+// caller's realm with FrozenHeight replaced. Used to whole-slot replace
+// tm.ClientState when a per-field write would violate borrow rules.
+func cloneClientStateWithFrozenHeight(cs *ClientState, h types.Height) *ClientState {
+	return &ClientState{
+		ChainID:         cs.ChainID,
+		TrustLevel:      cs.TrustLevel,
+		TrustingPeriod:  cs.TrustingPeriod,
+		UnbondingPeriod: cs.UnbondingPeriod,
+		MaxClockDrift:   cs.MaxClockDrift,
+		FrozenHeight:    h,
+		LatestHeight:    cs.LatestHeight,
+		ProofSpecs:      cs.ProofSpecs,
+		UpgradePath:     cs.UpgradePath,
+	}
+}
+
+// cloneClientStateWithLatestHeight is the LatestHeight counterpart of
+// cloneClientStateWithFrozenHeight.
+func cloneClientStateWithLatestHeight(cs *ClientState, h types.Height) *ClientState {
+	return &ClientState{
+		ChainID:         cs.ChainID,
+		TrustLevel:      cs.TrustLevel,
+		TrustingPeriod:  cs.TrustingPeriod,
+		UnbondingPeriod: cs.UnbondingPeriod,
+		MaxClockDrift:   cs.MaxClockDrift,
+		FrozenHeight:    cs.FrozenHeight,
+		LatestHeight:    h,
+		ProofSpecs:      cs.ProofSpecs,
+		UpgradePath:     cs.UpgradePath,
+	}
 }
 
 // mismatchingClientStateField returns the name of the first client-state field
@@ -422,13 +479,19 @@ func (tm *TMLightClient) VerifyUpgradeAndUpdateState(newClient, newConsState,
 
 	tm.ClientState = newClientState
 	// The upgraded consensus state is committed before the new chain
-	// produces any blocks, so its Root is a placeholder. Overwrite it with
-	// the well-known sentinel value so this consensus state cannot be used
-	// to verify packet proofs — real Roots arrive later via UpdateClient.
-	upgradedConsensusState.Root = NewMerkleRoot([]byte(SentinelRoot))
-	upgradedConsensusState.processedTime = time.Now()
-	upgradedConsensusState.processedHeight = types.GetSelfHeight()
-	tm.SetConsensusState(newClientState.LatestHeight, &upgradedConsensusState)
+	// produces any blocks, so its Root is a placeholder. Construct a fresh
+	// copy in our realm context with the sentinel Root so this consensus
+	// state cannot be used to verify packet proofs — real Roots arrive
+	// later via UpdateClient. Constructing a new value avoids the borrow
+	// rule #2 readonly write that hits an inbound foreign-stamped value.
+	newConsensusState := ConsensusState{
+		Timestamp:          upgradedConsensusState.Timestamp,
+		Root:               NewMerkleRoot([]byte(SentinelRoot)),
+		NextValidatorsHash: upgradedConsensusState.NextValidatorsHash,
+		processedTime:      time.Now(),
+		processedHeight:    types.GetSelfHeight(),
+	}
+	tm.SetConsensusState(newClientState.LatestHeight, &newConsensusState)
 
 	return nil
 }

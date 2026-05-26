@@ -390,7 +390,7 @@ func TestUnmarshalLegacyStringPubKey(t *testing.T) {
 	}
 }
 
-func TestApplyValidatorChanges(t *testing.T) {
+func TestApplyValidatorChanges(cur realm, t *testing.T) {
 	resetStore := func() {
 		store.validators = nil
 		store.validators = newTree()
@@ -410,7 +410,7 @@ func TestApplyValidatorChanges(t *testing.T) {
 			{PubKey: pkA, Power: 100},
 			{PubKey: pkB, Power: 50},
 		}
-		applyValidatorChanges(changes)
+		applyValidatorChanges(0, cur, changes)
 		if GetCCValidatorCount() != 2 {
 			t.Errorf("expected 2 validators, got %d", GetCCValidatorCount())
 		}
@@ -427,7 +427,7 @@ func TestApplyValidatorChanges(t *testing.T) {
 		changes := []ValidatorUpdate{
 			{PubKey: pkA, Power: 200},
 		}
-		applyValidatorChanges(changes)
+		applyValidatorChanges(0, cur, changes)
 		val, found := getCCValidator(pkA)
 		if !found {
 			t.Fatal("validator not found after update")
@@ -445,7 +445,7 @@ func TestApplyValidatorChanges(t *testing.T) {
 		changes := []ValidatorUpdate{
 			{PubKey: pkA, Power: 0},
 		}
-		applyValidatorChanges(changes)
+		applyValidatorChanges(0, cur, changes)
 		_, found := getCCValidator(pkA)
 		if found {
 			t.Error("validator should have been removed")
@@ -461,7 +461,7 @@ func TestApplyValidatorChanges(t *testing.T) {
 		changes := []ValidatorUpdate{
 			{PubKey: pkZ, Power: 0},
 		}
-		applyValidatorChanges(changes)
+		applyValidatorChanges(0, cur, changes)
 		if GetCCValidatorCount() != 0 {
 			t.Errorf("expected 0 validators, got %d", GetCCValidatorCount())
 		}
@@ -480,7 +480,7 @@ func TestApplyValidatorChanges(t *testing.T) {
 			{PubKey: pkD, Power: 30},  // add new
 			{PubKey: pkE, Power: 0},   // skip (non-existing, zero power)
 		}
-		applyValidatorChanges(changes)
+		applyValidatorChanges(0, cur, changes)
 
 		_, found := getCCValidator(pkA)
 		if found {

@@ -2,7 +2,6 @@ package transfer
 
 import (
 	"chain"
-	"chain/runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -14,6 +13,12 @@ import (
 	"gno.land/p/onbloc/json"
 	"gno.land/r/aib/ibc/core"
 )
+
+// transferRealmPath is the package path of this realm; used to compute
+// per-voucher GRC20 registry keys. Hardcoded because we cannot read it from
+// runtime.CurrentRealm() in v2 without the unsafe package, and Render needs
+// it from a non-crossing render handler.
+const transferRealmPath = "gno.land/r/aib/ibc/apps/transfer"
 
 func Render(path string) string {
 	router := mux.NewRouter()
@@ -285,7 +290,7 @@ func renderNode(w *mux.ResponseWriter, n *json.Node) {
 // grc20regKey returns the grc20reg key for a voucher ibc denom.
 // e.g. "ibc/CAEF9C..." → "gno.land/r/aib/ibc/apps/transfer.CAEF9C..."
 func grc20regKey(ibcDenom string) string {
-	return runtime.CurrentRealm().PkgPath() + "." + ibcDenom[len("ibc/"):]
+	return transferRealmPath + "." + ibcDenom[len("ibc/"):]
 }
 
 func nodeError(msg string, args ...any) *json.Node {
