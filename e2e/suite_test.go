@@ -22,7 +22,6 @@ type E2ETestSuite struct {
 	atomoneContainer     string
 	gnoContainer         string
 	atomoneGovAddress    string
-	nextValsetUpdateID   uint64
 	gnoValidatorPubKey   string
 }
 
@@ -80,7 +79,6 @@ func (s *E2ETestSuite) SetupSuite() {
 	s.Require().NoError(json.Unmarshal([]byte(strings.TrimSpace(govOut)), &govResult))
 	s.atomoneGovAddress = govResult.Account.Value.Address
 	s.T().Logf("AtomOne gov address: %s", s.atomoneGovAddress)
-	s.nextValsetUpdateID = 1
 
 	// Get the gnodev validator's ed25519 pubkey (needed by VAAS tests)
 	s.gnoValidatorPubKey, err = queryGnoValidatorPubKey(s.gnoContainer)
@@ -121,12 +119,6 @@ func (s *E2ETestSuite) waitForCondition(timeout, tick time.Duration, condition f
 			}
 		}
 	}
-}
-
-func (s *E2ETestSuite) allocValsetUpdateID() uint64 {
-	id := s.nextValsetUpdateID
-	s.nextValsetUpdateID++
-	return id
 }
 
 func (s *E2ETestSuite) waitForIBCClients() {

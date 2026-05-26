@@ -34,20 +34,22 @@ atomoned genesis gentx validator "500000000uatone" \
 # Collect gentxs
 atomoned genesis collect-gentxs --home /root/.atomone
 
-GENESIS=/root/.atomone/config/genesis.json
-
 # Patch dynamicfee fee_denom to uphoton. atomone main now defaults this to
 # "stake" regardless of --default-denom, which causes the relayer (configured
 # with 0.025uphoton) to be rejected at fee deduction.
+GENESIS=/root/.atomone/config/genesis.json
 sed -i 's/"fee_denom": "stake"/"fee_denom": "uphoton"/' "$GENESIS"
 
 # Shorten gov voting period and lower deposits for e2e tests.
 # AtomOne uses a dynamic deposit system (min_deposit is deprecated and rejected).
 # Must patch the throttler floor values instead.
+# Also set fast epoch for VAAS provider VSC packets.
 jq '.app_state.gov.params.voting_period = "10s" |
     .app_state.gov.params.min_deposit = [] |
     .app_state.gov.params.min_deposit_throttler.floor_value = [{"denom": "uatone", "amount": "1"}] |
-    .app_state.gov.params.min_initial_deposit_throttler.floor_value = [{"denom": "uatone", "amount": "1"}]' \
+    .app_state.gov.params.min_initial_deposit_throttler.floor_value = [{"denom": "uatone", "amount": "1"}] |
+    .app_state.provider.params.blocks_per_epoch = "5" |
+    .app_state.provider.params.fees_per_block = {"denom": "uatone", "amount": "1000"}' \
     "$GENESIS" > /tmp/genesis_patched.json && mv /tmp/genesis_patched.json "$GENESIS"
 
 # Configure for fast blocks and external access

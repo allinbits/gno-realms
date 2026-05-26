@@ -2,7 +2,6 @@ package e2e
 
 import (
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"strconv"
@@ -10,60 +9,96 @@ import (
 	"time"
 )
 
-type validatorUpdate struct {
-	PubKey map[string]string `json:"pub_key"`
-	Power  string            `json:"power"`
+// TestZZIBCVAASRealVSCFlow tests the real VAAS provider VSC flow:
+// register consumer → delegate tokens on AtomOne → epoch boundary →
+// provider sends VSC packet → relayer relays to Gno →
+// Gno consumer receives and applies validator set changes.
+func (s *E2ETestSuite) TestZZIBCVAASRealVSCFlow() {
+	r := s.Require()
+
+	s.createConsumerOnProvider()
+
+	valOperAddr := s.getValidatorOperatorAddress()
+	s.T().Logf("Validator operator address: %s", valOperAddr)
+
+	initialPower := s.getProviderValidatorVotingPower()
+	s.T().Logf("Initial validator voting power: %d", initialPower)
+
+	s.delegateTokens(valOperAddr)
+
+	var newPower uint64
+	r.Eventually(func() bool {
+		newPower = s.getProviderValidatorVotingPower()
+		return newPower > initialPower
+	}, 30*time.Second, time.Second, "validator voting power did not increase after delegation")
+	s.T().Logf("Validator voting power increased: %d -> %d", initialPower, newPower)
+
+	s.T().Log("Waiting for VSC packet to reach Gno consumer (epoch boundary + relay)...")
+	s.waitForCondition(3*time.Minute, 3*time.Second, func() bool {
+		count, err := queryVAASValidatorCount(s.gnoContainer)
+		if err != nil {
+			return false
+		}
+		return count >= 1
+	}, "Gno consumer did not receive validators from provider VSC")
+
+	validators, err := queryVAASAllValidators(s.gnoContainer)
+	r.NoError(err, "query all validators on Gno consumer")
+	r.Len(validators, 1, "Gno consumer should have 1 validator (the AtomOne validator)")
+	s.T().Logf("Gno consumer received validator: pubkey=%s, power=%d", validators[0].PubKey, validators[0].Power)
+
+	providerClientID, err := queryVAASProviderClientID(s.gnoContainer)
+	r.NoError(err, "provider client ID should be set on Gno consumer")
+	s.T().Logf("Provider client ID on Gno: %s", providerClientID)
+
+	s.T().Log("Real VSC flow completed successfully")
 }
 
-type vscPacketData struct {
-	ValidatorUpdates []validatorUpdate `json:"validator_updates"`
-	ValsetUpdateID   string            `json:"valset_update_id"`
-}
-
-func (s *E2ETestSuite) sendVSCPacket(validators []validatorUpdate, valsetUpdateID uint64) {
-	vscData := vscPacketData{
-		ValidatorUpdates: validators,
-		ValsetUpdateID:   fmt.Sprint(valsetUpdateID),
-	}
-	vscJSON, err := json.Marshal(vscData)
-	s.Require().NoError(err, "marshal VSC packet data")
-
-	timeout := time.Now().Add(time.Hour).Unix()
-	payload := map[string]any{
-		"source_port":      "vaasprovider",
-		"destination_port": "vaasconsumer",
-		"version":          "vaas-v1",
-		"encoding":         "application/json",
-		"value":            base64.StdEncoding.EncodeToString(vscJSON),
-	}
-	msgSendPacket := map[string]any{
-		"@type":             "/ibc.core.channel.v2.MsgSendPacket",
-		"source_client":     s.atomoneClientID,
-		"timeout_timestamp": fmt.Sprint(uint64(timeout)),
-		"signer":            s.atomoneGovAddress,
-		"payloads":          []any{payload},
-	}
-	proposal := map[string]any{
-		"messages":  []any{msgSendPacket},
-		"metadata":  "",
-		"deposit":   "1uatone",
-		"title":     fmt.Sprintf("VSC packet %d", valsetUpdateID),
-		"summary":   fmt.Sprintf("Send VSC packet with valset_update_id=%d", valsetUpdateID),
-		"expedited": true,
-	}
-	proposalJSON, err := json.Marshal(proposal)
-	s.Require().NoError(err, "marshal proposal JSON")
-
+// createConsumerOnProvider registers the Gno chain as a consumer on the AtomOne
+// provider module. Uses a past spawn_time so the consumer launches immediately
+// in the next BeginBlock.
+func (s *E2ETestSuite) createConsumerOnProvider() {
 	ctx := context.Background()
 
-	_, stderr, err := dockerExecStdin(ctx, s.atomoneContainer, string(proposalJSON),
-		"bash", "-c", "cat > /tmp/vsc_proposal.json")
-	s.Require().NoError(err, "write proposal file: %s", stderr)
+	createConsumerJSON := fmt.Sprintf(`{
+  "chain_id": "%s",
+  "metadata": {
+    "name": "gno-consumer",
+    "description": "Gno e2e test consumer chain",
+    "metadata": "{}"
+  },
+  "initialization_parameters": {
+    "initial_height": {
+      "revision_number": 0,
+      "revision_height": 1
+    },
+    "genesis_hash": "",
+    "binary_hash": "",
+    "spawn_time": "2024-01-01T00:00:00Z",
+    "unbonding_period": 1728000000000000,
+    "vaas_timeout_period": 2419200000000000,
+    "historical_entries": 10000
+  },
+  "infraction_parameters": {
+    "double_sign": {
+      "slash_fraction": "0.05",
+      "jail_duration": 9223372036854775807,
+      "tombstone": true
+    },
+    "downtime": {
+      "slash_fraction": "0.0001",
+      "jail_duration": 600000000000,
+      "tombstone": false
+    }
+  }
+}`, s.cfg.GnoChainID)
 
-	submitCtx, submitCancel := context.WithTimeout(ctx, 30*time.Second)
-	defer submitCancel()
-	stdout, stderr, err := dockerExec(submitCtx, s.atomoneContainer,
-		"atomoned", "tx", "gov", "submit-proposal", "/tmp/vsc_proposal.json",
+	_, stderr, err := dockerExecStdin(ctx, s.atomoneContainer, createConsumerJSON,
+		"bash", "-c", "cat > /tmp/create_consumer.json")
+	s.Require().NoError(err, "write create_consumer.json: %s", stderr)
+
+	txStdout, txStderr, err := dockerExec(ctx, s.atomoneContainer,
+		"atomoned", "tx", "provider", "create-consumer", "/tmp/create_consumer.json",
 		"--from", s.atomOneSenderAddress,
 		"--chain-id", s.cfg.AtomoneChainID,
 		"--keyring-backend", "test",
@@ -73,246 +108,176 @@ func (s *E2ETestSuite) sendVSCPacket(validators []validatorUpdate, valsetUpdateI
 		"--gas", "auto", "--gas-adjustment", "1.5",
 		"--yes", "--output", "json",
 	)
-	s.Require().NoError(err, "submit proposal: %s", stderr)
+	if err != nil {
+		s.dumpAtomoneLogs()
+	}
+	s.Require().NoError(err, "create-consumer tx: stdout=%s stderr=%s", txStdout, txStderr)
 
-	var submitResult struct {
-		TxHash string `json:"txhash"`
+	var txResult struct {
 		Code   int    `json:"code"`
 		RawLog string `json:"raw_log"`
+		TxHash string `json:"txhash"`
 	}
-	s.Require().NoError(json.Unmarshal([]byte(strings.TrimSpace(stdout)), &submitResult))
-	s.Require().Equal(0, submitResult.Code, "submit proposal tx failed: %s", submitResult.RawLog)
-	s.Require().NotEmpty(submitResult.TxHash)
+	s.Require().NoError(json.Unmarshal([]byte(strings.TrimSpace(txStdout)), &txResult))
+	s.Require().Equal(0, txResult.Code, "create-consumer tx failed (txhash=%s): %s", txResult.TxHash, txResult.RawLog)
 
-	var proposalID string
-	s.Require().Eventually(func() bool {
-		qCtx, qCancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer qCancel()
-		txOut, txErr, err := dockerExec(qCtx, s.atomoneContainer,
-			"atomoned", "q", "tx", submitResult.TxHash,
+	// Extract consumer ID from the tx events
+	consumerID := s.getConsumerIDFromTx(txResult.TxHash)
+	s.Require().NotEmpty(consumerID, "consumer ID not found in tx events")
+	s.T().Logf("Consumer %s registered on provider (txhash=%s), waiting for launch...", consumerID, txResult.TxHash)
+
+	// Wait for the tx to be committed and the consumer to be processed in BeginBlock
+	loggedOnce := false
+	s.waitForCondition(60*time.Second, 2*time.Second, func() bool {
+		queryOut, queryErr, err := dockerExec(ctx, s.atomoneContainer,
+			"atomoned", "q", "provider", "consumer-genesis", consumerID,
+			"--home", "/root/.atomone",
 			"--node", "tcp://localhost:26657",
 			"--output", "json",
 		)
 		if err != nil {
-			s.T().Logf("query tx error: %v, stderr: %s", err, txErr)
+			if !loggedOnce {
+				s.T().Logf("consumer-genesis query failed: %v, stderr: %s", err, truncate(queryErr, 500))
+				loggedOnce = true
+			}
 			return false
 		}
-		var txResult struct {
-			Code   int    `json:"code"`
-			RawLog string `json:"raw_log"`
-		}
-		if err := json.Unmarshal([]byte(strings.TrimSpace(txOut)), &txResult); err != nil {
-			s.T().Logf("unmarshal tx error: %v, output: %s", err, txOut[:min(len(txOut), 200)])
+		if strings.Contains(queryOut, "not found") || strings.Contains(queryOut, "Error") {
+			if !loggedOnce {
+				s.T().Logf("consumer not launched yet, response: %s", truncate(queryOut, 300))
+				loggedOnce = true
+			}
 			return false
 		}
-		if txResult.Code != 0 {
-			s.T().Logf("submit proposal tx failed (code=%d): %s", txResult.Code, txResult.RawLog)
-			return false
-		}
-		qCtx2, qCancel2 := context.WithTimeout(context.Background(), 10*time.Second)
-		defer qCancel2()
-		proposalsOut, propErr, err := dockerExec(qCtx2, s.atomoneContainer,
-			"atomoned", "q", "gov", "proposals", "--page-limit", "1", "--page-reverse",
-			"--node", "tcp://localhost:26657",
-			"--output", "json",
-		)
-		if err != nil {
-			s.T().Logf("query proposals error: %v, stderr: %s", err, propErr)
-			return false
-		}
-		var proposals struct {
-			Proposals []struct {
-				ID string `json:"id"`
-			} `json:"proposals"`
-		}
-		if err := json.Unmarshal([]byte(strings.TrimSpace(proposalsOut)), &proposals); err != nil {
-			s.T().Logf("unmarshal proposals error: %v, output: %s", err, proposalsOut[:min(len(proposalsOut), 200)])
-			return false
-		}
-		if len(proposals.Proposals) == 0 {
-			s.T().Logf("no proposals found yet (tx confirmed)")
-			return false
-		}
-		proposalID = proposals.Proposals[0].ID
 		return true
-	}, 15*time.Second, time.Second, "proposal_id not found for tx %s", submitResult.TxHash)
+	}, "consumer genesis not found on provider (consumer not launched)")
 
-	s.T().Logf("Proposal %s submitted", proposalID)
+	s.dumpAtomoneLogs()
+	s.T().Log("Consumer launched on provider")
+}
 
-	voteCtx, voteCancel := context.WithTimeout(ctx, 30*time.Second)
-	defer voteCancel()
-	stdout, stderr, err = dockerExec(voteCtx, s.atomoneContainer,
-		"atomoned", "tx", "gov", "vote", proposalID, "yes",
+// getConsumerIDFromTx waits for the tx to be committed and extracts the consumer_id from events.
+func (s *E2ETestSuite) getConsumerIDFromTx(txHash string) string {
+	var consumerID string
+	s.waitForCondition(30*time.Second, 2*time.Second, func() bool {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		stdout, stderr, err := dockerExec(ctx, s.atomoneContainer,
+			"atomoned", "q", "tx", txHash,
+			"--node", "tcp://localhost:26657",
+			"--output", "json",
+		)
+		if err != nil {
+			s.T().Logf("query tx %s not found yet: %s", txHash, truncate(stderr, 200))
+			return false
+		}
+
+		var txResp struct {
+			Code int `json:"code"`
+			RawLog string `json:"raw_log"`
+			Events []struct {
+				Type  string `json:"type"`
+				Attrs []struct {
+					Key   string `json:"key"`
+					Value string `json:"value"`
+				} `json:"attributes"`
+			} `json:"events"`
+		}
+		if err := json.Unmarshal([]byte(strings.TrimSpace(stdout)), &txResp); err != nil {
+			return false
+		}
+		s.Require().Equal(0, txResp.Code, "create-consumer tx failed in block: %s", txResp.RawLog)
+
+		for _, ev := range txResp.Events {
+			if ev.Type == "create_consumer" {
+				for _, attr := range ev.Attrs {
+					if attr.Key == "consumer_id" {
+						consumerID = attr.Value
+						return true
+					}
+				}
+			}
+		}
+		return false
+	}, fmt.Sprintf("consumer_id not found in tx %s events", txHash))
+	return consumerID
+}
+
+// dumpAtomoneLogs prints recent AtomOne container logs for debugging.
+func (s *E2ETestSuite) dumpAtomoneLogs() {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	logs, _, err := dockerExec(ctx, s.atomoneContainer,
+		"bash", "-c", "cat /root/.atomone/data/atomoned.log 2>/dev/null || echo 'no log file'")
+	if err != nil {
+		s.T().Logf("Failed to dump atomone logs: %v", err)
+		return
+	}
+	s.T().Logf("=== AtomOne logs ===\n%s\n=== End AtomOne logs ===", truncate(logs, 3000))
+}
+
+func truncate(s string, maxLen int) string {
+	if len(s) <= maxLen {
+		return s
+	}
+	return s[:maxLen] + "...(truncated)"
+}
+
+func (s *E2ETestSuite) getValidatorOperatorAddress() string {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	stdout, stderr, err := dockerExec(ctx, s.atomoneContainer,
+		"atomoned", "keys", "show", "validator", "--bech", "val", "-a",
+		"--keyring-backend", "test", "--home", "/root/.atomone",
+	)
+	s.Require().NoError(err, "get validator operator address: %s", stderr)
+	valAddr := strings.TrimSpace(stdout)
+	s.Require().NotEmpty(valAddr)
+	return valAddr
+}
+
+func (s *E2ETestSuite) delegateTokens(valOperAddr string) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	stdout, stderr, err := dockerExec(ctx, s.atomoneContainer,
+		"atomoned", "tx", "staking", "delegate", valOperAddr, "1000000uatone",
 		"--from", s.atomOneSenderAddress,
 		"--chain-id", s.cfg.AtomoneChainID,
 		"--keyring-backend", "test",
 		"--home", "/root/.atomone",
 		"--node", "tcp://localhost:26657",
 		"--gas-prices", "0.025uphoton",
+		"--gas", "auto", "--gas-adjustment", "1.5",
 		"--yes", "--output", "json",
 	)
-	s.Require().NoError(err, "vote on proposal: %s", stderr)
+	s.Require().NoError(err, "delegate tx: %s", stderr)
 
-	var voteResult struct {
-		TxHash string `json:"txhash"`
+	var txResult struct {
 		Code   int    `json:"code"`
 		RawLog string `json:"raw_log"`
 	}
-	s.Require().NoError(json.Unmarshal([]byte(strings.TrimSpace(stdout)), &voteResult))
-	s.Require().Equal(0, voteResult.Code, "vote tx failed: %s", voteResult.RawLog)
+	s.Require().NoError(json.Unmarshal([]byte(strings.TrimSpace(stdout)), &txResult))
+	s.Require().Equal(0, txResult.Code, "delegate tx failed: %s", txResult.RawLog)
 
-	s.Require().Eventually(func() bool {
-		qCtx, qCancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer qCancel()
-		txOut, _, err := dockerExec(qCtx, s.atomoneContainer,
-			"atomoned", "q", "tx", voteResult.TxHash,
-			"--node", "tcp://localhost:26657",
-			"--output", "json",
-		)
-		if err != nil {
-			return false
-		}
-		var txResult struct {
-			Code int `json:"code"`
-		}
-		if err := json.Unmarshal([]byte(strings.TrimSpace(txOut)), &txResult); err != nil {
-			return false
-		}
-		return txResult.Code == 0
-	}, 15*time.Second, time.Second, "vote tx %s not confirmed", voteResult.TxHash)
-
-	s.T().Logf("Voted YES on proposal %s", proposalID)
-
-	s.waitForGovProposalPassed(proposalID)
-	s.T().Logf("VSC packet proposal %s executed: valset_update_id=%d, validators=%d", proposalID, valsetUpdateID, len(validators))
+	s.T().Logf("Delegated 1000000uatone to %s", valOperAddr)
 }
 
-func (s *E2ETestSuite) waitForVAASValsetUpdateID(expected uint64) {
-	s.waitForCondition(2*time.Minute, 3*time.Second, func() bool {
-		id, err := queryVAASHighestValsetUpdateID(s.gnoContainer)
-		if err != nil {
-			return false
-		}
-		return id >= expected
-	}, fmt.Sprintf("valset update ID >= %d not received on Gno", expected))
-}
+func (s *E2ETestSuite) getProviderValidatorVotingPower() uint64 {
+	stdout, _, err := dockerExec(context.Background(), s.atomoneContainer,
+		"atomoned", "q", "tendermint-validator-set",
+		"--node", "tcp://localhost:26657",
+		"--output", "json",
+	)
+	s.Require().NoError(err, "query tendermint validator set")
 
-func (s *E2ETestSuite) waitForVAASMinValidatorCount(expected int) {
-	s.waitForCondition(30*time.Second, 2*time.Second, func() bool {
-		count, err := queryVAASValidatorCount(s.gnoContainer)
-		if err != nil {
-			return false
-		}
-		return count >= expected
-	}, fmt.Sprintf("validator count >= %d not reached on Gno", expected))
-}
-
-func (s *E2ETestSuite) TestZZIBCVAASProviderToConsumer() {
-	r := s.Require()
-
-	validators := []validatorUpdate{
-		{PubKey: map[string]string{"ed25519": s.gnoValidatorPubKey}, Power: "500"},
-		{PubKey: map[string]string{"ed25519": "bPFcGOi1P2myrQtfEz6bJikBE3WoW2VHuzMEkjx2jKQ="}, Power: "50"},
+	var resp struct {
+		Validators []struct {
+			VotingPower string `json:"voting_power"`
+		} `json:"validators"`
 	}
-
-	id1 := s.allocValsetUpdateID()
-	s.sendVSCPacket(validators, id1)
-	s.waitForVAASValsetUpdateID(id1)
-	s.waitForVAASMinValidatorCount(len(validators))
-
-	providerClientID, err := queryVAASProviderClientID(s.gnoContainer)
-	r.NoError(err, "provider client ID should be set")
-	r.Equal(s.atomoneClientID, providerClientID, "provider client ID should match AtomOne client ID")
-
-	totalPower, err := queryVAASTotalVotingPower(s.gnoContainer)
-	r.NoError(err, "query total voting power")
-	r.Equal(int64(550), totalPower, "total voting power should be 550")
-
-	allValidators, err := queryVAASAllValidators(s.gnoContainer)
-	r.NoError(err, "query all validators")
-	r.Len(allValidators, 2, "should have 2 validators")
-
-	s.T().Logf("VSC packet verified: validators=%d, total_power=%d", len(allValidators), totalPower)
-}
-
-func (s *E2ETestSuite) TestZZIBCVAASUpdateExistingValidator() {
-	r := s.Require()
-
-	id1 := s.allocValsetUpdateID()
-	s.sendVSCPacket([]validatorUpdate{
-		{PubKey: map[string]string{"ed25519": s.gnoValidatorPubKey}, Power: "100"},
-	}, id1)
-	s.waitForVAASValsetUpdateID(id1)
-
-	s.T().Log("Initial valset applied, sending update")
-
-	id2 := s.allocValsetUpdateID()
-	s.sendVSCPacket([]validatorUpdate{
-		{PubKey: map[string]string{"ed25519": s.gnoValidatorPubKey}, Power: "200"},
-	}, id2)
-	s.waitForVAASValsetUpdateID(id2)
-
-	validators, err := queryVAASAllValidators(s.gnoContainer)
-	r.NoError(err, "query all validators")
-	r.Len(validators, 1, "should still have 1 validator")
-	r.Equal("ed25519:"+s.gnoValidatorPubKey, validators[0].PubKey)
-	r.Equal(int64(200), validators[0].Power, "validator power should be updated to 200")
-
-	totalPower, err := queryVAASTotalVotingPower(s.gnoContainer)
-	r.NoError(err, "query total voting power")
-	r.Equal(int64(200), totalPower, "total voting power should be 200")
-
-	s.T().Logf("Validator update verified: pubkey=%s, power=%d", validators[0].PubKey, totalPower)
-}
-
-func (s *E2ETestSuite) TestZZIBCVAASRemoveValidator() {
-	r := s.Require()
-
-	id1 := s.allocValsetUpdateID()
-	s.sendVSCPacket([]validatorUpdate{
-		{PubKey: map[string]string{"ed25519": s.gnoValidatorPubKey}, Power: "500"},
-		{PubKey: map[string]string{"ed25519": "bPFcGOi1P2myrQtfEz6bJikBE3WoW2VHuzMEkjx2jKQ="}, Power: "50"},
-	}, id1)
-	s.waitForVAASMinValidatorCount(2)
-
-	s.T().Log("Initial validators established, removing one")
-
-	id2 := s.allocValsetUpdateID()
-	s.sendVSCPacket([]validatorUpdate{
-		{PubKey: map[string]string{"ed25519": "bPFcGOi1P2myrQtfEz6bJikBE3WoW2VHuzMEkjx2jKQ="}, Power: "0"},
-	}, id2)
-	s.waitForVAASValsetUpdateID(id2)
-
-	r.Eventually(func() bool {
-		count, err := queryVAASValidatorCount(s.gnoContainer)
-		if err != nil {
-			return false
-		}
-		return count == 1
-	}, 30*time.Second, 2*time.Second, "validator count did not decrease to 1")
-
-	validators, err := queryVAASAllValidators(s.gnoContainer)
-	r.NoError(err, "query all validators")
-	r.Len(validators, 1, "should have 1 validator remaining")
-	r.Equal("ed25519:"+s.gnoValidatorPubKey, validators[0].PubKey)
-	r.Equal(int64(500), validators[0].Power, "remaining validator power should be 500")
-
-	totalPower, err := queryVAASTotalVotingPower(s.gnoContainer)
-	r.NoError(err, "query total voting power")
-	r.Equal(int64(500), totalPower, "total voting power should be 500")
-
-	s.T().Logf("Validator removal verified: validators=%d, total_power=%d", len(validators), totalPower)
-}
-
-func (s *E2ETestSuite) waitForGovProposalPassed(proposalID string) {
-	id, err := strconv.ParseUint(proposalID, 10, 64)
-	s.Require().NoError(err, "parse proposal ID")
-
-	s.waitForCondition(1*time.Minute, 2*time.Second, func() bool {
-		status, err := queryGovProposalStatus(s.cfg.AtomoneREST, id)
-		if err != nil {
-			return false
-		}
-		return status == "PROPOSAL_STATUS_PASSED" || status == "PROPOSAL_STATUS_EXECUTED"
-	}, fmt.Sprintf("gov proposal %s not passed", proposalID))
+	s.Require().NoError(json.Unmarshal([]byte(strings.TrimSpace(stdout)), &resp))
+	s.Require().NotEmpty(resp.Validators, "no validators found")
+	power, err := strconv.ParseUint(resp.Validators[0].VotingPower, 10, 64)
+	s.Require().NoError(err, "parse voting power")
+	return power
 }
