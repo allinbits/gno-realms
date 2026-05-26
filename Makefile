@@ -70,10 +70,14 @@ e2e-build-no-cache:
 # --- Fork management ---
 
 export FORK_REPO   := github.com/allinbits/gno
-export FORK_BRANCH := ibc-fork-allowall-v3-pr4831
+export FORK_BRANCH := ibc-fork-allowall-v3-pr4831-pr5706
 
 update-fork:
 	$(eval HASH := $(shell git ls-remote https://$(FORK_REPO).git refs/heads/$(FORK_BRANCH) | awk '{print $$1}'))
+	@if [ -z "$(HASH)" ]; then \
+		echo "error: branch '$(FORK_BRANCH)' not found on https://$(FORK_REPO).git" >&2; \
+		exit 1; \
+	fi
 	go mod edit -replace github.com/gnolang/gno=$(FORK_REPO)@$(HASH)
 	go mod tidy
 	go mod edit -replace github.com/gnolang/gno/contribs/gnodev=$(FORK_REPO)/contribs/gnodev@$(HASH)
