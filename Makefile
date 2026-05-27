@@ -70,7 +70,7 @@ e2e-build-no-cache:
 # --- Fork management ---
 
 export FORK_REPO   := github.com/allinbits/gno
-export FORK_BRANCH := ibc-fork-allowall-v3-pr4831-pr5706
+export FORK_BRANCH := ibc-fork-allowall-v4
 
 update-fork:
 	$(eval HASH := $(shell git ls-remote https://$(FORK_REPO).git refs/heads/$(FORK_BRANCH) | awk '{print $$1}'))

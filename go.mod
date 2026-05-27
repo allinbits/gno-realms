@@ -3,8 +3,8 @@ module aibgno
 go 1.25.9
 
 replace (
-	github.com/gnolang/gno => github.com/allinbits/gno v0.0.0-20260526132648-bdf2207a2c2b
-	github.com/gnolang/gno/contribs/gnodev => github.com/allinbits/gno/contribs/gnodev v0.0.0-20260526132648-bdf2207a2c2b
+	github.com/gnolang/gno => github.com/allinbits/gno v0.0.0-20260527084333-5d8f4c1e77bc
+	github.com/gnolang/gno/contribs/gnodev => github.com/allinbits/gno/contribs/gnodev v0.0.0-20260527084333-5d8f4c1e77bc
 )
 
 tool (
