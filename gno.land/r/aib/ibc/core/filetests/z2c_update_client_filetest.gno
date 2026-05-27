@@ -1,0 +1,39 @@
+// PKGPATH: gno.land/r/aib/main
+package main
+
+import (
+	"time"
+
+	tmtesting "gno.land/p/aib/ibc/lightclient/tendermint/testing"
+	"gno.land/p/aib/ibc/types"
+	"gno.land/r/aib/ibc/core"
+)
+
+// UpdateClient trustedHeight not found
+func main(cur realm) {
+	// CreateClient and RegisterCounterparty
+	var (
+		chainID        = "chain-id-2"
+		clientState    = tmtesting.NewClientState(chainID, types.NewHeight(2, 2))
+		apphash        = tmtesting.Hash("apphash")
+		trustedValset  = tmtesting.GenValset()
+		consensusState = tmtesting.GenConsensusState(time.Now(), apphash, trustedValset.Hash())
+	)
+	clientID := core.CreateClient(cross(cur), clientState, consensusState)
+	core.RegisterCounterparty(cross(cur), clientID, [][]byte{[]byte("iavlStoreKey"), []byte("prefix2")}, "07-tendermint-2")
+
+	// Update clientID
+	var (
+		newHeight     = clientState.LatestHeight.RevisionHeight + 3
+		newTimestamp  = consensusState.Timestamp.Add(time.Minute)
+		trustedHeight = types.NewHeight(2, 3)
+		msgHeader     = tmtesting.GenMsgHeader(
+			chainID, newTimestamp, apphash, newHeight, trustedHeight, trustedValset, trustedValset, trustedValset,
+		)
+	)
+
+	core.UpdateClient(cross(cur), clientID, msgHeader)
+}
+
+// Error:
+// could not get trusted consensus state for Header at TrustedHeight: 2/3

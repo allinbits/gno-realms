@@ -1,0 +1,335 @@
+// PKGPATH: gno.land/r/aib/main
+package main
+
+
+import (
+	"encoding/hex"
+	"time"
+
+	tmtesting "gno.land/p/aib/ibc/lightclient/tendermint/testing"
+	"gno.land/p/aib/ibc/types"
+	"gno.land/p/aib/ics23"
+	appstesting "gno.land/r/aib/ibc/apps/testing"
+	"gno.land/r/aib/ibc/core"
+)
+
+// forwardingApp wraps the base mock and writes the deferred parent ack from
+// inside OnAcknowledgementPacket. Defined here (rather than in apps/testing)
+// so that apps/testing does not need to import core, which would create an
+// import cycle with this directory's filetests during gnodev deploy. Pending
+// state is held in package-level vars because the receiver is read-only when
+// invoked across realms via the IBCApp interface.
+type forwardingApp struct {
+	*appstesting.App
+}
+
+var (
+	pendingClientID  string
+	pendingSequence  uint64
+	asyncDeferredAck = types.Acknowledgement{
+		AppAcknowledgements: [][]byte{{0x02}},
+	}
+)
+
+func (f *forwardingApp) OnRecvPacket(
+	cur realm,
+	sourceClient string,
+	destinationClient string,
+	sequence uint64,
+	payload types.Payload,
+) types.RecvPacketResult {
+	res := f.App.OnRecvPacket(cross(cur), sourceClient, destinationClient, sequence, payload)
+	if res.Status == types.PacketStatus_Async {
+		pendingClientID = destinationClient
+		pendingSequence = sequence
+	}
+	return res
+}
+
+func (f *forwardingApp) OnAcknowledgementPacket(
+	cur realm,
+	sourceClient string,
+	destinationClient string,
+	sequence uint64,
+	acknowledgement []byte,
+	payload types.Payload,
+) error {
+	err := f.App.OnAcknowledgementPacket(cross(cur), sourceClient, destinationClient, sequence, acknowledgement, payload)
+	if pendingClientID != "" {
+		clientID, seq := pendingClientID, pendingSequence
+		pendingClientID, pendingSequence = "", 0
+		core.WriteAcknowledgement(cross(cur), clientID, seq, asyncDeferredAck)
+	}
+	return err
+}
+
+// Async ack via OnAcknowledgementPacket. Mirrors the PFM/ZKGM forwarded-ack
+// flow on the middle chain of an A -> B -> C forward, where this realm acts
+// as chain B:
+//
+//   - parent packet arrives from chain A, app returns Async (deferred)
+//   - child packet is sent to chain C
+//   - chain C acks the child; that ack triggers the mock's
+//     OnAcknowledgementPacket, which calls core.WriteAcknowledgement to
+//     finally ack the parent back to chain A
+//
+// On us (chain B) two clients are needed, one per remote chain:
+//
+//   - clientToA: local id 07-tendermint-1, chain A's id for us is 07-tendermint-42
+//   - clientToC: local id 07-tendermint-2, chain C's id for us is 07-tendermint-99
+func main(cur realm) {
+	var (
+		trustedHeight       = types.NewHeight(2, 2)
+		trustedValset       = tmtesting.GenValset()
+		chainAClientIDForUs = "07-tendermint-42"
+		chainCClientIDForUs = "07-tendermint-99"
+	)
+
+	// clientToA: tracks chain A. apphash commits to the parent packet
+	// commitment at prefix2/07-tendermint-42/packet/seq=1 on chain A.
+	apphashA, _ := hex.DecodeString("8da82bb625ee946f4b7aa03a82010cb115f9ce3879c7caad8d92e71eb821996e")
+	clientToA := core.CreateClient(cross(cur),
+		tmtesting.NewClientState("chainA-2", trustedHeight),
+		tmtesting.GenConsensusState(time.Now(), apphashA, trustedValset.Hash()),
+	)
+	core.RegisterCounterparty(cross(cur), clientToA, [][]byte{[]byte("iavlStoreKey"), []byte("prefix2")}, chainAClientIDForUs)
+
+	// clientToC: tracks chain C. apphash commits to the child packet ack
+	// commitment at prefix3/07-tendermint-99/ack/seq=1 on chain C with app
+	// ack "done".
+	apphashC, _ := hex.DecodeString("f1c8be180f0c12cfd37970aa4bfbda7ef6d9fe419ac81ee4e02588c8a1a862c6")
+	clientToC := core.CreateClient(cross(cur),
+		tmtesting.NewClientState("chainC-2", trustedHeight),
+		tmtesting.GenConsensusState(time.Now(), apphashC, trustedValset.Hash()),
+	)
+	core.RegisterCounterparty(cross(cur), clientToC, [][]byte{[]byte("iavlStoreKey"), []byte("prefix3")}, chainCClientIDForUs)
+
+	// Register the forwarding mock from this realm, so the pkgPath stored
+	// in core is gno.land/r/aib/main — the same realm that later calls
+	// core.WriteAcknowledgement from inside OnAcknowledgementPacket.
+	var (
+		base      = appstesting.NewApp(cross(cur))
+		app       = &forwardingApp{App: base}
+		appPortID = "appID"
+	)
+	app.SetOnRecvPacketReturn(types.RecvPacketResult{Status: types.PacketStatus_Async})
+	core.RegisterApp(cross(cur), appPortID, app)
+
+	// Send the child packet to chain C. Its eventual ack will trigger the
+	// mock's OnAcknowledgementPacket and the deferred parent ack write.
+	sendPacket := types.MsgSendPacket{
+		SourceClient:     clientToC,
+		TimeoutTimestamp: uint64(time.Now().Add(time.Hour).Unix()),
+		Payloads: []types.Payload{{
+			SourcePort:      appPortID,
+			DestinationPort: appPortID,
+			Encoding:        "application/json",
+			Value:           []byte("{}"),
+			Version:         "v1",
+		}},
+	}
+	childSeq := core.SendPacket(cross(cur), sendPacket)
+
+	// Receive the parent packet from chain A. The mock returns Async, so
+	// core stores a pending entry and does not yet write the ack.
+	specs := ics23.IavlSpec()
+	// NOTE proof generated by:
+	// go run -C ./cmd/gen-proof . 'prefix2' '07-tendermint-42' 'packet' '{"sequence":1,"source_client":"07-tendermint-42","destination_client":"07-tendermint-1","timeout_timestamp":1234571490,"payloads":[{"source_port":"appID","destination_port":"appID","encoding":"application/json","value":"e30=","version":"v1"}]}'
+	parentRecvProof := []ics23.CommitmentProof{
+		// iavl proof
+		ics23.CommitmentProof_Exist{
+			Exist: &ics23.ExistenceProof{
+				Key:   []byte("\x70\x72\x65\x66\x69\x78\x32\x30\x37\x2d\x74\x65\x6e\x64\x65\x72\x6d\x69\x6e\x74\x2d\x34\x32\x01\x00\x00\x00\x00\x00\x00\x00\x01"),
+				Value: []byte("\x23\x99\xf6\x84\x16\xb7\xd0\x09\x3b\xe4\x9e\x5f\x8e\xe1\xbe\x1c\x8e\x07\xa0\x93\xc5\x67\x09\x03\x46\xce\x36\xc9\x7d\x11\x71\x71"),
+				Leaf: &ics23.LeafOp{
+					Hash:         specs.LeafSpec.Hash,
+					PrehashKey:   specs.LeafSpec.PrehashKey,
+					PrehashValue: specs.LeafSpec.PrehashValue,
+					Length:       specs.LeafSpec.Length,
+					Prefix:       []byte("\x00\x02\x02"),
+				},
+				Path: []*ics23.InnerOp{
+					{
+						Hash:   specs.InnerSpec.Hash,
+						Prefix: []byte("\x02\x04\x02\x20\x35\xf8\xea\x80\x53\x90\xe0\x84\x85\x4f\x39\x9b\x42\xcc\xde\xae\xa3\x3a\x1d\xed\xc1\x15\x63\x8a\xc4\x8d\x06\x00\x63\x7d\xba\x1f\x20"),
+						Suffix: []byte(""),
+					},
+					{
+						Hash:   specs.InnerSpec.Hash,
+						Prefix: []byte("\x04\x08\x02\x20"),
+						Suffix: []byte("\x20\x79\x8e\x2c\xaa\x96\xfd\xfb\xa3\x76\xdd\xeb\x47\x99\x99\x54\xd2\xf4\x7e\x65\x16\x22\x64\xb0\x53\x6a\xb5\xdf\xf7\xfc\x0a\x2e\x07"),
+					},
+					{
+						Hash:   specs.InnerSpec.Hash,
+						Prefix: []byte("\x06\x0c\x02\x20\x9a\xf3\x7d\xd5\x95\xa0\x19\x08\x03\xb5\xe0\x5a\xae\xf4\x2a\xe3\xfa\xd4\x99\xe4\xfb\xe3\x7f\x7c\xd3\x1c\xad\xff\x22\xa9\xee\x74\x20"),
+						Suffix: []byte(""),
+					},
+				},
+			},
+		},
+		// rootmulti proof
+		ics23.CommitmentProof_Exist{
+			Exist: &ics23.ExistenceProof{
+				Key:   []byte("\x69\x61\x76\x6c\x53\x74\x6f\x72\x65\x4b\x65\x79"),
+				Value: []byte("\xeb\xfd\x02\x8a\x5d\xe1\xcf\x93\xde\x5d\x0b\xa8\xcf\x6e\x0d\x5e\x29\xf8\x80\x1a\x08\x0b\x07\x20\x3c\xf1\xca\xf2\xf4\xdd\xd3\x10"),
+				Leaf: &ics23.LeafOp{
+					Hash:         specs.LeafSpec.Hash,
+					PrehashKey:   specs.LeafSpec.PrehashKey,
+					PrehashValue: specs.LeafSpec.PrehashValue,
+					Length:       specs.LeafSpec.Length,
+					Prefix:       []byte("\x00"),
+				},
+				Path: []*ics23.InnerOp{},
+			},
+		},
+	}
+	recvPacket := types.MsgRecvPacket{
+		Packet: types.Packet{
+			Sequence:          1,
+			SourceClient:      chainAClientIDForUs,
+			DestinationClient: clientToA,
+			TimeoutTimestamp:  uint64(time.Now().Add(time.Hour).Unix()),
+			Payloads: []types.Payload{{
+				SourcePort:      appPortID,
+				DestinationPort: appPortID,
+				Encoding:        "application/json",
+				Value:           []byte("{}"),
+				Version:         "v1",
+			}},
+		},
+		ProofCommitment: parentRecvProof,
+		ProofHeight:     trustedHeight,
+	}
+	recvRes := core.RecvPacket(cross(cur), recvPacket)
+
+	println("recv res:", recvRes)
+	println("\n----------- parent ack BEFORE child is acked (deferred, should not exist)")
+	println(core.Render("clients/" + clientToA + "/packet_acknowledgements/1"))
+
+	// Acknowledge the child packet on chain C's client. Inside, core invokes
+	// the mock's OnAcknowledgementPacket which itself calls
+	// core.WriteAcknowledgement for the pending parent on chain A's client.
+	// NOTE proof generated by:
+	// go run -C ./cmd/gen-proof . 'prefix3' '07-tendermint-99' 'acknowledgement' 'done'
+	childAckProof := []ics23.CommitmentProof{
+		// iavl proof
+		ics23.CommitmentProof_Exist{
+			Exist: &ics23.ExistenceProof{
+				Key:   []byte("\x70\x72\x65\x66\x69\x78\x33\x30\x37\x2d\x74\x65\x6e\x64\x65\x72\x6d\x69\x6e\x74\x2d\x39\x39\x03\x00\x00\x00\x00\x00\x00\x00\x01"),
+				Value: []byte("\x1d\xb9\x33\x99\xa4\x7b\x20\x69\x9a\xa3\xbc\xd6\xa5\x96\x72\xe2\x65\x4c\xb7\xb2\x70\x4f\xba\xc6\x02\x29\xc2\xba\x66\xea\xfb\x9c"),
+				Leaf: &ics23.LeafOp{
+					Hash:         specs.LeafSpec.Hash,
+					PrehashKey:   specs.LeafSpec.PrehashKey,
+					PrehashValue: specs.LeafSpec.PrehashValue,
+					Length:       specs.LeafSpec.Length,
+					Prefix:       []byte("\x00\x02\x02"),
+				},
+				Path: []*ics23.InnerOp{
+					{
+						Hash:   specs.InnerSpec.Hash,
+						Prefix: []byte("\x02\x04\x02\x20\x35\xf8\xea\x80\x53\x90\xe0\x84\x85\x4f\x39\x9b\x42\xcc\xde\xae\xa3\x3a\x1d\xed\xc1\x15\x63\x8a\xc4\x8d\x06\x00\x63\x7d\xba\x1f\x20"),
+						Suffix: []byte(""),
+					},
+					{
+						Hash:   specs.InnerSpec.Hash,
+						Prefix: []byte("\x04\x08\x02\x20"),
+						Suffix: []byte("\x20\x79\x8e\x2c\xaa\x96\xfd\xfb\xa3\x76\xdd\xeb\x47\x99\x99\x54\xd2\xf4\x7e\x65\x16\x22\x64\xb0\x53\x6a\xb5\xdf\xf7\xfc\x0a\x2e\x07"),
+					},
+					{
+						Hash:   specs.InnerSpec.Hash,
+						Prefix: []byte("\x06\x0c\x02\x20\x9a\xf3\x7d\xd5\x95\xa0\x19\x08\x03\xb5\xe0\x5a\xae\xf4\x2a\xe3\xfa\xd4\x99\xe4\xfb\xe3\x7f\x7c\xd3\x1c\xad\xff\x22\xa9\xee\x74\x20"),
+						Suffix: []byte(""),
+					},
+				},
+			},
+		},
+		// rootmulti proof
+		ics23.CommitmentProof_Exist{
+			Exist: &ics23.ExistenceProof{
+				Key:   []byte("\x69\x61\x76\x6c\x53\x74\x6f\x72\x65\x4b\x65\x79"),
+				Value: []byte("\x1b\xe4\x34\xdf\x98\x81\x4e\xc7\xab\x47\x19\xeb\x3e\x81\x46\x78\xef\x3c\x4f\x16\x6c\xff\x5d\x41\x4e\xb0\xfc\x24\xc1\xfb\x0f\x61"),
+				Leaf: &ics23.LeafOp{
+					Hash:         specs.LeafSpec.Hash,
+					PrehashKey:   specs.LeafSpec.PrehashKey,
+					PrehashValue: specs.LeafSpec.PrehashValue,
+					Length:       specs.LeafSpec.Length,
+					Prefix:       []byte("\x00"),
+				},
+				Path: []*ics23.InnerOp{},
+			},
+		},
+	}
+	ackPacket := types.MsgAcknowledgement{
+		Packet: types.Packet{
+			Sequence:          childSeq,
+			SourceClient:      clientToC,
+			DestinationClient: chainCClientIDForUs,
+			TimeoutTimestamp:  sendPacket.TimeoutTimestamp,
+			Payloads:          sendPacket.Payloads,
+		},
+		Acknowledgement: types.Acknowledgement{
+			AppAcknowledgements: [][]byte{[]byte("done")},
+		},
+		ProofAcked:  childAckProof,
+		ProofHeight: trustedHeight,
+	}
+	ackRes := core.Acknowledgement(cross(cur), ackPacket)
+
+	println("\nack res:", ackRes)
+	println("\n----------- parent ack AFTER child is acked (written by mock.OnAck)")
+	println(core.Render("clients/" + clientToA + "/packet_acknowledgements/1"))
+	println("\n----------- child commitment AFTER ack (cleared)")
+	println(core.Render("clients/" + clientToC + "/packet_commitments/1"))
+	println("\n----------- app report")
+	println(app.Report())
+}
+
+// Output:
+// recv res: (2 gno.land/p/aib/ibc/types.ResponseResultType)
+//
+// ----------- parent ack BEFORE child is acked (deferred, should not exist)
+// {"error":"sequence 1 not found"}
+//
+// ack res: (2 gno.land/p/aib/ibc/types.ResponseResultType)
+//
+// ----------- parent ack AFTER child is acked (written by mock.OnAck)
+// {"sequence":"1","data":"5HN8pSo727oJNsvAPYWESzo9UNpM5u0nIHMoEOg7WuA="}
+//
+// ----------- child commitment AFTER ack (cleared)
+// {"error":"sequence 1 not found"}
+//
+// ----------- app report
+// OnSendPacket (1)
+// - sourceClient: 07-tendermint-2
+// - destinationClient: 07-tendermint-99
+// - sequence: 1
+// - payload:
+//   - sourcePort: appID
+//   - destinationPort: appID
+//   - version: v1
+//   - encoding: application/json
+//   - value: {}
+//
+// OnRecvPacket (1)
+// - sourceClient: 07-tendermint-42
+// - destinationClient: 07-tendermint-1
+// - sequence: 1
+// - payload:
+//   - sourcePort: appID
+//   - destinationPort: appID
+//   - version: v1
+//   - encoding: application/json
+//   - value: {}
+//
+// OnTimeoutPacket (0)
+// OnAcknowledgementPacket (1)
+// - sourceClient: 07-tendermint-2
+// - destinationClient: 07-tendermint-99
+// - sequence: 1
+// - payload:
+//   - sourcePort: appID
+//   - destinationPort: appID
+//   - version: v1
+//   - encoding: application/json
+//   - value: {}
+// - ack: done

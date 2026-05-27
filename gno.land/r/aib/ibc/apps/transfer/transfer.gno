@@ -3,7 +3,7 @@ package transfer
 import (
 	"chain"
 	"chain/banker"
-	"chain/runtime"
+	"chain/runtime/unsafe"
 	"strings"
 
 	"gno.land/p/aib/ibc/types"
@@ -41,7 +41,7 @@ func Transfer(cur realm, clientID, receiver, denom string, amount int64, timeout
 		// Only catch the "stuck coins" mistake on direct user calls;
 		// when a wrapper realm calls us, OriginSend describes the outer
 		// tx envelope and the coins did not land at this realm.
-		if runtime.PreviousRealm().IsUserCall() && len(banker.OriginSend()) > 0 {
+		if cur.Previous().IsUserCall() && len(unsafe.OriginSend()) > 0 {
 			panic("GRC20 transfer must not include native coins")
 		}
 		// Replace the denom with a slash-free alias for the IBC packet.
@@ -55,13 +55,13 @@ func Transfer(cur realm, clientID, receiver, denom string, amount int64, timeout
 		panic(ufmt.Sprintf("GRC20 token %s not found in grc20reg", denom))
 	default:
 		// Native coin: only direct user-call (maketx call) is accepted, so
-		// banker.OriginSend() describes coins that actually landed at this
+		// unsafe.OriginSend() describes coins that actually landed at this
 		// realm. Intermediate code realms or `maketx run` ephemeral realms
 		// can attach -send to the tx but spend it elsewhere.
-		if !runtime.PreviousRealm().IsUserCall() {
+		if !cur.Previous().IsUserCall() {
 			panic("native transfer must be a direct user call (maketx call)")
 		}
-		sent := banker.OriginSend()
+		sent := unsafe.OriginSend()
 		if len(sent) != 1 || sent[0].Amount == 0 {
 			panic("native transfer requires one non-zero coin to be sent")
 		}
@@ -78,7 +78,7 @@ func Transfer(cur realm, clientID, receiver, denom string, amount int64, timeout
 		pendingNativeEscrow = &sent[0]
 		defer func() { pendingNativeEscrow = nil }()
 	}
-	return transfer(clientID, receiver, denom, amount, timeoutTimestamp, memo)
+	return transfer(cur, clientID, receiver, denom, amount, timeoutTimestamp, memo)
 }
 
 // VoucherSend is a convenience helper to send an IBC voucher token from the
@@ -88,8 +88,8 @@ func VoucherSend(cur realm, ibcDenom string, to address, amount int64) {
 	if inst == nil {
 		panic(ufmt.Errorf("voucher token not found for denom %s", ibcDenom))
 	}
-	teller := inst.ledger.ImpersonateTeller(runtime.PreviousRealm().Address())
-	if err := teller.Transfer(to, amount); err != nil {
+	teller := inst.ledger.ImpersonateTeller(cur.Previous().Address())
+	if err := teller.Transfer(0, cur, to, amount); err != nil {
 		panic(ufmt.Errorf("transfer voucher %s error: %v", ibcDenom, err))
 	}
 }
@@ -101,19 +101,23 @@ func VoucherApprove(cur realm, ibcDenom string, spender address, amount int64) {
 	if inst == nil {
 		panic(ufmt.Errorf("voucher token not found for denom %s", ibcDenom))
 	}
-	teller := inst.ledger.ImpersonateTeller(runtime.PreviousRealm().Address())
-	if err := teller.Approve(spender, amount); err != nil {
+	teller := inst.ledger.ImpersonateTeller(cur.Previous().Address())
+	if err := teller.Approve(0, cur, spender, amount); err != nil {
 		panic(ufmt.Errorf("approve voucher %s error: %v", ibcDenom, err))
 	}
 }
 
-func transfer(clientID, receiver, denom string, amount int64, timeoutTimestamp uint64, memo string) (
+func transfer(cur realm, clientID, receiver, denom string, amount int64, timeoutTimestamp uint64, memo string) (
 	packet types.MsgSendPacket, sequence uint64,
 ) {
+	// unsafe.OriginCaller is the EOA that signed the tx; we use it as the
+	// packet Sender so Transfer can also be invoked through a wrapper realm.
+	// On the OnSendPacket side the same value is read back to verify the
+	// packet Sender matches the signing EOA.
 	data := NewFungibleTokenPacketData(
 		denom,
 		ufmt.Sprintf("%d", amount),
-		runtime.OriginCaller().String(),
+		unsafe.OriginCaller().String(),
 		receiver,
 		memo,
 	)
@@ -128,11 +132,13 @@ func transfer(clientID, receiver, denom string, amount int64, timeoutTimestamp u
 		}},
 		TimeoutTimestamp: timeoutTimestamp,
 	}
-	sequence = core.SendPacket(cross, packet)
+	sequence = core.SendPacket(cross(cur), packet)
 	return
 }
 
-func refundPacketToken(sourcePort, sourceClient, sender string, token Token) error {
+// refundPacketToken is a non-crossing helper; rlm is the caller's live cur,
+// needed only by unescrowNative which constructs a Banker.
+func refundPacketToken(_ int, rlm realm, sourcePort, sourceClient, sender string, token Token) error {
 	coin, err := token.ToCoin()
 	if err != nil {
 		return ufmt.Errorf("token to coin error: %v", err)
@@ -148,12 +154,12 @@ func refundPacketToken(sourcePort, sourceClient, sender string, token Token) err
 		}
 	} else if isGRC20Alias(coin.Denom) {
 		// Non-IBC GRC20: return escrowed tokens to sender
-		if err := unescrowGRC20(sender, coin); err != nil {
+		if err := unescrowGRC20(0, rlm, sender, coin); err != nil {
 			return err
 		}
 	} else {
 		// Native: return escrowed coins to sender
-		if err := unescrowNative(sender, coin); err != nil {
+		if err := unescrowNative(0, rlm, sender, coin); err != nil {
 			return err
 		}
 	}
@@ -161,15 +167,16 @@ func refundPacketToken(sourcePort, sourceClient, sender string, token Token) err
 }
 
 // unescrowGRC20 resolves the GRC20 alias and transfers the escrowed tokens
-// back to the receiver via the token's RealmTeller.
-func unescrowGRC20(receiver string, coin chain.Coin) error {
+// back to the receiver via the token's RealmTeller. Non-crossing helper; rlm
+// is needed by the grc20 teller API.
+func unescrowGRC20(_ int, rlm realm, receiver string, coin chain.Coin) error {
 	denomKey := resolveGRC20Alias(coin.Denom)
 	token := grc20reg.Get(denomKey)
 	if token == nil {
 		return ufmt.Errorf("GRC20 token %s not found in grc20reg", denomKey)
 	}
-	teller := token.RealmTeller()
-	if err := teller.Transfer(address(receiver), coin.Amount); err != nil {
+	teller := token.RealmTeller(0, rlm)
+	if err := teller.Transfer(0, rlm, address(receiver), coin.Amount); err != nil {
 		return ufmt.Errorf("unescrow GRC20 %s error: %v", denomKey, err)
 	}
 	subEscrowForDenom(coin)
@@ -177,14 +184,15 @@ func unescrowGRC20(receiver string, coin chain.Coin) error {
 }
 
 // unescrowNative sends the escrowed native coins back to the receiver via
-// the banker.
-func unescrowNative(receiver string, coin chain.Coin) error {
+// the banker. Non-crossing helper; rlm is the caller's live cur (transfer
+// realm's own frame), needed to construct a Banker.
+func unescrowNative(_ int, rlm realm, receiver string, coin chain.Coin) error {
 	var (
 		// TODO no app/clientID specific escrow address ?
-		from   = runtime.CurrentRealm().Address()
+		from   = rlm.Address()
 		to     = address(receiver)
 		amount = chain.NewCoins(coin)
-		banker = banker.NewBanker(banker.BankerTypeRealmSend)
+		banker = banker.NewBanker(banker.BankerTypeRealmSend, rlm)
 	)
 	banker.SendCoins(from, to, amount)
 	subEscrowForDenom(coin)

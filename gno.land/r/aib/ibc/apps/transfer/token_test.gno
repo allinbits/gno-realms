@@ -22,25 +22,13 @@ func TestTokenToCoin(t *testing.T) {
 	}{
 		{
 			"success: convert token to coin",
-			transfer.Token{
-				Denom: transfer.Denom{
-					Base:  tokenDenom,
-					Trace: []transfer.Hop{},
-				},
-				Amount: tokenAmount,
-			},
+			transfer.NewToken(tokenDenom, tokenAmount),
 			chain.NewCoin(tokenDenom, 100),
 			"",
 		},
 		{
 			"failure: invalid amount string",
-			transfer.Token{
-				Denom: transfer.Denom{
-					Base:  tokenDenom,
-					Trace: []transfer.Hop{},
-				},
-				Amount: "value",
-			},
+			transfer.NewToken(tokenDenom, "value"),
 			chain.Coin{},
 			"unable to parse amount \"value\" into int64",
 		},

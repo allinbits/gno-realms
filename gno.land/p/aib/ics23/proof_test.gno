@@ -176,7 +176,7 @@ func TestProofSpecProtoMarshal(t *testing.T) {
 	})
 }
 
-func TestIsLeftNeighbor_NoPanicOnEdgeCases(t *testing.T) {
+func TestIsLeftNeighbor_NoPanicOnEdgeCases(cur realm, t *testing.T) {
 	spec := ics23.IavlSpec().InnerSpec
 	childSize := int(spec.ChildSize)
 
@@ -208,7 +208,7 @@ func TestIsLeftNeighbor_NoPanicOnEdgeCases(t *testing.T) {
 				ok  bool
 				err error
 			)
-			uassert.NotPanics(t, func() {
+			uassert.NotPanics(t, cur, func() {
 				ok, err = ics23.IsLeftNeighbor(spec, tc.left, tc.right)
 			})
 			uassert.False(t, ok, "expected isNeighbor=false")

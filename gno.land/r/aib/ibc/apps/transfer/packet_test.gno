@@ -10,13 +10,7 @@ import (
 )
 
 func TestFungibleTokenPacketDataProtoMarshal(t *testing.T) {
-	f := transfer.FungibleTokenPacketData{
-		Denom:    "ugnot",
-		Amount:   "100",
-		Sender:   "g1user",
-		Receiver: "atone1user",
-		Memo:     "memo",
-	}
+	f := transfer.NewFungibleTokenPacketData("ugnot", "100", "g1user", "atone1user", "memo")
 
 	bz := f.ProtoMarshal()
 

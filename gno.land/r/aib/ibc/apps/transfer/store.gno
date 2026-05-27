@@ -62,17 +62,29 @@ func subEscrowForDenom(c chain.Coin) {
 
 // getOrCreateVoucher returns the existing voucher instance for the given IBC
 // denom, or creates a new one and registers it in grc20reg for DeFi
-// discoverability.
-func getOrCreateVoucher(baseDenom, voucherDenom string) *voucher {
+// discoverability. Non-crossing helper; rlm is needed to issue the cross
+// call into grc20reg.Register from this realm's frame.
+//
+// The GRC20 symbol is derived from a short prefix of the IBC hash. We can't
+// use the full voucherDenom ("ibc/<64-hex-hash>") because v2 grc20 enforces
+// MaxSymbolLen=11 and [A-Za-z0-9_-] only — the "/" alone disqualifies it. The
+// grc20reg slug stays the full hash (collision-safe across vouchers); the
+// symbol is purely the display token symbol and an 8-char hex prefix is
+// collision-resistant enough for that purpose. Name remains the base denom.
+func getOrCreateVoucher(_ int, rlm realm, baseDenom, voucherDenom string) *voucher {
 	if v, ok := voucherTokens.Get(voucherDenom); ok {
 		return v.(*voucher)
 	}
-	token, ledger := grc20.NewToken(baseDenom, voucherDenom, 0)
+	hash := voucherDenom[len("ibc/"):]
+	symbol := hash
+	if len(symbol) > 11 {
+		symbol = symbol[:11]
+	}
+	token, ledger := grc20.NewToken(0, rlm, baseDenom, symbol, 0)
 	inst := &voucher{token: token, ledger: ledger}
 	voucherTokens.Set(voucherDenom, inst)
-	// Use the hex hash from voucherDenom ("ibc/{hash}") as slug: unique per
-	// voucher and alphanumeric-only, which satisfies grc20reg's slug validation.
-	grc20reg.Register(cross, token, voucherDenom[len("ibc/"):])
+	// Slug = full hash, unique per voucher.
+	grc20reg.Register(cross(rlm), token, hash)
 	return inst
 }
 

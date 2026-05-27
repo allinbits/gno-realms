@@ -1,0 +1,73 @@
+// PKGPATH: gno.land/r/aib/main
+package main
+
+import (
+	"time"
+
+	tmtesting "gno.land/p/aib/ibc/lightclient/tendermint/testing"
+	"gno.land/p/aib/ibc/types"
+	"gno.land/p/aib/ics23"
+	appstesting "gno.land/r/aib/ibc/apps/testing"
+	"gno.land/r/aib/ibc/core"
+)
+
+// Acknowledgement wrong number of proofs compared to specs
+func main(cur realm) {
+	var (
+		chainID        = "chain-id-2"
+		trustedHeight  = types.NewHeight(2, 2)
+		clientState    = tmtesting.NewClientState(chainID, trustedHeight)
+		apphash        = tmtesting.Hash("apphash")
+		trustedValset  = tmtesting.GenValset()
+		consensusState = tmtesting.GenConsensusState(time.Now(), apphash, trustedValset.Hash())
+		counterpartyID = "07-tendermint-42"
+	)
+	clientID := core.CreateClient(cross(cur), clientState, consensusState)
+	core.RegisterCounterparty(cross(cur), clientID, [][]byte{[]byte("iavlStoreKey"), []byte("prefix2")}, counterpartyID)
+	// Register app
+	var (
+		app       = appstesting.NewApp(cross(cur))
+		appPortID = "app"
+	)
+	core.RegisterApp(cross(cur), appPortID, app)
+	// Send a packet
+	sendPacket := types.MsgSendPacket{
+		SourceClient:     clientID,
+		TimeoutTimestamp: uint64(time.Now().Add(time.Hour).Unix()),
+		Payloads: []types.Payload{{
+			SourcePort:      appPortID,
+			DestinationPort: "destinationPort",
+			Encoding:        "application/json",
+			Value:           []byte("{}"),
+			Version:         "v1",
+		}},
+	}
+	sequence := core.SendPacket(cross(cur), sendPacket)
+
+	// Acknowledge the packet
+	ackPacket := types.MsgAcknowledgement{
+		Packet: types.Packet{
+			Sequence:          sequence,
+			SourceClient:      clientID,
+			DestinationClient: counterpartyID,
+			TimeoutTimestamp:  sendPacket.TimeoutTimestamp,
+			Payloads:          sendPacket.Payloads,
+		},
+		Acknowledgement: types.Acknowledgement{
+			AppAcknowledgements: [][]byte{[]byte("ack")},
+		},
+		ProofAcked: []ics23.CommitmentProof{
+			ics23.CommitmentProof_Exist{
+				Exist: &ics23.ExistenceProof{},
+			},
+		},
+		ProofHeight: trustedHeight,
+	}
+
+	res := core.Acknowledgement(cross(cur), ackPacket)
+
+	println("res:", res)
+}
+
+// Error:
+// failed packet acknowledgement verification for client (07-tendermint-1): length of specs: 2 not equal to length of proof: 1

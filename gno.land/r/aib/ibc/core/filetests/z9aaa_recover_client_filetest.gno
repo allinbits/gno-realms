@@ -1,0 +1,257 @@
+// PKGPATH: gno.land/r/aib/main
+package main
+
+import (
+	"time"
+
+	"gno.land/p/aib/ibc/lightclient/tendermint"
+	tmtesting "gno.land/p/aib/ibc/lightclient/tendermint/testing"
+	"gno.land/p/aib/ibc/types"
+	"gno.land/r/aib/ibc/core"
+)
+
+// RecoverClient success with authorized relayer
+func main(cur realm) {
+	core.SetAdmin(cross(cur), "g1wymu47drhr0kuq2098m792lytgtj2nyx77yrsm")
+
+	// Subject client setup: create + freeze via misbehaviour (pattern from z8a).
+	var (
+		chainID     = "atomone-1"
+		height      = uint64(2)
+		clientState = tmtesting.NewClientState(chainID, types.NewHeight(1, height))
+		apphash     = tmtesting.Hash("apphash-2")
+		// priv=8a6cAbQSpDbebmcTEhCMPhhr/SkL/2pizo60yzHRkN9Uyk7RHOZm7g4xW+yeJh147/Z4/6HXF6gBwcFNkLsZ/A==
+		val1 = tendermint.NewValidator("9DIBYr64rywKO3Kk6+743xDHcEU=",
+			"VMpO0RzmZu4OMVvsniYdeO/2eP+h1xeoAcHBTZC7Gfw=", 1)
+		// priv=nWg6ETc62tyxd94lh8fFaQnZKaAW6vlS0L/4lfseJuI14ZXUKp7AZROkflLFVF+SBg4wJVfzgzIKyWq3D066+g==
+		val2 = tendermint.NewValidator("y+naL3ubs9q1bXrY9+uRxY9c+J8=",
+			"NeGV1CqewGUTpH5SxVRfkgYOMCVX84MyCslqtw9Ouvo=", 1)
+		trustedValset  = tendermint.NewValset(val1, val2)
+		consensusState = tmtesting.GenConsensusState(time.Now(), apphash, trustedValset.Hash())
+	)
+	subjectID := core.CreateClient(cross(cur), clientState, consensusState)
+
+	// Build valid misbehavior to freeze the subject.
+	var header1, header2 *tendermint.MsgHeader
+	{
+		var (
+			apphash         = tmtesting.Hash("apphash-4")
+			val1            = tendermint.NewValidator("9DIBYr64rywKO3Kk6+743xDHcEU=", "VMpO0RzmZu4OMVvsniYdeO/2eP+h1xeoAcHBTZC7Gfw=", 10)
+			val2            = tendermint.NewValidator("y+naL3ubs9q1bXrY9+uRxY9c+J8=", "NeGV1CqewGUTpH5SxVRfkgYOMCVX84MyCslqtw9Ouvo=", 10)
+			valset          = tendermint.NewValset(val1, val2)
+			commitTimestamp = tmtesting.ToTime("2025-09-25T07:55:57.306746166Z")
+			newHeight       = uint64(4)
+			newTimestamp    = consensusState.Timestamp.Add(time.Minute * time.Duration(0))
+			nextValset      = tendermint.NewValset(val1, val2)
+			trustedHeight   = clientState.LatestHeight
+
+			signatures = []tendermint.CommitSig{
+				{
+					BlockIDFlag:      tendermint.BlockIDFlagCommit,
+					ValidatorAddress: valset.Validators[0].Address,
+					Timestamp:        commitTimestamp,
+					Signature:        []byte("\x2e\xba\x21\xb0\x2f\xd2\x85\xb9\xef\x82\x68\xdc\xef\xd1\xd1\x12\x70\x88\x94\x10\x7e\x4d\x49\xac\x46\x3d\x86\xe2\xf2\xae\x38\xb4\xa5\xab\x0c\xc1\x8f\x8a\x59\xda\x36\x17\x01\xe4\x16\x49\xbf\x03\x86\xf0\x31\x3f\x30\x37\x9e\x47\x28\x72\x3b\x0c\x89\xb9\x94\x05"),
+				},
+				{
+					BlockIDFlag:      tendermint.BlockIDFlagCommit,
+					ValidatorAddress: valset.Validators[1].Address,
+					Timestamp:        commitTimestamp,
+					Signature:        []byte("\x67\xcc\xc6\xc4\x20\xa0\xcb\x36\xaf\x33\x5c\xf8\xe4\xad\x47\x49\x38\x9d\x9e\xa3\x7c\xe6\x88\x81\x62\x51\x7f\xcc\xa5\x92\x0d\x98\xe9\xbe\x71\x2d\x22\xcd\x41\x30\x28\x83\x03\xcb\xf5\xd7\x28\xde\x7b\x92\x85\x9e\xa6\xe5\xde\x50\x89\x2d\x2b\xc5\x9d\x9a\x33\x00"),
+				},
+			}
+		)
+		header1 = tmtesting.NewMsgHeader(chainID, newTimestamp, apphash, newHeight,
+			trustedHeight, valset, nextValset, trustedValset, signatures)
+	}
+	{
+		var (
+			apphash         = tmtesting.Hash("apphash-3")
+			val1            = tendermint.NewValidator("9DIBYr64rywKO3Kk6+743xDHcEU=", "VMpO0RzmZu4OMVvsniYdeO/2eP+h1xeoAcHBTZC7Gfw=", 10)
+			val2            = tendermint.NewValidator("y+naL3ubs9q1bXrY9+uRxY9c+J8=", "NeGV1CqewGUTpH5SxVRfkgYOMCVX84MyCslqtw9Ouvo=", 10)
+			valset          = tendermint.NewValset(val1, val2)
+			commitTimestamp = tmtesting.ToTime("2025-09-25T07:55:57.306746166Z")
+			newHeight       = uint64(3)
+			newTimestamp    = consensusState.Timestamp.Add(time.Minute * time.Duration(0))
+			nextValset      = tendermint.NewValset(val1, val2)
+			trustedHeight   = clientState.LatestHeight
+
+			signatures = []tendermint.CommitSig{
+				{
+					BlockIDFlag:      tendermint.BlockIDFlagCommit,
+					ValidatorAddress: valset.Validators[0].Address,
+					Timestamp:        commitTimestamp,
+					Signature:        []byte("\x51\xa4\x8f\x78\x42\x4e\x6e\x0d\xc3\x2b\xe6\xcb\x09\x5c\xe5\x7d\x35\x84\xcf\xb1\x0f\x53\x72\x0c\x41\xde\xd3\x6d\xbc\x81\x28\x64\x41\xf7\xe9\x1e\xa9\x93\xd0\xa4\x84\x16\xca\xa8\xa3\x8e\x56\x45\xec\xae\x1d\x24\xb4\xa8\xf4\x29\x85\x04\x06\xe4\x18\x6b\x7d\x08"),
+				},
+				{
+					BlockIDFlag:      tendermint.BlockIDFlagCommit,
+					ValidatorAddress: valset.Validators[1].Address,
+					Timestamp:        commitTimestamp,
+					Signature:        []byte("\xd9\xd6\x82\x83\x78\x75\xfa\x2e\xd7\x1b\xa5\x3d\xfe\xb3\x80\xb6\xc7\x59\x20\x45\x10\xdf\x0c\x19\xd1\xcc\xfc\x37\xd5\x59\x79\x95\x93\x60\x08\xfb\x5f\xa0\x87\x95\x51\x1e\x29\xed\x94\xd1\x31\x5e\xda\x90\x86\x11\xbe\xb2\x88\x68\xe1\xba\xa7\x31\xc7\xa2\xda\x07"),
+				},
+			}
+		)
+		header2 = tmtesting.NewMsgHeader(chainID, newTimestamp, apphash, newHeight,
+			trustedHeight, valset, nextValset, trustedValset, signatures)
+	}
+	core.UpdateClient(cross(cur), subjectID, &tendermint.Misbehaviour{Header1: header1, Header2: header2})
+
+	// Substitute client: fresh Active client with matching parameters (same
+	// chainID for IBC correctness, but the implementation also supports a
+	// different one — the subject will adopt the substitute's chainID).
+	substituteConsState := tmtesting.GenConsensusState(time.Now(), tmtesting.Hash("apphash-5"), trustedValset.Hash())
+	substituteID := core.CreateClient(cross(cur), clientState, substituteConsState)
+
+	// Advance the substitute to height (1,3) so recovery must actually adopt
+	// the substitute's LatestHeight (the subject starts at (1,2)). Signatures
+	// reused verbatim from z2a (chainID=atomone-1, height=3, apphash-3,
+	// trusted=(1,2), time-shift=1m).
+	{
+		var (
+			apphash         = tmtesting.Hash("apphash-3")
+			commitTimestamp = tmtesting.ToTime("2025-09-25T07:55:57.306746166Z")
+			newHeight       = uint64(3)
+			newTimestamp    = substituteConsState.Timestamp.Add(time.Minute * time.Duration(1))
+			valset          = tendermint.NewValset(val1, val2)
+			nextValset      = tendermint.NewValset(val1, val2)
+			trustedHeight   = clientState.LatestHeight
+
+			signatures = []tendermint.CommitSig{
+				{
+					BlockIDFlag:      tendermint.BlockIDFlagCommit,
+					ValidatorAddress: valset.Validators[0].Address,
+					Timestamp:        commitTimestamp,
+					Signature:        []byte("\x5c\xd2\x8b\xe3\x4b\x60\x3e\xaa\x75\x3c\xce\x24\xfe\x15\x75\x55\x84\xd4\xa3\xce\xbe\x0f\x94\xe9\xf7\x27\xb3\x7a\xdd\x02\x2d\xa0\x0b\xa7\x83\x7f\x50\xc3\xde\x3d\x95\x59\xb3\xad\xed\xd0\xdd\x23\x1d\x39\x9a\x8e\x1f\xc3\xcf\xdb\x1d\xa9\x93\xf5\x9a\xc0\x2b\x05"),
+				},
+				{
+					BlockIDFlag:      tendermint.BlockIDFlagCommit,
+					ValidatorAddress: valset.Validators[1].Address,
+					Timestamp:        commitTimestamp,
+					Signature:        []byte("\x34\x41\x2e\x78\x7f\xbf\x70\xef\x14\x48\xe3\x14\xd5\x83\xdc\x42\xff\x40\xf6\x5b\x71\x62\x09\xf9\x6f\x54\x63\x3e\xdb\xc5\x98\xc0\x9e\xa7\xde\x33\xac\xa7\x5f\xbb\xd6\x63\x49\xe1\xe9\x98\x86\x03\x46\x6a\x7e\xb6\x5d\xe5\x71\xe5\x1e\x5d\x4d\xd8\x8d\xbe\x2f\x01"),
+				},
+			}
+
+			msgHeader = tmtesting.NewMsgHeader(
+				"atomone-1", newTimestamp, apphash, newHeight, trustedHeight, valset,
+				nextValset, trustedValset, signatures,
+			)
+		)
+		core.UpdateClient(cross(cur), substituteID, msgHeader)
+	}
+
+	println("----------- before recover: subject status")
+	println(core.Render("clients/" + subjectID + "/status"))
+	println("----------- before recover: substitute status")
+	println(core.Render("clients/" + substituteID + "/status"))
+
+	core.RecoverClient(cross(cur), subjectID, substituteID)
+
+	println("----------- after recover: subject status")
+	println(core.Render("clients/" + subjectID + "/status"))
+	println("----------- after recover: substitute status")
+	println(core.Render("clients/" + substituteID + "/status"))
+	println("----------- after recover: subject frozen_height (must be 0/0)")
+	println(core.Render("clients/" + subjectID))
+}
+
+// Output:
+// ----------- before recover: subject status
+// {"status":"Frozen"}
+// ----------- before recover: substitute status
+// {"status":"Active"}
+// ----------- after recover: subject status
+// {"status":"Active"}
+// ----------- after recover: substitute status
+// {"status":"Active"}
+// ----------- after recover: subject frozen_height (must be 0/0)
+// {"id":"07-tendermint-1","type":"07-tendermint","creator":"g1wymu47drhr0kuq2098m792lytgtj2nyx77yrsm","status":"Active","counterparty_client_id":"","counterparty_merke_prefix":[],"client_state":{"chain_id":"atomone-1","latest_height":{"revision_number":1,"revision_height":3},"frozen_height":{"revision_number":0,"revision_height":0},"trust_level":{"numerator":1,"denominator":3},"trusting_period":3600,"unbonding_period":10800,"max_clock_drift":3600,"upgrade_path":[]},"last_consensus_state":{"height":{"revision_number":1,"revision_height":3},"timestamp":1234567950,"root":"m9afpc+PXaYRHdGC7FkrzuzRNn8ONC1xRCzYYAPRCU8=","next_validators_hash":"OJfJuH6dfiZI2d0uAxqamqfIVqV4c4oEAZigvJ8UqFQ="}}
+
+// Events:
+// [
+//   {
+//     "type": "create_client",
+//     "attrs": [
+//       {
+//         "key": "client_id",
+//         "value": "07-tendermint-1"
+//       },
+//       {
+//         "key": "client_type",
+//         "value": "07-tendermint"
+//       },
+//       {
+//         "key": "consensus_heights",
+//         "value": "1/2"
+//       }
+//     ],
+//     "pkg_path": "gno.land/r/aib/ibc/core"
+//   },
+//   {
+//     "type": "client_misbehaviour",
+//     "attrs": [
+//       {
+//         "key": "client_id",
+//         "value": "07-tendermint-1"
+//       },
+//       {
+//         "key": "client_type",
+//         "value": "07-tendermint"
+//       }
+//     ],
+//     "pkg_path": "gno.land/r/aib/ibc/core"
+//   },
+//   {
+//     "type": "create_client",
+//     "attrs": [
+//       {
+//         "key": "client_id",
+//         "value": "07-tendermint-2"
+//       },
+//       {
+//         "key": "client_type",
+//         "value": "07-tendermint"
+//       },
+//       {
+//         "key": "consensus_heights",
+//         "value": "1/2"
+//       }
+//     ],
+//     "pkg_path": "gno.land/r/aib/ibc/core"
+//   },
+//   {
+//     "type": "update_client",
+//     "attrs": [
+//       {
+//         "key": "client_id",
+//         "value": "07-tendermint-2"
+//       },
+//       {
+//         "key": "client_type",
+//         "value": "07-tendermint"
+//       },
+//       {
+//         "key": "consensus_heights",
+//         "value": "1/3"
+//       }
+//     ],
+//     "pkg_path": "gno.land/r/aib/ibc/core"
+//   },
+//   {
+//     "type": "recover_client",
+//     "attrs": [
+//       {
+//         "key": "subject_client_id",
+//         "value": "07-tendermint-1"
+//       },
+//       {
+//         "key": "substitute_client_id",
+//         "value": "07-tendermint-2"
+//       },
+//       {
+//         "key": "client_type",
+//         "value": "07-tendermint"
+//       }
+//     ],
+//     "pkg_path": "gno.land/r/aib/ibc/core"
+//   }
+// ]
+

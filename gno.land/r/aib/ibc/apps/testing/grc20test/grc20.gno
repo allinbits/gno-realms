@@ -10,13 +10,19 @@ import (
 // grc20reg.Register). Slugs must be alphanumeric (enforced by grc20reg).
 const Slug = "TEST"
 
+// Token, ledger, and UserTeller are initialised in init(cur realm) because
+// grc20.NewToken now requires a `realm` capability and there is no realm
+// value available at package-level var init time.
 var (
-	Token, ledger = grc20.NewToken("Test", "TEST", 0)
-	UserTeller    = Token.CallerTeller()
+	Token      *grc20.Token
+	ledger     *grc20.PrivateLedger
+	UserTeller grc20.Teller
 )
 
-func init() {
-	grc20reg.Register(cross, Token, Slug)
+func init(cur realm) {
+	Token, ledger = grc20.NewToken(0, cur, "Test", "TEST", 0)
+	UserTeller = Token.CallerTeller()
+	grc20reg.Register(cross(cur), Token, Slug)
 }
 
 // Mint tokens to the specified address.

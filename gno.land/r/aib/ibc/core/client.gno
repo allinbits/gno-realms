@@ -2,7 +2,7 @@ package core
 
 import (
 	"chain"
-	"chain/runtime"
+	"chain/runtime/unsafe"
 
 	"gno.land/p/aib/ibc/host"
 	"gno.land/p/aib/ibc/lightclient"
@@ -28,8 +28,8 @@ func CreateClient(cur realm, clientState lightclient.ClientState, consensusState
 	if err := consensusState.ValidateBasic(); err != nil {
 		panic(err)
 	}
-	ensureAuthorizedRelayer()
-	c := store.addClient(clientState.ClientType(), runtime.OriginCaller())
+	relayer := ensureAuthorizedRelayer()
+	c := store.addClient(clientState.ClientType(), relayer)
 	err := c.lightClient.Initialize(clientState, consensusState)
 	if err != nil {
 		panic(err)
@@ -69,8 +69,9 @@ func RegisterCounterparty(cur realm, clientID string, counterpartyMerklePrefix [
 	if c == nil {
 		panic(ufmt.Sprintf("client %s not found", clientID))
 	}
-	if c.creator != runtime.OriginCaller() {
-		panic(ufmt.Sprintf("expected same signer as CreateClient submitter %s, got %s", c.creator, runtime.OriginCaller()))
+	caller := unsafe.OriginCaller()
+	if c.creator != caller {
+		panic(ufmt.Sprintf("expected same signer as CreateClient submitter %s, got %s", c.creator, caller))
 	}
 	if c.counterpartyClientID != "" {
 		panic("cannot register counterparty once it is already set")

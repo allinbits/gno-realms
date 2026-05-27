@@ -36,9 +36,9 @@ const (
 	EncodingJSON = "application/json"
 )
 
-func init() {
+func init(cur realm) {
 	// Register the VAAS consumer app in the IBC router.
-	core.RegisterApp(cross, PortID, &App{})
+	core.RegisterApp(cross(cur), PortID, &App{})
 }
 
 var _ app.IBCApp = &App{}
@@ -64,7 +64,7 @@ func (a *App) OnSendPacket(
 // ValsetUpdateId <= the highest already processed, it is acknowledged
 // (success) but not applied.
 func (a *App) OnRecvPacket(
-	_ realm,
+	cur realm,
 	sourceClient string,
 	destinationClient string,
 	sequence uint64,
@@ -130,7 +130,7 @@ func (a *App) OnRecvPacket(
 	}
 
 	// Apply the validator updates to the cross-chain validator set.
-	applyValidatorChanges(vscData.ValidatorUpdates)
+	applyValidatorChanges(0, cur, vscData.ValidatorUpdates)
 
 	// Update the highest valset update ID for out-of-order packet tracking.
 	setHighestValsetUpdateID(vscData.ValsetUpdateId)
