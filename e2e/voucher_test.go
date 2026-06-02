@@ -92,9 +92,9 @@ func (s *E2ETestSuite) TestVoucherSendApprove() {
 
 import "gno.land/r/demo/defi/grc20reg"
 
-func main() {
+func main(cur realm) {
 	token := grc20reg.MustGet("%s")
-	if err := token.CallerTeller().TransferFrom(address("%s"), address("%s"), %d); err != nil {
+	if err := token.CallerTeller().TransferFrom(0, cur, address("%s"), address("%s"), int64(%d)); err != nil {
 		panic(err)
 	}
 }

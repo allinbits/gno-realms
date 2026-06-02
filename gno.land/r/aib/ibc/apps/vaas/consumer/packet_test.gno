@@ -394,6 +394,15 @@ func TestApplyValidatorChanges(cur realm, t *testing.T) {
 	resetStore := func() {
 		store.validators = nil
 		store.validators = newTree()
+		// Clear the chain valset too. Without this, subtests inherit the
+		// proposed/current valset from earlier subtests (propagateValidatorTo
+		// Chain calls validators.AddValidator which mutates sysparams), and a
+		// subsequent "remove" subtest then sees a baseline whose retained
+		// fraction drops below the 1/3 trust ratio → panic. Same
+		// (module/submodule/key) strings as r/sys/validators/v3.
+		testing.SetSysParamStrings("node", "valset", "current", []string{})
+		testing.SetSysParamStrings("node", "valset", "proposed", []string{})
+		testing.SetSysParamBool("node", "valset", "dirty", false)
 	}
 
 	pkA := MakePubKey("ed25519", "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=")

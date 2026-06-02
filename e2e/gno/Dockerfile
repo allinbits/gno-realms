@@ -1,5 +1,5 @@
 # Build stage: compile gnodev and gnokey from the gno fork
-FROM golang:1.24-alpine AS builder
+FROM golang:1.26.0-alpine AS builder
 
 ARG FORK_REPO
 ARG FORK_BRANCH
