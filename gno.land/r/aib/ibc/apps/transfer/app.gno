@@ -103,10 +103,15 @@ func (a *App) OnSendPacket(
 		return ufmt.Errorf("token to coin error: %v", err)
 	}
 	if token.Denom.HasPrefix(payload.SourcePort, sourceClient) {
-		if !pendingUserTransfer {
-			return ufmt.Errorf("voucher packet must be initiated through transfer.Transfer")
+		if err := consumePendingUserTransfer(
+			pendingUserTransferVoucher,
+			data.Sender,
+			sourceClient,
+			token.Denom.Path(),
+			coin.Amount,
+		); err != nil {
+			return err
 		}
-		pendingUserTransfer = false
 
 		// Burn the voucher tokens from sender
 		inst := getVoucher(coin.Denom)
@@ -117,10 +122,15 @@ func (a *App) OnSendPacket(
 			return ufmt.Errorf("burn voucher %s error: %v", coin.String(), err)
 		}
 	} else if isGRC20Alias(token.Denom.Base) {
-		if !pendingUserTransfer {
-			return ufmt.Errorf("GRC20 packet must be initiated through transfer.Transfer")
+		if err := consumePendingUserTransfer(
+			pendingUserTransferGRC20,
+			data.Sender,
+			sourceClient,
+			token.Denom.Path(),
+			coin.Amount,
+		); err != nil {
+			return err
 		}
-		pendingUserTransfer = false
 
 		// Non-IBC GRC20 token: escrow via TransferFrom.
 		// The caller must have approved the transfer app realm address.
@@ -163,6 +173,23 @@ func (a *App) OnSendPacket(
 		AttributeKeyAmount, token.Amount,
 		AttributeKeyMemo, data.Memo,
 	)
+	return nil
+}
+
+func consumePendingUserTransfer(class, sender, sourceClient, denom string, amount int64) error {
+	expected := pendingUserTransfer
+	if expected == nil {
+		return ufmt.Errorf("%s packet must be initiated through transfer.Transfer", class)
+	}
+	pendingUserTransfer = nil
+
+	if expected.class != class ||
+		expected.sender != sender ||
+		expected.sourceClient != sourceClient ||
+		expected.denom != denom ||
+		expected.amount != amount {
+		return ufmt.Errorf("%s packet does not match transfer.Transfer", class)
+	}
 	return nil
 }
 
@@ -376,7 +403,6 @@ func (a *App) OnTimeoutPacket(
 	sequence uint64,
 	payload types.Payload,
 ) error {
-
 	data, token, err := unmarshalPayload(payload.Value)
 	if err != nil {
 		return err

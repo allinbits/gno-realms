@@ -31,8 +31,6 @@ func Transfer(cur realm, clientID, receiver, denom string, amount int64, timeout
 		if !cur.Previous().IsUserCall() {
 			panic("voucher transfer must be a direct user call (maketx call)")
 		}
-		pendingUserTransfer = true
-		defer func() { pendingUserTransfer = false }()
 		// Validate it exists and resolve the denom path.
 		if getVoucher(denom) == nil {
 			panic(ufmt.Errorf("voucher token not found for denom %s", denom))
@@ -41,6 +39,14 @@ func Transfer(cur realm, clientID, receiver, denom string, amount int64, timeout
 		if !found {
 			panic(ufmt.Sprintf("denom %s not found in store", denom))
 		}
+		pendingUserTransfer = &pendingUserTransferData{
+			class:        pendingUserTransferVoucher,
+			sender:       unsafe.OriginCaller().String(),
+			sourceClient: clientID,
+			denom:        d.Path(),
+			amount:       amount,
+		}
+		defer func() { pendingUserTransfer = nil }()
 		denom = d.Path()
 	case grc20reg.Get(denom) != nil:
 		// Non-IBC GRC20 token: value-moving authority must come from a
@@ -48,19 +54,23 @@ func Transfer(cur realm, clientID, receiver, denom string, amount int64, timeout
 		if !cur.Previous().IsUserCall() {
 			panic("GRC20 transfer must be a direct user call (maketx call)")
 		}
-		pendingUserTransfer = true
-		defer func() { pendingUserTransfer = false }()
-		// Convert to an alias.
-		// Escrow via TransferFrom happens in OnSendPacket.
-		// Only catch the "stuck coins" mistake on direct user calls;
-		// when a wrapper realm calls us, OriginSend describes the outer
-		// tx envelope and the coins did not land at this realm.
-		if cur.Previous().IsUserCall() && len(unsafe.OriginSend()) > 0 {
+		// Escrow via TransferFrom happens in OnSendPacket. Native coins sent
+		// with a GRC20 transfer would be stuck at this realm.
+		if len(unsafe.OriginSend()) > 0 {
 			panic("GRC20 transfer must not include native coins")
 		}
 		// Replace the denom with a slash-free alias for the IBC packet.
 		// This avoids ibc-go rejecting base denoms containing slashes.
-		denom = GRC20Alias(denom)
+		alias := GRC20Alias(denom)
+		pendingUserTransfer = &pendingUserTransferData{
+			class:        pendingUserTransferGRC20,
+			sender:       unsafe.OriginCaller().String(),
+			sourceClient: clientID,
+			denom:        alias,
+			amount:       amount,
+		}
+		defer func() { pendingUserTransfer = nil }()
+		denom = alias
 	case strings.Contains(denom, "/"):
 		// This case exists only for a better error message: a denom with
 		// slashes that isn't in grc20reg is likely a mistyped GRC20 path.
@@ -223,7 +233,21 @@ func unescrowNative(_ int, rlm realm, receiver string, coin chain.Coin) error {
 // tx. Transfer uses a defer to guarantee the reset on every exit path.
 var pendingNativeEscrow *chain.Coin
 
+const (
+	pendingUserTransferVoucher = "voucher"
+	pendingUserTransferGRC20   = "GRC20"
+)
+
 // pendingUserTransfer is set by Transfer's voucher/GRC20 branches after the
 // direct user-call guard passes. OnSendPacket consumes it before burning or
-// escrowing user-owned tokens, preventing direct core.SendPacket bypasses.
-var pendingUserTransfer bool
+// escrowing user-owned tokens, preventing direct core.SendPacket bypasses and
+// binding the packet to the asset the user explicitly requested.
+type pendingUserTransferData struct {
+	class        string
+	sender       string
+	sourceClient string
+	denom        string
+	amount       int64
+}
+
+var pendingUserTransfer *pendingUserTransferData
