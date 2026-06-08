@@ -103,6 +103,11 @@ func (a *App) OnSendPacket(
 		return ufmt.Errorf("token to coin error: %v", err)
 	}
 	if token.Denom.HasPrefix(payload.SourcePort, sourceClient) {
+		if !pendingUserTransfer {
+			return ufmt.Errorf("voucher packet must be initiated through transfer.Transfer")
+		}
+		pendingUserTransfer = false
+
 		// Burn the voucher tokens from sender
 		inst := getVoucher(coin.Denom)
 		if inst == nil {
@@ -112,6 +117,11 @@ func (a *App) OnSendPacket(
 			return ufmt.Errorf("burn voucher %s error: %v", coin.String(), err)
 		}
 	} else if isGRC20Alias(token.Denom.Base) {
+		if !pendingUserTransfer {
+			return ufmt.Errorf("GRC20 packet must be initiated through transfer.Transfer")
+		}
+		pendingUserTransfer = false
+
 		// Non-IBC GRC20 token: escrow via TransferFrom.
 		// The caller must have approved the transfer app realm address.
 		denomKey := resolveGRC20Alias(token.Denom.Base)

@@ -31,6 +31,8 @@ func Transfer(cur realm, clientID, receiver, denom string, amount int64, timeout
 		if !cur.Previous().IsUserCall() {
 			panic("voucher transfer must be a direct user call (maketx call)")
 		}
+		pendingUserTransfer = true
+		defer func() { pendingUserTransfer = false }()
 		// Validate it exists and resolve the denom path.
 		if getVoucher(denom) == nil {
 			panic(ufmt.Errorf("voucher token not found for denom %s", denom))
@@ -46,7 +48,9 @@ func Transfer(cur realm, clientID, receiver, denom string, amount int64, timeout
 		if !cur.Previous().IsUserCall() {
 			panic("GRC20 transfer must be a direct user call (maketx call)")
 		}
-		// Convert to a alias.
+		pendingUserTransfer = true
+		defer func() { pendingUserTransfer = false }()
+		// Convert to an alias.
 		// Escrow via TransferFrom happens in OnSendPacket.
 		// Only catch the "stuck coins" mistake on direct user calls;
 		// when a wrapper realm calls us, OriginSend describes the outer
@@ -218,3 +222,8 @@ func unescrowNative(_ int, rlm realm, receiver string, coin chain.Coin) error {
 // MUST be cleared before Transfer returns to avoid leaking into the next
 // tx. Transfer uses a defer to guarantee the reset on every exit path.
 var pendingNativeEscrow *chain.Coin
+
+// pendingUserTransfer is set by Transfer's voucher/GRC20 branches after the
+// direct user-call guard passes. OnSendPacket consumes it before burning or
+// escrowing user-owned tokens, preventing direct core.SendPacket bypasses.
+var pendingUserTransfer bool

@@ -121,31 +121,9 @@ func main(cur realm) {
 	core.RecvPacket(cross(cur), recvMsg)
 
 	// Now send the voucher tokens back (burn)
-	payload := transfer.NewFungibleTokenPacketData(
-		"transfer/"+clientID+"/uatone", // expect transfer/07-tendermint-1/uatone
-		"100",
-		signer.String(),
-		"atone1user",
-		"",
-	)
-	payloadBz := payload.ProtoMarshal()
-	sendPacket := types.MsgSendPacket{
-		SourceClient:     clientID,
-		TimeoutTimestamp: uint64(time.Now().Add(10 * time.Minute).Unix()),
-		Payloads: []types.Payload{
-			{
-				SourcePort:      transfer.PortID,
-				DestinationPort: transfer.PortID,
-				Encoding:        transfer.EncodingProtobuf,
-				Value:           payloadBz,
-				Version:         transfer.V1,
-			},
-		},
-	}
-	testing.SetOriginCaller(signer)
+	testing.SetRealm(testing.NewUserRealm(signer))
 	println("signer voucher balance before SendPacket:", transfer.VoucherBalanceOf(voucherDenom, signer))
-	// Send the packet
-	sequence := core.SendPacket(cross(cur), sendPacket)
+	sendPacket, sequence := transfer.Transfer(cross(cur), clientID, "atone1user", voucherDenom, 100, uint64(time.Now().Add(10*time.Minute).Unix()), "")
 	println("\nsigner voucher balance after SendPacket:", transfer.VoucherBalanceOf(voucherDenom, signer))
 
 	// Change block time to after the timeout

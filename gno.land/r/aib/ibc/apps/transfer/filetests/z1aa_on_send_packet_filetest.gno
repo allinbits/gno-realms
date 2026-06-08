@@ -111,28 +111,7 @@ func main(cur realm) {
 	core.RecvPacket(cross(cur), recvPacket)
 
 	// Now send the voucher tokens back (burn)
-	sendPayload := transfer.NewFungibleTokenPacketData(
-		"transfer/"+clientID+"/uatone", // expect transfer/07-tendermint-1/uatone
-		"100",
-		receiver.String(),
-		"atone1user",
-		"",
-	)
-	sendPacket := types.MsgSendPacket{
-		SourceClient:     clientID,
-		TimeoutTimestamp: uint64(time.Now().Add(time.Hour).Unix()),
-		Payloads: []types.Payload{
-			{
-				SourcePort:      transfer.PortID,
-				DestinationPort: transfer.PortID,
-				Encoding:        transfer.EncodingProtobuf,
-				Value:           sendPayload.ProtoMarshal(),
-				Version:         transfer.V1,
-			},
-		},
-	}
-
-	testing.SetOriginCaller(receiver)
+	testing.SetRealm(testing.NewUserRealm(receiver))
 	// ibc/F9A67CB19B2CAD2ADEC20AD475BE86DF851DEC2B6F6CABC9B7B781BD9131D18F
 	voucherDenom := transfer.NewDenom("uatone", transfer.NewHop(transfer.PortID, clientID)).IBCDenom()
 	println("signer voucher balance before SendPacket:", transfer.VoucherBalanceOf(voucherDenom, receiver))
@@ -141,7 +120,7 @@ func main(cur realm) {
 	println("----------- assert render voucher balance before SendPacket")
 	println(transfer.Render("voucher/" + voucherDenom + "/balance/" + receiver.String()))
 
-	core.SendPacket(cross(cur), sendPacket)
+	transfer.Transfer(cross(cur), clientID, "atone1user", voucherDenom, 100, uint64(time.Now().Add(time.Hour).Unix()), "")
 
 	println("\nsigner voucher balance after SendPacket:", transfer.VoucherBalanceOf(voucherDenom, receiver))
 	println("----------- assert render voucher after SendPacket")
