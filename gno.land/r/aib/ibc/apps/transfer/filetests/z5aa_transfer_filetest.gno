@@ -4,6 +4,7 @@ package main
 import (
 	"encoding/base64"
 	"encoding/hex"
+	"testing"
 	"time"
 
 	tmtesting "gno.land/p/aib/ibc/lightclient/tendermint/testing"
@@ -39,6 +40,7 @@ func main(cur realm) {
 	voucherDenom := transfer.NewDenom("uphoton", transfer.NewHop(transfer.PortID, clientID)).IBCDenom()
 	println("\nreceiver voucher balance after RecvPacket:", transfer.VoucherBalanceOf(voucherDenom, signer))
 
+	testing.SetRealm(testing.NewUserRealm(signer))
 	transfer.Transfer(cross(cur), clientID, "atone1user", voucherDenom, 100, uint64(time.Now().Add(time.Hour).Unix()), "memo")
 
 	println("\nreceiver voucher balance after Transfer:", transfer.VoucherBalanceOf(voucherDenom, signer))

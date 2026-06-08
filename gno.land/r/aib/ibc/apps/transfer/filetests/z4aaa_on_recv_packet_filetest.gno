@@ -36,7 +36,7 @@ func main(cur realm) {
 	core.RegisterCounterparty(cross(cur), clientID, [][]byte{[]byte("iavlStoreKey"), []byte("prefix2")}, counterpartyID)
 	relayer := cur.Previous().Address()
 
-	signer := cur.Address()
+	signer := address("g1wymu47drhr0kuq2098m792lytgtj2nyx77yrsm")
 
 	// Mint GRC20 tokens to signer and approve transfer app
 	grc20test.Mint(cross(cur), signer, 1000)
@@ -45,7 +45,7 @@ func main(cur realm) {
 
 	// Step 1: Transfer to escrow GRC20 tokens (chain A → chain B)
 	grc20regKey := "gno.land/r/aib/ibc/apps/testing/grc20test." + grc20test.Slug
-	testing.SetOriginCaller(signer)
+	testing.SetRealm(testing.NewUserRealm(signer))
 	println("signer grc20 balance before Transfer:", grc20test.BalanceOf(signer))
 	transfer.Transfer(cross(cur), clientID, "atone1user", grc20regKey, 100, uint64(time.Now().Add(time.Hour).Unix()), "")
 	println("signer grc20 balance after Transfer:", grc20test.BalanceOf(signer))
@@ -53,7 +53,7 @@ func main(cur realm) {
 	// Step 2: RecvPacket returning the GRC20 tokens (chain B → chain A)
 	// The counterparty sends back with denom prefixed: transfer/{counterpartyID}/{alias}
 	receiver := testutils.TestAddress("receiver")
-	recvPayload := transfer.NewFungibleTokenPacketData("transfer/" + counterpartyID + "/" + transfer.GRC20Alias(grc20regKey), "100", "atone1user", receiver.String(), "")
+	recvPayload := transfer.NewFungibleTokenPacketData("transfer/"+counterpartyID+"/"+transfer.GRC20Alias(grc20regKey), "100", "atone1user", receiver.String(), "")
 	recvPayloadBz := recvPayload.ProtoMarshal()
 	println("\nRecv payload proto:", base64.StdEncoding.EncodeToString(recvPayloadBz))
 
@@ -187,7 +187,7 @@ func main(cur realm) {
 //       },
 //       {
 //         "key": "to",
-//         "value": "g1gjs8nfdrd55z3xu9gjcatnj29vkwuyx4ffqxd9"
+//         "value": "g1wymu47drhr0kuq2098m792lytgtj2nyx77yrsm"
 //       },
 //       {
 //         "key": "value",
@@ -205,7 +205,7 @@ func main(cur realm) {
 //       },
 //       {
 //         "key": "owner",
-//         "value": "g1gjs8nfdrd55z3xu9gjcatnj29vkwuyx4ffqxd9"
+//         "value": "g1wymu47drhr0kuq2098m792lytgtj2nyx77yrsm"
 //       },
 //       {
 //         "key": "spender",
@@ -239,7 +239,7 @@ func main(cur realm) {
 //       },
 //       {
 //         "key": "encoded_packet_hex",
-//         "value": "0801120f30372d74656e6465726d696e742d311a0f30372d74656e6465726d696e742d3220e2a1d8cc042aa2010a087472616e7366657212087472616e736665721a0769637332302d3122166170706c69636174696f6e2f782d70726f746f6275662a6b0a2e676e6f2e6c616e643a723a6169623a6962633a617070733a74657374696e673a6772633230746573742e5445535412033130301a286731676a73386e6664726435357a33787539676a6361746e6a3239766b7775797834666671786439220a61746f6e653175736572"
+//         "value": "0801120f30372d74656e6465726d696e742d311a0f30372d74656e6465726d696e742d3220e2a1d8cc042aa2010a087472616e7366657212087472616e736665721a0769637332302d3122166170706c69636174696f6e2f782d70726f746f6275662a6b0a2e676e6f2e6c616e643a723a6169623a6962633a617070733a74657374696e673a6772633230746573742e5445535412033130301a28673177796d75343764726872306b7571323039386d3739326c797467746a326e797837377972736d220a61746f6e653175736572"
 //       }
 //     ],
 //     "pkg_path": "gno.land/r/aib/ibc/core"
@@ -253,7 +253,7 @@ func main(cur realm) {
 //       },
 //       {
 //         "key": "from",
-//         "value": "g1gjs8nfdrd55z3xu9gjcatnj29vkwuyx4ffqxd9"
+//         "value": "g1wymu47drhr0kuq2098m792lytgtj2nyx77yrsm"
 //       },
 //       {
 //         "key": "to",
@@ -271,7 +271,7 @@ func main(cur realm) {
 //     "attrs": [
 //       {
 //         "key": "sender",
-//         "value": "g1gjs8nfdrd55z3xu9gjcatnj29vkwuyx4ffqxd9"
+//         "value": "g1wymu47drhr0kuq2098m792lytgtj2nyx77yrsm"
 //       },
 //       {
 //         "key": "receiver",

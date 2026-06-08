@@ -37,7 +37,7 @@ func main(cur realm) {
 	core.RegisterCounterparty(cross(cur), clientID, [][]byte{[]byte("iavlStoreKey"), []byte("prefix2")}, counterpartyID)
 	relayer := cur.Previous().Address()
 
-	signer := cur.Address()
+	signer := address("g1wymu47drhr0kuq2098m792lytgtj2nyx77yrsm")
 
 	// Mint GRC20 tokens to signer and approve transfer app
 	grc20test.Mint(cross(cur), signer, 1000)
@@ -46,7 +46,7 @@ func main(cur realm) {
 
 	// Step 1: Transfer to escrow GRC20 tokens (chain A → chain B)
 	grc20regKey := "gno.land/r/aib/ibc/apps/testing/grc20test." + grc20test.Slug
-	testing.SetOriginCaller(signer)
+	testing.SetRealm(testing.NewUserRealm(signer))
 	println("signer grc20 balance before Transfer:", grc20test.BalanceOf(signer))
 	sendPacket, sequence := transfer.Transfer(cross(cur), clientID, "atone1user", grc20regKey, 100, uint64(time.Now().Add(10*time.Minute).Unix()), "")
 	println("\nsigner grc20 balance after Transfer:", grc20test.BalanceOf(signer))

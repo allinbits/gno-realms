@@ -2,6 +2,7 @@
 package main
 
 import (
+	"testing"
 	"time"
 
 	tmtesting "gno.land/p/aib/ibc/lightclient/tendermint/testing"
@@ -28,6 +29,7 @@ func main(cur realm) {
 	grc20test.Mint(cross(cur), cur.Previous().Address(), 1000)
 
 	denom := "gno.land/r/aib/ibc/apps/testing/grc20test." + grc20test.Slug
+	testing.SetRealm(testing.NewUserRealm("g1wymu47drhr0kuq2098m792lytgtj2nyx77yrsm"))
 	transfer.Transfer(cross(cur), clientID, "atone1user", denom, 100, uint64(time.Now().Add(time.Hour).Unix()), "")
 }
 

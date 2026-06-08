@@ -26,7 +26,12 @@ func Transfer(cur realm, clientID, receiver, denom string, amount int64, timeout
 ) {
 	switch {
 	case strings.HasPrefix(denom, "ibc/"):
-		// IBC voucher: validate it exists and resolve the denom path.
+		// IBC voucher: value-moving authority must come from a direct
+		// user call because the packet sender is the tx origin.
+		if !cur.Previous().IsUserCall() {
+			panic("voucher transfer must be a direct user call (maketx call)")
+		}
+		// Validate it exists and resolve the denom path.
 		if getVoucher(denom) == nil {
 			panic(ufmt.Errorf("voucher token not found for denom %s", denom))
 		}
@@ -36,7 +41,12 @@ func Transfer(cur realm, clientID, receiver, denom string, amount int64, timeout
 		}
 		denom = d.Path()
 	case grc20reg.Get(denom) != nil:
-		// Non-IBC GRC20 token: convert to alias.
+		// Non-IBC GRC20 token: value-moving authority must come from a
+		// direct user call before OnSendPacket spends prior approval.
+		if !cur.Previous().IsUserCall() {
+			panic("GRC20 transfer must be a direct user call (maketx call)")
+		}
+		// Convert to a alias.
 		// Escrow via TransferFrom happens in OnSendPacket.
 		// Only catch the "stuck coins" mistake on direct user calls;
 		// when a wrapper realm calls us, OriginSend describes the outer

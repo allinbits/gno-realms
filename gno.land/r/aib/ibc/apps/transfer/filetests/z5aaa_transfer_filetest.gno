@@ -3,6 +3,7 @@ package main
 
 import (
 	"chain"
+	"testing"
 	"time"
 
 	tmtesting "gno.land/p/aib/ibc/lightclient/tendermint/testing"
@@ -39,6 +40,7 @@ func main(cur realm) {
 
 	println("----------- balance before Transfer:", grc20test.BalanceOf(caller))
 
+	testing.SetRealm(testing.NewUserRealm(caller))
 	transfer.Transfer(cross(cur), clientID, "atone1user", denom, 100, uint64(time.Now().Add(time.Hour).Unix()), "")
 
 	println("----------- balance after Transfer:", grc20test.BalanceOf(caller))

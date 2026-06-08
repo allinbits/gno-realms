@@ -1,9 +1,11 @@
 // PKGPATH: gno.land/r/aib/main
 package main
 
+// Regression test: a non-IBC GRC20 Transfer initiated by a non-user caller
+// must be rejected even when the user has granted the transfer app allowance.
+
 import (
 	"chain"
-	"testing"
 	"time"
 
 	tmtesting "gno.land/p/aib/ibc/lightclient/tendermint/testing"
@@ -14,7 +16,6 @@ import (
 	"gno.land/r/aib/ibc/core"
 )
 
-// TransferGRC20: insufficient balance
 func main(cur realm) {
 	var (
 		chainID        = "chain-id-2"
@@ -26,18 +27,15 @@ func main(cur realm) {
 	clientID := core.CreateClient(cross(cur), clientState, consensusState)
 	core.RegisterCounterparty(cross(cur), clientID, [][]byte{[]byte("iavlStoreKey"), []byte("prefix2")}, "07-tendermint-2")
 
-	caller := cur.Previous().Address()
+	owner := cur.Previous().Address()
 
-	// Mint only 50 tokens but try to transfer 100
-	grc20test.Mint(cross(cur), caller, 50)
-
+	grc20test.Mint(cross(cur), owner, 1000)
 	transferAppAddr := chain.PackageAddress("gno.land/r/aib/ibc/apps/transfer")
-	grc20test.Approve(cross(cur), caller, transferAppAddr, 100)
+	grc20test.Approve(cross(cur), owner, transferAppAddr, 100)
 
 	denom := "gno.land/r/aib/ibc/apps/testing/grc20test." + grc20test.Slug
-	testing.SetRealm(testing.NewUserRealm(caller))
 	transfer.Transfer(cross(cur), clientID, "atone1user", denom, 100, uint64(time.Now().Add(time.Hour).Unix()), "")
 }
 
 // Error:
-// send packet failed for payload #0 app "transfer": escrow GRC20 gno.land/r/aib/ibc/apps/testing/grc20test.TEST error: insufficient balance
+// GRC20 transfer must be a direct user call (maketx call)

@@ -121,7 +121,7 @@ func main(cur realm) {
 	core.RecvPacket(cross(cur), recvMsg)
 
 	// Now send the voucher tokens back (burn)
-	testing.SetOriginCaller(signer)
+	testing.SetRealm(testing.NewUserRealm(signer))
 	println("signer voucher balance before Transfer:", transfer.VoucherBalanceOf(voucherDenom, signer))
 	sendPacket, sequence := transfer.Transfer(cross(cur), clientID, "atone1user", voucherDenom, 100, uint64(time.Now().Add(time.Hour).Unix()), "")
 	println("\nsigner voucher balance after Transfer:", transfer.VoucherBalanceOf(voucherDenom, signer))
