@@ -4,7 +4,6 @@ package main
 import (
 	"encoding/base64"
 	"encoding/hex"
-	"testing"
 	"time"
 
 	tmtesting "gno.land/p/aib/ibc/lightclient/tendermint/testing"
@@ -29,7 +28,7 @@ func main(cur realm) {
 	clientID := core.CreateClient(cross(cur), clientState, consensusState)
 	core.RegisterCounterparty(cross(cur), clientID, [][]byte{[]byte("iavlStoreKey"), []byte("prefix2")}, counterpartyID)
 
-	// ---- 1. RecvPacket: counterparty is the source -> mint voucher ----------
+	// ---- RecvPacket: counterparty is the source, but slashed base is rejected.
 	receiver := testutils.TestAddress("receiver")
 	recvPayload := transfer.NewFungibleTokenPacketData(
 		"factory/alice/token", // base denom containing slashes
@@ -115,44 +114,125 @@ func main(cur realm) {
 	}
 	core.RecvPacket(cross(cur), recvPacket)
 
-	// The voucher was minted for the slash-containing base denom.
 	voucherDenom := transfer.NewDenom(
 		"factory/alice/token",
 		transfer.NewHop(transfer.PortID, clientID),
 	).IBCDenom()
 	println("voucher balance after recv:", transfer.VoucherBalanceOf(voucherDenom, receiver))
-
-	// ---- 2. SendPacket: try to send the voucher back -> rejected ------------
-	// OnSendPacket refuses the slash-containing base denom, so core.SendPacket
-	// panics and the voucher cannot be returned.
-	sendPayload := transfer.NewFungibleTokenPacketData(
-		"transfer/"+clientID+"/factory/alice/token",
-		"100",
-		receiver.String(), // sender must equal the origin caller (signer)
-		"atone1user",
-		"",
-	)
-	sendPacket := types.MsgSendPacket{
-		SourceClient:     clientID,
-		TimeoutTimestamp: uint64(time.Now().Add(time.Hour).Unix()),
-		Payloads: []types.Payload{
-			{
-				SourcePort:      transfer.PortID,
-				DestinationPort: transfer.PortID,
-				Encoding:        transfer.EncodingProtobuf,
-				Value:           sendPayload.ProtoMarshal(),
-				Version:         transfer.V1,
-			},
-		},
-	}
-
-	testing.SetOriginCaller(receiver)
-	core.SendPacket(cross(cur), sendPacket)
 }
 
 // Output:
 // Payload proto: ChNmYWN0b3J5L2FsaWNlL3Rva2VuEgMxMDAaCmF0b25lMXVzZXIiKGcxd2Zqa3hldGZ3ZWpoeWg2bHRhMDQ3aDZsdGEwNDdoNmxsbTgyeWw=
-// voucher balance after recv: 100
+// voucher balance after recv: 0
 
-// Error:
-// send packet failed for payload #0 app "transfer": base denomination factory/alice/token cannot contain slashes for IBC v2 packet
+// Events:
+// [
+//   {
+//     "type": "create_client",
+//     "attrs": [
+//       {
+//         "key": "client_id",
+//         "value": "07-tendermint-1"
+//       },
+//       {
+//         "key": "client_type",
+//         "value": "07-tendermint"
+//       },
+//       {
+//         "key": "consensus_heights",
+//         "value": "2/2"
+//       }
+//     ],
+//     "pkg_path": "gno.land/r/aib/ibc/core"
+//   },
+//   {
+//     "type": "recv_packet",
+//     "attrs": [
+//       {
+//         "key": "packet_source_client",
+//         "value": "07-tendermint-42"
+//       },
+//       {
+//         "key": "packet_dest_client",
+//         "value": "07-tendermint-1"
+//       },
+//       {
+//         "key": "packet_sequence",
+//         "value": "1"
+//       },
+//       {
+//         "key": "packet_timeout_timestamp",
+//         "value": "1234571490"
+//       },
+//       {
+//         "key": "encoded_packet_hex",
+//         "value": "0801121030372d74656e6465726d696e742d34321a0f30372d74656e6465726d696e742d3120e2a1d8cc042a87010a087472616e7366657212087472616e736665721a0769637332302d3122166170706c69636174696f6e2f782d70726f746f6275662a500a13666163746f72792f616c6963652f746f6b656e12033130301a0a61746f6e6531757365722228673177666a6b7865746677656a687968366c746130343768366c746130343768366c6c6d3832796c"
+//       }
+//     ],
+//     "pkg_path": "gno.land/r/aib/ibc/core"
+//   },
+//   {
+//     "type": "fungible_token_packet",
+//     "attrs": [
+//       {
+//         "key": "sender",
+//         "value": "atone1user"
+//       },
+//       {
+//         "key": "receiver",
+//         "value": "g1wfjkxetfwejhyh6lta047h6lta047h6llm82yl"
+//       },
+//       {
+//         "key": "denom",
+//         "value": "factory/alice/token"
+//       },
+//       {
+//         "key": "amount",
+//         "value": "100"
+//       },
+//       {
+//         "key": "memo",
+//         "value": ""
+//       },
+//       {
+//         "key": "success",
+//         "value": "false"
+//       },
+//       {
+//         "key": "error",
+//         "value": "base denomination factory/alice/token cannot contain slashes for IBC v2 packet"
+//       }
+//     ],
+//     "pkg_path": "gno.land/r/aib/ibc/apps/transfer"
+//   },
+//   {
+//     "type": "write_acknowledgement",
+//     "attrs": [
+//       {
+//         "key": "packet_source_client",
+//         "value": "07-tendermint-42"
+//       },
+//       {
+//         "key": "packet_dest_client",
+//         "value": "07-tendermint-1"
+//       },
+//       {
+//         "key": "packet_sequence",
+//         "value": "1"
+//       },
+//       {
+//         "key": "packet_timeout_timestamp",
+//         "value": "1234571490"
+//       },
+//       {
+//         "key": "encoded_packet_hex",
+//         "value": "0801121030372d74656e6465726d696e742d34321a0f30372d74656e6465726d696e742d3120e2a1d8cc042a87010a087472616e7366657212087472616e736665721a0769637332302d3122166170706c69636174696f6e2f782d70726f746f6275662a500a13666163746f72792f616c6963652f746f6b656e12033130301a0a61746f6e6531757365722228673177666a6b7865746677656a687968366c746130343768366c746130343768366c6c6d3832796c"
+//       },
+//       {
+//         "key": "encoded_acknowledgement_hex",
+//         "value": "0a204774d4a575993f963b1c06573736617a457abef8589178db8d10c94b4ab511ab"
+//       }
+//     ],
+//     "pkg_path": "gno.land/r/aib/ibc/core"
+//   }
+// ]
