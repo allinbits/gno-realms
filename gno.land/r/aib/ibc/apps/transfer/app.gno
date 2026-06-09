@@ -103,8 +103,7 @@ func (a *App) OnSendPacket(
 		return ufmt.Errorf("token to coin error: %v", err)
 	}
 	if token.Denom.HasPrefix(payload.SourcePort, sourceClient) {
-		if err := consumePendingUserTransfer(
-			pendingUserTransferVoucher,
+		if err := consumePendingVoucherSend(
 			data.Sender,
 			sourceClient,
 			token.Denom.Path(),
@@ -122,8 +121,7 @@ func (a *App) OnSendPacket(
 			return ufmt.Errorf("burn voucher %s error: %v", coin.String(), err)
 		}
 	} else if isGRC20Alias(token.Denom.Base) {
-		if err := consumePendingUserTransfer(
-			pendingUserTransferGRC20,
+		if err := consumePendingGRC20Send(
 			data.Sender,
 			sourceClient,
 			token.Denom.Path(),
@@ -176,19 +174,38 @@ func (a *App) OnSendPacket(
 	return nil
 }
 
-func consumePendingUserTransfer(class, sender, sourceClient, denom string, amount int64) error {
-	expected := pendingUserTransfer
+func consumePendingVoucherSend(sender, sourceClient, denom string, amount int64) error {
+	expected := pendingVoucherSend
 	if expected == nil {
-		return ufmt.Errorf("%s packet must be initiated through transfer.Transfer", class)
+		return ufmt.Errorf("voucher packet must be initiated through transfer.Transfer")
 	}
-	pendingUserTransfer = nil
+	pendingVoucherSend = nil
 
-	if expected.class != class ||
-		expected.sender != sender ||
+	if err := validatePendingSend(expected, sender, sourceClient, denom, amount); err != nil {
+		return ufmt.Errorf("voucher packet %v", err)
+	}
+	return nil
+}
+
+func consumePendingGRC20Send(sender, sourceClient, denom string, amount int64) error {
+	expected := pendingGRC20Send
+	if expected == nil {
+		return ufmt.Errorf("GRC20 packet must be initiated through transfer.Transfer")
+	}
+	pendingGRC20Send = nil
+
+	if err := validatePendingSend(expected, sender, sourceClient, denom, amount); err != nil {
+		return ufmt.Errorf("GRC20 packet %v", err)
+	}
+	return nil
+}
+
+func validatePendingSend(expected *pendingSend, sender, sourceClient, denom string, amount int64) error {
+	if expected.sender != sender ||
 		expected.sourceClient != sourceClient ||
 		expected.denom != denom ||
 		expected.amount != amount {
-		return ufmt.Errorf("%s packet does not match transfer.Transfer", class)
+		return ufmt.Errorf("does not match transfer.Transfer")
 	}
 	return nil
 }

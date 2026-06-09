@@ -130,4 +130,4 @@ func recvVoucher(cur realm, clientID, counterpartyID string, trustedHeight types
 }
 
 // Error:
-// send packet failed for payload #0 app "transfer": GRC20 packet does not match transfer.Transfer
+// send packet failed for payload #0 app "transfer": GRC20 packet must be initiated through transfer.Transfer
