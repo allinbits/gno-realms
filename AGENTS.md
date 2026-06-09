@@ -31,6 +31,14 @@ Run a specific test by name:
 go tool gno test -run TestPacketValidateBasic ./gno.land/p/aib/ibc/types
 ```
 
+Run a single **filetest**: `-run` must match the full path to the test file,
+not just its name. A bare prefix like `-run z5a_` silently matches nothing (the
+run reports `ok` without executing the filetest); the pattern has to start with
+the package path:
+```bash
+go tool gno test -run ./gno.land/r/aib/ibc/apps/transfer/z5a_ ./gno.land/r/aib/ibc/apps/transfer/
+```
+
 Update filetest golden output (`// Output:` and `// Events:` sections) automatically:
 ```bash
 go tool gno test -update-golden-tests ./gno.land/r/aib/ibc/apps/transfer/
