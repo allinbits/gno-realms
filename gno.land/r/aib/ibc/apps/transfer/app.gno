@@ -94,8 +94,8 @@ func (a *App) OnSendPacket(
 	// data, then we can remove this restriction.
 	// Non-IBC GRC20 tokens use aliases (slashes replaced with colons)
 	// so they pass this check naturally.
-	if hasSlashInBase(token) {
-		return ufmt.Errorf("base denomination %s cannot contain slashes for IBC v2 packet", token.Denom.Base)
+	if err := validateBaseDenomNoSlash(token); err != nil {
+		return err
 	}
 
 	coin, err := token.ToCoin()
@@ -224,8 +224,7 @@ func (a *App) OnRecvPacket(
 		ack = types.NewErrorAppAcknowledgement(ackErr)
 		return types.RecvPacketResult{Status: types.PacketStatus_Failure}
 	}
-	if hasSlashInBase(token) {
-		ackErr = ufmt.Errorf("base denomination %s cannot contain slashes for IBC v2 packet", token.Denom.Base)
+	if ackErr = validateBaseDenomNoSlash(token); ackErr != nil {
 		ack = types.NewErrorAppAcknowledgement(ackErr)
 		return types.RecvPacketResult{Status: types.PacketStatus_Failure}
 	}
@@ -296,11 +295,14 @@ func (a *App) OnRecvPacket(
 	return recvResult
 }
 
-// hasSlashInBase reports whether the token's base denomination contains a
-// slash. IBC v2 packets must not carry slashed base denoms: with no channel
-// identifiers in v2, the trace cannot be reliably separated from the base.
-func hasSlashInBase(token Token) bool {
-	return strings.Contains(token.Denom.Base, "/")
+// validateBaseDenomNoSlash rejects base denominations containing a slash.
+// IBC v2 packets do not carry channel identifiers, so denomination traces
+// cannot be unambiguously separated from a slashed base denomination.
+func validateBaseDenomNoSlash(token Token) error {
+	if strings.Contains(token.Denom.Base, "/") {
+		return ufmt.Errorf("base denomination %s cannot contain slashes for IBC v2 packet", token.Denom.Base)
+	}
+	return nil
 }
 
 // OnAcknowledgementPacket responds to the success or failure of a packet
