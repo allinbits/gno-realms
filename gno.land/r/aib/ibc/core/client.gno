@@ -58,6 +58,30 @@ func ClientIDs() []string {
 	return ids
 }
 
+// ClientLatestHeight returns the latest (highest) consensus height the given
+// client has been updated to, formatted as "<revision>/<height>". This is the
+// client's latest trusted height. Returns "" if the client is unknown.
+// Intended for read-only callers (UIs) that want to surface how up-to-date a
+// client is.
+func ClientLatestHeight(clientID string) string {
+	c := store.getClient(clientID)
+	if c == nil {
+		return ""
+	}
+	return c.lightClient.LatestHeight().String()
+}
+
+// ClientStatus returns the status of the given client (Active, Expired,
+// Frozen, ...). Returns "" if the client is unknown. Intended for read-only
+// callers (UIs) that want to surface whether a client is usable.
+func ClientStatus(clientID string) string {
+	c := store.getClient(clientID)
+	if c == nil {
+		return ""
+	}
+	return c.lightClient.Status()
+}
+
 // RegisterCounterparty will register the IBC v2 counterparty info for the
 // given clientID. It must be called by the same relayer that called
 // CreateClient.

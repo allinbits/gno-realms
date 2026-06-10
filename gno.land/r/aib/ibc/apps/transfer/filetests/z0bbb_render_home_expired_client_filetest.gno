@@ -2,6 +2,7 @@
 package main
 
 import (
+	"testing"
 	"time"
 
 	tmtesting "gno.land/p/aib/ibc/lightclient/tendermint/testing"
@@ -11,8 +12,11 @@ import (
 	"gno.land/r/aib/ibc/core"
 )
 
-// renderHome with a client registered: confirms the Transfer section lists one
-// txlink row per known client (pre-filling clientID).
+// renderHome with a non-active (Expired) client: confirms the Transfer section
+// still lists the client with its status and trusted height, but omits the
+// "send via" txlink since packets can't be sent through it. The client is
+// created Active, then block time is advanced past the trusting period to
+// expire it.
 func main(cur realm) {
 	var (
 		chainID        = "chain-id-2"
@@ -23,6 +27,11 @@ func main(cur realm) {
 	)
 	clientID := core.CreateClient(cross(cur), clientState, consensusState)
 	core.RegisterCounterparty(cross(cur), clientID, [][]byte{[]byte("iavlStoreKey"), []byte("prefix2")}, "07-tendermint-2")
+
+	// Advance block time past the trusting period to expire the client.
+	ctx := testing.GetContext()
+	ctx.Time = time.Now().Add(clientState.TrustingPeriod)
+	testing.SetContext(ctx)
 
 	println(transfer.Render(""))
 }
@@ -36,7 +45,7 @@ func main(cur realm) {
 //
 // Trigger an IBC transfer from your wallet. Pick the client of the destination chain:
 //
-// - [send via `07-tendermint-1`](/r/aib/main$help&func=Transfer&amount=&clientID=07-tendermint-1&denom=&memo=&receiver=&timeoutTimestamp=1234571490) — Active, trusted height `2/2` ([client details](/r/aib/ibc/core:clients/07-tendermint-1))
+// - `07-tendermint-1` — Expired, trusted height `2/2` ([client details](/r/aib/ibc/core:clients/07-tendermint-1))
 //
 // ## Vouchers (0)
 //

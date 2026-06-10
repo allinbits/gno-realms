@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"gno.land/p/aib/ibc/lightclient"
 	"gno.land/p/aib/jsonpage"
 	"gno.land/p/moul/txlink"
 	"gno.land/p/nt/mux/v0"
@@ -186,10 +187,20 @@ func renderTransferLinks() string {
 
 	out.WriteString("Trigger an IBC transfer from your wallet. Pick the client of the destination chain:\n\n")
 	for _, clientID := range clientIDs {
-		out.WriteString(ufmt.Sprintf(
-			"- [send via `%s`](%s) ([client details](/r/aib/ibc/core:clients/%s))\n",
-			clientID, newTransferLink(clientID, "", "").URL(), clientID,
-		))
+		status := core.ClientStatus(clientID)
+		height := core.ClientLatestHeight(clientID)
+		if status == lightclient.Active {
+			out.WriteString(ufmt.Sprintf(
+				"- [send via `%s`](%s) — %s, trusted height `%s` ([client details](/r/aib/ibc/core:clients/%s))\n",
+				clientID, newTransferLink(clientID, "", "").URL(), status, height, clientID,
+			))
+		} else {
+			// Non-active client: no send link, since packets can't be sent.
+			out.WriteString(ufmt.Sprintf(
+				"- `%s` — %s, trusted height `%s` ([client details](/r/aib/ibc/core:clients/%s))\n",
+				clientID, status, height, clientID,
+			))
+		}
 	}
 
 	// Per-voucher links: send back via IBC, plus local GRC20 send/approve.
