@@ -6,6 +6,7 @@ services:
       args:
         - FORK_REPO
         - FORK_BRANCH
+        - GO_BUILD_TAGS
     ports:
       - "26657:26657"
       - "8888:8888"
@@ -24,6 +25,7 @@ services:
       args:
         - FORK_REPO
         - FORK_BRANCH
+        - GO_BUILD_TAGS
     entrypoint: ["bash", "/whitelist.sh"]
     volumes:
       - ./gno/whitelist.sh:/whitelist.sh

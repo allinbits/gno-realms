@@ -72,6 +72,11 @@ e2e-build-no-cache:
 export FORK_REPO   := github.com/allinbits/gno
 export FORK_BRANCH := ibc-fork-allowall-v4
 
+# Optional Go build tags forwarded to the gnodev build in the e2e image.
+# Set GO_BUILD_TAGS=gastrace to build the store-gas tracing variant used by
+# e2e/gas-trace-report.md. Default empty: normal e2e build, no tracing.
+export GO_BUILD_TAGS ?=
+
 update-fork:
 	$(eval HASH := $(shell git ls-remote https://$(FORK_REPO).git refs/heads/$(FORK_BRANCH) | awk '{print $$1}'))
 	@if [ -z "$(HASH)" ]; then \
