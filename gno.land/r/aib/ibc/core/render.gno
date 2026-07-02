@@ -44,23 +44,30 @@ func renderHome(w *mux.ResponseWriter, r *mux.Request) {
 	out.WriteString("IBC v2 core state and query endpoints.\n\n")
 	out.WriteString(ufmt.Sprintf("## Clients (%d)\n\n", store.clientByID.Size()))
 	if store.clientByID.Size() > 0 {
-		out.WriteString("| Client | St. | Creator | Cpty | Height | CS | Seq | Cmts | Rcpts | Acks |\n")
-		out.WriteString("|--------|-----|---------|------|--------|----|-----|------|-------|------|\n")
+		out.WriteString("| Client | St. | Creator | Cpty | Height | Time | CS | Seq | Cmts | Rcpts | Acks |\n")
+		out.WriteString("|--------|-----|---------|------|--------|------|----|-----|------|-------|------|\n")
 		store.clientByID.IterateByOffset(0, store.clientByID.Size(), func(_ string, v any) bool {
 			c := v.(*client)
-			var nConsStates int
+			var (
+				nConsStates int
+				heightTime  string
+			)
 			switch c.typ {
 			case lightclient.Tendermint:
 				lc := c.lightClient.(*tendermint.TMLightClient)
 				nConsStates = lc.ConsensusStateByHeight.Size()
+				if cs, found := lc.GetConsensusState(lc.LatestHeight()); found {
+					heightTime = cs.Timestamp.UTC().Format(time.RFC3339)
+				}
 			}
 			out.WriteString(ufmt.Sprintf(
-				"| [`%s`](/r/aib/ibc/core:clients/%s) | [%s](/r/aib/ibc/core:clients/%s/status) | %s | %s | [%s](/r/aib/ibc/core:clients/%s/consensus_states/%d/%d) | [%d](/r/aib/ibc/core:clients/%s/consensus_states) | [%d](/r/aib/ibc/core:clients/%s/next_sequence_send) | [%d](/r/aib/ibc/core:clients/%s/packet_commitments) | [%d](/r/aib/ibc/core:clients/%s/packet_receipts) | [%d](/r/aib/ibc/core:clients/%s/packet_acknowledgements) |\n",
+				"| [`%s`](/r/aib/ibc/core:clients/%s) | [%s](/r/aib/ibc/core:clients/%s/status) | %s | %s | [%s](/r/aib/ibc/core:clients/%s/consensus_states/%d/%d) | %s | [%d](/r/aib/ibc/core:clients/%s/consensus_states) | [%d](/r/aib/ibc/core:clients/%s/next_sequence_send) | [%d](/r/aib/ibc/core:clients/%s/packet_commitments) | [%d](/r/aib/ibc/core:clients/%s/packet_receipts) | [%d](/r/aib/ibc/core:clients/%s/packet_acknowledgements) |\n",
 				c.id, c.id,
 				c.lightClient.Status(), c.id,
 				renderAddr(c.creator),
 				c.counterpartyClientID,
 				c.lightClient.LatestHeight().String(), c.id, c.lightClient.LatestHeight().RevisionNumber, c.lightClient.LatestHeight().RevisionHeight,
+				heightTime,
 				nConsStates, c.id,
 				int64(c.sendSeq)+1, c.id,
 				c.packetCommitmentsBySeq.Size(), c.id,

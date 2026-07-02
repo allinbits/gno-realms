@@ -29,9 +29,9 @@ func main(cur realm) {
 //
 // ## Clients (1)
 //
-// | Client | St. | Creator | Cpty | Height | CS | Seq | Cmts | Rcpts | Acks |
-// |--------|-----|---------|------|--------|----|-----|------|-------|------|
-// | [`07-tendermint-1`](/r/aib/ibc/core:clients/07-tendermint-1) | [Active](/r/aib/ibc/core:clients/07-tendermint-1/status) | [g1wymu…yrsm](/u/g1wymu47drhr0kuq2098m792lytgtj2nyx77yrsm) |  | [2/2](/r/aib/ibc/core:clients/07-tendermint-1/consensus_states/2/2) | [1](/r/aib/ibc/core:clients/07-tendermint-1/consensus_states) | [1](/r/aib/ibc/core:clients/07-tendermint-1/next_sequence_send) | [0](/r/aib/ibc/core:clients/07-tendermint-1/packet_commitments) | [0](/r/aib/ibc/core:clients/07-tendermint-1/packet_receipts) | [0](/r/aib/ibc/core:clients/07-tendermint-1/packet_acknowledgements) |
+// | Client | St. | Creator | Cpty | Height | Time | CS | Seq | Cmts | Rcpts | Acks |
+// |--------|-----|---------|------|--------|------|----|-----|------|-------|------|
+// | [`07-tendermint-1`](/r/aib/ibc/core:clients/07-tendermint-1) | [Active](/r/aib/ibc/core:clients/07-tendermint-1/status) | [g1wymu…yrsm](/u/g1wymu47drhr0kuq2098m792lytgtj2nyx77yrsm) |  | [2/2](/r/aib/ibc/core:clients/07-tendermint-1/consensus_states/2/2) | 2009-02-13T23:31:30Z | [1](/r/aib/ibc/core:clients/07-tendermint-1/consensus_states) | [1](/r/aib/ibc/core:clients/07-tendermint-1/next_sequence_send) | [0](/r/aib/ibc/core:clients/07-tendermint-1/packet_commitments) | [0](/r/aib/ibc/core:clients/07-tendermint-1/packet_receipts) | [0](/r/aib/ibc/core:clients/07-tendermint-1/packet_acknowledgements) |
 //
 // ## Apps (0)
 //
