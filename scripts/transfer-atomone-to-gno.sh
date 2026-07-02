@@ -19,7 +19,7 @@ set -euo pipefail
 
 NODE="${NODE:-https://atomone-testnet-1-rpc.allinbits.services:443}"
 CHAIN_ID="${CHAIN_ID:-atomone-testnet-1}"
-CLIENT_ID="${CLIENT_ID:-10-gno-8}"
+CLIENT_ID="${CLIENT_ID:-10-gno-9}"
 KEY="${KEY:-relayer}"
 KEYRING_BACKEND="${KEYRING_BACKEND:-test}"
 KEYRING_DIR="${KEYRING_DIR:-~/.atomone-testnet}"
