@@ -7,7 +7,7 @@
 #   - your signing key imported in the local keyring (default: test backend).
 #     KEY's address MUST equal $SENDER, otherwise signing fails with a mismatch.
 #
-# Defaults: 1 ATONE (1_000_000 uatone) atone12j6x…→g12j6x… via 10-gno-0.
+# Defaults: 1 ATONE (1_000_000 uatone) atone12j6x…→g12j6x… via 10-gno-11.
 # Override via env: NODE, CHAIN_ID, CLIENT_ID, KEY, KEYRING_BACKEND, SENDER,
 #   RECEIVER, DENOM, AMOUNT, FEE_DENOM, FEE_AMOUNT, GAS, MEMO, TIMEOUT, ATOMONE_HOME.
 #
@@ -19,7 +19,7 @@ set -euo pipefail
 
 NODE="${NODE:-https://atomone-testnet-1-rpc.allinbits.services:443}"
 CHAIN_ID="${CHAIN_ID:-atomone-testnet-1}"
-CLIENT_ID="${CLIENT_ID:-10-gno-9}"
+CLIENT_ID="${CLIENT_ID:-10-gno-11}"
 KEY="${KEY:-relayer}"
 KEYRING_BACKEND="${KEYRING_BACKEND:-test}"
 KEYRING_DIR="${KEYRING_DIR:-~/.atomone-testnet}"
