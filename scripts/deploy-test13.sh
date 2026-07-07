@@ -16,7 +16,7 @@ set -euo pipefail
 
 KEY="${KEY:-aib}"
 CHAIN_ID="${CHAIN_ID:-test-13}"
-REMOTE="${REMOTE:-https://rpc.test-13-aeddi-1.gnoland.network:443}"
+REMOTE="${REMOTE:-https://rpc.test13.testnets.gno.land/}"
 GAS_FEE="${GAS_FEE:-1000000ugnot}"
 GAS_WANTED="${GAS_WANTED:-200000000}"
 MAX_DEPOSIT="${MAX_DEPOSIT:-100000000ugnot}"

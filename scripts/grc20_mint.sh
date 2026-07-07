@@ -16,7 +16,7 @@ set -euo pipefail
 
 KEY="${KEY:-aib}"
 CHAIN_ID="${CHAIN_ID:-test-13}"
-REMOTE="${REMOTE:-https://rpc.test-13-aeddi-1.gnoland.network:443}"
+REMOTE="${REMOTE:-https://rpc.test13.testnets.gno.land/}"
 PKGPATH="${PKGPATH:-gno.land/r/aib/ibc/apps/testing/grc20test}"
 TO="${TO:-g12j6x2cnpkvz83l6a5lhfw22703kwwpknpfnt70}" # aib
 AMOUNT="${AMOUNT:-1000000}"

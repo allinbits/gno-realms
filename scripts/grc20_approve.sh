@@ -17,7 +17,7 @@ set -euo pipefail
 
 KEY="${KEY:-aib}"
 CHAIN_ID="${CHAIN_ID:-test-13}"
-REMOTE="${REMOTE:-https://rpc.test-13-aeddi-1.gnoland.network:443}"
+REMOTE="${REMOTE:-https://rpc.test13.testnets.gno.land/}"
 PKGPATH="${PKGPATH:-gno.land/r/aib/ibc/apps/testing/grc20test}"
 OWNER="${OWNER:-g12j6x2cnpkvz83l6a5lhfw22703kwwpknpfnt70}" # aib
 SPENDER="${SPENDER:-g1tp3gk4quumurav4858hjfdy6hxtyffwmnxyr00}" # transfer realm (DerivePkgAddr gno.land/r/aib/ibc/apps/transfer)
