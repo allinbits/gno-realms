@@ -42,8 +42,7 @@ func renderHome(w *mux.ResponseWriter, r *mux.Request) {
 	if denoms.Size() > 0 {
 		out.WriteString("| Denom | Base | Path | Supply | GRC20 |\n")
 		out.WriteString("|-------|------|------|--------|-------|\n")
-		denoms.IterateByOffset(0, denoms.Size(), func(_ string, v any) bool {
-			d := v.(Denom)
+		for _, d := range denomsByClientOrder() {
 			ibcDenom := d.IBCDenom()
 			supply := ""
 			grc20link := ""
@@ -66,8 +65,7 @@ func renderHome(w *mux.ResponseWriter, r *mux.Request) {
 				"| [`%s`](/r/aib/ibc/apps/transfer:denoms/%s) | %s | %s | %s | %s |\n",
 				shortDenom(ibcDenom), ibcDenom, d.Base, d.Path(), supply, grc20link,
 			))
-			return false
-		})
+		}
 		out.WriteString("\n")
 	} else {
 		out.WriteString("No vouchers yet.\n\n")
@@ -172,6 +170,42 @@ func renderVoucherBalance(w *mux.ResponseWriter, r *mux.Request) {
 	}))
 }
 
+// denomsByClientOrder returns the stored voucher denoms ordered to match the
+// "Pick the client" listing (core.ClientIDs() order): each voucher is grouped
+// under its source client (Trace[0].ClientId), following the same client order
+// as the client list, so the vouchers table and per-voucher actions line up
+// with it. Within a client, the underlying b+tree order is preserved. Denoms
+// whose source client is not (or no longer) registered — including native
+// denoms — are appended last, in b+tree order, so nothing is dropped.
+func denomsByClientOrder() []Denom {
+	byClient := make(map[string][]Denom)
+	all := make([]Denom, 0, denoms.Size())
+	denoms.IterateByOffset(0, denoms.Size(), func(_ string, v any) bool {
+		d := v.(Denom)
+		all = append(all, d)
+		if !d.IsNative() {
+			client := d.Trace[0].ClientId
+			byClient[client] = append(byClient[client], d)
+		}
+		return false
+	})
+
+	out := make([]Denom, 0, len(all))
+	emitted := make(map[string]bool) // source clients already emitted
+	for _, client := range core.ClientIDs() {
+		if ds, ok := byClient[client]; ok {
+			out = append(out, ds...)
+			emitted[client] = true
+		}
+	}
+	for _, d := range all {
+		if d.IsNative() || !emitted[d.Trace[0].ClientId] {
+			out = append(out, d)
+		}
+	}
+	return out
+}
+
 // renderTransferLinks returns the "## Transfer" section: a set of txlinks
 // that wallets can turn into MsgCalls to Transfer. Each link leaves at least
 // one argument empty so the user fills it in their wallet.
@@ -208,10 +242,9 @@ func renderTransferLinks() string {
 	// and amount (and timeout for the IBC send) in their wallet.
 	if denoms.Size() > 0 {
 		out.WriteString("\n### Per-voucher actions\n\n")
-		denoms.IterateByOffset(0, denoms.Size(), func(_ string, v any) bool {
-			d := v.(Denom)
+		for _, d := range denomsByClientOrder() {
 			if d.IsNative() {
-				return false
+				continue
 			}
 			sourceClient := d.Trace[0].ClientId
 			ibcDenom := d.IBCDenom()
@@ -223,8 +256,7 @@ func renderTransferLinks() string {
 				newVoucherSendLink(ibcDenom).URL(),
 				newVoucherApproveLink(ibcDenom).URL(),
 			))
-			return false
-		})
+		}
 	}
 	out.WriteString("\n")
 	return out.String()
