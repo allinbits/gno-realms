@@ -40,8 +40,8 @@ func renderHome(w *mux.ResponseWriter, r *mux.Request) {
 	out.WriteString(renderTransferLinks())
 	out.WriteString(ufmt.Sprintf("## Vouchers (%d)\n\n", denoms.Size()))
 	if denoms.Size() > 0 {
-		out.WriteString("| Denom | Base | Path | Supply | GRC20 |\n")
-		out.WriteString("|-------|------|------|--------|-------|\n")
+		out.WriteString("| Denom | Base | Path | Supply | GRC20 | Actions |\n")
+		out.WriteString("|-------|------|------|--------|-------|---------|\n")
 		for _, d := range denomsByClientOrder() {
 			ibcDenom := d.IBCDenom()
 			supply := ""
@@ -61,9 +61,21 @@ func renderHome(w *mux.ResponseWriter, r *mux.Request) {
 				const grc20regPath = "gno.land/r/demo/defi/grc20reg"
 				grc20link = ufmt.Sprintf("[%s](%s:%s)", shortKey, stripDomain(grc20regPath), key)
 			}
+			// Actions: IBC "send back" (via the voucher's source client) plus
+			// local GRC20 send/approve. All pre-fill the voucher denom; the user
+			// only fills the counterparty and amount (and timeout for the IBC
+			// send) in their wallet.
+			sourceClient := d.Trace[0].ClientId
+			actions := ufmt.Sprintf(
+				"[send back](%s) via `%s` — [send](%s) — [approve](%s)",
+				newTransferLink(sourceClient, "", ibcDenom).URL(),
+				sourceClient,
+				newVoucherSendLink(ibcDenom).URL(),
+				newVoucherApproveLink(ibcDenom).URL(),
+			)
 			out.WriteString(ufmt.Sprintf(
-				"| [`%s`](/r/aib/ibc/apps/transfer:denoms/%s) | %s | %s | %s | %s |\n",
-				shortDenom(ibcDenom), ibcDenom, d.Base, d.Path(), supply, grc20link,
+				"| [`%s`](/r/aib/ibc/apps/transfer:denoms/%s) | %s | %s | %s | %s | %s |\n",
+				shortDenom(ibcDenom), ibcDenom, d.Base, d.Path(), supply, grc20link, actions,
 			))
 		}
 		out.WriteString("\n")
@@ -173,20 +185,19 @@ func renderVoucherBalance(w *mux.ResponseWriter, r *mux.Request) {
 // denomsByClientOrder returns the stored voucher denoms ordered to match the
 // "Pick the client" listing (core.ClientIDs() order): each voucher is grouped
 // under its source client (Trace[0].ClientId), following the same client order
-// as the client list, so the vouchers table and per-voucher actions line up
-// with it. Within a client, the underlying b+tree order is preserved. Denoms
-// whose source client is not (or no longer) registered — including native
-// denoms — are appended last, in b+tree order, so nothing is dropped.
+// as the client list, so the vouchers table lines up with it. Within a client,
+// the underlying b+tree order is preserved. Denoms whose source client is not
+// (or no longer) registered are appended last, in b+tree order, so nothing is
+// dropped. Every stored denom is a minted voucher with a non-empty trace, so
+// Trace[0] is always safe to read.
 func denomsByClientOrder() []Denom {
 	byClient := make(map[string][]Denom)
 	all := make([]Denom, 0, denoms.Size())
 	denoms.IterateByOffset(0, denoms.Size(), func(_ string, v any) bool {
 		d := v.(Denom)
 		all = append(all, d)
-		if !d.IsNative() {
-			client := d.Trace[0].ClientId
-			byClient[client] = append(byClient[client], d)
-		}
+		client := d.Trace[0].ClientId
+		byClient[client] = append(byClient[client], d)
 		return false
 	})
 
@@ -199,7 +210,7 @@ func denomsByClientOrder() []Denom {
 		}
 	}
 	for _, d := range all {
-		if d.IsNative() || !emitted[d.Trace[0].ClientId] {
+		if !emitted[d.Trace[0].ClientId] {
 			out = append(out, d)
 		}
 	}
@@ -237,27 +248,6 @@ func renderTransferLinks() string {
 		}
 	}
 
-	// Per-voucher links: send back via IBC, plus local GRC20 send/approve.
-	// All pre-fill the voucher denom; the user only fills the counterparty
-	// and amount (and timeout for the IBC send) in their wallet.
-	if denoms.Size() > 0 {
-		out.WriteString("\n### Per-voucher actions\n\n")
-		for _, d := range denomsByClientOrder() {
-			if d.IsNative() {
-				continue
-			}
-			sourceClient := d.Trace[0].ClientId
-			ibcDenom := d.IBCDenom()
-			out.WriteString(ufmt.Sprintf(
-				"- `%s` (%s): [send back](%s) via `%s` — [send](%s) — [approve](%s)\n",
-				shortDenom(ibcDenom), d.Base,
-				newTransferLink(sourceClient, "", ibcDenom).URL(),
-				sourceClient,
-				newVoucherSendLink(ibcDenom).URL(),
-				newVoucherApproveLink(ibcDenom).URL(),
-			))
-		}
-	}
 	out.WriteString("\n")
 	return out.String()
 }
