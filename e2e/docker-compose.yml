@@ -5,7 +5,7 @@ services:
       dockerfile: e2e/gno/Dockerfile
       args:
         - FORK_REPO
-        - FORK_BRANCH
+        - FORK_REF
         - GO_BUILD_TAGS
     ports:
       - "26657:26657"
@@ -24,7 +24,7 @@ services:
       dockerfile: e2e/gno/Dockerfile
       args:
         - FORK_REPO
-        - FORK_BRANCH
+        - FORK_REF
         - GO_BUILD_TAGS
     entrypoint: ["bash", "/whitelist.sh"]
     volumes:

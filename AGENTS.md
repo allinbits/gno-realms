@@ -7,7 +7,7 @@ IBC v2 implementation for Gno (similar to IBC Eureka for Ethereum). Gno smart co
 ```bash
 make test           # Run all tests (gno filetests + Go tests)
 make gnodev         # Start local gno node with all realms/packages
-make update-fork    # Re-pin gnolang/gno@master to its latest commit
+make update-fork    # Re-pin gnolang/gno to FORK_REF (branch/tag/commit; default: pinned commit)
 make mod-download   # Sync gno package cache (~/.config/gno/pkg/mod/) with the pinned commit
 ```
 
@@ -165,7 +165,7 @@ github.com/gnolang/gno => github.com/gnolang/gno@<commit-hash>
 github.com/gnolang/gno/contribs/gnodev => github.com/gnolang/gno/contribs/gnodev@<commit-hash>
 ```
 
-The target repo and branch are set by `FORK_REPO`/`FORK_BRANCH` in the `Makefile` (`github.com/gnolang/gno` / `master`). Run `make update-fork` to re-resolve the branch to its latest commit hash and rewrite the replace directives, then `make mod-download` to sync the gno package cache. (The historical project required a fork for IBC features; those now live in upstream master, hence the `gnolang/gno => gnolang/gno` self-replace pinning a recent commit.)
+The target repo and ref are set by `FORK_REPO`/`FORK_REF` in the `Makefile` (`FORK_REF` defaults to a pinned commit). `FORK_REF` accepts a **branch name, tag, or commit hash** and is used in two places: `make update-fork` passes it straight to `go mod edit -replace` and `go mod tidy` resolves it to a pseudo-version and rewrites the replace directives (run `make mod-download` afterward to sync the gno package cache); the e2e gno image build (`e2e/gno/Dockerfile`) shallow-fetches the same ref via `git fetch`. Examples: `make update-fork` (re-pin the default), `make update-fork FORK_REF=master` (track latest master), `make update-fork FORK_REF=<commit>`. (The historical project required a fork for IBC features; those now live in upstream master, hence the `gnolang/gno => gnolang/gno` self-replace pinning a recent commit.)
 
 ## Testing Patterns
 

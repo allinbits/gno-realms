@@ -69,8 +69,11 @@ e2e-build-no-cache:
 
 # --- Fork management ---
 
-export FORK_REPO   := github.com/gnolang/gno
-export FORK_BRANCH := master
+export FORK_REPO := github.com/gnolang/gno
+# FORK_REF may be a branch name, a tag, or a commit hash. It flows to both
+# `make update-fork` (where `go mod tidy` resolves it to a pseudo-version) and
+# the e2e gno image build (where e2e/gno/Dockerfile git-fetches it).
+export FORK_REF ?= master
 
 # Optional Go build tags forwarded to the gnodev build in the e2e image.
 # Set GO_BUILD_TAGS=gastrace to build the store-gas tracing variant used by
@@ -78,12 +81,8 @@ export FORK_BRANCH := master
 export GO_BUILD_TAGS ?=
 
 update-fork:
-	$(eval HASH := $(shell git ls-remote https://$(FORK_REPO).git refs/heads/$(FORK_BRANCH) | awk '{print $$1}'))
-	@if [ -z "$(HASH)" ]; then \
-		echo "error: branch '$(FORK_BRANCH)' not found on https://$(FORK_REPO).git" >&2; \
-		exit 1; \
-	fi
-	go mod edit -replace github.com/gnolang/gno=$(FORK_REPO)@$(HASH)
+	@echo "pinning $(FORK_REPO) to '$(FORK_REF)'"
+	go mod edit -replace github.com/gnolang/gno=$(FORK_REPO)@$(FORK_REF)
 	go mod tidy
-	go mod edit -replace github.com/gnolang/gno/contribs/gnodev=$(FORK_REPO)/contribs/gnodev@$(HASH)
+	go mod edit -replace github.com/gnolang/gno/contribs/gnodev=$(FORK_REPO)/contribs/gnodev@$(FORK_REF)
 	go mod tidy

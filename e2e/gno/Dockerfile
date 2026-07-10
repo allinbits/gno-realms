@@ -2,7 +2,7 @@
 FROM golang:1.26.0-alpine AS builder
 
 ARG FORK_REPO
-ARG FORK_BRANCH
+ARG FORK_REF
 # Optional Go build tags for gnodev. Set to "gastrace" to enable the
 # store-gas tracing build (emits GAS_STORE/GAS_TX_* lines to stderr).
 # Default empty: normal production build, zero tracing overhead.
@@ -10,9 +10,14 @@ ARG GO_BUILD_TAGS
 
 RUN apk add --no-cache git make
 
-# Clone the gno fork with IBC support
-RUN git clone --branch ${FORK_BRANCH} --single-branch --depth 1 \
-    https://${FORK_REPO}.git /src/gno
+# Shallow-fetch the pinned ref. `git fetch <ref>` accepts a branch, a tag, or a
+# commit hash (GitHub allows fetching a reachable commit SHA directly), whereas
+# `git clone --branch` rejects commit hashes.
+RUN git init /src/gno \
+    && cd /src/gno \
+    && git remote add origin https://${FORK_REPO}.git \
+    && git fetch --depth 1 origin ${FORK_REF} \
+    && git checkout --detach FETCH_HEAD
 
 WORKDIR /src/gno
 
