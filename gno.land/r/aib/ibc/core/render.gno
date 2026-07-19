@@ -264,8 +264,8 @@ func renderCommitment(w *mux.ResponseWriter, r *mux.Request, tree *bptree.BPTree
 		renderNode(w, nodeError("invalid sequence %q: %v", seqStr, err))
 		return
 	}
-	v, found := tree.Get(seqid.ID(seq).Binary())
-	if !found {
+	v := tree.Get(seqid.ID(seq).Binary())
+	if v == nil {
 		renderNode(w, nodeError("sequence %s not found", seqStr))
 		return
 	}

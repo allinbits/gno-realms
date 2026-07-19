@@ -114,8 +114,8 @@ func renderDenoms(w *mux.ResponseWriter, r *mux.Request) {
 
 func renderDenom(w *mux.ResponseWriter, r *mux.Request) {
 	denom := "ibc/" + r.GetVar("hash")
-	d, ok := denoms.Get(denom)
-	if !ok {
+	d := denoms.Get(denom)
+	if d == nil {
 		renderNode(w, nodeError(ufmt.Sprintf("denom %s not found", denom)))
 		return
 	}
@@ -125,8 +125,8 @@ func renderDenom(w *mux.ResponseWriter, r *mux.Request) {
 func renderTotalEscrowForDenom(w *mux.ResponseWriter, r *mux.Request) {
 	denom := r.GetVar("denom")
 	var amt int64
-	x, found := totalEscrow.Get(denom)
-	if found {
+	x := totalEscrow.Get(denom)
+	if x != nil {
 		amt = x.(chain.Coin).Amount
 	}
 	renderNode(w, json.ObjectNode("", map[string]*json.Node{

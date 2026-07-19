@@ -61,8 +61,8 @@ type pendingAsyncAck struct {
 }
 
 func (c *client) getPacketCommitment(sequence uint64) []byte {
-	v, found := c.packetCommitmentsBySeq.Get(seqid.ID(sequence).Binary())
-	if !found {
+	v := c.packetCommitmentsBySeq.Get(seqid.ID(sequence).Binary())
+	if v == nil {
 		return nil
 	}
 	return v.([]byte)
@@ -125,8 +125,8 @@ func (c *client) hasPacketAcknowledgement(sequence uint64) bool {
 
 // GetPacketAcknowledgement fetches the packet acknowledgement from the store.
 func (c *client) getPacketAcknowledgement(sequence uint64) []byte {
-	v, found := c.packetAcknowledgementsBySeq.Get(seqid.ID(sequence).Binary())
-	if !found {
+	v := c.packetAcknowledgementsBySeq.Get(seqid.ID(sequence).Binary())
+	if v == nil {
 		return nil
 	}
 	return v.([]byte)
@@ -147,8 +147,8 @@ func (c *client) savePendingAsyncAck(packet types.Packet, appPkgPath string) {
 }
 
 func (c *client) getPendingAsyncAck(sequence uint64) (*pendingAsyncAck, bool) {
-	v, found := c.pendingAsyncAcksBySeq.Get(seqid.ID(sequence).Binary())
-	if !found {
+	v := c.pendingAsyncAcksBySeq.Get(seqid.ID(sequence).Binary())
+	if v == nil {
 		return nil, false
 	}
 	return v.(*pendingAsyncAck), true
@@ -212,11 +212,11 @@ func (cs *Store) addClient(typ string, creator address) *client {
 }
 
 func (cs *Store) getClient(id string) *client {
-	x, found := cs.clientByID.Get(id)
-	if !found {
+	cli := cs.clientByID.Get(id)
+	if cli == nil {
 		return nil
 	}
-	return x.(*client)
+	return cli.(*client)
 }
 
 // route returns an IBCApp for the given portID.

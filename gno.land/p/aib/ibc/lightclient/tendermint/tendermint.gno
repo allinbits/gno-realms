@@ -537,11 +537,11 @@ func (tm *TMLightClient) HasConsensusState(height types.Height) bool {
 
 // GetConsensusState returns the consensus state mapped at height, if any.
 func (tm *TMLightClient) GetConsensusState(height types.Height) (*ConsensusState, bool) {
-	x, found := tm.ConsensusStateByHeight.Get(height.StringNatSort())
-	if !found {
+	cs := tm.ConsensusStateByHeight.Get(height.StringNatSort())
+	if cs == nil {
 		return nil, false
 	}
-	return x.(*ConsensusState), true
+	return cs.(*ConsensusState), true
 }
 
 // GetNextConsensusState returns the lowest consensus state that is larger than

@@ -35,7 +35,9 @@ func main(cur realm) {
 	mintVoucher(cur, clientID, counterpartyID, trustedHeight, owner)
 
 	voucherDenom := transfer.NewDenom("uphoton", transfer.NewHop(transfer.PortID, clientID)).IBCDenom()
-	token := grc20reg.MustGet("gno.land/r/aib/ibc/apps/transfer." + voucherDenom[len("ibc/"):])
+	// grc20reg keys tokens by rlmpath.symbol; the voucher symbol is the truncated
+	// IBC hash (VoucherSymbol), not the full hash.
+	token := grc20reg.MustGet("gno.land/r/aib/ibc/apps/transfer." + transfer.VoucherSymbol(voucherDenom))
 
 	println("allowance before VoucherApprove:", token.Allowance(owner, spender))
 
@@ -186,12 +188,20 @@ func mintVoucher(cur realm, clientID, counterpartyID string, trustedHeight types
 //     "type": "register",
 //     "attrs": [
 //       {
+//         "key": "token_path",
+//         "value": "gno.land/r/aib/ibc/apps/transfer.CAEF9CA8CE6"
+//       },
+//       {
 //         "key": "pkgpath",
 //         "value": "gno.land/r/aib/ibc/apps/transfer"
 //       },
 //       {
 //         "key": "slug",
 //         "value": "CAEF9CA8CE6C302D73A831A49E34E59149D3A9AD96CCEBDFBF62F6D5710D92D8"
+//       },
+//       {
+//         "key": "symbol",
+//         "value": "CAEF9CA8CE6"
 //       }
 //     ],
 //     "pkg_path": "gno.land/r/demo/defi/grc20reg"
@@ -201,7 +211,7 @@ func mintVoucher(cur realm, clientID, counterpartyID string, trustedHeight types
 //     "attrs": [
 //       {
 //         "key": "token",
-//         "value": "gno.land/r/aib/ibc/apps/transfer.CAEF9CA8CE6"
+//         "value": "gno.land/r/aib/ibc/apps/transfer.CAEF9CA8CE6.0000001"
 //       },
 //       {
 //         "key": "from",
@@ -283,7 +293,7 @@ func mintVoucher(cur realm, clientID, counterpartyID string, trustedHeight types
 //     "attrs": [
 //       {
 //         "key": "token",
-//         "value": "gno.land/r/aib/ibc/apps/transfer.CAEF9CA8CE6"
+//         "value": "gno.land/r/aib/ibc/apps/transfer.CAEF9CA8CE6.0000001"
 //       },
 //       {
 //         "key": "owner",

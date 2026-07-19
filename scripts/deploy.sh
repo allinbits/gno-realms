@@ -1,22 +1,22 @@
 #!/usr/bin/env bash
 #
-# Deploy all aibgno packages and realms to gno.land test13.
+# Deploy all aibgno packages and realms to gno.land.
 #
 # Packages are listed in topological dependency order — each entry only
 # imports from entries above it. Edit START_AT to resume after a failure.
 #
 # Usage:
-#   ./scripts/deploy-test13.sh                # deploy all
-#   START_AT=10 ./scripts/deploy-test13.sh    # resume from entry 10 (1-based)
-#   DRY_RUN=1 ./scripts/deploy-test13.sh      # simulate only, no broadcast
+#   ./scripts/deploy.sh                # deploy all
+#   START_AT=10 ./scripts/deploy.sh    # resume from entry 10 (1-based)
+#   DRY_RUN=1 ./scripts/deploy.sh      # simulate only, no broadcast
 
 set -euo pipefail
 
 # ---- config -----------------------------------------------------------------
 
 KEY="${KEY:-aib}"
-CHAIN_ID="${CHAIN_ID:-test-13}"
-REMOTE="${REMOTE:-https://rpc.test13.testnets.gno.land/}"
+CHAIN_ID="${CHAIN_ID:-topaz-1}"
+REMOTE="${REMOTE:-https://rpc.topaz.testnets.gno.land:443}"
 GAS_FEE="${GAS_FEE:-1000000ugnot}"
 GAS_WANTED="${GAS_WANTED:-200000000}"
 MAX_DEPOSIT="${MAX_DEPOSIT:-100000000ugnot}"

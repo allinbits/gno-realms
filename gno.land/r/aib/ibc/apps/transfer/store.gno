@@ -6,6 +6,7 @@ import (
 
 	"gno.land/p/demo/tokens/grc20"
 	"gno.land/p/nt/bptree/v0"
+	"gno.land/p/nt/seqid/v0"
 	"gno.land/r/demo/defi/grc20reg"
 )
 
@@ -13,6 +14,11 @@ var (
 	denoms        *bptree.BPTree // ibcDenom:Denom
 	totalEscrow   *bptree.BPTree // denom:chain.Coin
 	voucherTokens *bptree.BPTree // ibcDenom:*voucher
+
+	// nextVoucherID allocates a unique grc20 token id for each voucher. Voucher
+	// symbols are truncated IBC-hash prefixes that can collide, so a shared
+	// monotonic id keeps every token's grc20 identifier distinct.
+	nextVoucherID seqid.ID
 )
 
 // voucher holds a voucher token and its private ledger for mint/burn.
@@ -36,28 +42,42 @@ func setDenom(denom Denom) {
 }
 
 func getDenom(ibcDenom string) (Denom, bool) {
-	x, found := denoms.Get(ibcDenom)
-	if !found {
+	d := denoms.Get(ibcDenom)
+	if d == nil {
 		return Denom{}, false
 	}
-	return x.(Denom), true
+	return d.(Denom), true
 }
 
 func addEscrowForDenom(c chain.Coin) {
-	x, found := totalEscrow.Get(c.Denom)
-	if found {
-		c = x.(chain.Coin).Add(c)
+	d := totalEscrow.Get(c.Denom)
+	if d != nil {
+		c = d.(chain.Coin).Add(c)
 	}
 	totalEscrow.Set(c.Denom, c)
 }
 
 func subEscrowForDenom(c chain.Coin) {
-	x, found := totalEscrow.Get(c.Denom)
-	if !found {
+	x := totalEscrow.Get(c.Denom)
+	if x == nil {
 		x = chain.Coin{Denom: c.Denom}
 	}
 	c = x.(chain.Coin).Sub(c)
 	totalEscrow.Set(c.Denom, c)
+}
+
+// VoucherSymbol returns the grc20 token symbol for an IBC voucher denom: the IBC
+// hash truncated to grc20's MaxSymbolLen. The full voucherDenom ("ibc/<64-hex-
+// hash>") can't be a symbol because v2 grc20 enforces MaxSymbolLen and
+// [A-Za-z0-9_-] only. Since grc20reg keys tokens by rlmpath.symbol, this is also
+// the symbol component of a voucher's registry key, so callers locate a voucher
+// via grc20reg.Get(<this realm's pkgpath> + "." + VoucherSymbol(ibcDenom)).
+func VoucherSymbol(ibcDenom string) string {
+	symbol := strings.TrimPrefix(ibcDenom, "ibc/")
+	if len(symbol) > grc20.MaxSymbolLen {
+		symbol = symbol[:grc20.MaxSymbolLen]
+	}
+	return symbol
 }
 
 // getOrCreateVoucher returns the existing voucher instance for the given IBC
@@ -65,34 +85,28 @@ func subEscrowForDenom(c chain.Coin) {
 // discoverability. Non-crossing helper; rlm is needed to issue the cross
 // call into grc20reg.Register from this realm's frame.
 //
-// The GRC20 symbol is derived from a short prefix of the IBC hash. We can't
-// use the full voucherDenom ("ibc/<64-hex-hash>") because v2 grc20 enforces
-// MaxSymbolLen=11 and [A-Za-z0-9_-] only — the "/" alone disqualifies it. The
-// grc20reg slug stays the full hash (collision-safe across vouchers); the
-// symbol is purely the display token symbol and an 8-char hex prefix is
-// collision-resistant enough for that purpose. Name remains the base denom.
+// The token symbol is a truncated IBC hash (see VoucherSymbol); its name is the
+// base denom, and nextVoucherID keeps each token's grc20 id distinct. grc20reg
+// keys the token by rlmpath.symbol (not the slug), so the full-hash slug is
+// retained only as event metadata. Because the key is the truncated symbol,
+// two vouchers whose hashes share an 11-char prefix would collide on the
+// registry key (astronomically unlikely, but no longer guarded by the slug).
 func getOrCreateVoucher(_ int, rlm realm, baseDenom, voucherDenom string) *voucher {
-	if v, ok := voucherTokens.Get(voucherDenom); ok {
+	if v := voucherTokens.Get(voucherDenom); v != nil {
 		return v.(*voucher)
 	}
-	hash := voucherDenom[len("ibc/"):]
-	symbol := hash
-	if len(symbol) > 11 {
-		symbol = symbol[:11]
-	}
-	token, ledger := grc20.NewToken(0, rlm, baseDenom, symbol, 0)
+	token, ledger := grc20.NewToken(baseDenom, VoucherSymbol(voucherDenom), 0, nextVoucherID.Next(), rlm)
 	inst := &voucher{token: token, ledger: ledger}
 	voucherTokens.Set(voucherDenom, inst)
-	// Slug = full hash, unique per voucher.
-	grc20reg.Register(cross(rlm), token, hash)
+	grc20reg.Register(cross(rlm), token, voucherDenom[len("ibc/"):])
 	return inst
 }
 
 // getVoucher returns the voucher instance for the given IBC denom, or nil if not
 // found.
 func getVoucher(ibcDenom string) *voucher {
-	v, ok := voucherTokens.Get(ibcDenom)
-	if !ok {
+	v := voucherTokens.Get(ibcDenom)
+	if v == nil {
 		return nil
 	}
 	return v.(*voucher)

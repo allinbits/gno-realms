@@ -314,12 +314,20 @@ func main(cur realm) {
 //     "type": "register",
 //     "attrs": [
 //       {
+//         "key": "token_path",
+//         "value": "gno.land/r/aib/ibc/apps/transfer.F9A67CB19B2"
+//       },
+//       {
 //         "key": "pkgpath",
 //         "value": "gno.land/r/aib/ibc/apps/transfer"
 //       },
 //       {
 //         "key": "slug",
 //         "value": "F9A67CB19B2CAD2ADEC20AD475BE86DF851DEC2B6F6CABC9B7B781BD9131D18F"
+//       },
+//       {
+//         "key": "symbol",
+//         "value": "F9A67CB19B2"
 //       }
 //     ],
 //     "pkg_path": "gno.land/r/demo/defi/grc20reg"
@@ -329,7 +337,7 @@ func main(cur realm) {
 //     "attrs": [
 //       {
 //         "key": "token",
-//         "value": "gno.land/r/aib/ibc/apps/transfer.F9A67CB19B2"
+//         "value": "gno.land/r/aib/ibc/apps/transfer.F9A67CB19B2.0000001"
 //       },
 //       {
 //         "key": "from",
@@ -437,7 +445,7 @@ func main(cur realm) {
 //     "attrs": [
 //       {
 //         "key": "token",
-//         "value": "gno.land/r/aib/ibc/apps/transfer.F9A67CB19B2"
+//         "value": "gno.land/r/aib/ibc/apps/transfer.F9A67CB19B2.0000001"
 //       },
 //       {
 //         "key": "from",
@@ -529,7 +537,7 @@ func main(cur realm) {
 //     "attrs": [
 //       {
 //         "key": "token",
-//         "value": "gno.land/r/aib/ibc/apps/transfer.F9A67CB19B2"
+//         "value": "gno.land/r/aib/ibc/apps/transfer.F9A67CB19B2.0000001"
 //       },
 //       {
 //         "key": "from",

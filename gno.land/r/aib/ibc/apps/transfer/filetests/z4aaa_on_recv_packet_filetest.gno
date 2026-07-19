@@ -179,7 +179,7 @@ func main(cur realm) {
 //     "attrs": [
 //       {
 //         "key": "token",
-//         "value": "gno.land/r/aib/ibc/apps/testing/grc20test.TEST"
+//         "value": "gno.land/r/aib/ibc/apps/testing/grc20test.TEST.0000000"
 //       },
 //       {
 //         "key": "from",
@@ -201,7 +201,7 @@ func main(cur realm) {
 //     "attrs": [
 //       {
 //         "key": "token",
-//         "value": "gno.land/r/aib/ibc/apps/testing/grc20test.TEST"
+//         "value": "gno.land/r/aib/ibc/apps/testing/grc20test.TEST.0000000"
 //       },
 //       {
 //         "key": "owner",
@@ -249,7 +249,7 @@ func main(cur realm) {
 //     "attrs": [
 //       {
 //         "key": "token",
-//         "value": "gno.land/r/aib/ibc/apps/testing/grc20test.TEST"
+//         "value": "gno.land/r/aib/ibc/apps/testing/grc20test.TEST.0000000"
 //       },
 //       {
 //         "key": "from",
@@ -323,7 +323,7 @@ func main(cur realm) {
 //     "attrs": [
 //       {
 //         "key": "token",
-//         "value": "gno.land/r/aib/ibc/apps/testing/grc20test.TEST"
+//         "value": "gno.land/r/aib/ibc/apps/testing/grc20test.TEST.0000000"
 //       },
 //       {
 //         "key": "from",
