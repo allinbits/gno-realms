@@ -13,6 +13,10 @@ printf "%s\n\n" "$RELAYER_MNEMONIC" | gnokey add relayer --recover --insecure-pa
 RELAYER_ADDR=$(gnokey list 2>&1 | grep relayer | sed 's/.*addr: \([^ ]*\).*/\1/')
 echo "Relayer address: $RELAYER_ADDR"
 
+# Run from the workspace so gnodev auto-detects it (gnowork.toml); GNOROOT is a
+# writable checkout, so stdlibs/examples and the node config resolve from it.
+cd /aibgno
+
 exec gnodev local \
     -node-rpc-listener 0.0.0.0:26657 \
     -web-listener 0.0.0.0:8888 \
@@ -21,6 +25,4 @@ exec gnodev local \
     -no-watch \
     -add-account "${TEST_ADDR}=10000000000ugnot" \
     -add-account "${RELAYER_ADDR}=10000000000ugnot" \
-    -resolver root=/aibgno \
-    -resolver root=$GNOROOT/examples \
     -paths "gno.land/r/aib/ibc/core,gno.land/r/aib/ibc/apps/transfer,gno.land/r/aib/ibc/apps/testing/grc20test"

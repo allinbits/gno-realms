@@ -30,15 +30,18 @@ RUN cd gno.land/cmd/gnokey && go build -o /usr/local/bin/gnokey .
 # Build gno CLI
 RUN cd gnovm/cmd/gno && go build -o /usr/local/bin/gno .
 
-# Copy IBC realms/packages and download dependencies from local gnodev
+# Copy IBC realms/packages and download dependencies from local gnodev.
 COPY gnowork.toml /aibgno/gnowork.toml
 COPY gno.land /aibgno/gno.land
 ENV GNOROOT=/src/gno
 RUN cd /aibgno && \
-    gnodev -empty-blocks -resolver root=. \
-        -resolver root=$GNOROOT/examples \
-        -paths "gno.land/r/aib/ibc/core,gno.land/r/aib/ibc/apps/transfer,gno.land/r/aib/ibc/apps/testing/grc20test" > /dev/null 2>&1 & \
-    while ! wget -q -O- 'http://127.0.0.1:26657/abci_query?path=%22.app/version%22' 2>/dev/null | grep -q '"response"'; do sleep 1; done && \
+    gnodev -empty-blocks \
+        -paths "gno.land/p/nt/uassert/v0,gno.land/p/nt/urequire/v0,gno.land/p/nt/testutils/v0,gno.land/r/aib/ibc/core,gno.land/r/aib/ibc/apps/transfer,gno.land/r/aib/ibc/apps/testing/grc20test" > /tmp/gnodev.log 2>&1 & \
+    gnodev_pid=$!; \
+    while ! wget -q -O- 'http://127.0.0.1:26657/abci_query?path=%22.app/version%22' 2>/dev/null | grep -q '"response"'; do \
+        kill -0 "$gnodev_pid" 2>/dev/null || { echo "gnodev exited before becoming ready:"; cat /tmp/gnodev.log; exit 1; }; \
+        sleep 1; \
+    done && \
     gno clean -modcache=true && \
     cd /aibgno/gno.land/r/aib/ibc/apps/transfer && \
     gno mod download -remote-overrides gno.land=http://127.0.0.1:26657
@@ -52,7 +55,9 @@ COPY --from=builder /usr/local/bin/gnodev /usr/local/bin/gnodev
 COPY --from=builder /usr/local/bin/gnokey /usr/local/bin/gnokey
 COPY --from=builder /src/gno /gnoroot
 
-# Copy IBC realms/packages (with downloaded dependencies) from builder
+# Copy IBC realms/packages (with downloaded dependencies) from builder.
+# gnowork.toml lets the entrypoint's gnodev auto-detect /aibgno as the workspace.
+COPY --from=builder /aibgno/gnowork.toml /aibgno/gnowork.toml
 COPY --from=builder /aibgno/gno.land /aibgno/gno.land
 
 ENV GNOROOT=/gnoroot

@@ -19,10 +19,12 @@ func (s *E2ETestSuite) TestVoucherSendApprove() {
 		timeout        = time.Now().Add(time.Hour).Unix()
 	)
 
-	// Compute expected IBC denom and grc20reg key
+	// Compute expected IBC denom and grc20reg key. grc20reg keys vouchers by
+	// rlmpath.symbol, where the symbol is the IBC hash truncated to grc20's
+	// 11-char max (see transfer.VoucherSymbol) — not the full hash.
 	denomHash := computeIBCDenomHash(s.gnoClientID, denom)
 	ibcDenom := "ibc/" + denomHash
-	grc20regKey := "gno.land/r/aib/ibc/apps/transfer." + denomHash
+	grc20regKey := "gno.land/r/aib/ibc/apps/transfer." + denomHash[:11]
 	s.T().Logf("IBC denom: %s", ibcDenom)
 
 	// Create and fund the spender account

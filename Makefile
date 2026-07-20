@@ -10,20 +10,8 @@ endif
 
 # --- Development ---
 
-# gnodev's node writes a peer address book under <root>/config, but -root (which
-# also sets the package-resolution root) defaults to the read-only Go module
-# cache. Mirror the gno root into a writable dir with `cp -rs` — real dirs (so the
-# loader can index examples), symlinked files (no copy) — and point -root there.
-# Fixed path rebuilt each run, so a Ctrl-C leftover self-heals; --no-preserve=mode
-# keeps the mirrored dirs writable for cleanup.
-GNODEV_ROOT = $${TMPDIR:-/tmp}/aibgno-gnoroot-$$(id -u)
-mk-gnodev-root = rm -rf "$(GNODEV_ROOT)"; \
-	cp -rs --no-preserve=mode "$$(go list -f '{{.Module.Dir}}' github.com/gnolang/gno)" "$(GNODEV_ROOT)"
-
 gnodev:
-	@$(mk-gnodev-root); \
-	trap 'rm -rf "$(GNODEV_ROOT)"' EXIT; \
-	go tool gnodev -empty-blocks -root "$(GNODEV_ROOT)"
+	go tool gnodev -empty-blocks
 
 # --- Unit tests ---
 
@@ -38,11 +26,10 @@ test:
 # helpers (uassert/urequire/testutils) are imported only from *_test.gno files, so
 # preload them explicitly so `gno mod download` fetches them too.
 mod-download:
-	@$(mk-gnodev-root); \
-	go tool gnodev -interactive=false -empty-blocks -root "$(GNODEV_ROOT)" \
+	go tool gnodev -interactive=false -empty-blocks \
 		-paths "gno.land/p/nt/uassert/v0,gno.land/p/nt/urequire/v0,gno.land/p/nt/testutils/v0,gno.land/r/aib/ibc/core,gno.land/r/aib/ibc/apps/transfer,gno.land/r/aib/ibc/apps/testing/grc20test" </dev/null & \
 	gnodev_pid=$$!; \
-	trap 'kill $$gnodev_pid 2>/dev/null; rm -rf "$(GNODEV_ROOT)"' EXIT; \
+	trap "kill $$gnodev_pid 2>/dev/null" EXIT; \
 	while ! curl -sf 'http://127.0.0.1:26657/abci_query?path=%22.app/version%22' 2>/dev/null | grep -q '"response"'; do \
 		if ! kill -0 $$gnodev_pid 2>/dev/null; then echo "gnodev exited before becoming ready" >&2; exit 1; fi; \
 		sleep 1; \
