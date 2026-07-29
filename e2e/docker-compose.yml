@@ -3,6 +3,12 @@ services:
     build:
       context: ..
       dockerfile: e2e/gno/Dockerfile
+      additional_contexts:
+        # IBC realms/packages come from the gno-ibc repo (fully vendored via its
+        # `make vendor`), not from this repo. Override with GNO_IBC_DIR; the
+        # default assumes gno-ibc is checked out next to this repo. The path is
+        # resolved relative to this compose file's directory (e2e/).
+        - contracts=${GNO_IBC_DIR:-../../onbloc/gno-ibc}/gno.land
       args:
         - FORK_REPO
         - FORK_REF
@@ -22,6 +28,8 @@ services:
     build:
       context: ..
       dockerfile: e2e/gno/Dockerfile
+      additional_contexts:
+        - contracts=${GNO_IBC_DIR:-../../onbloc/gno-ibc}/gno.land
       args:
         - FORK_REPO
         - FORK_REF
