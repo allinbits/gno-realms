@@ -9,6 +9,7 @@ import (
 	"gno.land/p/aib/ibc/lightclient"
 	"gno.land/p/aib/jsonpage"
 	"gno.land/p/moul/txlink"
+	"gno.land/p/nt/bptree/v0"
 	"gno.land/p/nt/mux/v0"
 	"gno.land/p/nt/ufmt/v0"
 	"gno.land/p/onbloc/json"
@@ -21,6 +22,8 @@ import (
 // it from a non-crossing render handler.
 const transferRealmPath = "gno.land/r/aib/ibc/apps/transfer"
 
+// Render path router. Escrow is tracked per (client, denom); the render
+// endpoints aggregate across all clients for display.
 func Render(path string) string {
 	router := mux.NewRouter()
 	router.HandleFunc("", renderHome)
@@ -82,16 +85,28 @@ func renderHome(w *mux.ResponseWriter, r *mux.Request) {
 	} else {
 		out.WriteString("No vouchers yet.\n\n")
 	}
-	out.WriteString(ufmt.Sprintf("## Escrow (%d)\n\n", totalEscrow.Size()))
-	if totalEscrow.Size() > 0 {
+	uniqueDenoms := totalEscrowUniqueDenoms()
+	out.WriteString(ufmt.Sprintf("## Escrow (%d)\n\n", len(uniqueDenoms)))
+	if len(uniqueDenoms) > 0 {
 		out.WriteString("| Denom | Amount |\n")
 		out.WriteString("|-------|--------|\n")
+		// Iterate in the stable order totalEscrow exposes (by client), emitting
+		// each denom the first time it is seen, so the table matches the
+		// underlying storage order rather than map iteration order.
+		seen := map[string]bool{}
 		totalEscrow.IterateByOffset(0, totalEscrow.Size(), func(_ string, v any) bool {
-			c := v.(chain.Coin)
-			out.WriteString(ufmt.Sprintf(
-				"| [`%s`](/r/aib/ibc/apps/transfer:total_escrow/%s) | %d |\n",
-				c.Denom, c.Denom, c.Amount,
-			))
+			t := v.(*bptree.BPTree)
+			t.IterateByOffset(0, t.Size(), func(denom string, _ any) bool {
+				if seen[denom] {
+					return false
+				}
+				seen[denom] = true
+				out.WriteString(ufmt.Sprintf(
+					"| [`%s`](/r/aib/ibc/apps/transfer:total_escrow/%s) | %d |\n",
+					denom, denom, uniqueDenoms[denom],
+				))
+				return false
+			})
 			return false
 		})
 		out.WriteString("\n")
@@ -124,15 +139,40 @@ func renderDenom(w *mux.ResponseWriter, r *mux.Request) {
 
 func renderTotalEscrowForDenom(w *mux.ResponseWriter, r *mux.Request) {
 	denom := r.GetVar("denom")
-	var amt int64
-	x := totalEscrow.Get(denom)
-	if x != nil {
-		amt = x.(chain.Coin).Amount
-	}
 	renderNode(w, json.ObjectNode("", map[string]*json.Node{
 		"denom":  json.StringNode("", denom),
-		"amount": json.NumberNode("", float64(amt)),
+		"amount": json.NumberNode("", float64(totalEscrowAmountForDenom(denom))),
 	}))
+}
+
+// totalEscrowAmountForDenom sums the escrowed amount of denom across every
+// client. Escrow is stored per-client to isolate clients from each other; this
+// aggregation is used only for display.
+func totalEscrowAmountForDenom(denom string) int64 {
+	var total int64
+	totalEscrow.IterateByOffset(0, totalEscrow.Size(), func(_ string, v any) bool {
+		t := v.(*bptree.BPTree)
+		if x, found := t.Get(denom); found {
+			total += x.(chain.Coin).Amount
+		}
+		return false
+	})
+	return total
+}
+
+// totalEscrowUniqueDenoms returns one entry per denom that has any escrow
+// across all clients, with the summed amount.
+func totalEscrowUniqueDenoms() map[string]int64 {
+	out := map[string]int64{}
+	totalEscrow.IterateByOffset(0, totalEscrow.Size(), func(_ string, v any) bool {
+		t := v.(*bptree.BPTree)
+		t.IterateByOffset(0, t.Size(), func(denom string, cv any) bool {
+			out[denom] += cv.(chain.Coin).Amount
+			return false
+		})
+		return false
+	})
+	return out
 }
 
 func renderVouchers(w *mux.ResponseWriter, r *mux.Request) {

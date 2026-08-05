@@ -8,11 +8,11 @@ cross-chain token transfers between Gno and any IBC v2 compatible chain.
 `Transfer` is the single entry point for sending any token to another chain. The
 token type is detected automatically from the `denom` argument:
 
-| Token type | Denom format | Example | Mechanism |
-|---|---|---|---|
-| Native coin | plain string | `ugnot` | Escrowed via `banker.OriginSend` (direct user-call only) |
-| IBC voucher | `ibc/{hash}` | `ibc/CAEF9C...` | Burned from sender |
-| GRC20 token | grc20reg key | `gno.land/r/demo/foo.FOO` | Escrowed via `TransferFrom` |
+| Token type  | Denom format | Example                   | Mechanism                                                |
+| ----------- | ------------ | ------------------------- | -------------------------------------------------------- |
+| Native coin | plain string | `ugnot`                   | Escrowed via `banker.OriginSend` (direct user-call only) |
+| IBC voucher | `ibc/{hash}` | `ibc/CAEF9C...`           | Burned from sender                                       |
+| GRC20 token | grc20reg key | `gno.land/r/demo/foo.FOO` | Escrowed via `TransferFrom`                              |
 
 Signature:
 
@@ -102,14 +102,14 @@ gnokey maketx call -pkgpath gno.land/r/aib/ibc/apps/transfer -func Transfer \
 
 All endpoints return JSON and are accessible via gnoweb or `gnokey query vm/qrender`.
 
-| Path | Description |
-|---|---|
-| `denoms` | List all registered IBC denominations |
-| `denoms/ibc/{hash}` | Details for a specific IBC denom (base, path, denom) |
-| `total_escrow/{denom}` | Total escrowed amount for a native denom |
-| `vouchers` | List all voucher tokens (paginated, includes `grc20reg_key`) |
-| `voucher/ibc/{hash}` | Voucher token metadata (denom, grc20reg_key, name, symbol, decimals, total supply) |
-| `voucher/ibc/{hash}/balance/{addr}` | Voucher balance for an address |
+| Path                                | Description                                                                        |
+| ----------------------------------- | ---------------------------------------------------------------------------------- |
+| `denoms`                            | List all registered IBC denominations                                              |
+| `denoms/ibc/{hash}`                 | Details for a specific IBC denom (base, path, denom)                               |
+| `total_escrow/{denom}`              | Total escrowed amount for a native denom                                           |
+| `vouchers`                          | List all voucher tokens (paginated, includes `grc20reg_key`)                       |
+| `voucher/ibc/{hash}`                | Voucher token metadata (denom, grc20reg_key, name, symbol, decimals, total supply) |
+| `voucher/ibc/{hash}/balance/{addr}` | Voucher balance for an address                                                     |
 
 Example:
 
@@ -118,7 +118,7 @@ gnokey query vm/qrender -data "gno.land/r/aib/ibc/apps/transfer:total_escrow/ugn
 ```
 
 ```json
-{"denom":"ugnot","amount":100}
+{ "denom": "ugnot", "amount": 100 }
 ```
 
 ## Helper functions
@@ -228,58 +228,58 @@ query `denoms/ibc/{HASH}` to resolve the trace path for display purposes.
 
 Emitted in `OnSendPacket` for every outgoing transfer packet.
 
-| Attribute | Description |
-|---|---|
-| `sender` | Sender address on source chain |
+| Attribute  | Description                           |
+| ---------- | ------------------------------------- |
+| `sender`   | Sender address on source chain        |
 | `receiver` | Receiver address on destination chain |
-| `denom` | Full denom path |
-| `amount` | Transfer amount |
-| `memo` | Memo text |
+| `denom`    | Full denom path                       |
+| `amount`   | Transfer amount                       |
+| `memo`     | Memo text                             |
 
 ### `fungible_token_packet`
 
 Emitted on `OnRecvPacket`:
 
-| Attribute | Description |
-|---|---|
-| `sender` | Sender address |
-| `receiver` | Receiver address |
-| `denom` | Full denom path |
-| `amount` | Amount |
-| `memo` | Memo text |
-| `success` | `"true"` or `"false"` |
-| `error` | Error message (on failure) |
+| Attribute  | Description                |
+| ---------- | -------------------------- |
+| `sender`   | Sender address             |
+| `receiver` | Receiver address           |
+| `denom`    | Full denom path            |
+| `amount`   | Amount                     |
+| `memo`     | Memo text                  |
+| `success`  | `"true"` or `"false"`      |
+| `error`    | Error message (on failure) |
 
 Also emitted on `OnAcknowledgementPacket`:
 
-| Attribute | Description |
-|---|---|
-| `sender` | Sender address |
-| `receiver` | Receiver address |
-| `denom` | Full denom path |
-| `amount` | Amount |
-| `memo` | Memo text |
+| Attribute         | Description           |
+| ----------------- | --------------------- |
+| `sender`          | Sender address        |
+| `receiver`        | Receiver address      |
+| `denom`           | Full denom path       |
+| `amount`          | Amount                |
+| `memo`            | Memo text             |
 | `acknowledgement` | Acknowledgement bytes |
 
 ### `denomination`
 
 Emitted when a new voucher denom is created during `OnRecvPacket`.
 
-| Attribute | Description |
-|---|---|
-| `denom_hash` | Uppercase hex SHA256 hash |
-| `denom` | JSON representation of the Denom |
+| Attribute    | Description                      |
+| ------------ | -------------------------------- |
+| `denom_hash` | Uppercase hex SHA256 hash        |
+| `denom`      | JSON representation of the Denom |
 
 ### `timeout`
 
 Emitted on `OnTimeoutPacket`. Tokens are refunded to the original sender.
 
-| Attribute | Description |
-|---|---|
+| Attribute  | Description                        |
+| ---------- | ---------------------------------- |
 | `receiver` | Refund recipient (original sender) |
-| `denom` | Full denom path |
-| `amount` | Refunded amount |
-| `memo` | Original memo |
+| `denom`    | Full denom path                    |
+| `amount`   | Refunded amount                    |
+| `memo`     | Original memo                      |
 
 ## IBC packet lifecycle
 
@@ -296,3 +296,26 @@ Emitted on `OnTimeoutPacket`. Tokens are refunded to the original sender.
 
 4. **Timeout** -- If the packet is not received before `timeoutTimestamp`, the
    sender is refunded using the same mechanism as a failed acknowledgement.
+
+## Escrow accounting
+
+Native coins and non-IBC GRC20 tokens are escrowed at the transfer realm's
+single account (Gno realms cannot own multiple addresses, so the ibc-go
+per-channel escrow address approach is not available). Per-client isolation is
+tracked in the realm store instead:
+
+- Escrow is tracked per `(client, denom)` in the realm store, not as a single
+  global per-denom pool.
+- `OnSendPacket` records escrow under the packet's `SourceClient` (the client on
+  this chain that the token was sent over).
+- `OnRecvPacket` debits the packet's `DestinationClient` (the client the
+  returning token arrives on), which is the client that originally escrowed it.
+  `subEscrowForClient` rejects the release if that client never locked enough of
+  the denom, so a packet arriving on a different client cannot drain escrow that
+  belongs to another client.
+- A failed release returns an error acknowledgement; the escrow is untouched.
+
+This prevents the shared-escrow drain: an attacker who creates their own client
+and forges a valid proof against it cannot unescrow funds that honest users
+locked under a different client. See
+`z4e_on_recv_packet_drain_filetest.gno` for the regression test.

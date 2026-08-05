@@ -141,7 +141,7 @@ func (a *App) OnSendPacket(
 		if err := teller.TransferFrom(0, cur, address(data.Sender), cur.Address(), coin.Amount); err != nil {
 			return ufmt.Errorf("escrow GRC20 %s error: %v", denomKey, err)
 		}
-		addEscrowForDenom(coin)
+		addEscrowForClient(sourceClient, coin)
 	} else {
 		// Native token: OnSendPacket cannot safely read banker.OriginSend()
 		// here because PreviousRealm() is the core realm (not the EOA), so
@@ -159,8 +159,8 @@ func (a *App) OnSendPacket(
 				expected, coin,
 			)
 		}
-		// Escrow the coin on realm balance
-		addEscrowForDenom(coin)
+		// Escrow the coin on realm balance, accounted under sourceClient.
+		addEscrowForClient(sourceClient, coin)
 	}
 
 	// Emit events
@@ -303,10 +303,16 @@ func (a *App) OnRecvPacket(
 
 		coin := chain.NewCoin(token.Denom.IBCDenom(), transferAmount)
 
+		// The escrow being released was recorded under destinationClient when
+		// this chain originally sent the token out (the packet now arrives on
+		// destinationClient carrying the counterparty's prefix on the denom).
+		// Debiting destinationClient, not sourceClient, is what prevents a
+		// packet arriving on a different client from draining escrow that
+		// belongs to another client.
 		if isGRC20Alias(coin.Denom) {
-			ackErr = unescrowGRC20(0, cur, data.Receiver, coin)
+			ackErr = unescrowGRC20(0, cur, destinationClient, data.Receiver, coin)
 		} else {
-			ackErr = unescrowNative(0, cur, data.Receiver, coin)
+			ackErr = unescrowNative(0, cur, destinationClient, data.Receiver, coin)
 		}
 		if ackErr != nil {
 			ack = types.NewErrorAppAcknowledgement(ackErr)

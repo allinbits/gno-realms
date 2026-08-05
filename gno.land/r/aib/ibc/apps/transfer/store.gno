@@ -7,12 +7,13 @@ import (
 	"gno.land/p/demo/tokens/grc20"
 	"gno.land/p/nt/bptree/v0"
 	"gno.land/p/nt/seqid/v0"
+	"gno.land/p/nt/ufmt/v0"
 	"gno.land/r/demo/defi/grc20reg"
 )
 
 var (
 	denoms        *bptree.BPTree // ibcDenom:Denom
-	totalEscrow   *bptree.BPTree // denom:chain.Coin
+	totalEscrow   *bptree.BPTree // clientID:*bptree.BPTree(denom:chain.Coin)
 	voucherTokens *bptree.BPTree // ibcDenom:*voucher
 
 	// nextVoucherID allocates a unique grc20 token id for each voucher. Voucher
@@ -33,6 +34,48 @@ func init() {
 	voucherTokens = bptree.NewBPTree32()
 }
 
+// escrowForClient returns the per-client denom->coin tree, creating it on first
+// access. Escrow is accounted per (client, denom) so a malicious client cannot
+// release funds escrowed under a different client (see shared-escrow drain).
+func escrowForClient(clientID string) *bptree.BPTree {
+	v, ok := totalEscrow.Get(clientID)
+	if !ok {
+		t := bptree.NewBPTree32()
+		totalEscrow.Set(clientID, t)
+		return t
+	}
+	return v.(*bptree.BPTree)
+}
+
+// addEscrowForClient records coins escrowed under clientID. Used when this chain
+// sends tokens over clientID (OnSendPacket); the matching release can only come
+// back through the same client.
+func addEscrowForClient(clientID string, c chain.Coin) {
+	t := escrowForClient(clientID)
+	if x, found := t.Get(c.Denom); found {
+		c = x.(chain.Coin).Add(c)
+	}
+	t.Set(c.Denom, c)
+}
+
+// subEscrowForClient releases coins escrowed under clientID. It returns an
+// error if the client never escrowed enough of this denom, which is exactly the
+// case we must reject: a packet arriving on a client that did not lock the
+// funds cannot drain escrow that belongs to another client.
+func subEscrowForClient(clientID string, c chain.Coin) error {
+	t := escrowForClient(clientID)
+	x, found := t.Get(c.Denom)
+	if !found {
+		return ufmt.Errorf("insufficient escrow for client %s denom %s: have 0, want %d", clientID, c.Denom, c.Amount)
+	}
+	have := x.(chain.Coin)
+	if have.Amount < c.Amount {
+		return ufmt.Errorf("insufficient escrow for client %s denom %s: have %d, want %d", clientID, c.Denom, have.Amount, c.Amount)
+	}
+	t.Set(c.Denom, chain.NewCoin(c.Denom, have.Amount-c.Amount))
+	return nil
+}
+
 func hasDenom(voucherDenom string) bool {
 	return denoms.Has(voucherDenom)
 }
@@ -47,23 +90,6 @@ func getDenom(ibcDenom string) (Denom, bool) {
 		return Denom{}, false
 	}
 	return d.(Denom), true
-}
-
-func addEscrowForDenom(c chain.Coin) {
-	d := totalEscrow.Get(c.Denom)
-	if d != nil {
-		c = d.(chain.Coin).Add(c)
-	}
-	totalEscrow.Set(c.Denom, c)
-}
-
-func subEscrowForDenom(c chain.Coin) {
-	x := totalEscrow.Get(c.Denom)
-	if x == nil {
-		x = chain.Coin{Denom: c.Denom}
-	}
-	c = x.(chain.Coin).Sub(c)
-	totalEscrow.Set(c.Denom, c)
 }
 
 // VoucherSymbol returns the grc20 token symbol for an IBC voucher denom: the IBC

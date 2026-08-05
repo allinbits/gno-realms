@@ -16,7 +16,12 @@ import (
 	"gno.land/r/aib/ibc/core"
 )
 
-// OnRecvPacket: success w/ IBC token
+// OnRecvPacket: success w/ IBC token (returning native ugnot).
+//
+// Scenario: chain A sent ugnot to chain B over clientID (SendPacket escrows
+// under clientID), then chain B sends it back (RecvPacket unescrows). The
+// per-client escrow accounting must debit clientID (the packet's
+// destinationClient), not sourceClient.
 func main(cur realm) {
 	var (
 		chainID       = "chain-id-2"
@@ -31,13 +36,17 @@ func main(cur realm) {
 	clientID := core.CreateClient(cross(cur), clientState, consensusState)
 	core.RegisterCounterparty(cross(cur), clientID, [][]byte{[]byte("iavlStoreKey"), []byte("prefix2")}, counterpartyID)
 
-	// The transfer app must have 100ugnot escrowed for this test to work
-	// NOTE: The setup has only send 100ugnot to the transfer app, but these
-	// tokens are not stored as escrowed like they should be after a real
-	// transfer. As a result the escrowed ugnot will be negative at the end of
-	// the test.
+	// Step 1: a real native Transfer escrows 100ugnot under clientID. This is
+	// what establishes the per-client escrow that RecvPacket will release.
+	// IssueCoins funds the transfer realm so the later unescrow can pay out;
+	// OriginSend is the user-call claim that Transfer's native branch verifies.
 	transferAppAddr := chain.PackageAddress("gno.land/r/aib/ibc/apps/transfer")
 	testing.IssueCoins(transferAppAddr, chain.NewCoins(chain.NewCoin("ugnot", 100)))
+	sender := testutils.TestAddress("sender")
+	testing.SetRealm(testing.NewUserRealm(sender))
+	testing.SetOriginSend(chain.NewCoins(chain.NewCoin("ugnot", 100)))
+	transfer.Transfer(cross(cur), clientID, "atone1user", "ugnot", 100, uint64(time.Now().Add(time.Hour).Unix()), "")
+	testing.SetOriginSend(nil)
 
 	receiver := testutils.TestAddress("receiver")
 	payload := transfer.NewFungibleTokenPacketData(
@@ -124,16 +133,15 @@ func main(cur realm) {
 		ProofCommitment: proof,
 		ProofHeight:     trustedHeight,
 	}
-	// NOTE the following will show 0ugnot since there was no previous escrowed
-	// ugnot before that test.
+	// NOTE the following will show 100ugnot escrowed under clientID from the
+	// Transfer above.
 	println("----------- assert render total_escrow/ugnot before RecvPacket")
 	println(transfer.Render("total_escrow/ugnot"))
 
 	res := core.RecvPacket(cross(cur), recvPacket)
 
 	println("\nack res:", res)
-	// NOTE the following will show -100ugnot since there was no previous
-	// escrowed ugnot before that test.
+	// The returning packet released the 100ugnot escrowed under clientID.
 	println("----------- assert render total_escrow/ugnot after RecvPacket")
 	println(transfer.Render("total_escrow/ugnot"))
 }
@@ -141,11 +149,11 @@ func main(cur realm) {
 // Output:
 // Payload proto: Ch90cmFuc2Zlci8wNy10ZW5kZXJtaW50LTQyL3Vnbm90EgMxMDAaCmF0b25lMXVzZXIiKGcxd2Zqa3hldGZ3ZWpoeWg2bHRhMDQ3aDZsdGEwNDdoNmxsbTgyeWw=
 // ----------- assert render total_escrow/ugnot before RecvPacket
-// {"denom":"ugnot","amount":0}
+// {"denom":"ugnot","amount":100}
 //
 // ack res: (2 gno.land/p/aib/ibc/types.ResponseResultType)
 // ----------- assert render total_escrow/ugnot after RecvPacket
-// {"denom":"ugnot","amount":-100}
+// {"denom":"ugnot","amount":0}
 
 // Events:
 // [
@@ -166,6 +174,58 @@ func main(cur realm) {
 //       }
 //     ],
 //     "pkg_path": "gno.land/r/aib/ibc/core"
+//   },
+//   {
+//     "type": "send_packet",
+//     "attrs": [
+//       {
+//         "key": "packet_source_client",
+//         "value": "07-tendermint-1"
+//       },
+//       {
+//         "key": "packet_dest_client",
+//         "value": "07-tendermint-42"
+//       },
+//       {
+//         "key": "packet_sequence",
+//         "value": "1"
+//       },
+//       {
+//         "key": "packet_timeout_timestamp",
+//         "value": "1234571490"
+//       },
+//       {
+//         "key": "encoded_packet_hex",
+//         "value": "0801120f30372d74656e6465726d696e742d311a1030372d74656e6465726d696e742d343220e2a1d8cc042a790a087472616e7366657212087472616e736665721a0769637332302d3122166170706c69636174696f6e2f782d70726f746f6275662a420a0575676e6f7412033130301a28673177646a6b75657239776630343768366c746130343768366c746130343768366c647978356178220a61746f6e653175736572"
+//       }
+//     ],
+//     "pkg_path": "gno.land/r/aib/ibc/core"
+//   },
+//   {
+//     "type": "ibc_transfer",
+//     "attrs": [
+//       {
+//         "key": "sender",
+//         "value": "g1wdjkuer9wf047h6lta047h6lta047h6ldyx5ax"
+//       },
+//       {
+//         "key": "receiver",
+//         "value": "atone1user"
+//       },
+//       {
+//         "key": "denom",
+//         "value": "ugnot"
+//       },
+//       {
+//         "key": "amount",
+//         "value": "100"
+//       },
+//       {
+//         "key": "memo",
+//         "value": ""
+//       }
+//     ],
+//     "pkg_path": "gno.land/r/aib/ibc/apps/transfer"
 //   },
 //   {
 //     "type": "recv_packet",

@@ -1,9 +1,12 @@
 package transfer
 
 import (
+	"chain"
 	"testing"
 
+	"gno.land/p/nt/bptree/v0"
 	"gno.land/p/nt/uassert/v0"
+	"gno.land/p/nt/urequire/v0"
 )
 
 func TestGRC20AliasRoundTrip(t *testing.T) {
@@ -55,4 +58,45 @@ func TestIsGRC20Alias(t *testing.T) {
 			uassert.Equal(t, tc.expect, isGRC20Alias(tc.denom))
 		})
 	}
+}
+
+func TestEscrowIsolationPerClient(t *testing.T) {
+	// Reset the escrow tree so the test is independent of ordering.
+	totalEscrow = bptree.NewBPTree32()
+
+	// clientA escrows 100ugnot; clientB escrows nothing. The sub checks below
+	// prove the accounting was recorded and isolated per client.
+	addEscrowForClient("07-tendermint-1", chain.NewCoin("ugnot", 100))
+
+	// clientA can release its own escrow.
+	urequire.NoError(t, subEscrowForClient("07-tendermint-1", chain.NewCoin("ugnot", 30)))
+
+	// clientB must NOT be able to release funds clientA locked: this is the
+	// shared-escrow drain defense.
+	err := subEscrowForClient("07-tendermint-2", chain.NewCoin("ugnot", 10))
+	urequire.ErrorContains(t, err, "insufficient escrow for client 07-tendermint-2")
+
+	// clientA cannot release more than it escrowed (70 remaining after the 30
+	// release above).
+	err = subEscrowForClient("07-tendermint-1", chain.NewCoin("ugnot", 71))
+	urequire.ErrorContains(t, err, "insufficient escrow for client 07-tendermint-1 denom ugnot: have 70")
+
+	// A denom clientA never escrowed is rejected even though clientA has ugnot.
+	err = subEscrowForClient("07-tendermint-1", chain.NewCoin("uatom", 1))
+	urequire.ErrorContains(t, err, "insufficient escrow for client 07-tendermint-1 denom uatom")
+}
+
+func TestEscrowAccumulatesPerClientDenom(t *testing.T) {
+	totalEscrow = bptree.NewBPTree32()
+
+	// Two sends over the same client accumulate.
+	addEscrowForClient("07-tendermint-1", chain.NewCoin("ugnot", 40))
+	addEscrowForClient("07-tendermint-1", chain.NewCoin("ugnot", 60))
+
+	// A single release of the full accumulated amount must succeed.
+	urequire.NoError(t, subEscrowForClient("07-tendermint-1", chain.NewCoin("ugnot", 100)))
+
+	// The pool is now empty for that (client, denom).
+	err := subEscrowForClient("07-tendermint-1", chain.NewCoin("ugnot", 1))
+	urequire.ErrorContains(t, err, "insufficient escrow for client 07-tendermint-1 denom ugnot: have 0")
 }
