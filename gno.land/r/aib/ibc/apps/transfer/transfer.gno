@@ -197,44 +197,50 @@ func refundPacketToken(_ int, rlm realm, sourcePort, sourceClient, sender string
 
 // unescrowGRC20 resolves the GRC20 alias and transfers the escrowed tokens
 // back to the receiver via the token's RealmTeller. clientID is the client over
-// which the tokens were originally escrowed; subEscrowForClient enforces that
+// which the tokens were originally escrowed; checkEscrowForClient enforces that
 // this client actually locked the funds, so a packet arriving on a different
 // client cannot release them. Non-crossing helper; rlm is needed by the grc20
 // teller API.
+//
+// Ordering is check -> transfer -> debit. The check runs first so a packet on a
+// client with no claim is rejected before any tokens move (drain defense). The
+// debit runs only after a successful transfer, because OnRecvPacket returning
+// Failure does not roll back realm store writes (IBCApp contract); debiting
+// before a failed transfer would permanently lock the debited amount away from
+// every client.
 func unescrowGRC20(_ int, rlm realm, clientID, receiver string, coin chain.Coin) error {
 	denomKey := resolveGRC20Alias(coin.Denom)
 	token := grc20reg.Get(denomKey)
 	if token == nil {
 		return ufmt.Errorf("GRC20 token %s not found in grc20reg", denomKey)
 	}
-	// Debit the per-client escrow before moving tokens so a packet arriving on
-	// a client with no claim on the funds is rejected before any transfer.
-	if err := subEscrowForClient(clientID, coin); err != nil {
+	if err := checkEscrowForClient(clientID, coin); err != nil {
 		return err
 	}
 	teller := token.RealmTeller(0, rlm)
 	if err := teller.Transfer(0, rlm, address(receiver), coin.Amount); err != nil {
 		return ufmt.Errorf("unescrow GRC20 %s error: %v", denomKey, err)
 	}
+	debitEscrowForClient(clientID, coin)
 	return nil
 }
 
 // unescrowNative sends the escrowed native coins back to the receiver via
 // the banker. clientID is the client over which the coins were originally
-// escrowed; subEscrowForClient enforces that this client actually locked the
+// escrowed; checkEscrowForClient enforces that this client actually locked the
 // funds.
 //
 // The transfer realm holds a single physical escrow account (it cannot own
 // multiple addresses in Gno), so per-client isolation is enforced by
-// subEscrowForClient's accounting, not by the banker. This replaces ibc-go's
+// checkEscrowForClient's accounting, not by the banker. This replaces ibc-go's
 // per-channel escrow address approach which is unavailable here.
 //
-// The escrow accounting is checked and debited before the banker transfer so
-// that a packet arriving on a client with no claim on the funds is rejected
-// before any coins move. Non-crossing helper; rlm is the caller's live cur
-// (transfer realm's own frame), needed to construct a Banker.
+// Ordering is check -> send -> debit. banker.SendCoins has no error return, so
+// the send cannot fail mid-operation, but the same check-before-mutate shape is
+// used as unescrowGRC20 for consistency. Non-crossing helper; rlm is the caller's
+// live cur (transfer realm's own frame), needed to construct a Banker.
 func unescrowNative(_ int, rlm realm, clientID, receiver string, coin chain.Coin) error {
-	if err := subEscrowForClient(clientID, coin); err != nil {
+	if err := checkEscrowForClient(clientID, coin); err != nil {
 		return err
 	}
 	var (
@@ -245,6 +251,7 @@ func unescrowNative(_ int, rlm realm, clientID, receiver string, coin chain.Coin
 		banker = banker.NewBanker(banker.BankerTypeRealmSend, rlm)
 	)
 	banker.SendCoins(from, to, amount)
+	debitEscrowForClient(clientID, coin)
 	return nil
 }
 

@@ -58,11 +58,13 @@ func addEscrowForClient(clientID string, c chain.Coin) {
 	t.Set(c.Denom, c)
 }
 
-// subEscrowForClient releases coins escrowed under clientID. It returns an
-// error if the client never escrowed enough of this denom, which is exactly the
-// case we must reject: a packet arriving on a client that did not lock the
-// funds cannot drain escrow that belongs to another client.
-func subEscrowForClient(clientID string, c chain.Coin) error {
+// checkEscrowForClient is a read-only authorization check used by the unescrow
+// path. It verifies clientID actually locked enough of c.Denom without
+// mutating the accounting. Splitting the check from the debit lets the unescrow
+// helpers attempt the token transfer between the two: if the transfer fails, the
+// accounting is still intact (OnRecvPacket returning Failure does not roll back
+// realm store writes per the IBCApp contract).
+func checkEscrowForClient(clientID string, c chain.Coin) error {
 	t := escrowForClient(clientID)
 	x := t.Get(c.Denom)
 	if x == nil {
@@ -72,7 +74,27 @@ func subEscrowForClient(clientID string, c chain.Coin) error {
 	if have.Amount < c.Amount {
 		return ufmt.Errorf("insufficient escrow for client %s denom %s: have %d, want %d", clientID, c.Denom, have.Amount, c.Amount)
 	}
+	return nil
+}
+
+// debitEscrowForClient subtracts c from clientID's escrow balance for c.Denom.
+// It assumes the check has already passed; call checkEscrowForClient first.
+func debitEscrowForClient(clientID string, c chain.Coin) {
+	t := escrowForClient(clientID)
+	x := t.Get(c.Denom)
+	have := x.(chain.Coin)
 	t.Set(c.Denom, chain.NewCoin(c.Denom, have.Amount-c.Amount))
+}
+
+// subEscrowForClient checks and debits in one call. Used by tests and by paths
+// that need atomicity across the whole operation. The unescrow helpers use
+// checkEscrowForClient + debitEscrowForClient separately so they can move tokens
+// in between without risking a lost-debit on transfer failure.
+func subEscrowForClient(clientID string, c chain.Coin) error {
+	if err := checkEscrowForClient(clientID, c); err != nil {
+		return err
+	}
+	debitEscrowForClient(clientID, c)
 	return nil
 }
 

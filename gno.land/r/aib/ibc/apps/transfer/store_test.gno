@@ -100,3 +100,41 @@ func TestEscrowAccumulatesPerClientDenom(t *testing.T) {
 	err := subEscrowForClient("07-tendermint-1", chain.NewCoin("ugnot", 1))
 	urequire.ErrorContains(t, err, "insufficient escrow for client 07-tendermint-1 denom ugnot: have 0")
 }
+
+// TestCheckEscrowForClientDoesNotMutate verifies the authorization check is
+// read-only. The unescrow path relies on this so a failed token transfer after
+// a successful check leaves the accounting intact (OnRecvPacket returning
+// Failure does not roll back realm store writes).
+func TestCheckEscrowForClientDoesNotMutate(t *testing.T) {
+	totalEscrow = bptree.NewBPTree32()
+	addEscrowForClient("07-tendermint-1", chain.NewCoin("ugnot", 100))
+
+	// A passing check must not change the balance.
+	urequire.NoError(t, checkEscrowForClient("07-tendermint-1", chain.NewCoin("ugnot", 30)))
+	t1 := escrowForClient("07-tendermint-1")
+	uassert.Equal(t, int64(100), t1.Get("ugnot").(chain.Coin).Amount)
+
+	// A failing check must not change the balance either.
+	err := checkEscrowForClient("07-tendermint-1", chain.NewCoin("ugnot", 101))
+	uassert.ErrorContains(t, err, "have 100")
+	uassert.Equal(t, int64(100), t1.Get("ugnot").(chain.Coin).Amount)
+
+	// And a check against the wrong client must not create an empty entry for it.
+	err = checkEscrowForClient("07-tendermint-2", chain.NewCoin("ugnot", 1))
+	uassert.ErrorContains(t, err, "insufficient escrow for client 07-tendermint-2")
+	uassert.Equal(t, nil, totalEscrow.Get("07-tendermint-2"))
+}
+
+// TestDebitEscrowForClientMatchesCheck verifies debitEscrowForClient applies
+// the subtraction that checkEscrowForClient authorized, without re-checking.
+func TestDebitEscrowForClientMatchesCheck(t *testing.T) {
+	totalEscrow = bptree.NewBPTree32()
+	addEscrowForClient("07-tendermint-1", chain.NewCoin("ugnot", 100))
+	coin := chain.NewCoin("ugnot", 40)
+
+	urequire.NoError(t, checkEscrowForClient("07-tendermint-1", coin))
+	debitEscrowForClient("07-tendermint-1", coin)
+
+	t1 := escrowForClient("07-tendermint-1")
+	uassert.Equal(t, int64(60), t1.Get("ugnot").(chain.Coin).Amount)
+}

@@ -318,4 +318,4 @@ tracked in the realm store instead:
 This prevents the shared-escrow drain: an attacker who creates their own client
 and forges a valid proof against it cannot unescrow funds that honest users
 locked under a different client. See
-`z4e_on_recv_packet_drain_filetest.gno` for the regression test.
+`z4f_on_recv_packet_drain_filetest.gno` for the regression test.
