@@ -58,12 +58,9 @@ func addEscrowForClient(clientID string, c chain.Coin) {
 	t.Set(c.Denom, c)
 }
 
-// checkEscrowForClient is a read-only authorization check used by the unescrow
-// path. It verifies clientID actually locked enough of c.Denom without
-// mutating the accounting. Splitting the check from the debit lets the unescrow
-// helpers attempt the token transfer between the two: if the transfer fails, the
-// accounting is still intact (OnRecvPacket returning Failure does not roll back
-// realm store writes per the IBCApp contract).
+// checkEscrowForClient verifies clientID locked enough of c.Denom, without
+// mutating the accounting. Read-only so callers can move tokens between the
+// check and the debit (see unescrowGRC20/unescrowNative).
 func checkEscrowForClient(clientID string, c chain.Coin) error {
 	t := escrowForClient(clientID)
 	x := t.Get(c.Denom)
@@ -77,8 +74,8 @@ func checkEscrowForClient(clientID string, c chain.Coin) error {
 	return nil
 }
 
-// debitEscrowForClient subtracts c from clientID's escrow balance for c.Denom.
-// It assumes the check has already passed; call checkEscrowForClient first.
+// debitEscrowForClient subtracts c from clientID's balance. Assumes
+// checkEscrowForClient already passed.
 func debitEscrowForClient(clientID string, c chain.Coin) {
 	t := escrowForClient(clientID)
 	x := t.Get(c.Denom)
@@ -86,10 +83,7 @@ func debitEscrowForClient(clientID string, c chain.Coin) {
 	t.Set(c.Denom, chain.NewCoin(c.Denom, have.Amount-c.Amount))
 }
 
-// subEscrowForClient checks and debits in one call. Used by tests and by paths
-// that need atomicity across the whole operation. The unescrow helpers use
-// checkEscrowForClient + debitEscrowForClient separately so they can move tokens
-// in between without risking a lost-debit on transfer failure.
+// subEscrowForClient checks and debits atomically.
 func subEscrowForClient(clientID string, c chain.Coin) error {
 	if err := checkEscrowForClient(clientID, c); err != nil {
 		return err

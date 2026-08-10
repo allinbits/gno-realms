@@ -101,10 +101,10 @@ func TestEscrowAccumulatesPerClientDenom(t *testing.T) {
 	urequire.ErrorContains(t, err, "insufficient escrow for client 07-tendermint-1 denom ugnot: have 0")
 }
 
-// TestCheckEscrowForClientDoesNotMutate verifies the authorization check is
-// read-only. The unescrow path relies on this so a failed token transfer after
-// a successful check leaves the accounting intact (OnRecvPacket returning
-// Failure does not roll back realm store writes).
+// TestCheckEscrowForClientDoesNotMutate verifies the check is read-only. The
+// unescrow path relies on this: OnRecvPacket returning Failure does not roll
+// back store writes, so a failed transfer after a successful check must leave
+// the accounting intact.
 func TestCheckEscrowForClientDoesNotMutate(t *testing.T) {
 	totalEscrow = bptree.NewBPTree32()
 	addEscrowForClient("07-tendermint-1", chain.NewCoin("ugnot", 100))
@@ -125,8 +125,8 @@ func TestCheckEscrowForClientDoesNotMutate(t *testing.T) {
 	uassert.Equal(t, nil, totalEscrow.Get("07-tendermint-2"))
 }
 
-// TestDebitEscrowForClientMatchesCheck verifies debitEscrowForClient applies
-// the subtraction that checkEscrowForClient authorized, without re-checking.
+// TestDebitEscrowForClientMatchesCheck verifies debit applies the authorized
+// subtraction without re-checking.
 func TestDebitEscrowForClientMatchesCheck(t *testing.T) {
 	totalEscrow = bptree.NewBPTree32()
 	addEscrowForClient("07-tendermint-1", chain.NewCoin("ugnot", 100))
