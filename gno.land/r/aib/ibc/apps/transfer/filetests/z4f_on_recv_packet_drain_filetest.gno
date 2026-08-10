@@ -1,3 +1,4 @@
+// PKGPATH: gno.land/r/aib/main
 package main
 
 import (
@@ -27,7 +28,7 @@ import (
 // recv succeeded and drained clientA's escrow. The fix accounts escrow per
 // (client, denom): clientB never escrowed any ugnot, so OnRecvPacket returns a
 // failure acknowledgement and clientA's escrow is untouched.
-func main() {
+func main(cur realm) {
 	var (
 		// clientA: the honest client the escrow was locked under.
 		clientAID = "07-tendermint-1"
@@ -44,10 +45,10 @@ func main() {
 	// --- Honest client A: lock 100ugnot under clientA via a real Transfer. ---
 	clientAState := tmtesting.NewClientState("honestchain-1", types.NewHeight(1, 50))
 	consA := tmtesting.GenConsensusState(time.Now(), tmtesting.Hash("honest-apphash"), tmtesting.GenValset().Hash())
-	if core.CreateClient(cross, clientAState, consA) != clientAID {
+	if core.CreateClient(cross(cur), clientAState, consA) != clientAID {
 		panic("clientA id race")
 	}
-	core.RegisterCounterparty(cross, clientAID, prefix, cpartyA)
+	core.RegisterCounterparty(cross(cur), clientAID, prefix, cpartyA)
 
 	// Fund the transfer realm and run a real native Transfer over clientA so the
 	// per-client escrow under clientA is established.
@@ -56,7 +57,7 @@ func main() {
 	sender := testutils.TestAddress("sender")
 	testing.SetRealm(testing.NewUserRealm(sender))
 	testing.SetOriginSend(chain.NewCoins(chain.NewCoin("ugnot", 100)))
-	transfer.Transfer(cross, clientAID, "atone1user", "ugnot", 100, uint64(time.Now().Add(time.Hour).Unix()), "")
+	transfer.Transfer(cross(cur), clientAID, "atone1user", "ugnot", 100, uint64(time.Now().Add(time.Hour).Unix()), "")
 	testing.SetOriginSend(nil)
 
 	// --- Attacker client B: attacker controls the consensus root, so they can
@@ -65,12 +66,7 @@ func main() {
 	// "returning token" packet: the denom trace starts with the counterparty of
 	// clientB, so OnRecvPacket takes the unescrow branch.
 	denom := "transfer/" + cpartyB + "/ugnot"
-	payload := transfer.FungibleTokenPacketData{
-		Denom:    denom,
-		Amount:   "100",
-		Sender:   "atone1attacker",
-		Receiver: attacker.String(),
-	}
+	payload := transfer.NewFungibleTokenPacketData(denom, "100", "atone1attacker", attacker.String(), "")
 	packet := types.Packet{
 		Sequence:          1,
 		SourceClient:      cpartyB,
@@ -126,10 +122,10 @@ func main() {
 		Root:              tendermint.NewMerkleRoot(root),
 		NextValidatorsHash: tmtesting.GenValset().Hash(),
 	}
-	if core.CreateClient(cross, tmtesting.NewClientState("attackerchain-1", proofHeight), consB) != clientBID {
+	if core.CreateClient(cross(cur), tmtesting.NewClientState("attackerchain-1", proofHeight), consB) != clientBID {
 		panic("clientB id race")
 	}
-	core.RegisterCounterparty(cross, clientBID, prefix, cpartyB)
+	core.RegisterCounterparty(cross(cur), clientBID, prefix, cpartyB)
 
 	// Sanity: clientA still holds the 100ugnot escrow before the attack.
 	println("----------- assert render total_escrow/ugnot before attack")
@@ -141,7 +137,7 @@ func main() {
 	// itself still returns RESPONSE_SUCCESS (2) because the recv was processed;
 	// the failure is reflected in the written acknowledgement, not the return.
 	// The decisive assertion is that clientA's escrow is untouched.
-	res := core.RecvPacket(cross, types.MsgRecvPacket{
+	res := core.RecvPacket(cross(cur), types.MsgRecvPacket{
 		Packet:           packet,
 		ProofCommitment:  proof,
 		ProofHeight:      proofHeight,

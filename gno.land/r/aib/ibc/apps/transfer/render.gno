@@ -152,7 +152,7 @@ func totalEscrowAmountForDenom(denom string) int64 {
 	var total int64
 	totalEscrow.IterateByOffset(0, totalEscrow.Size(), func(_ string, v any) bool {
 		t := v.(*bptree.BPTree)
-		if x, found := t.Get(denom); found {
+		if x := t.Get(denom); x != nil {
 			total += x.(chain.Coin).Amount
 		}
 		return false

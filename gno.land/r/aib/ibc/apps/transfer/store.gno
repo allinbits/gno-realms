@@ -38,8 +38,8 @@ func init() {
 // access. Escrow is accounted per (client, denom) so a malicious client cannot
 // release funds escrowed under a different client (see shared-escrow drain).
 func escrowForClient(clientID string) *bptree.BPTree {
-	v, ok := totalEscrow.Get(clientID)
-	if !ok {
+	v := totalEscrow.Get(clientID)
+	if v == nil {
 		t := bptree.NewBPTree32()
 		totalEscrow.Set(clientID, t)
 		return t
@@ -52,7 +52,7 @@ func escrowForClient(clientID string) *bptree.BPTree {
 // back through the same client.
 func addEscrowForClient(clientID string, c chain.Coin) {
 	t := escrowForClient(clientID)
-	if x, found := t.Get(c.Denom); found {
+	if x := t.Get(c.Denom); x != nil {
 		c = x.(chain.Coin).Add(c)
 	}
 	t.Set(c.Denom, c)
@@ -64,8 +64,8 @@ func addEscrowForClient(clientID string, c chain.Coin) {
 // funds cannot drain escrow that belongs to another client.
 func subEscrowForClient(clientID string, c chain.Coin) error {
 	t := escrowForClient(clientID)
-	x, found := t.Get(c.Denom)
-	if !found {
+	x := t.Get(c.Denom)
+	if x == nil {
 		return ufmt.Errorf("insufficient escrow for client %s denom %s: have 0, want %d", clientID, c.Denom, c.Amount)
 	}
 	have := x.(chain.Coin)
