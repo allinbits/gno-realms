@@ -3,12 +3,13 @@ package main
 
 import (
 	"chain"
+	"chain/banker"
 	"testing"
 	"time"
 
 	"gno.land/p/aib/ibc/host"
-	tmtesting "gno.land/p/aib/ibc/lightclient/tendermint/testing"
 	"gno.land/p/aib/ibc/lightclient/tendermint"
+	tmtesting "gno.land/p/aib/ibc/lightclient/tendermint/testing"
 	"gno.land/p/aib/ibc/types"
 	"gno.land/p/aib/ics23"
 	"gno.land/p/nt/testutils/v0"
@@ -63,6 +64,12 @@ func main(cur realm) {
 	// --- Attacker client B: attacker controls the consensus root, so they can
 	// produce a valid proof against it themselves via ExistenceProof.Calculate. ---
 	attacker := testutils.TestAddress("attacker")
+	// Switch off the honest sender's realm: everything from here on -- creating
+	// clientB, registering its counterparty, relaying the forged packet -- is
+	// signed by the attacker EOA. Without this the whole attack would run as
+	// the same EOA that established clientA's escrow, and the test would not
+	// exercise the documented threat model (an unprivileged third party).
+	testing.SetRealm(testing.NewUserRealm(attacker))
 	// "returning token" packet: the denom trace starts with the counterparty of
 	// clientB, so OnRecvPacket takes the unescrow branch.
 	denom := "transfer/" + cpartyB + "/ugnot"
@@ -118,8 +125,8 @@ func main(cur realm) {
 
 	// Create clientB with the attacker-chosen root.
 	consB := tendermint.ConsensusState{
-		Timestamp:         time.Now(),
-		Root:              tendermint.NewMerkleRoot(root),
+		Timestamp:          time.Now(),
+		Root:               tendermint.NewMerkleRoot(root),
 		NextValidatorsHash: tmtesting.GenValset().Hash(),
 	}
 	if core.CreateClient(cross(cur), tmtesting.NewClientState("attackerchain-1", proofHeight), consB) != clientBID {
@@ -130,6 +137,12 @@ func main(cur realm) {
 	// Sanity: clientA still holds the 100ugnot escrow before the attack.
 	println("----------- assert render total_escrow/ugnot before attack")
 	println(transfer.Render("total_escrow/ugnot"))
+	// The escrow counter alone only proves the *accounting* was untouched. The
+	// decisive property of a drain test is that no coins moved, so record where
+	// the 100ugnot physically sits before the attack too.
+	println("----------- realm / attacker ugnot before attack")
+	println(banker.NewReadonlyBanker().GetCoins(transferAppAddr).String())
+	println(banker.NewReadonlyBanker().GetCoins(attacker).String())
 
 	// --- The attack: recv the forged packet on clientB to drain clientA. ---
 	// OnRecvPacket must reject it: clientB never escrowed any ugnot, so the
@@ -138,23 +151,35 @@ func main(cur realm) {
 	// the failure is reflected in the written acknowledgement, not the return.
 	// The decisive assertion is that clientA's escrow is untouched.
 	res := core.RecvPacket(cross(cur), types.MsgRecvPacket{
-		Packet:           packet,
-		ProofCommitment:  proof,
-		ProofHeight:      proofHeight,
+		Packet:          packet,
+		ProofCommitment: proof,
+		ProofHeight:     proofHeight,
 	})
 
 	println("\nrecv result (2 == SUCCESS at core level; app ack is error):", int(res))
 	println("----------- assert render total_escrow/ugnot after attack (unchanged)")
 	println(transfer.Render("total_escrow/ugnot"))
+	// Both balances must be byte-identical to the pre-attack lines above: the
+	// realm still holds all 100ugnot and the attacker received nothing. This is
+	// what catches a regression that reports the escrow correctly while still
+	// paying the coins out.
+	println("----------- realm / attacker ugnot after attack (both unchanged)")
+	println(banker.NewReadonlyBanker().GetCoins(transferAppAddr).String())
+	println(banker.NewReadonlyBanker().GetCoins(attacker).String())
 }
 
 // Output:
 // ----------- assert render total_escrow/ugnot before attack
 // {"denom":"ugnot","amount":100}
+// ----------- realm / attacker ugnot before attack
+// 100ugnot
+//
 //
 // recv result (2 == SUCCESS at core level; app ack is error): 2
 // ----------- assert render total_escrow/ugnot after attack (unchanged)
 // {"denom":"ugnot","amount":100}
+// ----------- realm / attacker ugnot after attack (both unchanged)
+// 100ugnot
 
 // Events:
 // [
