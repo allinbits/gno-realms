@@ -15,8 +15,8 @@ set -euo pipefail
 # ---- config -----------------------------------------------------------------
 
 KEY="${KEY:-aib}"
-CHAIN_ID="${CHAIN_ID:-topaz-1}"
-REMOTE="${REMOTE:-https://rpc.topaz.testnets.gno.land:443}"
+CHAIN_ID="${CHAIN_ID:-sapphire-1}"
+REMOTE="${REMOTE:-https://rpc.sapphire.testnets.gno.land:443}"
 GAS_FEE="${GAS_FEE:-6000000ugnot}"
 GAS_WANTED="${GAS_WANTED:-1000000000}"
 MAX_DEPOSIT="${MAX_DEPOSIT:-100000000ugnot}"
