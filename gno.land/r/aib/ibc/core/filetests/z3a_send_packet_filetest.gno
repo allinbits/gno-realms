@@ -24,7 +24,7 @@ func main(cur realm) {
 	core.RegisterCounterparty(cross(cur), clientID, [][]byte{[]byte("iavlStoreKey"), []byte("prefix2")}, "07-tendermint-2")
 
 	println("next sequence:", core.Render("clients/"+clientID+"/next_sequence_send"))
-	// Register 2 apps
+	// Register 2 apps, only app1 is targeted by the packet payload.
 	var (
 		app1       = appstesting.NewApp(cross(cur))
 		app1PortID = "app1"
@@ -42,13 +42,6 @@ func main(cur realm) {
 		Payloads: []types.Payload{
 			{
 				SourcePort:      app1PortID,
-				DestinationPort: "destinationPort",
-				Encoding:        "application/json",
-				Value:           []byte("{}"),
-				Version:         "v1",
-			},
-			{
-				SourcePort:      app2PortID,
 				DestinationPort: "destinationPort",
 				Encoding:        "application/json",
 				Value:           []byte("{}"),
@@ -98,17 +91,7 @@ func main(cur realm) {
 // OnAcknowledgementPacket (0)
 //
 // ----------- app2 report
-// OnSendPacket (1)
-// - sourceClient: 07-tendermint-1
-// - destinationClient: 07-tendermint-2
-// - sequence: 1
-// - payload:
-//   - sourcePort: app2
-//   - destinationPort: destinationPort
-//   - version: v1
-//   - encoding: application/json
-//   - value: {}
-//
+// OnSendPacket (0)
 // OnRecvPacket (0)
 // OnTimeoutPacket (0)
 // OnAcknowledgementPacket (0)
@@ -116,9 +99,9 @@ func main(cur realm) {
 // returned sequence: 2
 // next sequence: {"next_sequence_send": 3}"
 // ----------- assert render clients/07-tendermint-1/packet_commitments
-// {"items":[{"sequence":"1","data":"IrnGu6pyeXzbWlH2gsUv6cZlxEZjTGa5OfMKACFYs4E="},{"sequence":"2","data":"IrnGu6pyeXzbWlH2gsUv6cZlxEZjTGa5OfMKACFYs4E="}],"page":1,"total":1}
+// {"items":[{"sequence":"1","data":"oyZ+seOMNQrPOErL+0WJp0pHKAMur2SlkdChrVRzm28="},{"sequence":"2","data":"oyZ+seOMNQrPOErL+0WJp0pHKAMur2SlkdChrVRzm28="}],"page":1,"total":1}
 // ----------- assert render clients/07-tendermint-1/packet_commitments/1
-// {"sequence":"1","data":"IrnGu6pyeXzbWlH2gsUv6cZlxEZjTGa5OfMKACFYs4E="}
+// {"sequence":"1","data":"oyZ+seOMNQrPOErL+0WJp0pHKAMur2SlkdChrVRzm28="}
 
 // Events:
 // [
@@ -161,7 +144,7 @@ func main(cur realm) {
 //       },
 //       {
 //         "key": "encoded_packet_hex",
-//         "value": "0801120f30372d74656e6465726d696e742d311a0f30372d74656e6465726d696e742d3220e2a1d8cc042a310a0461707031120f64657374696e6174696f6e506f72741a02763122106170706c69636174696f6e2f6a736f6e2a027b7d2a310a0461707032120f64657374696e6174696f6e506f72741a02763122106170706c69636174696f6e2f6a736f6e2a027b7d"
+//         "value": "0801120f30372d74656e6465726d696e742d311a0f30372d74656e6465726d696e742d3220e2a1d8cc042a310a0461707031120f64657374696e6174696f6e506f72741a02763122106170706c69636174696f6e2f6a736f6e2a027b7d"
 //       }
 //     ],
 //     "pkg_path": "gno.land/r/aib/ibc/core"
@@ -187,10 +170,9 @@ func main(cur realm) {
 //       },
 //       {
 //         "key": "encoded_packet_hex",
-//         "value": "0802120f30372d74656e6465726d696e742d311a0f30372d74656e6465726d696e742d3220e2a1d8cc042a310a0461707031120f64657374696e6174696f6e506f72741a02763122106170706c69636174696f6e2f6a736f6e2a027b7d2a310a0461707032120f64657374696e6174696f6e506f72741a02763122106170706c69636174696f6e2f6a736f6e2a027b7d"
+//         "value": "0802120f30372d74656e6465726d696e742d311a0f30372d74656e6465726d696e742d3220e2a1d8cc042a310a0461707031120f64657374696e6174696f6e506f72741a02763122106170706c69636174696f6e2f6a736f6e2a027b7d"
 //       }
 //     ],
 //     "pkg_path": "gno.land/r/aib/ibc/core"
 //   }
 // ]
-

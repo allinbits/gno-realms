@@ -38,8 +38,9 @@ func (msg *MsgSendPacket) ValidateBasic() error {
 		return ufmt.Errorf("timeout must not be 0")
 	}
 
-	if len(msg.Payloads) == 0 {
-		return ufmt.Errorf("payload length must be greater than 0")
+	// See Packet.ValidateBasic: multi-payload packets are not supported.
+	if len(msg.Payloads) != 1 {
+		return ufmt.Errorf("payloads must contain exactly one payload")
 	}
 
 	for i, pd := range msg.Payloads {

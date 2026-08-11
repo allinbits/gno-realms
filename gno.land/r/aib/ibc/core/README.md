@@ -75,6 +75,12 @@ Emitted event:
 
 See [`zz_send_packet_example_filetest.gno`](./zz_send_packet_example_filetest.gno)
 
+A packet must carry **exactly one** payload; `SendPacket` and `RecvPacket` both
+reject any other count. The restriction matches ibc-go and keeps `RecvPacket`
+atomic: its callback loop stops at the first failing payload without reverting
+the ones that already succeeded, so several payloads could commit a partial
+state change while the counterparty refunds the whole packet.
+
 Emitted event:
 ```json
 [
@@ -99,7 +105,7 @@ Emitted event:
       },
       {
         "key": "encoded_packet_hex",
-        "value": "0801120f30372d74656e6465726d696e742d311a10636f756e7465722d70617274792d696420e2a1d8cc042a3f0a12676e6f2e6c616e645f725f69626361707031120f64657374696e6174696f6e506f72741a02763122106170706c69636174696f6e2f6a736f6e2a027b7d2a3f0a12676e6f2e6c616e645f725f69626361707032120f64657374696e6174696f6e506f72741a02763122106170706c69636174696f6e2f6a736f6e2a027b7d"
+        "value": "0801120f30372d74656e6465726d696e742d311a10636f756e7465722d70617274792d696420e2a1d8cc042a3f0a12676e6f2e6c616e645f725f69626361707031120f64657374696e6174696f6e506f72741a02763122106170706c69636174696f6e2f6a736f6e2a027b7d"
       }
     ],
     "pkg_path": "gno.land/r/aib/ibc/core"
@@ -114,9 +120,8 @@ acknowledgement itself. An application may instead return
 `PacketStatus_Async` from `OnRecvPacket`, in which case the ack is deferred
 until the application calls `WriteAcknowledgement` later (typically from a
 subsequent `OnAcknowledgementPacket` or `OnTimeoutPacket` callback while
-forwarding the parent packet). Async acks only support single-payload
-packets, and only the realm whose `OnRecvPacket` returned async is
-authorized to write the ack.
+forwarding the parent packet). Only the realm whose `OnRecvPacket` returned
+async is authorized to write the ack.
 
 See [`z10a_async_ack_filetest.gno`](./z10a_async_ack_filetest.gno) for the
 full A → B → C forward-and-ack call graph.

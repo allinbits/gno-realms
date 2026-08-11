@@ -24,10 +24,11 @@ func TestMsgSendPacketValidateBasic(t *testing.T) {
 			malleate: func() {},
 		},
 		{
-			name: "success, multiple payloads",
+			name: "failure: multiple payloads",
 			malleate: func() {
 				msg.Payloads = append(msg.Payloads, payload)
 			},
+			expErr: "payloads must contain exactly one payload",
 		},
 		{
 			name: "failure: empty source client",
@@ -48,7 +49,7 @@ func TestMsgSendPacketValidateBasic(t *testing.T) {
 			malleate: func() {
 				msg.Payloads = []types.Payload{}
 			},
-			expErr: "payload length must be greater than 0",
+			expErr: "payloads must contain exactly one payload",
 		},
 		{
 			name: "failure: invalid packetdata",
@@ -63,14 +64,6 @@ func TestMsgSendPacketValidateBasic(t *testing.T) {
 				msg.Payloads[0].DestinationPort = ""
 			},
 			expErr: "invalid payload #0: invalid destination port",
-		},
-		{
-			name: "failure: invalid multiple payload",
-			malleate: func() {
-				payload.DestinationPort = ""
-				msg.Payloads = append(msg.Payloads, payload)
-			},
-			expErr: "invalid payload #1: invalid destination port",
 		},
 	}
 	for _, tc := range testCases {
@@ -123,13 +116,6 @@ func TestPacketValidateBasic(t *testing.T) {
 			"",
 		},
 		{
-			"success, multiple payloads",
-			func() {
-				packet.Payloads = append(packet.Payloads, payload)
-			},
-			"",
-		},
-		{
 			"failure: invalid single payloads size",
 			func() {
 				// bytes that are larger than MaxPayloadsSize
@@ -138,26 +124,25 @@ func TestPacketValidateBasic(t *testing.T) {
 			"packet data bytes cannot exceed",
 		},
 		{
-			"failure: invalid total payloads size",
+			"failure: multiple payloads",
 			func() {
-				payload.Value = make([]byte, types.MaximumPayloadsSize-1)
 				packet.Payloads = append(packet.Payloads, payload)
 			},
-			"packet data bytes cannot exceed",
+			"payloads must contain exactly one payload",
 		},
 		{
 			"failure: payloads is nil",
 			func() {
 				packet.Payloads = nil
 			},
-			"payload length must be greater than 0",
+			"payloads must contain exactly one payload",
 		},
 		{
 			"failure: empty payload",
 			func() {
 				packet.Payloads = []types.Payload{}
 			},
-			"payload length must be greater than 0",
+			"payloads must contain exactly one payload",
 		},
 		{
 			"failure: invalid payload source port ID",

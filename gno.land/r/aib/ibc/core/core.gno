@@ -183,6 +183,13 @@ func (c *client) writeRecvPacketAcknowledgement(_ int, rlm realm, packet types.P
 	)
 
 	// Invoke registed app OnRecvPacket() for each payload.DestinationPort.
+	//
+	// Packet.ValidateBasic() guarantees exactly one payload, so the loop never
+	// runs more than once. It matters: the loop breaks on the first failure
+	// without reverting the callbacks that already succeeded, so with several
+	// payloads the packet could commit a partial state change while being
+	// acknowledged (and refunded by the counterparty) as failed. Any move to
+	// multi-payload packets has to make this loop atomic first.
 	for i, payload := range packet.Payloads {
 		app := store.route(payload.DestinationPort)
 		res := app.OnRecvPacket(

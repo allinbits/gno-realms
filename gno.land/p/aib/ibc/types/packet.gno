@@ -56,8 +56,14 @@ const MaximumPayloadsSize = 262144 // 256 KiB. This is the maximum size of all p
 
 // ValidateBasic validates that a Packet satisfies the basic requirements.
 func (p Packet) ValidateBasic() error {
-	if len(p.Payloads) == 0 {
-		return ufmt.Errorf("payload length must be greater than 0")
+	// Multi-payload packets are not supported: RecvPacket invokes the app
+	// callbacks in sequence and stops at the first failure without reverting
+	// the ones that already succeeded, so a partially applied packet would be
+	// acknowledged as failed and refunded by the counterparty. ibc-go enforces
+	// the same restriction, so enabling multi-payload has to be a deliberate
+	// change on both sides, with atomicity decided up front.
+	if len(p.Payloads) != 1 {
+		return ufmt.Errorf("payloads must contain exactly one payload")
 	}
 
 	totalPayloadsSize := 0
