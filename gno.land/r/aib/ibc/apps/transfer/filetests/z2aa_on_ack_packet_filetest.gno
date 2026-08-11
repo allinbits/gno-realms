@@ -123,13 +123,13 @@ func main(cur realm) {
 
 // Output:
 // ----------- assert render total_escrow/ugnot before Transfer
-// {"denom":"ugnot","amount":0}
+// {"denom":"ugnot","amount":0,"clients":[]}
 // ----------- assert render total_escrow/ugnot after Transfer
-// {"denom":"ugnot","amount":100}
+// {"denom":"ugnot","amount":100,"clients":[{"client":"07-tendermint-1","amount":100}]}
 //
 // ack res: (2 gno.land/p/aib/ibc/types.ResponseResultType)
 // ----------- assert render total_escrow/ugnot after Ack
-// {"denom":"ugnot","amount":0}
+// {"denom":"ugnot","amount":0,"clients":[{"client":"07-tendermint-1","amount":0}]}
 
 // Events:
 // [
