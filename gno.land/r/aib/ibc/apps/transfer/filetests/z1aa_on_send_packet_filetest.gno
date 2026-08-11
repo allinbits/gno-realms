@@ -204,6 +204,28 @@ func main(cur realm) {
 //     "pkg_path": "gno.land/r/aib/ibc/apps/transfer"
 //   },
 //   {
+//     "type": "NewToken",
+//     "attrs": [
+//       {
+//         "key": "token",
+//         "value": "gno.land/r/aib/ibc/apps/transfer.F9A67CB19B2.0000001"
+//       },
+//       {
+//         "key": "name",
+//         "value": "uatone"
+//       },
+//       {
+//         "key": "symbol",
+//         "value": "F9A67CB19B2"
+//       },
+//       {
+//         "key": "decimals",
+//         "value": "0"
+//       }
+//     ],
+//     "pkg_path": "gno.land/p/demo/tokens/grc20"
+//   },
+//   {
 //     "type": "register",
 //     "attrs": [
 //       {

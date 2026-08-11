@@ -185,6 +185,28 @@ func mintVoucher(cur realm, clientID, counterpartyID string, trustedHeight types
 //     "pkg_path": "gno.land/r/aib/ibc/apps/transfer"
 //   },
 //   {
+//     "type": "NewToken",
+//     "attrs": [
+//       {
+//         "key": "token",
+//         "value": "gno.land/r/aib/ibc/apps/transfer.CAEF9CA8CE6.0000001"
+//       },
+//       {
+//         "key": "name",
+//         "value": "uphoton"
+//       },
+//       {
+//         "key": "symbol",
+//         "value": "CAEF9CA8CE6"
+//       },
+//       {
+//         "key": "decimals",
+//         "value": "0"
+//       }
+//     ],
+//     "pkg_path": "gno.land/p/demo/tokens/grc20"
+//   },
+//   {
 //     "type": "register",
 //     "attrs": [
 //       {
