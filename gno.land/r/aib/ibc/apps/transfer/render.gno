@@ -85,9 +85,9 @@ func renderHome(w *mux.ResponseWriter, r *mux.Request) {
 	} else {
 		out.WriteString("No vouchers yet.\n\n")
 	}
-	uniqueDenoms := totalEscrowUniqueDenoms()
-	out.WriteString(ufmt.Sprintf("## Escrow (%d)\n\n", len(uniqueDenoms)))
-	if len(uniqueDenoms) > 0 {
+	escrowsPerDenom := totalEscrowsPerDenom()
+	out.WriteString(ufmt.Sprintf("## Escrow (%d)\n\n", len(escrowsPerDenom)))
+	if len(escrowsPerDenom) > 0 {
 		out.WriteString("| Denom | Amount |\n")
 		out.WriteString("|-------|--------|\n")
 		// Iterate in the stable order totalEscrow exposes (by client), emitting
@@ -103,7 +103,7 @@ func renderHome(w *mux.ResponseWriter, r *mux.Request) {
 				seen[denom] = true
 				out.WriteString(ufmt.Sprintf(
 					"| [`%s`](/r/aib/ibc/apps/transfer:total_escrow/%s) | %d |\n",
-					denom, denom, uniqueDenoms[denom],
+					denom, denom, escrowsPerDenom[denom],
 				))
 				return false
 			})
@@ -139,30 +139,32 @@ func renderDenom(w *mux.ResponseWriter, r *mux.Request) {
 
 func renderTotalEscrowForDenom(w *mux.ResponseWriter, r *mux.Request) {
 	denom := r.GetVar("denom")
-	renderNode(w, json.ObjectNode("", map[string]*json.Node{
-		"denom":  json.StringNode("", denom),
-		"amount": json.NumberNode("", float64(totalEscrowAmountForDenom(denom))),
-	}))
-}
-
-// totalEscrowAmountForDenom sums the escrowed amount of denom across every
-// client. Escrow is stored per-client to isolate clients from each other; this
-// aggregation is used only for display.
-func totalEscrowAmountForDenom(denom string) int64 {
+	// List the per-client amounts so the client/escrow binding is visible, not
+	// just the aggregate. The total is kept at the top level for quick checks.
+	clients := []*json.Node{}
 	var total int64
-	totalEscrow.IterateByOffset(0, totalEscrow.Size(), func(_ string, v any) bool {
+	totalEscrow.IterateByOffset(0, totalEscrow.Size(), func(clientID string, v any) bool {
 		t := v.(*bptree.BPTree)
 		if x := t.Get(denom); x != nil {
-			total += x.(chain.Coin).Amount
+			amt := x.(chain.Coin).Amount
+			total += amt
+			clients = append(clients, json.ObjectNode("", map[string]*json.Node{
+				"client": json.StringNode("", clientID),
+				"amount": json.NumberNode("", float64(amt)),
+			}))
 		}
 		return false
 	})
-	return total
+	renderNode(w, json.ObjectNode("", map[string]*json.Node{
+		"denom":   json.StringNode("", denom),
+		"amount":  json.NumberNode("", float64(total)),
+		"clients": json.ArrayNode("", clients),
+	}))
 }
 
-// totalEscrowUniqueDenoms returns one entry per denom that has any escrow
+// totalEscrowsPerDenom returns one entry per denom that has any escrow
 // across all clients, with the summed amount.
-func totalEscrowUniqueDenoms() map[string]int64 {
+func totalEscrowsPerDenom() map[string]int64 {
 	out := map[string]int64{}
 	totalEscrow.IterateByOffset(0, totalEscrow.Size(), func(_ string, v any) bool {
 		t := v.(*bptree.BPTree)

@@ -64,25 +64,27 @@ func TestEscrowIsolationPerClient(t *testing.T) {
 	// Reset the escrow tree so the test is independent of ordering.
 	totalEscrow = bptree.NewBPTree32()
 
-	// clientA escrows 100ugnot; clientB escrows nothing. The sub checks below
+	// clientA escrows 100ugnot; clientB escrows nothing. The checks below
 	// prove the accounting was recorded and isolated per client.
 	addEscrowForClient("07-tendermint-1", chain.NewCoin("ugnot", 100))
 
 	// clientA can release its own escrow.
-	urequire.NoError(t, subEscrowForClient("07-tendermint-1", chain.NewCoin("ugnot", 30)))
+	coin := chain.NewCoin("ugnot", 30)
+	urequire.NoError(t, checkEscrowForClient("07-tendermint-1", coin))
+	debitEscrowForClient("07-tendermint-1", coin)
 
 	// clientB must NOT be able to release funds clientA locked: this is the
 	// shared-escrow drain defense.
-	err := subEscrowForClient("07-tendermint-2", chain.NewCoin("ugnot", 10))
+	err := checkEscrowForClient("07-tendermint-2", chain.NewCoin("ugnot", 10))
 	urequire.ErrorContains(t, err, "insufficient escrow for client 07-tendermint-2")
 
 	// clientA cannot release more than it escrowed (70 remaining after the 30
 	// release above).
-	err = subEscrowForClient("07-tendermint-1", chain.NewCoin("ugnot", 71))
+	err = checkEscrowForClient("07-tendermint-1", chain.NewCoin("ugnot", 71))
 	urequire.ErrorContains(t, err, "insufficient escrow for client 07-tendermint-1 denom ugnot: have 70")
 
 	// A denom clientA never escrowed is rejected even though clientA has ugnot.
-	err = subEscrowForClient("07-tendermint-1", chain.NewCoin("uatom", 1))
+	err = checkEscrowForClient("07-tendermint-1", chain.NewCoin("uatom", 1))
 	urequire.ErrorContains(t, err, "insufficient escrow for client 07-tendermint-1 denom uatom")
 }
 
@@ -94,10 +96,12 @@ func TestEscrowAccumulatesPerClientDenom(t *testing.T) {
 	addEscrowForClient("07-tendermint-1", chain.NewCoin("ugnot", 60))
 
 	// A single release of the full accumulated amount must succeed.
-	urequire.NoError(t, subEscrowForClient("07-tendermint-1", chain.NewCoin("ugnot", 100)))
+	coin := chain.NewCoin("ugnot", 100)
+	urequire.NoError(t, checkEscrowForClient("07-tendermint-1", coin))
+	debitEscrowForClient("07-tendermint-1", coin)
 
 	// The pool is now empty for that (client, denom).
-	err := subEscrowForClient("07-tendermint-1", chain.NewCoin("ugnot", 1))
+	err := checkEscrowForClient("07-tendermint-1", chain.NewCoin("ugnot", 1))
 	urequire.ErrorContains(t, err, "insufficient escrow for client 07-tendermint-1 denom ugnot: have 0")
 }
 
@@ -122,7 +126,7 @@ func TestCheckEscrowForClientDoesNotMutate(t *testing.T) {
 	// And a check against the wrong client must not create an empty entry for it.
 	err = checkEscrowForClient("07-tendermint-2", chain.NewCoin("ugnot", 1))
 	uassert.ErrorContains(t, err, "insufficient escrow for client 07-tendermint-2")
-	uassert.Equal(t, nil, totalEscrow.Get("07-tendermint-2"))
+	uassert.Nil(t, totalEscrow.Get("07-tendermint-2"))
 }
 
 // TestDebitEscrowForClientMatchesCheck verifies debit applies the authorized

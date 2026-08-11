@@ -149,11 +149,11 @@ func main(cur realm) {
 // Output:
 // Payload proto: Ch90cmFuc2Zlci8wNy10ZW5kZXJtaW50LTQyL3Vnbm90EgMxMDAaCmF0b25lMXVzZXIiKGcxd2Zqa3hldGZ3ZWpoeWg2bHRhMDQ3aDZsdGEwNDdoNmxsbTgyeWw=
 // ----------- assert render total_escrow/ugnot before RecvPacket
-// {"denom":"ugnot","amount":100}
+// {"denom":"ugnot","amount":100,"clients":[{"client":"07-tendermint-1","amount":100}]}
 //
 // ack res: (2 gno.land/p/aib/ibc/types.ResponseResultType)
 // ----------- assert render total_escrow/ugnot after RecvPacket
-// {"denom":"ugnot","amount":0}
+// {"denom":"ugnot","amount":0,"clients":[{"client":"07-tendermint-1","amount":0}]}
 
 // Events:
 // [

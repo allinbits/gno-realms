@@ -258,7 +258,7 @@ func main(cur realm) {
 
 // Output:
 // ----------- escrow locked under clientA, clientA Active
-// {"denom":"ugnot","amount":100}
+// {"denom":"ugnot","amount":100,"clients":[{"client":"07-tendermint-1","amount":100}]}
 // {"status":"Active"}
 // ----------- clientA broken; escrow is now unreleasable
 // {"status":"Frozen"}
@@ -267,7 +267,7 @@ func main(cur realm) {
 //
 // recv result (2 == SUCCESS): 2
 // ----------- escrow drawn down to 0
-// {"denom":"ugnot","amount":0}
+// {"denom":"ugnot","amount":0,"clients":[{"client":"07-tendermint-1","amount":0}]}
 // ----------- receiver balance (100ugnot released)
 // 100ugnot
 // ----------- transfer realm balance (escrow emptied)

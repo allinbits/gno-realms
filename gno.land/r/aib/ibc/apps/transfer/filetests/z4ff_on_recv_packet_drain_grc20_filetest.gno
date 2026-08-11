@@ -165,12 +165,12 @@ func main(cur realm) {
 
 // Output:
 // ----------- escrow + GRC20 balances before attack
-// {"denom":"gno.land:r:aib:ibc:apps:testing:grc20test.TEST","amount":100}
+// {"denom":"gno.land:r:aib:ibc:apps:testing:grc20test.TEST","amount":100,"clients":[{"client":"07-tendermint-1","amount":100}]}
 // realm: 100
 // attacker: 0
 //
 // recv result (2 == SUCCESS at core level; app ack is error): 2
 // ----------- escrow + GRC20 balances after attack (all unchanged)
-// {"denom":"gno.land:r:aib:ibc:apps:testing:grc20test.TEST","amount":100}
+// {"denom":"gno.land:r:aib:ibc:apps:testing:grc20test.TEST","amount":100,"clients":[{"client":"07-tendermint-1","amount":100}]}
 // realm: 100
 // attacker: 0

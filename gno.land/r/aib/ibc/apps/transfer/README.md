@@ -310,9 +310,11 @@ tracked in the realm store instead:
   this chain that the token was sent over).
 - `OnRecvPacket` debits the packet's `DestinationClient` (the client the
   returning token arrives on), which is the client that originally escrowed it.
-  `subEscrowForClient` rejects the release if that client never locked enough of
-  the denom, so a packet arriving on a different client cannot drain escrow that
-  belongs to another client.
+  `checkEscrowForClient` rejects the release if that client never locked enough
+  of the denom, so a packet arriving on a different client cannot drain escrow
+  that belongs to another client. The matching `debitEscrowForClient` runs only
+  after the token transfer succeeds, so a failed transfer leaves the accounting
+  intact.
 - A failed release returns an error acknowledgement; the escrow is untouched.
 
 This prevents the shared-escrow drain: an attacker who creates their own client

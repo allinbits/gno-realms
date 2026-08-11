@@ -38,11 +38,22 @@ func init() {
 // access. Escrow is accounted per (client, denom) so a malicious client cannot
 // release funds escrowed under a different client (see shared-escrow drain).
 func escrowForClient(clientID string) *bptree.BPTree {
+	t := getEscrowForClient(clientID)
+	if t == nil {
+		t = bptree.NewBPTree32()
+		totalEscrow.Set(clientID, t)
+	}
+	return t
+}
+
+// getEscrowForClient returns the per-client tree without creating it. Returns
+// nil if clientID has never escrowed anything. Used by read-only paths
+// (checkEscrowForClient, rendering) so a query for an unknown client doesn't
+// allocate an empty entry in totalEscrow.
+func getEscrowForClient(clientID string) *bptree.BPTree {
 	v := totalEscrow.Get(clientID)
 	if v == nil {
-		t := bptree.NewBPTree32()
-		totalEscrow.Set(clientID, t)
-		return t
+		return nil
 	}
 	return v.(*bptree.BPTree)
 }
@@ -62,7 +73,10 @@ func addEscrowForClient(clientID string, c chain.Coin) {
 // mutating the accounting. Read-only so callers can move tokens between the
 // check and the debit (see unescrowGRC20/unescrowNative).
 func checkEscrowForClient(clientID string, c chain.Coin) error {
-	t := escrowForClient(clientID)
+	t := getEscrowForClient(clientID)
+	if t == nil {
+		return ufmt.Errorf("insufficient escrow for client %s denom %s: have 0, want %d", clientID, c.Denom, c.Amount)
+	}
 	x := t.Get(c.Denom)
 	if x == nil {
 		return ufmt.Errorf("insufficient escrow for client %s denom %s: have 0, want %d", clientID, c.Denom, c.Amount)
@@ -81,15 +95,6 @@ func debitEscrowForClient(clientID string, c chain.Coin) {
 	x := t.Get(c.Denom)
 	have := x.(chain.Coin)
 	t.Set(c.Denom, chain.NewCoin(c.Denom, have.Amount-c.Amount))
-}
-
-// subEscrowForClient checks and debits atomically.
-func subEscrowForClient(clientID string, c chain.Coin) error {
-	if err := checkEscrowForClient(clientID, c); err != nil {
-		return err
-	}
-	debitEscrowForClient(clientID, c)
-	return nil
 }
 
 func hasDenom(voucherDenom string) bool {

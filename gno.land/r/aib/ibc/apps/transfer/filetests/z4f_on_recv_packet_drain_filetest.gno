@@ -170,14 +170,14 @@ func main(cur realm) {
 
 // Output:
 // ----------- assert render total_escrow/ugnot before attack
-// {"denom":"ugnot","amount":100}
+// {"denom":"ugnot","amount":100,"clients":[{"client":"07-tendermint-1","amount":100}]}
 // ----------- realm / attacker ugnot before attack
 // 100ugnot
 //
 //
 // recv result (2 == SUCCESS at core level; app ack is error): 2
 // ----------- assert render total_escrow/ugnot after attack (unchanged)
-// {"denom":"ugnot","amount":100}
+// {"denom":"ugnot","amount":100,"clients":[{"client":"07-tendermint-1","amount":100}]}
 // ----------- realm / attacker ugnot after attack (both unchanged)
 // 100ugnot
 
