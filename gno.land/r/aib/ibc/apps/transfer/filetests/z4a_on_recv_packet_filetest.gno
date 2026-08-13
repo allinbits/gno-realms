@@ -4,6 +4,7 @@ package main
 import (
 	"encoding/base64"
 	"encoding/hex"
+	"strings"
 	"time"
 
 	tmtesting "gno.land/p/aib/ibc/lightclient/tendermint/testing"
@@ -12,6 +13,7 @@ import (
 	"gno.land/p/nt/testutils/v0"
 	"gno.land/r/aib/ibc/apps/transfer"
 	"gno.land/r/aib/ibc/core"
+	"gno.land/r/demo/defi/grc20reg"
 )
 
 // OnRecvPacket: success with native coins
@@ -126,6 +128,16 @@ func main(cur realm) {
 	println(transfer.Render("voucher/" + voucherDenom + "/balance/" + receiver.String()))
 	println("\n----------- assert render vouchers")
 	println(transfer.Render("vouchers"))
+
+	// The grc20reg_key advertised by the render must actually resolve in
+	// grc20reg, which keys tokens by rlmpath.symbol (the truncated IBC hash,
+	// see VoucherSymbol) — not by the full hash. Read the key back from the
+	// render output so a divergence panics here instead of only showing up
+	// as a golden-output diff.
+	rendered := transfer.Render("voucher/" + voucherDenom)
+	advertisedKey := strings.Split(strings.Split(rendered, `"grc20reg_key":"`)[1], `"`)[0]
+	println("\n----------- assert advertised grc20reg_key resolves")
+	println(advertisedKey, "->", grc20reg.MustGet(advertisedKey).GetSymbol())
 }
 
 // Output:
@@ -144,13 +156,16 @@ func main(cur realm) {
 // {"base":"uphoton","path":"transfer/07-tendermint-1/uphoton","denom":"ibc/CAEF9CA8CE6C302D73A831A49E34E59149D3A9AD96CCEBDFBF62F6D5710D92D8"}
 //
 // ----------- assert render voucher
-// {"denom":"ibc/CAEF9CA8CE6C302D73A831A49E34E59149D3A9AD96CCEBDFBF62F6D5710D92D8","grc20reg_key":"gno.land/r/aib/ibc/apps/transfer.CAEF9CA8CE6C302D73A831A49E34E59149D3A9AD96CCEBDFBF62F6D5710D92D8","name":"uphoton","symbol":"CAEF9CA8CE6","decimals":0,"total_supply":100}
+// {"denom":"ibc/CAEF9CA8CE6C302D73A831A49E34E59149D3A9AD96CCEBDFBF62F6D5710D92D8","grc20reg_key":"gno.land/r/aib/ibc/apps/transfer.CAEF9CA8CE6","name":"uphoton","symbol":"CAEF9CA8CE6","decimals":0,"total_supply":100}
 //
 // ----------- assert render voucher balance
 // {"denom":"ibc/CAEF9CA8CE6C302D73A831A49E34E59149D3A9AD96CCEBDFBF62F6D5710D92D8","address":"g1wfjkxetfwejhyh6lta047h6lta047h6llm82yl","balance":100}
 //
 // ----------- assert render vouchers
-// {"items":[{"denom":"ibc/CAEF9CA8CE6C302D73A831A49E34E59149D3A9AD96CCEBDFBF62F6D5710D92D8","grc20reg_key":"gno.land/r/aib/ibc/apps/transfer.CAEF9CA8CE6C302D73A831A49E34E59149D3A9AD96CCEBDFBF62F6D5710D92D8","name":"uphoton","symbol":"CAEF9CA8CE6","decimals":0,"total_supply":100}],"page":1,"total":1}
+// {"items":[{"denom":"ibc/CAEF9CA8CE6C302D73A831A49E34E59149D3A9AD96CCEBDFBF62F6D5710D92D8","grc20reg_key":"gno.land/r/aib/ibc/apps/transfer.CAEF9CA8CE6","name":"uphoton","symbol":"CAEF9CA8CE6","decimals":0,"total_supply":100}],"page":1,"total":1}
+//
+// ----------- assert advertised grc20reg_key resolves
+// gno.land/r/aib/ibc/apps/transfer.CAEF9CA8CE6 -> CAEF9CA8CE6
 
 // Events:
 // [
