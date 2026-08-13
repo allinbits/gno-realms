@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Mint grc20test ("TEST") tokens to an address on gno.land test13.
+# Mint grc20test ("TEST") tokens to an address on gno.land.
 #
 # grc20test.Mint is test-only and has NO caller authorization, so any signed
 # tx can mint to any address.
@@ -15,8 +15,8 @@
 set -euo pipefail
 
 KEY="${KEY:-aib}"
-CHAIN_ID="${CHAIN_ID:-test-13}"
-REMOTE="${REMOTE:-https://rpc.test13.testnets.gno.land/}"
+CHAIN_ID="${CHAIN_ID:-sapphire-1}"
+REMOTE="${REMOTE:-https://rpc.sapphire.testnets.gno.land:443}"
 PKGPATH="${PKGPATH:-gno.land/r/aib/ibc/apps/testing/grc20test}"
 TO="${TO:-g12j6x2cnpkvz83l6a5lhfw22703kwwpknpfnt70}" # aib
 AMOUNT="${AMOUNT:-1000000}"

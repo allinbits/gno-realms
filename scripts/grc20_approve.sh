@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Set an allowance on the grc20test ("TEST") token on gno.land test13.
+# Set an allowance on the grc20test ("TEST") token on gno.land.
 #
 # grc20test.Approve is test-only and has NO caller authorization, so any signed
 # tx can set an allowance for any owner->spender pair (the owner is passed
@@ -16,8 +16,8 @@
 set -euo pipefail
 
 KEY="${KEY:-aib}"
-CHAIN_ID="${CHAIN_ID:-test-13}"
-REMOTE="${REMOTE:-https://rpc.test13.testnets.gno.land/}"
+CHAIN_ID="${CHAIN_ID:-sapphire-1}"
+REMOTE="${REMOTE:-https://rpc.sapphire.testnets.gno.land:443}"
 PKGPATH="${PKGPATH:-gno.land/r/aib/ibc/apps/testing/grc20test}"
 OWNER="${OWNER:-g12j6x2cnpkvz83l6a5lhfw22703kwwpknpfnt70}" # aib
 SPENDER="${SPENDER:-g1tp3gk4quumurav4858hjfdy6hxtyffwmnxyr00}" # transfer realm (DerivePkgAddr gno.land/r/aib/ibc/apps/transfer)
