@@ -51,6 +51,11 @@ gnokey maketx call -pkgpath gno.land/r/aib/ibc/apps/transfer -func Transfer \
 IBC vouchers are GRC20 tokens minted when receiving tokens from another chain.
 They are burned on transfer back to the source chain.
 
+`Transfer` accepts the local `ibc/{HASH}` spelling and resolves it to the trace
+itself. The counterparty direction is not symmetric: a hand-built ICS-20 payload
+(raw `MsgSendPacket`) has no such resolution step and must carry the expanded
+trace — see the header of `scripts/transfer-atomone-to-gno.sh`.
+
 ```
 gnokey maketx call -pkgpath gno.land/r/aib/ibc/apps/transfer -func Transfer \
     -args "07-tendermint-1" -args "atone1abc..." \

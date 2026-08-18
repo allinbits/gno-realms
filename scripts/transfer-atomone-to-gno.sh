@@ -14,6 +14,34 @@
 # Usage:
 #   ./scripts/transfer-atomone-to-gno.sh
 #   AMOUNT=5000000 ./scripts/transfer-atomone-to-gno.sh
+#
+# Returning a voucher to gno: DENOM must be the expanded trace
+# ----------------------------------------------------------------------------
+# To send back a voucher that originated on gno (e.g. ugnot received here as
+# ibc/<HASH>), DENOM must be the *trace* the voucher was minted from, not the
+# local ibc/<HASH> spelling:
+#
+#   DENOM='transfer/10-gno-15/ugnot' AMOUNT=1000000 ./scripts/transfer-atomone-to-gno.sh
+#
+# The trace is "transfer/<source client on this chain>/<base denom>", and
+# hashing it reproduces the voucher you hold:
+# SHA256("transfer/10-gno-15/ugnot") == B4C7F88F0BDA20D0C0549EEBB9436DEF5FBD2882B861F6D1BB033F592D19836E
+#
+# Passing ibc/<HASH> instead fails at execution (tx code 3, funds untouched):
+#
+#   base denomination ibc/B4C7F88F... cannot contain slashes for IBC v2 packet:
+#   invalid denomination for cross-chain transfer
+#
+# ibc/<HASH> is chain-local and meaningless to the counterparty, so an ICS-20
+# payload has to carry the expanded trace. A MsgTransfer would have the transfer
+# module resolve the hash before building the packet; this script hand-builds the
+# payload inside a raw MsgSendPacket, which skips that resolution -- so the
+# canonical form is ours to supply, and ibc-go's "no slashes in the base
+# denomination" check is what rejects the unresolved one.
+#
+# The gno side does not have this constraint: r/aib/ibc/apps/transfer.Transfer
+# resolves ibc/<HASH> to the trace itself, so the ibc/<HASH> form is correct
+# there (see that realm's README, "IBC voucher").
 
 set -euo pipefail
 
