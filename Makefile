@@ -40,7 +40,17 @@ mod-download:
 # --- E2E tests ---
 
 export COMPOSE_PROJECT_NAME=e2e
-DC=docker compose -f e2e/docker-compose.yml --progress plain
+# The e2e gno image is always built from the commit go.mod pins, so the e2e
+# chain and `make test` can never run different gno versions. Never a branch
+# name: a moving ref keeps the docker build-arg string identical across pin
+# bumps, so the `git fetch` layer stays cached and the image silently drifts —
+# it once ran a gno a month older than the pin, and `--build --force-recreate`
+# does not help, only `--no-cache` would. A resolved commit changes the layer
+# key whenever the pin changes.
+#
+# To run e2e against another gno ref, pin it first: `make update-fork
+# FORK_REF=<ref>` (then `make mod-download`), which moves both sides together.
+DC=FORK_REF=$(GNO_PINNED_REF) docker compose -f e2e/docker-compose.yml --progress plain
 
 e2e-up:
 	$(DC) up -d --build --force-recreate
@@ -70,10 +80,23 @@ e2e-build-no-cache:
 # --- Fork management ---
 
 export FORK_REPO := github.com/gnolang/gno
-# FORK_REF may be a branch name, a tag, or a commit hash. It flows to both
-# `make update-fork` (where `go mod tidy` resolves it to a pseudo-version) and
-# the e2e gno image build (where e2e/gno/Dockerfile git-fetches it).
-export FORK_REF ?= master
+
+# The gno ref go.mod currently pins, read straight out of the replace
+# directive: the 12-char commit of a pseudo-version, or a tag as-is. This is
+# what the e2e gno image is built from (see DC above). Reading go.mod keeps it
+# offline and instant — no module cache, no `go mod download` on every make
+# invocation — and the abbreviated commit is enough because the image fetches
+# a source archive, which GitHub resolves from a prefix (`git fetch` would
+# have needed the full 40-char hash, which Go exposes nowhere but the module
+# cache's .info file).
+GNO_PINNED_REF := $(shell sed -n 's|^\tgithub.com/gnolang/gno => github.com/gnolang/gno \(v[^ ]*\)$$|\1|p' go.mod | sed -E 's/^v0\.0\.0-[0-9]{14}-//')
+
+# FORK_REF is what `make update-fork` re-pins to: a branch name, a tag, or a
+# commit hash, handed to `go mod edit -replace` for `go mod tidy` to resolve
+# into a pseudo-version. It tracks a branch by default, so a plain
+# `make update-fork` moves the pin to the tip of upstream master.
+FORK_REF ?= master
+
 
 # Optional Go build tags forwarded to the gnodev build in the e2e image.
 # Set GO_BUILD_TAGS=gastrace to build the store-gas tracing variant used by

@@ -8,16 +8,19 @@ ARG FORK_REF
 # Default empty: normal production build, zero tracing overhead.
 ARG GO_BUILD_TAGS
 
-RUN apk add --no-cache git make
+RUN apk add --no-cache make
 
-# Shallow-fetch the pinned ref. `git fetch <ref>` accepts a branch, a tag, or a
-# commit hash (GitHub allows fetching a reachable commit SHA directly), whereas
-# `git clone --branch` rejects commit hashes.
-RUN git init /src/gno \
-    && cd /src/gno \
-    && git remote add origin https://${FORK_REPO}.git \
-    && git fetch --depth 1 origin ${FORK_REF} \
-    && git checkout --detach FETCH_HEAD
+# Download the pinned ref as a source archive. The endpoint takes a branch, a
+# tag, or a commit — and unlike `git fetch`, it resolves an abbreviated commit
+# (it redirects to codeload with the full hash), so the Makefile can pass the
+# 12-char commit that go.mod's pseudo-version already carries instead of
+# resolving the full 40-char hash out of the module cache. The archive also
+# skips fetching git history we never use.
+RUN test -n "${FORK_REF}" || { echo "FORK_REF build arg is empty (expected a branch, tag or commit)" >&2; exit 1; } \
+    && mkdir -p /src/gno \
+    && wget -qO- "https://${FORK_REPO}/archive/${FORK_REF}.tar.gz" \
+       | tar xz -C /src/gno --strip-components=1 \
+    && echo "${FORK_REF}" > /src/gno/GNO_REF
 
 WORKDIR /src/gno
 

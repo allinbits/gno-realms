@@ -7,7 +7,7 @@ IBC v2 implementation for Gno (similar to IBC Eureka for Ethereum). Gno smart co
 ```bash
 make test           # Run all tests (gno filetests + Go tests)
 make gnodev         # Start local gno node with all realms/packages
-make update-fork    # Re-pin gnolang/gno to FORK_REF (branch/tag/commit; default: pinned commit)
+make update-fork    # Re-pin gnolang/gno to FORK_REF (branch/tag/commit; default: master)
 make mod-download   # Sync gno package cache (~/.config/gno/pkg/mod/) with the pinned commit
 ```
 
@@ -165,7 +165,12 @@ github.com/gnolang/gno => github.com/gnolang/gno@<commit-hash>
 github.com/gnolang/gno/contribs/gnodev => github.com/gnolang/gno/contribs/gnodev@<commit-hash>
 ```
 
-The target repo and ref are set by `FORK_REPO`/`FORK_REF` in the `Makefile` (`FORK_REF` defaults to a pinned commit). `FORK_REF` accepts a **branch name, tag, or commit hash** and is used in two places: `make update-fork` passes it straight to `go mod edit -replace` and `go mod tidy` resolves it to a pseudo-version and rewrites the replace directives (run `make mod-download` afterward to sync the gno package cache); the e2e gno image build (`e2e/gno/Dockerfile`) shallow-fetches the same ref via `git fetch`. Examples: `make update-fork` (re-pin the default), `make update-fork FORK_REF=master` (track latest master), `make update-fork FORK_REF=<commit>`. (The historical project required a fork for IBC features; those now live in upstream master, hence the `gnolang/gno => gnolang/gno` self-replace pinning a recent commit.)
+The target repo is `FORK_REPO`. Two `Makefile` variables carry the ref, because re-pinning and building the e2e image want different things — one names where to move to, the other where we are:
+
+- **`FORK_REF`** (default `master`) is what `make update-fork` re-pins to — a **branch name, tag, or commit hash** handed to `go mod edit -replace`, which `go mod tidy` resolves into a pseudo-version in the replace directives (run `make mod-download` afterward to sync the gno package cache). Examples: `make update-fork` (move to the tip of master), `make update-fork FORK_REF=<commit>`, `make update-fork FORK_REF=v1.2.3`.
+- **`GNO_PINNED_REF`** (derived, not a knob) is the ref `go.mod` currently pins, read straight out of the replace directive — the 12-char commit of a pseudo-version, or a tag as-is. The e2e gno image is **always** built from it (`e2e/gno/Dockerfile` downloads `https://$FORK_REPO/archive/$FORK_REF.tar.gz`), so the e2e chain and `make test` can never run different gno versions. It is a resolved ref and never a branch on purpose: a moving ref keeps the docker build-arg string identical across pin bumps, so the fetch layer stays cached and the image silently drifts (it once ran a gno a month older than the pin; `--build --force-recreate` does not help, only `--no-cache` would). Overriding `FORK_REF` does not change what the image is built from. The archive endpoint resolves an abbreviated commit, which is why go.mod's 12-char pseudo-version suffix is enough — `git fetch` would have needed the full 40-char hash, which Go exposes nowhere but the module cache's `.info` file.
+
+To run e2e against a different gno ref, pin it first — `make update-fork FORK_REF=<ref>` then `make mod-download` — which moves both sides together. (The historical project required a fork for IBC features; those now live in upstream master, hence the `gnolang/gno => gnolang/gno` self-replace pinning a recent commit.)
 
 ## Testing Patterns
 
@@ -248,12 +253,12 @@ Cross-chain e2e tests live in `e2e/`. They validate the full IBC v2 lifecycle be
 
 ### Components
 
-| Component | Source | Branch | Binary |
-|-----------|--------|--------|--------|
-| AtomOne | `atomone-hub/atomone` | `main` | `atomoned` |
-| Gno | `gnolang/gno` | `master` | `gnodev` + `gnokey` |
-| Relayer | `ghcr.io/allinbits/ibc-v2-ts-relayer:latest` | (pre-built image) | `ibc-v2-ts-relayer` |
-| tx-indexer | `ghcr.io/gnolang/tx-indexer:latest` | (pre-built image) | — |
+| Component | Source | Ref | Binary |
+|-----------|--------|-----|-------|
+| AtomOne | `atomone-hub/atomone` | tag `v4.1.0` | `atomoned` |
+| Gno | `gnolang/gno` | `GNO_PINNED_REF` (the commit `go.mod` pins) | `gnodev` + `gnokey` |
+| Relayer | `ghcr.io/allinbits/ibc-v2-ts-relayer:latest` | moving tag (pre-built image) | `ibc-v2-ts-relayer` |
+| tx-indexer | `ghcr.io/gnolang/tx-indexer:latest` | moving tag (pre-built image) | — |
 
 ### Running
 
