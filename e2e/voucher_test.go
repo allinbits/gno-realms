@@ -88,7 +88,15 @@ func (s *E2ETestSuite) TestVoucherSendApprove() {
 	)
 	s.T().Log("VoucherApprove succeeded")
 
-	// Spender exercises the allowance via MsgRun TransferFrom
+	// Spender exercises the allowance via MsgRun TransferFrom.
+	//
+	// RealmTeller, not CallerTeller: the latter now hangs off *PrivateLedger
+	// and is guarded to the token's own realm (a frame-relative teller in a
+	// foreign realm is a confused deputy), so a grc20reg consumer can only act
+	// as itself. That still resolves to the spender EOA here, because a MsgRun
+	// realm path is gno.land/e/<caller>/run and DerivePkgAddr reads the address
+	// back out of it instead of hashing the path — so cur.Address() is the
+	// signer, and the allowance VoucherApprove granted above matches.
 	s.T().Logf("Spender TransferFrom %d → %s", spendAmount, spendRecipient)
 	script := fmt.Sprintf(`package main
 
@@ -96,7 +104,8 @@ import "gno.land/r/demo/defi/grc20reg"
 
 func main(cur realm) {
 	token := grc20reg.MustGet("%s")
-	if err := token.CallerTeller().TransferFrom(0, cur, address("%s"), address("%s"), int64(%d)); err != nil {
+	teller := token.RealmTeller(0, cur)
+	if err := teller.TransferFrom(0, cur, address("%s"), address("%s"), int64(%d)); err != nil {
 		panic(err)
 	}
 }
