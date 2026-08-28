@@ -9,10 +9,11 @@
 
 set -euox pipefail
 
+source "$(dirname "$0")/env.sh"
+
 ADDR="${ADDR:-g1z437dpuh5s4p64vtq09dulg6jzxpr2hd4q8r5x}" # relayer
-REMOTE="${REMOTE:-https://rpc.sapphire.testnets.gno.land:443}"
 GRC20KEY="${GRC20KEY:-gno.land/r/aib/ibc/apps/transfer.F9A67CB19B2}"
 
-gnokey query vm/qeval \
+"${GNOKEY_CMD[@]}" query vm/qeval \
 	--data "gno.land/r/demo/defi/grc20reg.MustGet(\"$GRC20KEY\").BalanceOf(\"$ADDR\")" \
 	-remote $REMOTE

@@ -6,8 +6,8 @@
 # tx can set an allowance for any owner->spender pair (the owner is passed
 # explicitly, it need not be the signing key).
 #
-# Override via env: KEY, CHAIN_ID, REMOTE, PKGPATH, OWNER, SPENDER, AMOUNT,
-#   GAS_FEE, GAS_WANTED.
+# Chain target comes from env.sh; override via env: GNO_TESTNET, KEY,
+#   CHAIN_ID, REMOTE, PKGPATH, OWNER, SPENDER, AMOUNT, GAS_FEE, GAS_WANTED.
 #
 # Usage:
 #   SPENDER=g1... ./scripts/grc20_approve.sh
@@ -15,9 +15,8 @@
 
 set -euo pipefail
 
-KEY="${KEY:-aib}"
-CHAIN_ID="${CHAIN_ID:-sapphire-1}"
-REMOTE="${REMOTE:-https://rpc.sapphire.testnets.gno.land:443}"
+source "$(dirname "$0")/env.sh"
+
 PKGPATH="${PKGPATH:-gno.land/r/aib/ibc/apps/testing/grc20test}"
 OWNER="${OWNER:-g12j6x2cnpkvz83l6a5lhfw22703kwwpknpfnt70}" # aib
 SPENDER="${SPENDER:-g1tp3gk4quumurav4858hjfdy6hxtyffwmnxyr00}" # transfer realm (DerivePkgAddr gno.land/r/aib/ibc/apps/transfer)
@@ -33,7 +32,7 @@ echo
 read -rsp "Password for key '$KEY': " GNOKEY_PASSWORD
 echo; echo
 
-printf '%s\n' "$GNOKEY_PASSWORD" | gnokey maketx call \
+printf '%s\n' "$GNOKEY_PASSWORD" | "${GNOKEY_CMD[@]}" maketx call \
 	-insecure-password-stdin \
 	-pkgpath "$PKGPATH" \
 	-func Approve \
@@ -49,6 +48,6 @@ printf '%s\n' "$GNOKEY_PASSWORD" | gnokey maketx call \
 
 echo
 echo "==> Allowance after:"
-gnokey query vm/qeval \
+"${GNOKEY_CMD[@]}" query vm/qeval \
 	--data "$PKGPATH.Allowance(\"$OWNER\",\"$SPENDER\")" \
 	-remote "$REMOTE"

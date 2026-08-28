@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Deploy all aibgno packages and realms to gno.land.
+# Deploy all aibgno packages and realms to gno.land (target: see env.sh).
 #
 # Packages are listed in topological dependency order — each entry only
 # imports from entries above it. Edit START_AT to resume after a failure.
@@ -9,14 +9,31 @@
 #   ./scripts/deploy.sh                # deploy all
 #   START_AT=10 ./scripts/deploy.sh    # resume from entry 10 (1-based)
 #   DRY_RUN=1 ./scripts/deploy.sh      # simulate only, no broadcast
+#
+# Prerequisites on a freshly launched testnet
+# -------------------------------------------
+#   1. $KEY must be funded: every addpkg pays $GAS_FEE and locks storage out
+#      of $MAX_DEPOSIT, times ${#PACKAGES[@]} entries.
+#      Faucet: https://faucet.gno.land (pick the target testnet).
+#
+#   2. $KEY must own the `aib` namespace, otherwise the very first addpkg is
+#      rejected by r/sys/names (enforcement is on: `IsEnabled() == true`).
+#      Check with:
+#        gnokey query vm/qeval -remote "$REMOTE" \
+#          -data 'gno.land/r/sys/users.ResolveName("aib")'
+#      and compare the returned address to `gnokey list`.
+#      r/sys/namereg/v1.Register only self-serves `nym-<stem><3 digits>`
+#      names, so a vanity namespace such as `aib` has to be granted by
+#      GovDAO (ProposeNewName) — or the packages deployed under the
+#      deployer's own address namespace (gno.land/{p,r}/<g1address>/...),
+#      which means rewriting every pkgpath and import.
 
 set -euo pipefail
 
 # ---- config -----------------------------------------------------------------
 
-KEY="${KEY:-aib}"
-CHAIN_ID="${CHAIN_ID:-sapphire-1}"
-REMOTE="${REMOTE:-https://rpc.sapphire.testnets.gno.land:443}"
+source "$(dirname "$0")/env.sh"
+
 GAS_FEE="${GAS_FEE:-6000000ugnot}"
 GAS_WANTED="${GAS_WANTED:-1000000000}"
 MAX_DEPOSIT="${MAX_DEPOSIT:-100000000ugnot}"
@@ -111,7 +128,7 @@ for entry in "${PACKAGES[@]}"; do
     exit 1
   fi
 
-  printf '%s\n' "$GNOKEY_PASSWORD" | gnokey maketx addpkg \
+  printf '%s\n' "$GNOKEY_PASSWORD" | "${GNOKEY_CMD[@]}" maketx addpkg \
     -insecure-password-stdin \
     -pkgpath "$pkgpath" \
     -pkgdir "$pkgdir" \
@@ -130,7 +147,7 @@ for entry in "${PACKAGES[@]}"; do
   # (same committed state as the account sequence) before moving on.
   if [[ "$DRY_RUN" != "1" ]]; then
     for attempt in $(seq 1 30); do
-      if gnokey query vm/qfile -data "$pkgpath" -remote "$REMOTE" >/dev/null 2>&1; then
+      if "${GNOKEY_CMD[@]}" query vm/qfile -data "$pkgpath" -remote "$REMOTE" >/dev/null 2>&1; then
         break
       fi
       if (( attempt == 30 )); then

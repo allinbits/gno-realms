@@ -5,8 +5,8 @@
 # grc20test.Mint is test-only and has NO caller authorization, so any signed
 # tx can mint to any address.
 #
-# Override via env: KEY, CHAIN_ID, REMOTE, PKGPATH, TO, AMOUNT,
-#   GAS_FEE, GAS_WANTED.
+# Chain target comes from env.sh; override via env: GNO_TESTNET, KEY,
+#   CHAIN_ID, REMOTE, PKGPATH, TO, AMOUNT, GAS_FEE, GAS_WANTED.
 #
 # Usage:
 #   ./scripts/grc20_mint.sh
@@ -14,9 +14,8 @@
 
 set -euo pipefail
 
-KEY="${KEY:-aib}"
-CHAIN_ID="${CHAIN_ID:-sapphire-1}"
-REMOTE="${REMOTE:-https://rpc.sapphire.testnets.gno.land:443}"
+source "$(dirname "$0")/env.sh"
+
 PKGPATH="${PKGPATH:-gno.land/r/aib/ibc/apps/testing/grc20test}"
 TO="${TO:-g12j6x2cnpkvz83l6a5lhfw22703kwwpknpfnt70}" # aib
 AMOUNT="${AMOUNT:-1000000}"
@@ -31,7 +30,7 @@ echo
 read -rsp "Password for key '$KEY': " GNOKEY_PASSWORD
 echo; echo
 
-printf '%s\n' "$GNOKEY_PASSWORD" | gnokey maketx call \
+printf '%s\n' "$GNOKEY_PASSWORD" | "${GNOKEY_CMD[@]}" maketx call \
 	-insecure-password-stdin \
 	-pkgpath "$PKGPATH" \
 	-func Mint \
@@ -46,6 +45,6 @@ printf '%s\n' "$GNOKEY_PASSWORD" | gnokey maketx call \
 
 echo
 echo "==> Balance after:"
-gnokey query vm/qeval \
+"${GNOKEY_CMD[@]}" query vm/qeval \
 	--data "$PKGPATH.BalanceOf(\"$TO\")" \
 	-remote "$REMOTE"

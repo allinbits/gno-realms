@@ -7,9 +7,16 @@
 #   - your signing key imported in the local keyring (default: test backend).
 #     KEY's address MUST equal $SENDER, otherwise signing fails with a mismatch.
 #
-# Defaults: 1 ATONE (1_000_000 uatone) atone1z437…→g1z437… via 10-gno-15
+# Defaults: 1 ATONE (1_000_000 uatone) atone1z437…→g1z437… via 10-gno-16
 # Override via env: NODE, CHAIN_ID, CLIENT_ID, KEY, KEYRING_BACKEND, SENDER,
 #   RECEIVER, DENOM, AMOUNT, FEE_DENOM, FEE_AMOUNT, GAS, MEMO, TIMEOUT, ATOMONE_HOME.
+#
+# CLIENT_ID is the AtomOne-side client tracking the gno testnet, created by the
+# relayer — a new one per gno testnet, so it must be re-checked after every
+# testnet migration (10-gno-13/14 tracked topaz-1, 10-gno-15 sapphire-1):
+#
+#   curl -s https://atomone-testnet-1-api.allinbits.services/ibc/core/client/v1/client_states \
+#     | jq -r '.client_states[] | "\(.client_id) \(.client_state.chain_id)"'
 #
 # Usage:
 #   ./scripts/transfer-atomone-to-gno.sh
@@ -21,15 +28,15 @@
 # ibc/<HASH>), DENOM must be the *trace* the voucher was minted from, not the
 # local ibc/<HASH> spelling:
 #
-#   DENOM='transfer/10-gno-15/ugnot' AMOUNT=1000000 ./scripts/transfer-atomone-to-gno.sh
+#   DENOM='transfer/10-gno-16/ugnot' AMOUNT=1000000 ./scripts/transfer-atomone-to-gno.sh
 #
 # The trace is "transfer/<source client on this chain>/<base denom>", and
 # hashing it reproduces the voucher you hold:
-# SHA256("transfer/10-gno-15/ugnot") == B4C7F88F0BDA20D0C0549EEBB9436DEF5FBD2882B861F6D1BB033F592D19836E
+# SHA256("transfer/10-gno-16/ugnot") == E775EDAB971E09C7E6AC16B40DF3E7A0075B17FE8677E9EB72A6B499161B0768
 #
 # Passing ibc/<HASH> instead fails at execution (tx code 3, funds untouched):
 #
-#   base denomination ibc/B4C7F88F... cannot contain slashes for IBC v2 packet:
+#   base denomination ibc/E775EDAB... cannot contain slashes for IBC v2 packet:
 #   invalid denomination for cross-chain transfer
 #
 # ibc/<HASH> is chain-local and meaningless to the counterparty, so an ICS-20
@@ -47,7 +54,7 @@ set -euo pipefail
 
 NODE="${NODE:-https://atomone-testnet-1-rpc.allinbits.services:443}"
 CHAIN_ID="${CHAIN_ID:-atomone-testnet-1}"
-CLIENT_ID="${CLIENT_ID:-10-gno-15}" # tracks sapphire-1; counterparty 07-tendermint-1
+CLIENT_ID="${CLIENT_ID:-10-gno-16}" # tracks pearl-1; counterparty 07-tendermint-1
 KEY="${KEY:-relayer}"
 KEYRING_BACKEND="${KEYRING_BACKEND:-test}"
 KEYRING_DIR="${KEYRING_DIR:-~/.atomone-testnet}"
