@@ -8,11 +8,11 @@ import (
 
 	"gno.land/p/aib/ibc/lightclient"
 	"gno.land/p/aib/jsonpage"
-	"gno.land/p/moul/txlink"
+	"gno.land/p/moul/txlink/v0"
 	"gno.land/p/nt/bptree/v0"
 	"gno.land/p/nt/mux/v0"
 	"gno.land/p/nt/ufmt/v0"
-	"gno.land/p/onbloc/json"
+	"gno.land/p/onbloc/json/v0"
 	"gno.land/r/aib/ibc/core"
 )
 
@@ -61,7 +61,7 @@ func renderHome(w *mux.ResponseWriter, r *mux.Request) {
 						shortKey = key[:dotIdx+1] + hash[:4] + "…" + hash[len(hash)-4:]
 					}
 				}
-				const grc20regPath = "gno.land/r/demo/defi/grc20reg"
+				const grc20regPath = "gno.land/r/nt/grc20reg/v0"
 				grc20link = ufmt.Sprintf("[%s](%s:%s)", shortKey, stripDomain(grc20regPath), key)
 			}
 			// Actions: IBC "send back" (via the voucher's source client) plus

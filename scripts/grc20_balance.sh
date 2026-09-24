@@ -26,5 +26,5 @@ VOUCHER_SYMBOL=$(printf 'transfer/%s/%s' "$CLIENT_ID" "$BASE_DENOM" |
 GRC20KEY="${GRC20KEY:-gno.land/r/aib/ibc/apps/transfer.$VOUCHER_SYMBOL}"
 
 "${GNOKEY_CMD[@]}" query vm/qeval \
-	--data "gno.land/r/demo/defi/grc20reg.MustGet(\"$GRC20KEY\").BalanceOf(\"$ADDR\")" \
+	--data "gno.land/r/nt/grc20reg/v0.MustGet(\"$GRC20KEY\").BalanceOf(\"$ADDR\")" \
 	-remote $REMOTE

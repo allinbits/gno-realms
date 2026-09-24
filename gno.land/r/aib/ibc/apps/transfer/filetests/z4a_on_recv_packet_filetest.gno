@@ -13,7 +13,7 @@ import (
 	"gno.land/p/nt/testutils/v0"
 	"gno.land/r/aib/ibc/apps/transfer"
 	"gno.land/r/aib/ibc/core"
-	"gno.land/r/demo/defi/grc20reg"
+	"gno.land/r/nt/grc20reg/v0"
 )
 
 // OnRecvPacket: success with native coins
@@ -247,7 +247,7 @@ func main(cur realm) {
 //         "value": "0"
 //       }
 //     ],
-//     "pkg_path": "gno.land/p/demo/tokens/grc20"
+//     "pkg_path": "gno.land/p/nt/grc20/v0"
 //   },
 //   {
 //     "type": "register",
@@ -269,7 +269,7 @@ func main(cur realm) {
 //         "value": "CAEF9CA8CE6"
 //       }
 //     ],
-//     "pkg_path": "gno.land/r/demo/defi/grc20reg"
+//     "pkg_path": "gno.land/r/nt/grc20reg/v0"
 //   },
 //   {
 //     "type": "Transfer",
@@ -291,7 +291,7 @@ func main(cur realm) {
 //         "value": "100"
 //       }
 //     ],
-//     "pkg_path": "gno.land/p/demo/tokens/grc20"
+//     "pkg_path": "gno.land/p/nt/grc20/v0"
 //   },
 //   {
 //     "type": "fungible_token_packet",

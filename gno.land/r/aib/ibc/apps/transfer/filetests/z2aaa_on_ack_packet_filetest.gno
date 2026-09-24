@@ -330,7 +330,7 @@ func main(cur realm) {
 //         "value": "0"
 //       }
 //     ],
-//     "pkg_path": "gno.land/p/demo/tokens/grc20"
+//     "pkg_path": "gno.land/p/nt/grc20/v0"
 //   },
 //   {
 //     "type": "register",
@@ -352,7 +352,7 @@ func main(cur realm) {
 //         "value": "F9A67CB19B2"
 //       }
 //     ],
-//     "pkg_path": "gno.land/r/demo/defi/grc20reg"
+//     "pkg_path": "gno.land/r/nt/grc20reg/v0"
 //   },
 //   {
 //     "type": "Transfer",
@@ -374,7 +374,7 @@ func main(cur realm) {
 //         "value": "100"
 //       }
 //     ],
-//     "pkg_path": "gno.land/p/demo/tokens/grc20"
+//     "pkg_path": "gno.land/p/nt/grc20/v0"
 //   },
 //   {
 //     "type": "fungible_token_packet",
@@ -482,7 +482,7 @@ func main(cur realm) {
 //         "value": "100"
 //       }
 //     ],
-//     "pkg_path": "gno.land/p/demo/tokens/grc20"
+//     "pkg_path": "gno.land/p/nt/grc20/v0"
 //   },
 //   {
 //     "type": "ibc_transfer",
@@ -574,7 +574,7 @@ func main(cur realm) {
 //         "value": "100"
 //       }
 //     ],
-//     "pkg_path": "gno.land/p/demo/tokens/grc20"
+//     "pkg_path": "gno.land/p/nt/grc20/v0"
 //   },
 //   {
 //     "type": "fungible_token_packet",

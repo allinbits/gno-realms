@@ -9,7 +9,7 @@ import (
 	"gno.land/p/aib/ibc/types"
 	"gno.land/p/nt/ufmt/v0"
 	"gno.land/r/aib/ibc/core"
-	"gno.land/r/demo/defi/grc20reg"
+	"gno.land/r/nt/grc20reg/v0"
 )
 
 // Transfer is the entry point for sending tokens to another chain using the

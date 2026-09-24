@@ -203,7 +203,7 @@ func mintVoucher(cur realm, clientID, counterpartyID string, trustedHeight types
 //         "value": "0"
 //       }
 //     ],
-//     "pkg_path": "gno.land/p/demo/tokens/grc20"
+//     "pkg_path": "gno.land/p/nt/grc20/v0"
 //   },
 //   {
 //     "type": "register",
@@ -225,7 +225,7 @@ func mintVoucher(cur realm, clientID, counterpartyID string, trustedHeight types
 //         "value": "CAEF9CA8CE6"
 //       }
 //     ],
-//     "pkg_path": "gno.land/r/demo/defi/grc20reg"
+//     "pkg_path": "gno.land/r/nt/grc20reg/v0"
 //   },
 //   {
 //     "type": "Transfer",
@@ -247,7 +247,7 @@ func mintVoucher(cur realm, clientID, counterpartyID string, trustedHeight types
 //         "value": "100"
 //       }
 //     ],
-//     "pkg_path": "gno.land/p/demo/tokens/grc20"
+//     "pkg_path": "gno.land/p/nt/grc20/v0"
 //   },
 //   {
 //     "type": "fungible_token_packet",
@@ -329,6 +329,6 @@ func mintVoucher(cur realm, clientID, counterpartyID string, trustedHeight types
 //         "value": "40"
 //       }
 //     ],
-//     "pkg_path": "gno.land/p/demo/tokens/grc20"
+//     "pkg_path": "gno.land/p/nt/grc20/v0"
 //   }
 // ]

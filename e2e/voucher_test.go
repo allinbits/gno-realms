@@ -100,7 +100,7 @@ func (s *E2ETestSuite) TestVoucherSendApprove() {
 	s.T().Logf("Spender TransferFrom %d → %s", spendAmount, spendRecipient)
 	script := fmt.Sprintf(`package main
 
-import "gno.land/r/demo/defi/grc20reg"
+import "gno.land/r/nt/grc20reg/v0"
 
 func main(cur realm) {
 	token := grc20reg.MustGet("%s")
