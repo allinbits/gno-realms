@@ -140,8 +140,8 @@ Most IBC functions require `MsgRun` (not `MsgCall`) because they take complex ar
 IBC voucher tokens (minted on RecvPacket for cross-chain tokens) use **GRC20 tokens** instead of native banker coins. This enables DeFi compatibility (Gnoswap, etc.) via the `grc20reg` registry.
 
 ### Key Dependencies
-- `gno.land/p/demo/tokens/grc20` - GRC20 token implementation. Interrealm v2 added a realm capability to the value-moving APIs: `grc20.NewToken(0, rlm, name, symbol, decimals)`, `token.RealmTeller(0, cur)`, and `teller.TransferFrom(0, cur, from, to, amount)` all take the `(_ int, rlm/cur realm, …)` non-crossing form. `PrivateLedger.Mint/Burn` move tokens without a realm arg.
-- `gno.land/r/demo/defi/grc20reg` - Global token registry (`Register(cross(cur), token, slug)`, `Get`)
+- `gno.land/p/nt/grc20/v0` - GRC20 token implementation. Interrealm v2 added a realm capability to the value-moving APIs: `grc20.NewToken(0, rlm, name, symbol, decimals)`, `token.RealmTeller(0, cur)`, and `teller.TransferFrom(0, cur, from, to, amount)` all take the `(_ int, rlm/cur realm, …)` non-crossing form. `PrivateLedger.Mint/Burn` move tokens without a realm arg.
+- `gno.land/r/nt/grc20reg/v0` - Global token registry (`Register(cross(cur), token, slug)`, `Get`)
 
 ### How It Works
 - **OnRecvPacket (mint)**: `getOrCreateGRC20(ibcDenom, baseDenom)` creates a GRC20 token + registers in grc20reg, then `inst.ledger.Mint(receiver, amount)`

@@ -8,7 +8,7 @@ import (
 	"gno.land/p/aib/ibc/host"
 	"gno.land/p/aib/ibc/types"
 	"gno.land/p/nt/ufmt/v0"
-	"gno.land/p/onbloc/json"
+	"gno.land/p/onbloc/json/v0"
 )
 
 // Denom holds the base denom of a Token and a trace of the chains it was sent

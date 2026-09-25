@@ -5,7 +5,7 @@ import (
 
 	"gno.land/p/nt/bptree/v0"
 	"gno.land/p/nt/mux/v0"
-	"gno.land/p/onbloc/json"
+	"gno.land/p/onbloc/json/v0"
 )
 
 type JSONRenderer interface {

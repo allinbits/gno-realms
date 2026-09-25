@@ -8,7 +8,7 @@ import (
 	"gno.land/p/aib/ibc/host"
 	"gno.land/p/aib/ics23"
 	"gno.land/p/nt/ufmt/v0"
-	"gno.land/p/onbloc/json"
+	"gno.land/p/onbloc/json/v0"
 )
 
 // MsgSendPacket sends an outgoing IBC packet.
