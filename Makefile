@@ -92,10 +92,10 @@ export FORK_REPO := github.com/gnolang/gno
 GNO_PINNED_REF := $(shell sed -n 's|^\tgithub.com/gnolang/gno => github.com/gnolang/gno \(v[^ ]*\)$$|\1|p' go.mod | sed -E 's/^v0\.0\.0-[0-9]{14}-//')
 
 # FORK_REF is what `make update-fork` re-pins to: a branch name, a tag, or a
-# commit hash, handed to `go mod edit -replace` for `go mod tidy` to resolve
-# into a pseudo-version. It tracks a branch by default, so a plain
-# `make update-fork` moves the pin to the tip of upstream master.
-FORK_REF ?= master
+# commit hash, handed to `go mod edit -replace`. `go mod tidy` resolves a
+# branch or commit into a pseudo-version; a tag is kept as-is. Tracking a
+# branch here makes a plain `make update-fork` move the pin to its tip.
+FORK_REF ?= v1.5.0
 
 
 # Optional Go build tags forwarded to the gnodev build in the e2e image.
@@ -103,9 +103,20 @@ FORK_REF ?= master
 # e2e/gas-trace-report.md. Default empty: normal e2e build, no tracing.
 export GO_BUILD_TAGS ?=
 
+# gnodev is a nested module, and Go only accepts a tag for one in the
+# `contribs/gnodev/vX.Y.Z` form, which upstream never pushes. So gnodev is not
+# pinned to FORK_REF but to the commit the root module's pin resolved to: a
+# branch or commit FORK_REF lands on that same commit, a tag yields the commit
+# it points at. The commit is read back from the root pin go.mod now holds
+# rather than by resolving FORK_REF a second time, so both modules end on the
+# same commit even when FORK_REF is a branch that moves between the two steps.
 update-fork:
 	@echo "pinning $(FORK_REPO) to '$(FORK_REF)'"
 	go mod edit -replace github.com/gnolang/gno=$(FORK_REPO)@$(FORK_REF)
 	go mod tidy
-	go mod edit -replace github.com/gnolang/gno/contribs/gnodev=$(FORK_REPO)/contribs/gnodev@$(FORK_REF)
+	@version=$$(go list -m -f '{{.Replace.Version}}' github.com/gnolang/gno); \
+	commit=$$(go list -m -f '{{with .Origin}}{{.Hash}}{{end}}' github.com/gnolang/gno@$$version); \
+	test -n "$$commit" || { echo "cannot resolve the commit behind github.com/gnolang/gno@$$version" >&2; exit 1; }; \
+	echo "pinning $(FORK_REPO)/contribs/gnodev to commit $$commit"; \
+	go mod edit -replace github.com/gnolang/gno/contribs/gnodev=$(FORK_REPO)/contribs/gnodev@$$commit
 	go mod tidy
