@@ -3,9 +3,9 @@
 - Status: decided 2026-10-01 (§8), implementation not started
 - Scope: `r/aib/ibc/core`, `r/aib/ibc/apps/transfer`, their `p/aib/...` dependencies,
   deploy scripts, tests
-- Related: issue #22 (Use proxy realms), issue #36 (govDAO callback for admin-gated
-  functions), branch `chore/proxy` (ADR 0001 "Proxy realm for upgradeable IBC core",
-  WIP from July 2026, never merged, based on `135bd38`)
+- Related: issue #22 (Use proxy realms), branch `chore/proxy` (ADR 0001 "Proxy
+  realm for upgradeable IBC core", WIP from July 2026, never merged, based on
+  `135bd38`)
 
 Master has no upgrade mechanism today. This document inventories what is
 path-bound, states the Gno rules the design has to respect, compares the options,
@@ -47,11 +47,10 @@ mainnet deploy is the point after which the frozen surface can no longer change.
 | 5 | Voucher tokens | `grc20.NewToken` by the transfer realm, registered in grc20reg under `gno.land/r/aib/ibc/apps/transfer.<SYMBOL>` (`transfer/store.gno:141-150`); grc20reg `Register` requires the token id to start with the caller's path | Holders' balances, DeFi integrations keyed on the grc20reg key | New realm means new, empty tokens; old ledgers unreachable |
 | 6 | Core app registry | `routes[portID]` stores the app value plus its `pkgPath` and `address`; `RegisterApp` rejects a second registration for a port (`core/app.gno:317-333`); `pendingAsyncAck.appPkgPath` and the `WriteAcknowledgement` caller gate (`core/core.gno:253-259`) | Any transfer successor | A new transfer realm cannot take port `transfer` |
 | 7 | Light-client code | `tendermint.NewTMLightClient()` hardwired in `core/store.gno:204-209`; stored `*TMLightClient` objects are bound to the deployed `p/aib/ibc/lightclient/tendermint` | Every existing client | A verification bug fix needs a new core |
-| 8 | Admin and relayer ACL | EOA compared with `unsafe.OriginCaller()` (`core/admin.gno:244-306`) | `RecoverClient`, relayer whitelist, `SetAdmin` | Issue #36 wants GovDAO here |
-| 9 | UX and tooling paths | `transfer/render.gno:23` (`transferRealmPath` for txlinks), render links in both realms, `scripts/*.sh`, `e2e/query.go` | Adena users, scripts, CI | Breakage, but fixable off-chain |
+| 8 | UX and tooling paths | `transfer/render.gno:23` (`transferRealmPath` for txlinks), render links in both realms, `scripts/*.sh`, `e2e/query.go` | Adena users, scripts, CI | Breakage, but fixable off-chain |
 
 Rows 1 to 6 are the ones that make "redeploy at a new path" unacceptable for both
-realms. Rows 7 and 8 are what we want to be able to change.
+realms. Row 7 is what we want to be able to change.
 
 ## 3. Gno facts the design relies on
 
@@ -116,13 +115,6 @@ Reference implementations:
 - `r/sys/users` + `r/sys/namereg/v0`: data realm with a GovDAO-managed controller
   allowlist; a new controller is adopted with
   `ProposeControllerAdditionAndRemoval(new, old)` and the data never moves.
-- `p/moul/authz/v0`: `Authorizer` whose `Authority` is rotated with
-  `Transfer(0, cur, newAuthority)`; `NewMemberAuthority` for a set of addresses,
-  `NewContractAuthority(path, handler)` for a DAO; the principal it checks is
-  always `cur.Previous().Address()`. Its godoc warns that a wrong
-  contract path is a permanent brick and that an executor's `Previous()` is the
-  DAO *proxy* path `gno.land/r/gov/dao`, never the impl (`authz.gno:405-414`).
-  `r/gnops/valopers/admin.gno:134-191` is the worked rotation entry point.
 - onbloc `gno-ibc` (`~/src/onbloc/gno-ibc/gno.land/r/onbloc/ibc/union/core` and
   `apps/ucs03_zkgm`): an IBC-specific version of the same pattern. Proxy owns a
   `Store` exposed to the impl through an `IStore` interface whose setters take
@@ -202,8 +194,8 @@ Frozen surface, never changes after mainnet deploy:
    empty `allowedDAOs`: the first registration while no impl is installed
    auto-activates (so genesis needs no extra tx and filetests need only a blank
    import, see §5.6); every later switch requires `UpdateImpl`.
-8. **Authority** (§5.4) replacing the raw `admin` address; `SetAdmin` is replaced
-   by membership entry points (`AddAuthorityMember`, `RemoveAuthorityMember`).
+8. **Authority**: the existing `p/aib/authority` member set (PR #65) gates
+   `UpdateImpl` like every other administrative operation (§5.4).
 9. **Render** showing "upgradeable realm", the active impl path and version, and
    the authority, per the Constitution's disclosure rule.
 
@@ -307,62 +299,30 @@ Frozen surface:
   rlm)` sends, grc20 `RealmTeller(0, rlm)` transfers, voucher mint/burn,
   `grc20reg.Register(cross(rlm), ...)`. They work because the current realm is
   the proxy, the token's home realm.
-- Authority, `RegisterImpl/UpdateImpl`, Render disclosure, as in core.
+- `RegisterImpl/UpdateImpl`, Render disclosure, as in core.
 
 Implementation realm: `gno.land/r/aib/ibc/apps/transfer/impl/v0` holding the
 ICS-20 logic (`OnSendPacket`, `OnRecvPacket`, refund paths, denom tracing).
 
-### 5.4 Authority (#36)
+### 5.4 Gating `UpdateImpl`
 
-Replace the single `admin` EOA in both proxies with a `p/moul/authz/v0`
-`Authorizer`. Three facts of that package shape the design (`authz.gno:181-233`):
+Both realms are already administered by `p/aib/authority` (PR #65): a member set
+holding the AIB multisig and the GovDAO proxy, checked on `cur.Previous().Address()`,
+with GovDAO acting through proposal constructors declared in the realm. `UpdateImpl`
+joins the gated operations with the same two ingredients:
 
-- The principal is the *caller's address*, `cur.Previous().Address()`, not the
-  transaction signer. A direct `maketx call` from the multisig presents the
-  multisig; a call routed through another realm, or through `maketx run`,
-  presents that realm's address and fails. Every gated operation is therefore a
-  direct `MsgCall` with scalar arguments (path strings, addresses).
-- GovDAO never calls a realm directly; it executes a callback. Inside a callback
-  *declared in our proxy*, `cur.Previous()` is `gno.land/r/gov/dao`, so the DAO's
-  address is the principal. The callback must reach the gated logic non-crossing
-  (an internal `updateImpl(0, cur, path)`): a same-package `cross()` would make
-  the proxy itself the previous realm. Consequently the proposal-request
-  constructors (`NewUpdateImplProposalRequest(cur, path)`, one per gated
-  operation) live in the frozen proxy, not in an implementation realm; a callback
-  declared in `impl/v0` would present `impl/v0` as the principal. The callbacks
-  stay unexported and out of the `func(realm) error` shape, which the authz godoc
-  identifies as the capability leak.
-- The DAO proxy path is a safe principal only because `SimpleExecutor.Execute`
-  refuses to run from outside `r/gov/dao` (`types.gno:216-233`).
-
-Bootstrap (decided): one `MemberAuthority` with two members from `init`, the
-deployer EOA, which is the AIB multisig (`g1gkqe9c90tfuk2a7f07ygs8t826aff03vxasjsl`), and
-`chain.PackageAddress("gno.land/r/gov/dao")`. The multisig calls the gated
-operations directly; GovDAO reaches them through the proxy-declared callbacks.
-This is the "in addition to" reading of #36. `RemoveAuthorityMember(multisig)`
-later makes the authority DAO-only without a `Transfer`; until then the multisig
-is also the recovery path if the DAO proxy is ever superseded.
-
-Gated operations: `UpdateImpl`,
-`AddRelayer/RemoveRelayer`, `RecoverClient`, and the
-authority's own membership (`AddAuthorityMember/RemoveAuthorityMember`, each
-authorized by an existing member). The relayer whitelist stays
-`unsafe.OriginCaller`-based for the high-frequency relayer operations, as #36
-scopes.
+- `UpdateImpl(cur, path)` asserts the authority like `Pause` does today.
+- `NewUpdateImplProposalRequest(cur, path)` lives in the **proxy**, next to the
+  other constructors. It must: a callback declared in an implementation realm
+  would present that realm, not the DAO proxy, as the caller, and a constructor
+  cannot be added to the proxy later.
 
 No timelock between `RegisterImpl` and `UpdateImpl` (decided). The two-step
 itself stays: a candidate is visible in `Render` and events from the moment it
 registers, and only the authority can activate it.
 
-Not chosen: the "replace" shape, where `Transfer` moves the authority to a
-`NewContractAuthority` on the DAO proxy path as `r/gnops/valopers` does. After
-such a transfer the multisig has no authority left, every gated call runs only
-from a passed proposal, and a wrong path bricks the realm. `Transfer` is
-therefore not exposed by the proxies at all: the authority stays a canonical
-member set, and the only thing governance can change is who the members are.
-
 The e2e suite should exercise a GovDAO-driven `UpdateImpl` through the proposal
-constructors against a real `r/gov/dao` once before mainnet.
+constructor against a real `r/gov/dao` once before mainnet.
 
 ### 5.5 Versioning and layout
 
@@ -433,9 +393,9 @@ upgrades and follow the same steps.
 
 **Phase 0, decisions and ADRs.** Rewrite ADR 0001 on master, using the
 `chore/proxy` branch as a reference rather than rebasing it (the branch predates
-the mainnet update `#58` and the `v1.5.0` pin), add ADR 0002
-(transfer proxy) and ADR 0003 (authority model); mark ADR 0001's in-package
-`defaultLogic` as superseded (§5.6). Record the decisions of §8.
+the mainnet update `#58` and the `v1.5.0` pin), add ADR 0002 (transfer proxy);
+mark ADR 0001's in-package `defaultLogic` as superseded (§5.6). Record the
+decisions of §8.
 
 **Rename to `/v0` (before Phase 1).** Move every `p/aib/...` package to its
 `/v0` path (§5.5) and update all imports, the README `run.gno` examples and the
@@ -457,10 +417,9 @@ filetest category `z11*` for implementation switch and rollback, and the existin
 the proxy, callbacks forwarding non-crossing, `impl/v0`. New filetest category `z6*` (impl switch, refund after switch, voucher
 balances preserved across a switch).
 
-**Phase 3, authority.** `authz` in both proxies; the proposal-request
-constructors and their unexported callbacks in the proxies (§5.4), one per gated
-operation; membership entry points; e2e exercising a GovDAO-driven `UpdateImpl`
-through the proposal constructors against a real `r/gov/dao`. Closes #36.
+**Phase 3, `UpdateImpl` governance.** `NewUpdateImplProposalRequest` in both
+proxies (§5.4); e2e exercising a GovDAO-driven `UpdateImpl` through it against a
+real `r/gov/dao`.
 
 **Phase 4, upgrade rehearsal and tooling.** A throwaway `core/impl/v99` and
 `transfer/impl/v99` differing only by `Version()` (a version suffix must match
@@ -483,9 +442,9 @@ already drafted on the branch), Phase 2 about the same, Phases 3 to 5 a week eac
   the logic in an external `impl/v0` from day one and why §5.1 keeps the
   signatures open (interfaces, `any` proofs, `Ext` fields).
 - **The active implementation is fully trusted.** `UpdateImpl` is total control
-  over IBC state and escrow. Mitigation: authority held by the AIB multisig and
-  GovDAO as a two-member set, with the membership entry points in the frozen
-  surface so the multisig can be removed once the DAO path is proven.
+  over IBC state and escrow. Mitigation: it is gated by the authority (AIB
+  multisig and GovDAO, PR #65), whose membership can be narrowed to GovDAO once
+  the DAO path is proven.
 - **Runtime semantics drift.** The attribution facts of §3 are VM internals.
   `execctx/realm.go` on HEAD already describes "presented identities" and
   sub-realm tokens that did not exist when ADR 0001 was written; they do not change
@@ -501,9 +460,9 @@ already drafted on the branch), Phase 2 about the same, Phases 3 to 5 a week eac
   calls are `MsgRun` templates, so the relayer key may need to be in
   `run_submitters`. Keeping every governance entry point `MsgCall`-compatible
   keeps *upgrades* out of that problem.
-- **GovDAO request API frozen into the proxy.** The proposal-request
-  constructors build `r/gov/dao` requests, so a superseded DAO proxy or a changed
-  request type leaves them dead. The multisig member is the recovery path;
+- **GovDAO request API frozen into the proxy.** `NewUpdateImplProposalRequest`
+  builds an `r/gov/dao` request, so a superseded DAO proxy or a changed request
+  type leaves it dead. The multisig member of the authority is the recovery path;
   removing it (making the authority DAO-only) also removes that recovery, so the
   removal should wait until the DAO path has been exercised on mainnet.
 
@@ -514,15 +473,12 @@ Decided (2026-10-01):
 - Genesis logic lives in an external `core/impl/v0`; the proxy has no in-package
   `defaultLogic` (§5.6).
 - All `p/aib/...` paths get a `/v0` suffix before mainnet (§5.5).
-- Bootstrap authority is a member set holding the deployer EOA, which is the AIB
-  multisig, and the GovDAO proxy address. No timelock knob (§5.4).
+- No timelock between `RegisterImpl` and `UpdateImpl` (§5.4).
 - The work is re-implemented on master, with the `chore/proxy` branch used as a
   reference rather than rebased (Phase 0).
 - No generic `Call` escape hatch on the proxies, and no mutating entry point
   outside them: callers only ever talk to the proxy. Growth happens through the
   open parameter types and the `Ext` fields; a new message type is a new protocol
   version (§5.1).
-- GovDAO is a member of that set from day one (the "both" shape of #36) rather
-  than replacing the multisig; authz's `Transfer` is not exposed (§5.4).
 
 Open: none.
