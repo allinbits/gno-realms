@@ -7,7 +7,7 @@
 # chain id and RPC host both derive from the testnet name). Every value stays
 # env-overridable, so a one-off run against another chain needs no edit:
 #
-#   GNO_TESTNET=sapphire ./scripts/grc20_balance.sh
+#   GNO_TESTNET=pearl ./scripts/grc20_balance.sh
 #   CHAIN_ID=dev REMOTE=http://127.0.0.1:26657 ./scripts/deploy.sh
 #   GNOKEY=gnokey ./scripts/deploy.sh
 #
@@ -25,7 +25,13 @@
 GNOKEY="${GNOKEY:-go -C $(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd) tool gnokey}"
 read -r -a GNOKEY_CMD <<<"$GNOKEY"
 
-GNO_TESTNET="${GNO_TESTNET:-pearl}"
+# onyx (chain-id onyx-1, launched 2026-09-28) runs mainnet's policies: the
+# vm code_submission_policy is "inert", so every addpkg parks until the gpao
+# approvals oracle enables it (deploy.sh waits for that), and run_submitters is
+# restricted, so `maketx run` only works for allowlisted accounts — the IBC
+# core's MsgRun entry points, and so the relayer key, need that allowlisting.
+# The `aib` namespace has to be owned on each new chain (see deploy.sh).
+GNO_TESTNET="${GNO_TESTNET:-onyx}"
 CHAIN_ID="${CHAIN_ID:-${GNO_TESTNET}-1}"
 REMOTE="${REMOTE:-https://rpc.${GNO_TESTNET}.testnets.gno.land:443}"
 KEY="${KEY:-aib}"
