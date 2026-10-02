@@ -29,7 +29,8 @@ read -r -a GNOKEY_CMD <<<"$GNOKEY"
 # vm code_submission_policy is "inert", so every addpkg parks until the gpao
 # approvals oracle enables it (deploy.sh waits for that), and run_submitters is
 # restricted, so `maketx run` only works for allowlisted accounts — the IBC
-# core's MsgRun entry points, and so the relayer key, need that allowlisting.
+# core's MsgRun entry points, and so the relayer key, need that allowlisting
+# (propose-run-submitter.sh creates the GovDAO proposal for it).
 # The `aib` namespace has to be owned on each new chain (see deploy.sh).
 GNO_TESTNET="${GNO_TESTNET:-onyx}"
 CHAIN_ID="${CHAIN_ID:-${GNO_TESTNET}-1}"
