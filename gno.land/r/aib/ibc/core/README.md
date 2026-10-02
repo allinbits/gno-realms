@@ -280,8 +280,8 @@ Emitted events: `pause` and `unpause`, with no attributes.
 
 Administrative operations (`AddRelayer`, `RemoveRelayer`, `Pause`, `Unpause`,
 `RecoverClient`, and the authority's own membership) are gated by an
-authority: a member set (`p/aib/authority`, built on `p/moul/authz`)
-bootstrapped at deploy with two members, the deployer (the AIB multisig) and the
+authority: a member set (`p/aib/authority`) bootstrapped at deploy with two
+members, the deployer (the AIB multisig) and the
 GovDAO proxy `gno.land/r/gov/dao`.
 
 The principal is the caller of the realm function, `cur.Previous().Address()`,
