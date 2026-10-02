@@ -35,6 +35,22 @@ func init(cur realm) {
 
 var _ app.IBCApp = &App{}
 
+// corePkgPath is the only realm allowed to invoke the IBCApp callbacks below.
+const corePkgPath = "gno.land/r/aib/ibc/core"
+
+// assertCoreCaller panics unless the callback is being invoked by the IBC core
+// realm. The App methods are exported, and any realm can obtain a usable *App
+// (a zero-value `var app transfer.App` needs no composite literal), so without
+// this check a foreign realm could call OnRecvPacket to mint vouchers, or the
+// refund paths of OnTimeoutPacket and OnAcknowledgementPacket to release
+// escrow, with no proof and no core involvement. Core crosses into the app, so
+// cur.Previous() is the core realm on every legitimate call.
+func assertCoreCaller(_ int, rlm realm) {
+	if caller := rlm.Previous().PkgPath(); caller != corePkgPath {
+		panic(ufmt.Sprintf("transfer: callback must be invoked by %s, got %s", corePkgPath, caller))
+	}
+}
+
 // Implements app.IBCApp
 func (a *App) OnSendPacket(
 	cur realm,
@@ -43,6 +59,7 @@ func (a *App) OnSendPacket(
 	sequence uint64,
 	payload types.Payload,
 ) error {
+	assertCoreCaller(0, cur)
 	// TODO add parameter to disable the app
 	// TODO add parameter to block sender addr
 
@@ -218,6 +235,7 @@ func (a *App) OnRecvPacket(
 	sequence uint64,
 	payload types.Payload,
 ) types.RecvPacketResult {
+	assertCoreCaller(0, cur)
 	// TODO add parameter to disable the app
 	// TODO add parameter to block receiver addr
 
@@ -379,6 +397,7 @@ func (a *App) OnAcknowledgementPacket(
 	acknowledgement []byte,
 	payload types.Payload,
 ) error {
+	assertCoreCaller(0, cur)
 	var ack types.AppAcknowledgement
 	// Construct an error acknowledgement if the acknowledgement bytes are the
 	// sentinel error acknowledgement so we can use the shared transfer logic
@@ -440,6 +459,7 @@ func (a *App) OnTimeoutPacket(
 	sequence uint64,
 	payload types.Payload,
 ) error {
+	assertCoreCaller(0, cur)
 	data, token, err := unmarshalPayload(payload.Value)
 	if err != nil {
 		return err
