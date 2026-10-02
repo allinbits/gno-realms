@@ -2,55 +2,87 @@ package transfer
 
 import (
 	"chain"
-	"chain/runtime/unsafe"
 
+	"gno.land/p/aib/authority"
 	"gno.land/p/nt/bptree/v0"
-	"gno.land/p/nt/ufmt/v0"
 )
 
 const (
-	EventTypePause   = "pause"
-	EventTypeUnpause = "unpause"
-	EventTypeBlock   = "block"
-	EventTypeUnblock = "unblock"
+	EventTypePause                  = "pause"
+	EventTypeUnpause                = "unpause"
+	EventTypeBlock                  = "block"
+	EventTypeUnblock                = "unblock"
+	EventTypeAuthorityMemberAdded   = "authority_member_added"
+	EventTypeAuthorityMemberRemoved = "authority_member_removed"
 )
 
 var (
-	admin   address
+	// auth gates every administrative operation: the pause switch, the
+	// blocklist and its own membership. Bootstrapped at init with the deployer
+	// (the AIB multisig on mainnet) and the GovDAO proxy, which acts through
+	// the proposal constructors in proposals.gno. Same model as
+	// r/aib/ibc/core/admin.gno.
+	auth    *authority.Authority
 	paused  bool
 	blocked = bptree.NewBPTree32() // address -> true
 )
 
-func init() {
-	// Set admin to the deployer's EOA, same bootstrap as r/aib/ibc/core: in
-	// the gno test framework OriginCaller is "" here, so SetAdmin acts as the
-	// bootstrap.
-	admin = unsafe.OriginCaller()
+func init(cur realm) {
+	auth = authority.New(cur.Previous().Address())
 }
 
-// SetAdmin sets or transfers the admin role. If no admin is set, the first
-// caller becomes admin; once set, only the current admin can change it.
-func SetAdmin(cur realm, newAdmin address) {
-	if admin != "" {
-		ensureAdminCaller()
-	}
-	admin = newAdmin
+// Exported administrative functions are thin crossing wrappers over
+// non-crossing helpers, which the GovDAO proposal callbacks invoke; see
+// r/aib/ibc/core/admin.gno for why.
+
+// AddAuthorityMember adds a member to the authority. Members only.
+func AddAuthorityMember(cur realm, addr address) {
+	addAuthorityMember(0, cur, addr)
+}
+
+func addAuthorityMember(_ int, rlm realm, addr address) {
+	auth.AddMember(0, rlm, addr)
+	chain.Emit(EventTypeAuthorityMemberAdded, "address", string(addr))
+}
+
+// RemoveAuthorityMember removes a member; the last one cannot be removed.
+// Members only.
+func RemoveAuthorityMember(cur realm, addr address) {
+	removeAuthorityMember(0, cur, addr)
+}
+
+func removeAuthorityMember(_ int, rlm realm, addr address) {
+	auth.RemoveMember(0, rlm, addr)
+	chain.Emit(EventTypeAuthorityMemberRemoved, "address", string(addr))
+}
+
+// IsAuthorityMember reports whether addr may administer this realm.
+func IsAuthorityMember(addr address) bool {
+	return auth.IsMember(addr)
 }
 
 // Pause suspends the app: Transfer panics and OnRecvPacket answers every
 // incoming packet with an error acknowledgement (so the counterparty refunds
 // its sender) until Unpause. Refunds through OnAcknowledgementPacket and
 // OnTimeoutPacket keep working, so no user funds are held back by a pause.
-// Can only be called by the admin.
+// Members only.
 func Pause(cur realm) {
-	ensureAdminCaller()
+	pause(0, cur)
+}
+
+func pause(_ int, rlm realm) {
+	auth.Assert(0, rlm, "pause")
 	paused = true
 	chain.Emit(EventTypePause)
 }
 
-// Unpause resumes the app. Can only be called by the admin.
+// Unpause resumes the app. Members only.
 func Unpause(cur realm) {
-	ensureAdminCaller()
+	unpause(0, cur)
+}
+
+func unpause(_ int, rlm realm) {
+	auth.Assert(0, rlm, "unpause")
 	paused = false
 	chain.Emit(EventTypeUnpause)
 }
@@ -58,15 +90,6 @@ func Unpause(cur realm) {
 // Paused reports whether the app is suspended.
 func Paused() bool {
 	return paused
-}
-
-// ensureAdminCaller panics if the EOA that signed the tx is not the admin.
-// Same EOA-binding rationale and trade-off as r/aib/ibc/core/admin.gno.
-func ensureAdminCaller() {
-	caller := unsafe.OriginCaller()
-	if caller != admin {
-		panic(ufmt.Sprintf("unauthorized: caller %s is not the admin", caller))
-	}
 }
 
 // ensureNotPaused panics if the app is suspended.
@@ -81,17 +104,24 @@ func ensureNotPaused() {
 // answers with an error acknowledgement, so the counterparty refunds its
 // sender). Refunds to a blocked sender through OnAcknowledgementPacket and
 // OnTimeoutPacket still go through: blocking never confiscates funds that were
-// already in flight. Can only be called by the admin.
+// already in flight. Members only.
 func BlockAddress(cur realm, addr address) {
-	ensureAdminCaller()
+	blockAddress(0, cur, addr)
+}
+
+func blockAddress(_ int, rlm realm, addr address) {
+	auth.Assert(0, rlm, "block_address")
 	blocked.Set(string(addr), true)
 	chain.Emit(EventTypeBlock, "address", string(addr))
 }
 
-// UnblockAddress removes addr from the blocklist. Can only be called by the
-// admin.
+// UnblockAddress removes addr from the blocklist. Members only.
 func UnblockAddress(cur realm, addr address) {
-	ensureAdminCaller()
+	unblockAddress(0, cur, addr)
+}
+
+func unblockAddress(_ int, rlm realm, addr address) {
+	auth.Assert(0, rlm, "unblock_address")
 	blocked.Remove(string(addr))
 	chain.Emit(EventTypeUnblock, "address", string(addr))
 }

@@ -12,7 +12,7 @@ import (
 
 // CreateClient with non-empty whitelist (only whitelisted relayers allowed)
 func main(cur realm) {
-	core.SetAdmin(cross(cur), "g1wymu47drhr0kuq2098m792lytgtj2nyx77yrsm")
+	core.AddAuthorityMember(cross(cur), cur.Address())
 	core.AddRelayer(cross(cur), "g1someother00000000000000000000000000")
 	// Note: caller is not in the whitelist
 

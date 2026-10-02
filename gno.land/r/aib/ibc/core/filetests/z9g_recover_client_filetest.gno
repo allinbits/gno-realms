@@ -13,7 +13,7 @@ import (
 // RecoverClient failure: substitute has mismatching immutable client state
 // (different MaxClockDrift).
 func main(cur realm) {
-	core.SetAdmin(cross(cur), "g1wymu47drhr0kuq2098m792lytgtj2nyx77yrsm")
+	core.AddAuthorityMember(cross(cur), cur.Address())
 	var (
 		chainID     = "atomone-1"
 		height      = uint64(2)

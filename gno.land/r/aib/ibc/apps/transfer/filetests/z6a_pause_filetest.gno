@@ -6,7 +6,7 @@ import "gno.land/r/aib/ibc/apps/transfer"
 // Pause / Unpause round trip by the admin; the home page shows a banner while
 // paused.
 func main(cur realm) {
-	transfer.SetAdmin(cross(cur), "g1wymu47drhr0kuq2098m792lytgtj2nyx77yrsm")
+	transfer.AddAuthorityMember(cross(cur), cur.Address())
 	println("paused:", transfer.Paused())
 	transfer.Pause(cross(cur))
 	println("paused:", transfer.Paused())
@@ -38,7 +38,7 @@ func main(cur realm) {
 //
 // ## JSON endpoints
 //
-// - [`admin`](/r/aib/ibc/apps/transfer:admin): admin, pause state, blocked addresses
+// - [`admin`](/r/aib/ibc/apps/transfer:admin): authority, pause state, blocked addresses
 // - [`denoms`](/r/aib/ibc/apps/transfer:denoms): list known IBC denoms (`?page`, `?limit`)
 // - `denoms/ibc/{hash}`: get metadata for an IBC denom
 // - `total_escrow/{denom}`: get total escrow tracked for a base denom
@@ -51,6 +51,16 @@ func main(cur realm) {
 
 // Events:
 // [
+//   {
+//     "type": "authority_member_added",
+//     "attrs": [
+//       {
+//         "key": "address",
+//         "value": "g1gjs8nfdrd55z3xu9gjcatnj29vkwuyx4ffqxd9"
+//       }
+//     ],
+//     "pkg_path": "gno.land/r/aib/ibc/apps/transfer"
+//   },
 //   {
 //     "type": "pause",
 //     "attrs": [],

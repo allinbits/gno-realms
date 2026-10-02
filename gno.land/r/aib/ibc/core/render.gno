@@ -92,7 +92,7 @@ func renderHome(w *mux.ResponseWriter, r *mux.Request) {
 		out.WriteString("No apps registered yet.\n\n")
 	}
 	out.WriteString("## JSON endpoints\n\n")
-	out.WriteString("- [`admin`](/r/aib/ibc/core:admin): admin and relayers\n")
+	out.WriteString("- [`admin`](/r/aib/ibc/core:admin): authority, pause state and relayers\n")
 	out.WriteString("- [`apps`](/r/aib/ibc/core:apps): list registered IBC applications\n")
 	out.WriteString("- [`clients`](/r/aib/ibc/core:clients): list clients (`?page`, `?limit`)\n")
 	out.WriteString("- `clients/{id}`: get client details\n")
@@ -435,8 +435,11 @@ func nodeError(msg string, args ...any) *json.Node {
 
 func renderAdmin(w *mux.ResponseWriter, r *mux.Request) {
 	var out strings.Builder
-	out.WriteString("## Admin & Relayers\n\n")
-	out.WriteString(ufmt.Sprintf("- **Admin**: %s\n", renderAddr(admin)))
+	out.WriteString("## Authority & Relayers\n\n")
+	out.WriteString("- **Authority members**:\n")
+	for _, m := range auth.Members() {
+		out.WriteString(ufmt.Sprintf("  - %s\n", renderAddr(m)))
+	}
 	out.WriteString(ufmt.Sprintf("- **Paused**: %t\n", paused))
 	if relayers.Size() == 0 {
 		out.WriteString("- **Relayers**: any (whitelist empty)\n")

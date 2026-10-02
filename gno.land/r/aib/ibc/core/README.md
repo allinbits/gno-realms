@@ -262,11 +262,11 @@ Emitted event:
 paused` until `core.Unpause`. Client operations (`CreateClient`,
 `RegisterCounterparty`, `UpdateClient`, `UpgradeClient`, `RecoverClient`) keep
 working, so relayers can keep clients alive during a pause. Both functions are
-admin-only (see `admin.gno`) and `MsgCall`-compatible:
+gated by the authority (see below) and `MsgCall`-compatible:
 
 ```
 gnokey maketx call -pkgpath gno.land/r/aib/ibc/core -func Pause \
-    -gas-fee 1000000ugnot -gas-wanted 10000000 -broadcast -chainid dev ADMIN
+    -gas-fee 1000000ugnot -gas-wanted 10000000 -broadcast -chainid dev MEMBER
 ```
 
 `core.Paused()` reports the state, which is also shown on `/r/aib/ibc/core:admin`.
@@ -275,3 +275,38 @@ in place and resume after `Unpause`; packets that time out meanwhile are
 refunded by the usual timeout path once resumed.
 
 Emitted events: `pause` and `unpause`, with no attributes.
+
+## Authority
+
+Administrative operations (`AddRelayer`, `RemoveRelayer`, `Pause`, `Unpause`,
+`RecoverClient`, and the authority's own membership) are gated by an
+authority: a member set (`p/aib/authority`) bootstrapped at deploy with two
+members, the deployer (the AIB multisig) and the
+GovDAO proxy `gno.land/r/gov/dao`.
+
+The principal is the caller of the realm function, `cur.Previous().Address()`,
+not the transaction signer: a member must call these functions directly
+(`gnokey maketx call`), not through another realm nor `maketx run`.
+
+- `AddAuthorityMember(addr)` / `RemoveAuthorityMember(addr)`: members only; the
+  last member cannot be removed.
+- `IsAuthorityMember(addr)`: reports membership; `/r/aib/ibc/core:admin` lists
+  the members.
+
+GovDAO acts through proposals. Each gated operation has a constructor
+(`NewAddRelayerProposalRequest`, `NewRemoveRelayerProposalRequest`,
+`NewRecoverClientProposalRequest`, `NewPauseProposalRequest`,
+`NewUnpauseProposalRequest`, `NewAddAuthorityMemberProposalRequest`,
+`NewRemoveAuthorityMemberProposalRequest`) returning a `dao.ProposalRequest`
+whose callback runs the operation with the DAO proxy as caller. A GovDAO member
+submits it with `MsgRun`:
+
+```gno
+pid := dao.MustCreateProposal(cross(cur), core.NewAddRelayerProposalRequest(cross(cur), relayer))
+```
+
+then members vote (`MustVoteOnProposalSimple`) and anyone executes
+(`ExecuteProposal`), both plain `MsgCall`s on `gno.land/r/gov/dao`.
+
+Emitted events: `authority_member_added` and `authority_member_removed`, with an
+`address` attribute.

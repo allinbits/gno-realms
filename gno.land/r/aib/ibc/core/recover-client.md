@@ -10,8 +10,9 @@ tracks the same counterparty chain.
 core.RecoverClient(cross, subjectClientID, substituteClientID string)
 ```
 
-Only the admin can call it (see `admin.gno`). In the long run this is expected
-to be driven by a govDAO proposal callback (tracked in issue #36).
+Only a member of the authority can call it (see `admin.gno` and the README's
+Authority section): the AIB multisig directly, or GovDAO through a proposal
+built with `NewRecoverClientProposalRequest`.
 
 ## End-to-end flow
 
@@ -79,14 +80,15 @@ A proposal asks to run:
 core.RecoverClient(cross, subjectID, substituteID)
 ```
 
-Currently gated by `ensureAdminCaller()`; once govDAO integration lands the
-proposal executor becomes the authorized caller.
+Gated by the authority; the proposal is built with
+`core.NewRecoverClientProposalRequest(cross(cur), subjectID, substituteID)`.
 
 ### 6. `RecoverClient` executes
 
 `r/aib/ibc/core/client.gno`:
 
-1. `ensureAdminCaller()`.
+1. `auth.Assert(0, rlm, "recover_client")`: the caller must be a member of the
+   authority.
 2. Subject and substitute IDs must differ; both must resolve; `typ` must match.
 3. Subject status ∈ {`Frozen`, `Expired`}; substitute status must be `Active`.
 4. Delegates to `subject.lightClient.RecoverClient(substitute.lightClient)`.

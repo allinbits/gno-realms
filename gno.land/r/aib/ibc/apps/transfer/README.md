@@ -103,11 +103,17 @@ gnokey maketx call -pkgpath gno.land/r/aib/ibc/apps/transfer -func Transfer \
 > `gno.land:r:demo:foo.FOO`). The counterparty chain sees the aliased form, not
 > the original grc20reg key.
 
-## Admin
+## Authority
 
-The realm has a single admin, the deployer's EOA, transferable with
-`SetAdmin(newAdmin)` (same bootstrap and EOA-binding trade-off as the core
-realm's `admin.gno`). The admin can suspend the app:
+The realm is administered by an authority, the same model as the core realm: a
+member set (`p/aib/authority`) bootstrapped at deploy with the deployer (the AIB
+multisig) and the GovDAO proxy. Members call the functions below directly
+(`gnokey maketx call`); the principal is the caller, not the transaction signer.
+`AddAuthorityMember` / `RemoveAuthorityMember` manage membership (the last
+member cannot be removed), `IsAuthorityMember` reports it, and every operation
+has a GovDAO proposal constructor (`NewPauseProposalRequest`,
+`NewBlockAddressProposalRequest`, `NewAddAuthorityMemberProposalRequest`, ...),
+submitted as described in the core README. The authority can suspend the app:
 
 - `Pause()`: `Transfer` panics with `transfer is paused`, and `OnRecvPacket`
   answers every incoming packet with an error acknowledgement so the
@@ -130,7 +136,8 @@ addresses:
 - `IsBlocked(addr)`: reports the state; the `admin` page lists the blocklist.
 
 All of these are `MsgCall`-compatible and emit `pause` / `unpause` /
-`block` / `unblock` events.
+`block` / `unblock` / `authority_member_added` / `authority_member_removed`
+events.
 
 ## Query endpoints
 

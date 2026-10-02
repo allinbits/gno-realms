@@ -5,7 +5,7 @@ import "gno.land/r/aib/ibc/apps/transfer"
 
 // Block / unblock round trip by the admin; the admin page lists the blocklist.
 func main(cur realm) {
-	transfer.SetAdmin(cross(cur), "g1wymu47drhr0kuq2098m792lytgtj2nyx77yrsm")
+	transfer.AddAuthorityMember(cross(cur), cur.Address())
 	println("blocked:", transfer.IsBlocked("g1someother00000000000000000000000000"))
 	transfer.BlockAddress(cross(cur), "g1someother00000000000000000000000000")
 	println("blocked:", transfer.IsBlocked("g1someother00000000000000000000000000"))
@@ -18,22 +18,36 @@ func main(cur realm) {
 // Output:
 // blocked: false
 // blocked: true
-// ## Admin
+// ## Authority
 //
-// - **Admin**: g1wymu47drhr0kuq2098m792lytgtj2nyx77yrsm
+// - **Authority members**:
+//   - g1gjs8nfdrd55z3xu9gjcatnj29vkwuyx4ffqxd9
+//   - g1p84dvfh4wrplyxx4zsmy77a8rxcnjup2j7zv5r
 // - **Paused**: false
 // - **Blocked addresses**:
 //   - g1someother00000000000000000000000000
 //
 // blocked: false
-// ## Admin
+// ## Authority
 //
-// - **Admin**: g1wymu47drhr0kuq2098m792lytgtj2nyx77yrsm
+// - **Authority members**:
+//   - g1gjs8nfdrd55z3xu9gjcatnj29vkwuyx4ffqxd9
+//   - g1p84dvfh4wrplyxx4zsmy77a8rxcnjup2j7zv5r
 // - **Paused**: false
 // - **Blocked addresses**: none
 
 // Events:
 // [
+//   {
+//     "type": "authority_member_added",
+//     "attrs": [
+//       {
+//         "key": "address",
+//         "value": "g1gjs8nfdrd55z3xu9gjcatnj29vkwuyx4ffqxd9"
+//       }
+//     ],
+//     "pkg_path": "gno.land/r/aib/ibc/apps/transfer"
+//   },
 //   {
 //     "type": "block",
 //     "attrs": [
