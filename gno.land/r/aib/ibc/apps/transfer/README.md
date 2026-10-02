@@ -103,6 +103,23 @@ gnokey maketx call -pkgpath gno.land/r/aib/ibc/apps/transfer -func Transfer \
 > `gno.land:r:demo:foo.FOO`). The counterparty chain sees the aliased form, not
 > the original grc20reg key.
 
+## Admin
+
+The realm has a single admin, the deployer's EOA, transferable with
+`SetAdmin(newAdmin)` (same bootstrap and EOA-binding trade-off as the core
+realm's `admin.gno`). The admin can suspend the app:
+
+- `Pause()`: `Transfer` panics with `transfer is paused`, and `OnRecvPacket`
+  answers every incoming packet with an error acknowledgement so the
+  counterparty refunds its sender; nothing is minted or released on this side.
+  Refunds through `OnAcknowledgementPacket` and `OnTimeoutPacket` keep working,
+  so no user funds are held back by a pause. `VoucherSend` and `VoucherApprove`
+  are plain GRC20 operations and are not affected.
+- `Unpause()`: resumes the app.
+- `Paused()`: reports the state; the home page shows a banner while paused.
+
+Both are `MsgCall`-compatible and emit `pause` / `unpause` events.
+
 ## Query endpoints
 
 All endpoints return JSON and are accessible via gnoweb or `gnokey query vm/qrender`.

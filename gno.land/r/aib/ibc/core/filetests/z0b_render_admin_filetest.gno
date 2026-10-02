@@ -24,12 +24,14 @@ func main(cur realm) {
 // ## Admin & Relayers
 //
 // - **Admin**: [g1wymu…yrsm](/u/g1wymu47drhr0kuq2098m792lytgtj2nyx77yrsm)
+// - **Paused**: false
 // - **Relayers**: any (whitelist empty)
 //
 // === with relayers ===
 // ## Admin & Relayers
 //
 // - **Admin**: [g1wymu…yrsm](/u/g1wymu47drhr0kuq2098m792lytgtj2nyx77yrsm)
+// - **Paused**: false
 // - **Relayers**:
 //   - [g1some…0000](/u/g1someother00000000000000000000000000)
 //   - [g1wymu…yrsm](/u/g1wymu47drhr0kuq2098m792lytgtj2nyx77yrsm)
@@ -38,6 +40,6 @@ func main(cur realm) {
 // ## Admin & Relayers
 //
 // - **Admin**: [g1wymu…yrsm](/u/g1wymu47drhr0kuq2098m792lytgtj2nyx77yrsm)
+// - **Paused**: false
 // - **Relayers**:
 //   - [g1wymu…yrsm](/u/g1wymu47drhr0kuq2098m792lytgtj2nyx77yrsm)
-

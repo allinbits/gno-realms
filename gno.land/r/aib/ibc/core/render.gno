@@ -437,6 +437,7 @@ func renderAdmin(w *mux.ResponseWriter, r *mux.Request) {
 	var out strings.Builder
 	out.WriteString("## Admin & Relayers\n\n")
 	out.WriteString(ufmt.Sprintf("- **Admin**: %s\n", renderAddr(admin)))
+	out.WriteString(ufmt.Sprintf("- **Paused**: %t\n", paused))
 	if relayers.Size() == 0 {
 		out.WriteString("- **Relayers**: any (whitelist empty)\n")
 	} else {

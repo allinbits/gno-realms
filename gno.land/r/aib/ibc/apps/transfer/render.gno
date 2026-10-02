@@ -40,6 +40,9 @@ func renderHome(w *mux.ResponseWriter, r *mux.Request) {
 	var out strings.Builder
 	out.WriteString("# IBC transfer\n\n")
 	out.WriteString("ICS-20 style transfer state and voucher token queries.\n\n")
+	if paused {
+		out.WriteString("> **Paused**: transfers are suspended by the admin; incoming packets are refused.\n\n")
+	}
 	out.WriteString(renderTransferLinks())
 	out.WriteString(ufmt.Sprintf("## Vouchers (%d)\n\n", denoms.Size()))
 	if denoms.Size() > 0 {

@@ -1,15 +1,22 @@
 package core
 
 import (
+	"chain"
 	"chain/runtime/unsafe"
 
 	"gno.land/p/nt/bptree/v0"
 	"gno.land/p/nt/ufmt/v0"
 )
 
+const (
+	EventTypePause   = "pause"
+	EventTypeUnpause = "unpause"
+)
+
 var (
 	admin    address
 	relayers = bptree.NewBPTree32()
+	paused   bool
 )
 
 func init() {
@@ -74,4 +81,34 @@ func ensureAuthorizedRelayer() address {
 		panic(ufmt.Sprintf("unauthorized relayer %s", caller))
 	}
 	return caller
+}
+
+// Pause suspends the packet path: SendPacket, RecvPacket, WriteAcknowledgement,
+// Acknowledgement and Timeout panic until Unpause. Client operations
+// (CreateClient, RegisterCounterparty, UpdateClient, UpgradeClient,
+// RecoverClient) keep working, so clients do not expire during a pause.
+// Can only be called by the admin.
+func Pause(cur realm) {
+	ensureAdminCaller()
+	paused = true
+	chain.Emit(EventTypePause)
+}
+
+// Unpause resumes the packet path. Can only be called by the admin.
+func Unpause(cur realm) {
+	ensureAdminCaller()
+	paused = false
+	chain.Emit(EventTypeUnpause)
+}
+
+// Paused reports whether the packet path is suspended.
+func Paused() bool {
+	return paused
+}
+
+// ensureNotPaused panics if the packet path is suspended.
+func ensureNotPaused() {
+	if paused {
+		panic("core is paused")
+	}
 }
