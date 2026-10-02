@@ -15,6 +15,15 @@ $ gnokey maketx run -gas-fee 1000000ugnot -gas-wanted 90000000 \
 `run.gno` content depends on the called function, see the following sections
 for examples.
 
+## RegisterApp
+
+Applications register themselves with `core.RegisterApp(cross(cur), portID, app)`
+from their own realm (a user cannot call it), each port at most once, and a port
+is never freed. The port `transfer` is reserved for
+`gno.land/r/aib/ibc/apps/transfer`: on a chain that enables packages one at a
+time, core goes live before the transfer realm, and any realm could otherwise
+take the port for good in between.
+
 ## CreateClient
 
 See [`zz_create_client_example_filetest.gno`](./zz_create_client_example_filetest.gno)
