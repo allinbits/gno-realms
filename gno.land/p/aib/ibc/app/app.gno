@@ -6,6 +6,14 @@ import (
 
 // IBCApp defines an interface that implements all the callbacks that apps must
 // define as specified in IBC Protocol V2.
+//
+// CONTRACT: the callbacks are exported methods, and any realm can obtain a
+// usable value of an implementing type (a zero-value declaration needs no
+// composite literal), so an implementation must verify that it is being invoked
+// by the IBC core realm, typically with
+// `cur.Previous().PkgPath() == "gno.land/r/aib/ibc/core"`, before touching
+// funds or state. Core crosses into the app, so that is what Previous() reports
+// on every legitimate call.
 type IBCApp interface {
 	// OnSendPacket is executed when a packet is being sent from sending chain.
 	// This callback is provided with the source and destination IDs, the signer,
