@@ -254,3 +254,24 @@ Emitted event:
   "pkg_path": "gno.land/r/aib/ibc/core"
 }
 ```
+
+## Pause / Unpause
+
+`core.Pause` suspends the packet path: `SendPacket`, `RecvPacket`,
+`WriteAcknowledgement`, `Acknowledgement` and `Timeout` panic with `core is
+paused` until `core.Unpause`. Client operations (`CreateClient`,
+`RegisterCounterparty`, `UpdateClient`, `UpgradeClient`, `RecoverClient`) keep
+working, so relayers can keep clients alive during a pause. Both functions are
+admin-only (see `admin.gno`) and `MsgCall`-compatible:
+
+```
+gnokey maketx call -pkgpath gno.land/r/aib/ibc/core -func Pause \
+    -gas-fee 1000000ugnot -gas-wanted 10000000 -broadcast -chainid dev ADMIN
+```
+
+`core.Paused()` reports the state, which is also shown on `/r/aib/ibc/core:admin`.
+In-flight packets are not lost: commitments, receipts and acknowledgements stay
+in place and resume after `Unpause`; packets that time out meanwhile are
+refunded by the usual timeout path once resumed.
+
+Emitted events: `pause` and `unpause`, with no attributes.

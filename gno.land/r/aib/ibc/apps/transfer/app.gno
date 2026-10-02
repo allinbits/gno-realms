@@ -60,7 +60,6 @@ func (a *App) OnSendPacket(
 	payload types.Payload,
 ) error {
 	assertCoreCaller(0, cur)
-	// TODO add parameter to disable the app
 	// TODO add parameter to block sender addr
 
 	// Enforce that the source and destination portIDs are the same and equal to
@@ -236,7 +235,6 @@ func (a *App) OnRecvPacket(
 	payload types.Payload,
 ) types.RecvPacketResult {
 	assertCoreCaller(0, cur)
-	// TODO add parameter to disable the app
 	// TODO add parameter to block receiver addr
 
 	// Enforce that the source and destination portIDs are the same and equal to
@@ -290,6 +288,14 @@ func (a *App) OnRecvPacket(
 		}
 		chain.Emit(EventTypePacket, attrs...)
 	}()
+
+	// While paused, answer with an error acknowledgement so the counterparty
+	// refunds its sender; nothing is minted or released on this side.
+	if paused {
+		ackErr = errors.New("transfer is paused")
+		ack = types.NewErrorAppAcknowledgement(ackErr)
+		return types.RecvPacketResult{Status: types.PacketStatus_Failure}
+	}
 
 	data, token, ackErr = unmarshalPayload(payload.Value)
 	if ackErr != nil {
