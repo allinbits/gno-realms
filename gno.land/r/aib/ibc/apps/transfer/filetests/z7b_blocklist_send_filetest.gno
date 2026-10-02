@@ -27,7 +27,7 @@ func main(cur realm) {
 
 	// The sender is the signing EOA (OriginCaller), also made admin here.
 	sender := cur.Previous().Address()
-	transfer.SetAdmin(cross(cur), sender)
+	transfer.AddAuthorityMember(cross(cur), cur.Address())
 	transfer.BlockAddress(cross(cur), sender)
 
 	data := transfer.NewFungibleTokenPacketData("ugnot", "100", sender.String(), "atone1user", "")

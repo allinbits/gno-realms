@@ -53,6 +53,7 @@ PACKAGES=(
   "gno.land/p/aib/merkle:gno.land/p/aib/merkle"
   "gno.land/p/aib/jsonpage:gno.land/p/aib/jsonpage"
   "gno.land/p/aib/ibc/host:gno.land/p/aib/ibc/host"
+  "gno.land/p/aib/authority:gno.land/p/aib/authority"
 
   # depends on encoding/proto
   "gno.land/p/aib/ics23:gno.land/p/aib/ics23"

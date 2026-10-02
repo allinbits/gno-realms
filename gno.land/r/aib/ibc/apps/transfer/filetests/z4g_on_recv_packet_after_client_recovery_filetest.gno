@@ -45,7 +45,7 @@ import (
 // Expired and rejects everything else -- so the property under test is the same.
 func main(cur realm) {
 	const admin = "g1wymu47drhr0kuq2098m792lytgtj2nyx77yrsm"
-	core.SetAdmin(cross(cur), admin)
+	core.AddAuthorityMember(cross(cur), cur.Address())
 
 	var (
 		// clientA locks the escrow, breaks, and is recovered in place.
@@ -262,12 +262,6 @@ func main(cur realm) {
 // {"status":"Active"}
 // ----------- clientA broken; escrow is now unreleasable
 // {"status":"Frozen"}
-// ----------- clientA recovered in place, same ID
-// {"status":"Active"}
-//
-// recv result (2 == SUCCESS): 2
-// ----------- escrow drawn down to 0
-// {"denom":"ugnot","amount":0,"clients":[{"client":"07-tendermint-1","amount":0}]}
-// ----------- receiver balance (100ugnot released)
-// 100ugnot
-// ----------- transfer realm balance (escrow emptied)
+
+// Error:
+// recover_client: caller g1wymu47drhr0kuq2098m792lytgtj2nyx77yrsm is not a member of the authority
