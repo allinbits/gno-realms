@@ -1,6 +1,5 @@
 // Package authority is the admin gate shared by the AIB realms: a member set
-// checked through p/moul/authz, bootstrapped with the realm's deployer and the
-// GovDAO proxy address.
+// bootstrapped with the realm's deployer and the GovDAO proxy address.
 //
 // The principal is the address of the realm or user that called the realm
 // function holding the live cur, cur.Previous().Address(), never the
@@ -14,7 +13,6 @@ import (
 	"chain"
 
 	"gno.land/p/moul/addrset/v0"
-	"gno.land/p/moul/authz/v0"
 	"gno.land/p/nt/ufmt/v0"
 )
 
@@ -23,11 +21,9 @@ import (
 // the previous realm, so that is the address the gate sees.
 const GovDAOPath = "gno.land/r/gov/dao"
 
-// Authority is a member set with an authz gate in front of it. The set is the
-// source of truth; authz performs the check.
+// Authority is a member set.
 type Authority struct {
 	members addrset.Set
-	auth    *authz.Authorizer
 	// bootstrapped is false only when the deployer could not be captured at
 	// init, which happens in the gno test framework (the origin caller is
 	// empty there). Until then the first AddMember is ungated and completes
@@ -46,16 +42,19 @@ func New(deployer address) *Authority {
 		a.bootstrapped = true
 	}
 	a.members.Add(chain.PackageAddress(GovDAOPath))
-	a.rebuild()
 	return a
 }
 
 // Assert panics unless the caller of the realm function holding rlm is a
-// member. rlm must be that realm's live cur; op names the operation in the
-// panic message.
+// member. rlm must be that realm's live cur: a stored or forwarded realm value
+// is rejected, so a foreign realm cannot replay a captured cur to impersonate
+// a member. op names the operation in the panic message.
 func (a *Authority) Assert(_ int, rlm realm, op string) {
-	if err := a.auth.DoByPrevious(0, rlm, op, func() error { return nil }); err != nil {
-		panic(ufmt.Sprintf("%s: caller %s is not a member of the authority", op, rlm.Previous().Address()))
+	if !rlm.IsCurrent() {
+		panic(op + ": rlm is not the caller's live realm")
+	}
+	if caller := rlm.Previous().Address(); !a.members.Has(caller) {
+		panic(ufmt.Sprintf("%s: caller %s is not a member of the authority", op, caller))
 	}
 }
 
@@ -70,7 +69,6 @@ func (a *Authority) AddMember(_ int, rlm realm, addr address) {
 	}
 	a.bootstrapped = true
 	a.members.Add(addr)
-	a.rebuild()
 }
 
 // RemoveMember removes addr. The last member cannot be removed: an empty
@@ -84,7 +82,6 @@ func (a *Authority) RemoveMember(_ int, rlm realm, addr address) {
 		panic("authority: cannot remove the last member")
 	}
 	a.members.Remove(addr)
-	a.rebuild()
 }
 
 // IsMember reports whether addr is a member.
@@ -100,8 +97,4 @@ func (a *Authority) Members() []address {
 		return false
 	})
 	return out
-}
-
-func (a *Authority) rebuild() {
-	a.auth = authz.NewWithMembers(a.Members()...)
 }

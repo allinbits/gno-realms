@@ -9,7 +9,7 @@ import "gno.land/r/gov/dao"
 // is gno.land/r/gov/dao, so the gate sees the DAO's address. The callbacks are
 // unexported closures capturing their arguments, so this realm exports no bare
 // func(realm) error that the DAO could be made to invoke on someone else's
-// behalf (see p/moul/authz's NewContractAuthority godoc).
+// behalf.
 //
 // A GovDAO member submits one with MsgRun, members vote, anyone executes:
 //
