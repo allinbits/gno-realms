@@ -5,13 +5,15 @@
 # round (for instance by the AIB multisig). Nothing is signed or sent here.
 #
 # Usage:
-#   CREATOR=g1... ./scripts/make-deploy-tx.sh                 # writes ./deploy-tx.json
-#   CREATOR=aib-msig OUT=/tmp/tx.json ./scripts/make-deploy-tx.sh
-#   KEEP_TESTS=1 CREATOR=g1... ./scripts/make-deploy-tx.sh    # keep filetests/ and *_test.gno
+#   ./scripts/make-deploy-tx.sh                               # creator: the AIB multisig, writes ./deploy-tx.json
+#   OUT=/tmp/tx.json ./scripts/make-deploy-tx.sh
+#   CREATOR=g1... ./scripts/make-deploy-tx.sh                 # another creator (address or local key name)
+#   KEEP_TESTS=1 ./scripts/make-deploy-tx.sh                  # keep filetests/ and *_test.gno
 #
-# CREATOR is the account that submits and pays, as a bech32 address or the name
-# of a key in the local keybase (the multisig key, typically). It does not need
-# to be unlocked: gnokey only reads the address to compose the messages.
+# CREATOR is the account that submits and pays, by default MULTISIG_ADDR from
+# env.sh. It does not need to be in the local keybase or unlocked: gnokey only
+# reads the address to compose the messages. It must own the `aib` namespace on
+# the target chain (r/sys/names), or every message is rejected.
 #
 # Tests are stripped by default (filetests/ directories, *_test.gno,
 # *_filetest.gno): with them the sources weigh about 1.4 MB, above the chain's
@@ -37,7 +39,7 @@ set -euo pipefail
 source "$(dirname "$0")/env.sh"
 source "$(dirname "$0")/packages.sh"
 
-CREATOR="${CREATOR:?set CREATOR to the submitting address or key name (e.g. the multisig)}"
+CREATOR="${CREATOR:-$MULTISIG_ADDR}"
 GAS_FEE="${GAS_FEE:-15000000ugnot}"
 GAS_WANTED="${GAS_WANTED:-2500000000}"
 MAX_DEPOSIT="${MAX_DEPOSIT:-100000000ugnot}" # per package

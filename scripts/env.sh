@@ -36,3 +36,7 @@ GNO_TESTNET="${GNO_TESTNET:-onyx}"
 CHAIN_ID="${CHAIN_ID:-${GNO_TESTNET}-1}"
 REMOTE="${REMOTE:-https://rpc.${GNO_TESTNET}.testnets.gno.land:443}"
 KEY="${KEY:-aib}"
+
+# The AIB multisig: creator of the realms (make-deploy-tx.sh) and their admin
+# at bootstrap. It must own the `aib` namespace on the target chain.
+MULTISIG_ADDR="${MULTISIG_ADDR:-g1gkqe9c90tfuk2a7f07ygs8t826aff03vxasjsl}"
