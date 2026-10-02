@@ -116,7 +116,7 @@ func main(cur realm) {
 
 	// Pause the app: RecvPacket itself succeeds (core is not paused) but the
 	// app answers with an error acknowledgement and mints nothing.
-	transfer.SetAdmin(cross(cur), "g1wymu47drhr0kuq2098m792lytgtj2nyx77yrsm")
+	transfer.AddAuthorityMember(cross(cur), cur.Address())
 	transfer.Pause(cross(cur))
 	println("\ntransfer paused:", transfer.Paused())
 
@@ -156,6 +156,16 @@ func main(cur realm) {
 //       }
 //     ],
 //     "pkg_path": "gno.land/r/aib/ibc/core"
+//   },
+//   {
+//     "type": "authority_member_added",
+//     "attrs": [
+//       {
+//         "key": "address",
+//         "value": "g1gjs8nfdrd55z3xu9gjcatnj29vkwuyx4ffqxd9"
+//       }
+//     ],
+//     "pkg_path": "gno.land/r/aib/ibc/apps/transfer"
 //   },
 //   {
 //     "type": "pause",

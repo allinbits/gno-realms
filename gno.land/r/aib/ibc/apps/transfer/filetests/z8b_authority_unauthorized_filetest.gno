@@ -3,7 +3,7 @@ package main
 
 import "gno.land/r/aib/ibc/apps/transfer"
 
-// Pause is admin-only.
+// A non-member cannot administer the realm.
 func main(cur realm) {
 	transfer.AddAuthorityMember(cross(cur), "g1someother00000000000000000000000000")
 	transfer.Pause(cross(cur))

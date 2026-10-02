@@ -11,7 +11,7 @@ import (
 
 // RecoverClient failure: subject client is Active (not Frozen or Expired).
 func main(cur realm) {
-	core.SetAdmin(cross(cur), "g1wymu47drhr0kuq2098m792lytgtj2nyx77yrsm")
+	core.AddAuthorityMember(cross(cur), cur.Address())
 	var (
 		clientState    = tmtesting.NewClientState("chain-id-2", types.NewHeight(2, 2))
 		trustedValset  = tmtesting.GenValset()

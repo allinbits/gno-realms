@@ -8,7 +8,7 @@ import (
 
 // UpgradeClient failure: client not found
 func main(cur realm) {
-	core.SetAdmin(cross(cur), "g1wymu47drhr0kuq2098m792lytgtj2nyx77yrsm")
+	core.AddAuthorityMember(cross(cur), cur.Address())
 	core.AddRelayer(cross(cur), "g1wymu47drhr0kuq2098m792lytgtj2nyx77yrsm")
 
 	core.UpgradeClient(cross(cur), "07-tendermint-99", nil, nil, nil, nil)

@@ -12,7 +12,7 @@ import (
 // RecoverClient failure: caller is not the admin.
 func main(cur realm) {
 	// Admin is set to a different address than the test caller.
-	core.SetAdmin(cross(cur), "g1somebodyelse00000000000000000000000000")
+	core.AddAuthorityMember(cross(cur), "g1somebodyelse00000000000000000000000000")
 	var (
 		clientState    = tmtesting.NewClientState("chain-id-2", types.NewHeight(2, 2))
 		trustedValset  = tmtesting.GenValset()
@@ -25,4 +25,4 @@ func main(cur realm) {
 }
 
 // Error:
-// unauthorized: caller g1wymu47drhr0kuq2098m792lytgtj2nyx77yrsm is not the admin
+// recover_client: caller g1gjs8nfdrd55z3xu9gjcatnj29vkwuyx4ffqxd9 is not a member of the authority

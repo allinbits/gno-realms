@@ -14,7 +14,7 @@ import (
 
 // RecvPacket success with authorized relayer
 func main(cur realm) {
-	core.SetAdmin(cross(cur), "g1wymu47drhr0kuq2098m792lytgtj2nyx77yrsm")
+	core.AddAuthorityMember(cross(cur), cur.Address())
 	core.AddRelayer(cross(cur), "g1wymu47drhr0kuq2098m792lytgtj2nyx77yrsm")
 	var (
 		chainID       = "chain-id-2"
@@ -194,6 +194,16 @@ func main(cur realm) {
 // Events:
 // [
 //   {
+//     "type": "authority_member_added",
+//     "attrs": [
+//       {
+//         "key": "address",
+//         "value": "g1gjs8nfdrd55z3xu9gjcatnj29vkwuyx4ffqxd9"
+//       }
+//     ],
+//     "pkg_path": "gno.land/r/aib/ibc/core"
+//   },
+//   {
 //     "type": "create_client",
 //     "attrs": [
 //       {
@@ -268,4 +278,3 @@ func main(cur realm) {
 //     "pkg_path": "gno.land/r/aib/ibc/core"
 //   }
 // ]
-
