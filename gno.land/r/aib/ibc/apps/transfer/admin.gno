@@ -4,17 +4,21 @@ import (
 	"chain"
 	"chain/runtime/unsafe"
 
+	"gno.land/p/nt/bptree/v0"
 	"gno.land/p/nt/ufmt/v0"
 )
 
 const (
 	EventTypePause   = "pause"
 	EventTypeUnpause = "unpause"
+	EventTypeBlock   = "block"
+	EventTypeUnblock = "unblock"
 )
 
 var (
-	admin  address
-	paused bool
+	admin   address
+	paused  bool
+	blocked = bptree.NewBPTree32() // address -> true
 )
 
 func init() {
@@ -70,4 +74,29 @@ func ensureNotPaused() {
 	if paused {
 		panic("transfer is paused")
 	}
+}
+
+// BlockAddress adds addr to the blocklist. A blocked address can no longer
+// send (OnSendPacket rejects it, so Transfer fails) nor receive (OnRecvPacket
+// answers with an error acknowledgement, so the counterparty refunds its
+// sender). Refunds to a blocked sender through OnAcknowledgementPacket and
+// OnTimeoutPacket still go through: blocking never confiscates funds that were
+// already in flight. Can only be called by the admin.
+func BlockAddress(cur realm, addr address) {
+	ensureAdminCaller()
+	blocked.Set(string(addr), true)
+	chain.Emit(EventTypeBlock, "address", string(addr))
+}
+
+// UnblockAddress removes addr from the blocklist. Can only be called by the
+// admin.
+func UnblockAddress(cur realm, addr address) {
+	ensureAdminCaller()
+	blocked.Remove(string(addr))
+	chain.Emit(EventTypeUnblock, "address", string(addr))
+}
+
+// IsBlocked reports whether addr is on the blocklist.
+func IsBlocked(addr address) bool {
+	return blocked.Has(string(addr))
 }

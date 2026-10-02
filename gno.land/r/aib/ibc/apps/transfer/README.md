@@ -118,7 +118,19 @@ realm's `admin.gno`). The admin can suspend the app:
 - `Unpause()`: resumes the app.
 - `Paused()`: reports the state; the home page shows a banner while paused.
 
-Both are `MsgCall`-compatible and emit `pause` / `unpause` events.
+and keep a blocklist of addresses, the equivalent of ibc-go's blocked
+addresses:
+
+- `BlockAddress(addr)`: a blocked address can no longer send (`OnSendPacket`
+  rejects it, so `Transfer` fails) nor receive (`OnRecvPacket` answers with an
+  error acknowledgement, so the counterparty refunds its sender). Refunds to a
+  blocked sender still go through: blocking never confiscates funds already in
+  flight.
+- `UnblockAddress(addr)`: removes it.
+- `IsBlocked(addr)`: reports the state; the `admin` page lists the blocklist.
+
+All of these are `MsgCall`-compatible and emit `pause` / `unpause` /
+`block` / `unblock` events.
 
 ## Query endpoints
 

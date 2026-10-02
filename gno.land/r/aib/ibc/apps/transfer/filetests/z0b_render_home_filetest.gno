@@ -26,6 +26,7 @@ func main() {
 //
 // ## JSON endpoints
 //
+// - [`admin`](/r/aib/ibc/apps/transfer:admin): admin, pause state, blocked addresses
 // - [`denoms`](/r/aib/ibc/apps/transfer:denoms): list known IBC denoms (`?page`, `?limit`)
 // - `denoms/ibc/{hash}`: get metadata for an IBC denom
 // - `total_escrow/{denom}`: get total escrow tracked for a base denom
