@@ -1,11 +1,13 @@
 # Contract upgradability plan
 
-- Status: decided 2026-10-01 (§8), implementation not started
+- Status: decided 2026-10-01 (§8); Phase 0 done 2026-10-05 (ADR 0001, ADR 0002);
+  implementation not started
 - Scope: `r/aib/ibc/core`, `r/aib/ibc/apps/transfer`, their `p/aib/...` dependencies,
   deploy scripts, tests
-- Related: issue #22 (Use proxy realms), branch `chore/proxy` (ADR 0001 "Proxy
-  realm for upgradeable IBC core", WIP from July 2026, never merged, based on
-  `135bd38`)
+- Related: issue #22 (Use proxy realms); `docs/adrs/0001-proxy-realm-for-core-upgrades.md`
+  and `docs/adrs/0002-proxy-realm-for-transfer-upgrades.md` (the decisions of this
+  plan, Phase 0); branch `chore/proxy` (July 2026 draft of ADR 0001 and of the
+  core proxy code, never merged, based on `135bd38`, kept as a reference)
 
 Master has no upgrade mechanism today. This document inventories what is
 path-bound, states the Gno rules the design has to respect, compares the options,
@@ -255,9 +257,9 @@ Light-client *state* is a set of core-owned objects whose methods are bound to t
   the migration is O(1) per client.
 - New clients get the new verifier simply because the new implementation
   constructs it.
-- The store field is typed `lightclient/v0.Interface` forever, so a later
-  `lightclient/v1` verifier must still implement the v0 methods; the
-  implementation type-asserts for anything newer.
+- The store field is typed `lightclient.Interface` forever, so a later verifier
+  such as `tendermint/v1` must still implement it; the implementation
+  type-asserts for anything newer.
 - `RecoverClient` and a brand-new client remain the fallback when the state
   itself must change shape (counterparty re-registration required).
 
@@ -345,7 +347,7 @@ in-package code can quietly use unexported internals.
 Instead, as onbloc and `r/gov/dao` do, the proxy has **no** logic:
 `core/impl/v0` is a real external realm from day one.
 
-- Every one of the 182 filetests and the e2e flow then runs through the exported
+- Every one of the 216 realm filetests and the e2e flow then runs through the exported
   surface, so the frozen surface is proven complete before it freezes.
 - The proxy stays minimal, and no obsolete v0 logic is frozen into it forever.
 - Cost: one blank import `_ "gno.land/r/aib/ibc/core/impl/v0"` per filetest (the
@@ -396,7 +398,7 @@ hoist the relayer and authority gates into the dispatchers; add
 `core/impl/v0`; the proxy keeps no `defaultLogic`. Tests: unit tests for every
 gate (foreign realm, non-current realm, unregistered path, non-authority), a new
 filetest category `z11*` for implementation switch and rollback, and the existing
-182 golden outputs byte-identical.
+216 golden outputs byte-identical.
 
 **Phase 2, transfer proxy.** Same treatment: store and voucher/escrow services in
 the proxy, callbacks forwarding non-crossing, `impl/v0`. New filetest category `z6*` (impl switch, refund after switch, voucher
