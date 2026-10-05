@@ -10,6 +10,12 @@
 #   START_AT=10 ./scripts/deploy.sh    # resume from entry 10 (1-based)
 #   DRY_RUN=1 ./scripts/deploy.sh      # simulate only, no broadcast
 #
+# On a chain whose vm code_submission_policy is "inert" (gno.land mainnet),
+# addpkg only parks a package: it is stored without being type-checked or
+# executed, and becomes live when a package approver sends MsgEnablePackage.
+# The script then ends by polling until every package is live (see
+# ENABLE_POLL_INTERVAL); Ctrl-C stops the waiting, the packages stay parked.
+#
 # Prerequisites on a freshly launched testnet
 # -------------------------------------------
 #   1. $KEY must be funded: every addpkg pays $GAS_FEE and locks storage out
@@ -39,59 +45,32 @@ GAS_WANTED="${GAS_WANTED:-1000000000}"
 MAX_DEPOSIT="${MAX_DEPOSIT:-100000000ugnot}"
 START_AT="${START_AT:-1}"
 DRY_RUN="${DRY_RUN:-0}"
+ENABLE_POLL_INTERVAL="${ENABLE_POLL_INTERVAL:-30}" # seconds, inert policy only
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$REPO_ROOT"
 
 # ---- deploy order -----------------------------------------------------------
-# Format: "<gno.land/pkgpath>:<local dir relative to repo root>"
-# Order is topological: a package only depends on entries above it.
-PACKAGES=(
-  # leaf packages (no aib deps)
-  "gno.land/p/aib/encoding:gno.land/p/aib/encoding"
-  "gno.land/p/aib/encoding/proto:gno.land/p/aib/encoding/proto"
-  "gno.land/p/aib/merkle:gno.land/p/aib/merkle"
-  "gno.land/p/aib/jsonpage:gno.land/p/aib/jsonpage"
-  "gno.land/p/aib/ibc/host:gno.land/p/aib/ibc/host"
-
-  # depends on encoding/proto
-  "gno.land/p/aib/ics23:gno.land/p/aib/ics23"
-
-  # depends on ics23
-  "gno.land/p/aib/ibc/testing:gno.land/p/aib/ibc/testing"
-
-  # depends on encoding, encoding/proto, ibc/host, ics23
-  "gno.land/p/aib/ibc/types:gno.land/p/aib/ibc/types"
-
-  # depends on ibc/types
-  "gno.land/p/aib/ibc/app:gno.land/p/aib/ibc/app"
-
-  # depends on ibc/types, ics23
-  "gno.land/p/aib/ibc/lightclient:gno.land/p/aib/ibc/lightclient"
-
-  # depends on encoding/proto, ibc/lightclient, ibc/types, ics23, merkle
-  "gno.land/p/aib/ibc/lightclient/tendermint:gno.land/p/aib/ibc/lightclient/tendermint"
-
-  # depends on lightclient/tendermint, ibc/types, ics23
-  "gno.land/p/aib/ibc/lightclient/tendermint/testing:gno.land/p/aib/ibc/lightclient/tendermint/testing"
-
-  # realms (stateful)
-  # grc20test has no aib deps
-  "gno.land/r/aib/ibc/apps/testing/grc20test:gno.land/r/aib/ibc/apps/testing/grc20test"
-
-  # depends on ibc/app, ibc/types
-  "gno.land/r/aib/ibc/apps/testing:gno.land/r/aib/ibc/apps/testing"
-
-  # depends on ibc/app, ibc/host, ibc/lightclient, lightclient/tendermint,
-  # lightclient/tendermint/testing (filetest), ibc/types, ics23, jsonpage
-  "gno.land/r/aib/ibc/core:gno.land/r/aib/ibc/core"
-
-  # depends on encoding/proto, ibc/app, ibc/host, lightclient/tendermint,
-  # ibc/types, ics23, jsonpage, grc20test (filetest), r/aib/ibc/core
-  "gno.land/r/aib/ibc/apps/transfer:gno.land/r/aib/ibc/apps/transfer"
-)
+# PACKAGES comes from packages.sh, shared with make-deploy-tx.sh.
+source "$(dirname "$0")/packages.sh"
 
 # ---- helpers ----------------------------------------------------------------
+
+# pkg_status prints the on-chain status of a package path, as reported by
+# vm/qpkgmeta_json: "live" (deployed and callable), "inert" (submitted, parked,
+# awaiting a package approver) or "absent" (nothing at this path). Empty when
+# the query itself fails.
+pkg_status() {
+  "${GNOKEY_CMD[@]}" query vm/qpkgmeta_json -data "$1" -remote "$REMOTE" 2>/dev/null \
+    | sed -n 's/^data: //p' | grep -o '"status":"[a-z]*"' | cut -d'"' -f4
+}
+
+# code_submission_policy prints the chain's vm code-submission policy:
+# "permissionless", "permissioned" or "inert". Empty when the query fails.
+code_submission_policy() {
+  "${GNOKEY_CMD[@]}" query params/vm:p:code_submission_policy -remote "$REMOTE" 2>/dev/null \
+    | sed -n 's/^data: //p' | tr -d '"'
+}
 
 SIMULATE_FLAG="test"
 BROADCAST_FLAG="-broadcast"
@@ -143,15 +122,19 @@ for entry in "${PACKAGES[@]}"; do
 
   # BroadcastTxCommit returns slightly before the next-block state is
   # queryable, so the next tx could be signed with a stale account sequence
-  # ("signature verification failed"). Wait until the package is queryable
-  # (same committed state as the account sequence) before moving on.
+  # ("signature verification failed"). Wait until the package is on chain
+  # (same committed state as the account sequence) before moving on. Under the
+  # "inert" policy the package is only parked at this point ("inert", not
+  # "live"); the final loop below waits for its enablement.
   if [[ "$DRY_RUN" != "1" ]]; then
     for attempt in $(seq 1 30); do
-      if "${GNOKEY_CMD[@]}" query vm/qfile -data "$pkgpath" -remote "$REMOTE" >/dev/null 2>&1; then
+      status="$(pkg_status "$pkgpath")"
+      if [[ "$status" == "live" || "$status" == "inert" ]]; then
+        printf "          status: %s\n" "$status"
         break
       fi
       if (( attempt == 30 )); then
-        echo "    ERROR: $pkgpath still not on chain after ${attempt}s" >&2
+        echo "    ERROR: $pkgpath still not on chain after ${attempt}s (status: ${status:-unknown})" >&2
         exit 1
       fi
       sleep 1
@@ -160,5 +143,37 @@ for entry in "${PACKAGES[@]}"; do
 
   echo
 done
+
+# ---- enablement -------------------------------------------------------------
+# Under the "inert" code-submission policy, addpkg only parks a package; a
+# package approver has to send MsgEnablePackage for it to be type-checked,
+# initialised and callable. Each package's init() (for instance the transfer
+# realm's core.RegisterApp) runs at that moment, in the approver's order. Only
+# report the deploy done once every package is live.
+if [[ "$DRY_RUN" != "1" ]]; then
+  policy="$(code_submission_policy)"
+  echo "==> code_submission_policy: ${policy:-unknown}"
+  if [[ "$policy" == "inert" ]]; then
+    echo "==> Waiting for package approvers to enable the packages"
+    echo "    (polling every ${ENABLE_POLL_INTERVAL}s; Ctrl-C stops waiting, the packages stay parked)"
+    while true; do
+      pending=()
+      for entry in "${PACKAGES[@]}"; do
+        pkgpath="${entry%%:*}"
+        status="$(pkg_status "$pkgpath")"
+        if [[ "$status" != "live" ]]; then
+          pending+=("$pkgpath (${status:-unknown})")
+        fi
+      done
+      if (( ${#pending[@]} == 0 )); then
+        echo "==> All ${#PACKAGES[@]} packages are live."
+        break
+      fi
+      echo "    $(date +%H:%M:%S) ${#pending[@]}/${#PACKAGES[@]} not live yet:"
+      printf "      %s\n" "${pending[@]}"
+      sleep "$ENABLE_POLL_INTERVAL"
+    done
+  fi
+fi
 
 echo "==> Done."

@@ -13,7 +13,8 @@
 #
 # CLIENT_ID is the AtomOne-side client tracking the gno testnet, created by the
 # relayer — a new one per gno testnet, so it must be re-checked after every
-# testnet migration (10-gno-13/14 tracked topaz-1, 10-gno-15 sapphire-1):
+# testnet migration (10-gno-13/14 tracked topaz-1, 10-gno-15 sapphire-1,
+# 10-gno-16 pearl-1; onyx-1 needs a new one):
 #
 #   curl -s https://atomone-testnet-1-api.allinbits.services/ibc/core/client/v1/client_states \
 #     | jq -r '.client_states[] | "\(.client_id) \(.client_state.chain_id)"'
@@ -54,7 +55,7 @@ set -euo pipefail
 
 NODE="${NODE:-https://atomone-testnet-1-rpc.allinbits.services:443}"
 CHAIN_ID="${CHAIN_ID:-atomone-testnet-1}"
-CLIENT_ID="${CLIENT_ID:-10-gno-16}" # tracks pearl-1; counterparty 07-tendermint-1
+CLIENT_ID="${CLIENT_ID:-10-gno-16}" # tracked pearl-1 (counterparty 07-tendermint-1); re-check for onyx-1 with the curl above
 KEY="${KEY:-relayer}"
 KEYRING_BACKEND="${KEYRING_BACKEND:-test}"
 KEYRING_DIR="${KEYRING_DIR:-~/.atomone-testnet}"
