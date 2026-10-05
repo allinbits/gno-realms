@@ -290,14 +290,6 @@ func (a *App) OnRecvPacket(
 		chain.Emit(EventTypePacket, attrs...)
 	}()
 
-	// While paused, answer with an error acknowledgement so the counterparty
-	// refunds its sender; nothing is minted or released on this side.
-	if paused {
-		ackErr = errors.New("transfer is paused")
-		ack = types.NewErrorAppAcknowledgement(ackErr)
-		return types.RecvPacketResult{Status: types.PacketStatus_Failure}
-	}
-
 	data, token, ackErr = unmarshalPayload(payload.Value)
 	if ackErr != nil {
 		ack = types.NewErrorAppAcknowledgement(ackErr)

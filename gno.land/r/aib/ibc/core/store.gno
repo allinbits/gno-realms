@@ -59,6 +59,9 @@ type ibcApp struct {
 	app.IBCApp
 	pkgPath string
 	address address
+	// paused is set by PauseApp: SendPacket refuses the port and RecvPacket
+	// answers with the error acknowledgement without invoking the app.
+	paused bool
 }
 
 type pendingAsyncAck struct {

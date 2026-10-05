@@ -32,7 +32,7 @@ func main(cur realm) {
 // apps: []
 // apps/pending: {"total":1,"pending":[{"pkg_path":"gno.land/r/third/party/app","address":"g1ewqw6mkxkg4ee75zpaslmw5f0q2wvwfsz3ykwp"}]}
 // pending: false
-// apps: [{"port_id":"thirdparty","pkg_path":"gno.land/r/third/party/app","address":"g1ewqw6mkxkg4ee75zpaslmw5f0q2wvwfsz3ykwp"}]
+// apps: [{"port_id":"thirdparty","pkg_path":"gno.land/r/third/party/app","address":"g1ewqw6mkxkg4ee75zpaslmw5f0q2wvwfsz3ykwp","paused":false}]
 // apps/pending: {"total":0,"pending":[]}
 
 // Events:

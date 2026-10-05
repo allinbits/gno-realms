@@ -119,6 +119,7 @@ func renderApps(w *mux.ResponseWriter, r *mux.Request) {
 			"port_id":  json.StringNode("", port),
 			"pkg_path": json.StringNode("", app.pkgPath),
 			"address":  json.StringNode("", app.address.String()),
+			"paused":   json.BoolNode("", app.paused),
 		}))
 	}
 	renderNode(w, json.ArrayNode("", nodes))

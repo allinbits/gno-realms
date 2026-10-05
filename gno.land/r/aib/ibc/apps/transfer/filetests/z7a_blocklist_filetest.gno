@@ -23,7 +23,7 @@ func main(cur realm) {
 // - **Authority members**:
 //   - g1gjs8nfdrd55z3xu9gjcatnj29vkwuyx4ffqxd9
 //   - g1p84dvfh4wrplyxx4zsmy77a8rxcnjup2j7zv5r
-// - **Paused**: false
+// - **Paused**: false (set by the IBC core)
 // - **Blocked addresses**:
 //   - g1someother00000000000000000000000000
 //
@@ -33,7 +33,7 @@ func main(cur realm) {
 // - **Authority members**:
 //   - g1gjs8nfdrd55z3xu9gjcatnj29vkwuyx4ffqxd9
 //   - g1p84dvfh4wrplyxx4zsmy77a8rxcnjup2j7zv5r
-// - **Paused**: false
+// - **Paused**: false (set by the IBC core)
 // - **Blocked addresses**: none
 
 // Events:

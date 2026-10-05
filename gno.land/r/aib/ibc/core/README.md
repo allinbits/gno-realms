@@ -295,6 +295,21 @@ refunded by the usual timeout path once resumed.
 
 Emitted events: `pause` and `unpause`, with no attributes.
 
+## PauseApp / UnpauseApp
+
+`core.PauseApp(portID)` suspends one application instead of the whole packet
+path: `SendPacket` refuses payloads for that port (the sender's transaction
+fails, nothing moves), and `RecvPacket` answers incoming packets for it with the
+error acknowledgement without invoking the app, so the counterparty refunds its
+senders. `Acknowledgement` and `Timeout` callbacks keep running, so refunds the
+app owes are never held back. `core.UnpauseApp(portID)` resumes it. Both are
+gated by the authority and `MsgCall`-compatible, with GovDAO constructors
+`NewPauseAppProposalRequest` / `NewUnpauseAppProposalRequest`. `IsAppPaused`
+and the `paused` field of `/r/aib/ibc/core:apps` report the state. Applications
+do not carry a pause switch of their own.
+
+Emitted events: `app_paused` and `app_unpaused`, with a `port` attribute.
+
 ## Authority
 
 Administrative operations (`AddRelayer`, `RemoveRelayer`, `Pause`, `Unpause`,

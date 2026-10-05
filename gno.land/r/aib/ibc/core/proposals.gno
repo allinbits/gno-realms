@@ -89,3 +89,17 @@ func NewRejectAppProposalRequest(cur realm, portID, pkgPath string) dao.Proposal
 		"Drop the pending registration of the realm "+pkgPath+" for port "+portID+" of the IBC core.",
 		func(cur realm) error { rejectApp(0, cur, portID, pkgPath); return nil })
 }
+
+// NewPauseAppProposalRequest proposes to suspend the application on portID.
+func NewPauseAppProposalRequest(cur realm, portID string) dao.ProposalRequest {
+	return newProposalRequest(0, cur, "pause app "+portID,
+		"Suspend the IBC application registered on port "+portID+": sends for that port are refused and incoming packets are answered with an error acknowledgement, so counterparties refund their senders. Acknowledgement and timeout callbacks keep running.",
+		func(cur realm) error { pauseApp(0, cur, portID); return nil })
+}
+
+// NewUnpauseAppProposalRequest proposes to resume the application on portID.
+func NewUnpauseAppProposalRequest(cur realm, portID string) dao.ProposalRequest {
+	return newProposalRequest(0, cur, "unpause app "+portID,
+		"Resume the IBC application registered on port "+portID+".",
+		func(cur realm) error { unpauseApp(0, cur, portID); return nil })
+}

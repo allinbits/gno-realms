@@ -8,8 +8,6 @@ import (
 )
 
 const (
-	EventTypePause                  = "pause"
-	EventTypeUnpause                = "unpause"
 	EventTypeBlock                  = "block"
 	EventTypeUnblock                = "unblock"
 	EventTypeAuthorityMemberAdded   = "authority_member_added"
@@ -17,13 +15,12 @@ const (
 )
 
 var (
-	// auth gates every administrative operation: the pause switch, the
-	// blocklist and its own membership. Bootstrapped at init with the deployer
+	// auth gates every administrative operation: the blocklist and its own
+	// membership. Pausing the app is the IBC core's job (core.PauseApp). Bootstrapped at init with the deployer
 	// (the AIB multisig on mainnet) and the GovDAO proxy, which acts through
 	// the proposal constructors in proposals.gno. Same model as
 	// r/aib/ibc/core/admin.gno.
 	auth    *authority.Authority
-	paused  bool
 	blocked = bptree.NewBPTree32() // address -> true
 )
 
@@ -59,44 +56,6 @@ func removeAuthorityMember(_ int, rlm realm, addr address) {
 // IsAuthorityMember reports whether addr may administer this realm.
 func IsAuthorityMember(addr address) bool {
 	return auth.IsMember(addr)
-}
-
-// Pause suspends the app: Transfer panics and OnRecvPacket answers every
-// incoming packet with an error acknowledgement (so the counterparty refunds
-// its sender) until Unpause. Refunds through OnAcknowledgementPacket and
-// OnTimeoutPacket keep working, so no user funds are held back by a pause.
-// Members only.
-func Pause(cur realm) {
-	pause(0, cur)
-}
-
-func pause(_ int, rlm realm) {
-	auth.Assert(0, rlm, "pause")
-	paused = true
-	chain.Emit(EventTypePause)
-}
-
-// Unpause resumes the app. Members only.
-func Unpause(cur realm) {
-	unpause(0, cur)
-}
-
-func unpause(_ int, rlm realm) {
-	auth.Assert(0, rlm, "unpause")
-	paused = false
-	chain.Emit(EventTypeUnpause)
-}
-
-// Paused reports whether the app is suspended.
-func Paused() bool {
-	return paused
-}
-
-// ensureNotPaused panics if the app is suspended.
-func ensureNotPaused() {
-	if paused {
-		panic("transfer is paused")
-	}
 }
 
 // BlockAddress adds addr to the blocklist. A blocked address can no longer
