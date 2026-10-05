@@ -84,21 +84,6 @@ Storage and mutation (`docs/resources/gno-interrealm.md`):
   `rlm.IsCurrent() && rlm.PkgPath() == proxyPath` is sound (verified in the
   `chore/proxy` branch notes against the then-current pin, unchanged since).
 
-Deploying on mainnet (`misc/deployments/mainnet.gno.land/README.md:17`,
-`gen-genesis.sh:313-392`):
-
-- `code_submission_policy = inert`: a post-genesis `MsgAddPackage` is stored, not
-  executed, and becomes live only when the gpao approvals oracle sends
-  `MsgEnablePackage` with the package hash. `init()` runs at enable time, not at
-  submission (`vm/keeper_inert.go`).
-- `MsgRun` may be allowlisted (`run_submitters`), as on lab1. Governance and
-  upgrade entry points should therefore stay `MsgCall`-compatible (strings,
-  addresses, integers only).
-- Storage deposits are locked per realm and refunded only when realm code deletes
-  data; there is no eviction message (`docs/resources/storage-deposit.md`,
-  `vm/keeper.go:2334-2490`). An abandoned implementation realm should hold no
-  state worth paying for.
-
 Governance constraints (`docs/CONSTITUTION.md:1173-1197`, "Realm Upgrading"):
 upgradeable realms must be shown as such in gnoweb; no types declared in an
 upgradeable realm may be persisted in an immutable realm; immutable realms may not
