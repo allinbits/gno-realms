@@ -27,6 +27,7 @@ const transferRealmPath = "gno.land/r/aib/ibc/apps/transfer"
 func Render(path string) string {
 	router := mux.NewRouter()
 	router.HandleFunc("", renderHome)
+	router.HandleFunc("admin", renderAdmin)
 	router.HandleFunc("denoms", renderDenoms)
 	router.HandleFunc("denoms/ibc/{hash}", renderDenom)
 	router.HandleFunc("total_escrow/{denom}", renderTotalEscrowForDenom)
@@ -117,6 +118,7 @@ func renderHome(w *mux.ResponseWriter, r *mux.Request) {
 		out.WriteString("No escrow yet.\n\n")
 	}
 	out.WriteString("## JSON endpoints\n\n")
+	out.WriteString("- [`admin`](/r/aib/ibc/apps/transfer:admin): admin, pause state, blocked addresses\n")
 	out.WriteString("- [`denoms`](/r/aib/ibc/apps/transfer:denoms): list known IBC denoms (`?page`, `?limit`)\n")
 	out.WriteString("- `denoms/ibc/{hash}`: get metadata for an IBC denom\n")
 	out.WriteString("- `total_escrow/{denom}`: get total escrow tracked for a base denom\n")
@@ -377,4 +379,21 @@ func nodeError(msg string, args ...any) *json.Node {
 	return json.ObjectNode("", map[string]*json.Node{
 		"error": json.StringNode("", ufmt.Sprintf(msg, args...)),
 	})
+}
+
+func renderAdmin(w *mux.ResponseWriter, r *mux.Request) {
+	var out strings.Builder
+	out.WriteString("## Admin\n\n")
+	out.WriteString(ufmt.Sprintf("- **Admin**: %s\n", admin))
+	out.WriteString(ufmt.Sprintf("- **Paused**: %t\n", paused))
+	if blocked.Size() == 0 {
+		out.WriteString("- **Blocked addresses**: none\n")
+	} else {
+		out.WriteString("- **Blocked addresses**:\n")
+		blocked.Iterate("", "", func(k string, _ any) bool {
+			out.WriteString("  - " + k + "\n")
+			return false
+		})
+	}
+	w.Write(out.String())
 }
