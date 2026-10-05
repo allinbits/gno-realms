@@ -231,6 +231,20 @@ func main(cur realm) {
 //     "pkg_path": "gno.land/r/aib/ibc/core"
 //   },
 //   {
+//     "type": "app_registered",
+//     "attrs": [
+//       {
+//         "key": "port",
+//         "value": "app"
+//       },
+//       {
+//         "key": "pkg_path",
+//         "value": "gno.land/r/aib/main"
+//       }
+//     ],
+//     "pkg_path": "gno.land/r/aib/ibc/core"
+//   },
+//   {
 //     "type": "send_packet",
 //     "attrs": [
 //       {

@@ -75,3 +75,17 @@ func NewRemoveAuthorityMemberProposalRequest(cur realm, addr address) dao.Propos
 		"Remove "+string(addr)+" from the authority of the IBC core.",
 		func(cur realm) error { removeAuthorityMember(0, cur, addr); return nil })
 }
+
+// NewApproveAppProposalRequest proposes to activate a pending app registration.
+func NewApproveAppProposalRequest(cur realm, portID, pkgPath string) dao.ProposalRequest {
+	return newProposalRequest(0, cur, "approve app "+pkgPath+" on port "+portID,
+		"Activate the pending registration of the realm "+pkgPath+" as the IBC application behind port "+portID+" of the IBC core. Once active, packets with that port are routed to it.",
+		func(cur realm) error { approveApp(0, cur, portID, pkgPath); return nil })
+}
+
+// NewRejectAppProposalRequest proposes to drop a pending app registration.
+func NewRejectAppProposalRequest(cur realm, portID, pkgPath string) dao.ProposalRequest {
+	return newProposalRequest(0, cur, "reject app "+pkgPath+" on port "+portID,
+		"Drop the pending registration of the realm "+pkgPath+" for port "+portID+" of the IBC core.",
+		func(cur realm) error { rejectApp(0, cur, portID, pkgPath); return nil })
+}

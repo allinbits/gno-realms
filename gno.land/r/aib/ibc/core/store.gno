@@ -24,12 +24,18 @@ type Store struct {
 	clientByID *bptree.BPTree // id:client
 
 	routes map[string]ibcApp
+	// pendingApps holds registrations from realms outside this project's
+	// namespace until the authority approves them (see app.gno). Keyed by
+	// pendingKey(port, pkgPath); a B+ tree, because anyone may add to it and
+	// a map would be loaded whole on every access.
+	pendingApps *bptree.BPTree // port:pkgPath -> ibcApp
 }
 
 func newStore() *Store {
 	return &Store{
-		clientByID: bptree.NewBPTree32(),
-		routes:     make(map[string]ibcApp),
+		clientByID:  bptree.NewBPTree32(),
+		routes:      make(map[string]ibcApp),
+		pendingApps: bptree.NewBPTree32(),
 	}
 }
 

@@ -50,6 +50,11 @@ func (a *App) OnRecvPacket(cur realm, sourceClient, destinationClient string,
 See `assertCoreCaller` in the transfer application for the shared helper, and
 its `*_foreign_caller_filetest.gno` filetests for the expected behaviour.
 
+Registration is immediate for realms under `gno.land/r/aib/`. From any other
+realm it stays pending until the core's authority approves it (`ApproveApp`,
+directly or through a GovDAO proposal), so a third-party application should
+expose a way to register after approval rather than only from `init`.
+
 ### Transfer Application
 
 See [Transfer Application README].
