@@ -3,14 +3,26 @@ package main
 
 import "gno.land/r/aib/ibc/apps/transfer"
 
-func main() {
+// Pause / Unpause round trip by the admin; the home page shows a banner while
+// paused.
+func main(cur realm) {
+	transfer.SetAdmin(cross(cur), "g1wymu47drhr0kuq2098m792lytgtj2nyx77yrsm")
+	println("paused:", transfer.Paused())
+	transfer.Pause(cross(cur))
+	println("paused:", transfer.Paused())
 	println(transfer.Render(""))
+	transfer.Unpause(cross(cur))
+	println("paused:", transfer.Paused())
 }
 
 // Output:
+// paused: false
+// paused: true
 // # IBC transfer
 //
 // ICS-20 style transfer state and voucher token queries.
+//
+// > **Paused**: transfers are suspended by the admin; incoming packets are refused.
 //
 // ## Transfer
 //
@@ -33,3 +45,20 @@ func main() {
 // - [`vouchers`](/r/aib/ibc/apps/transfer:vouchers): list voucher tokens (`?page`, `?limit`)
 // - `voucher/ibc/{hash}`: get voucher token metadata
 // - `voucher/ibc/{hash}/balance/{addr}`: get a voucher balance for an address
+//
+//
+// paused: false
+
+// Events:
+// [
+//   {
+//     "type": "pause",
+//     "attrs": [],
+//     "pkg_path": "gno.land/r/aib/ibc/apps/transfer"
+//   },
+//   {
+//     "type": "unpause",
+//     "attrs": [],
+//     "pkg_path": "gno.land/r/aib/ibc/apps/transfer"
+//   }
+// ]

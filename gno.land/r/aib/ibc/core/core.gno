@@ -15,6 +15,7 @@ import (
 const maxTimeoutDelta time.Duration = 24 * time.Hour
 
 func SendPacket(cur realm, msg types.MsgSendPacket) (sequence uint64) {
+	ensureNotPaused()
 	if err := msg.ValidateBasic(); err != nil {
 		panic(err)
 	}
@@ -98,6 +99,7 @@ func SendPacket(cur realm, msg types.MsgSendPacket) (sequence uint64) {
 }
 
 func RecvPacket(cur realm, msg types.MsgRecvPacket) types.ResponseResultType {
+	ensureNotPaused()
 	if err := msg.ValidateBasic(); err != nil {
 		panic(err)
 	}
@@ -240,6 +242,7 @@ func (c *client) writeRecvPacketAcknowledgement(_ int, rlm realm, packet types.P
 }
 
 func WriteAcknowledgement(cur realm, clientID string, sequence uint64, ack types.Acknowledgement) {
+	ensureNotPaused()
 	c := store.getClient(clientID)
 	if c == nil {
 		panic(ufmt.Sprintf("client %s not found", clientID))
@@ -282,6 +285,7 @@ func emitWriteAcknowledgement(packet types.Packet, ack types.Acknowledgement) {
 }
 
 func Acknowledgement(cur realm, msg types.MsgAcknowledgement) types.ResponseResultType {
+	ensureNotPaused()
 	if err := msg.ValidateBasic(); err != nil {
 		panic(err)
 	}
@@ -380,6 +384,7 @@ func Acknowledgement(cur realm, msg types.MsgAcknowledgement) types.ResponseResu
 }
 
 func Timeout(cur realm, msg types.MsgTimeout) types.ResponseResultType {
+	ensureNotPaused()
 	if err := msg.ValidateBasic(); err != nil {
 		panic(err)
 	}

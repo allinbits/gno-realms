@@ -103,6 +103,35 @@ gnokey maketx call -pkgpath gno.land/r/aib/ibc/apps/transfer -func Transfer \
 > `gno.land:r:demo:foo.FOO`). The counterparty chain sees the aliased form, not
 > the original grc20reg key.
 
+## Admin
+
+The realm has a single admin, the deployer's EOA, transferable with
+`SetAdmin(newAdmin)` (same bootstrap and EOA-binding trade-off as the core
+realm's `admin.gno`). The admin can suspend the app:
+
+- `Pause()`: `Transfer` panics with `transfer is paused`, and `OnRecvPacket`
+  answers every incoming packet with an error acknowledgement so the
+  counterparty refunds its sender; nothing is minted or released on this side.
+  Refunds through `OnAcknowledgementPacket` and `OnTimeoutPacket` keep working,
+  so no user funds are held back by a pause. `VoucherSend` and `VoucherApprove`
+  are plain GRC20 operations and are not affected.
+- `Unpause()`: resumes the app.
+- `Paused()`: reports the state; the home page shows a banner while paused.
+
+and keep a blocklist of addresses, the equivalent of ibc-go's blocked
+addresses:
+
+- `BlockAddress(addr)`: a blocked address can no longer send (`OnSendPacket`
+  rejects it, so `Transfer` fails) nor receive (`OnRecvPacket` answers with an
+  error acknowledgement, so the counterparty refunds its sender). Refunds to a
+  blocked sender still go through: blocking never confiscates funds already in
+  flight.
+- `UnblockAddress(addr)`: removes it.
+- `IsBlocked(addr)`: reports the state; the `admin` page lists the blocklist.
+
+All of these are `MsgCall`-compatible and emit `pause` / `unpause` /
+`block` / `unblock` events.
+
 ## Query endpoints
 
 All endpoints return JSON and are accessible via gnoweb or `gnokey query vm/qrender`.

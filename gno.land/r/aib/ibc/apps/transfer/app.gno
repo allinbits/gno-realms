@@ -60,8 +60,6 @@ func (a *App) OnSendPacket(
 	payload types.Payload,
 ) error {
 	assertCoreCaller(0, cur)
-	// TODO add parameter to disable the app
-	// TODO add parameter to block sender addr
 
 	// Enforce that the source and destination portIDs are the same and equal to
 	// the transfer portID.
@@ -96,6 +94,9 @@ func (a *App) OnSendPacket(
 	signer := unsafe.OriginCaller().String()
 	if data.Sender != signer {
 		return ufmt.Errorf("invalid FungibleTokenPacketData: sender %s is different from signer %s", data.Sender, signer)
+	}
+	if IsBlocked(address(data.Sender)) {
+		return ufmt.Errorf("sender %s is blocked", data.Sender)
 	}
 
 	// Enforce that the base denom does not contain any slashes
@@ -236,8 +237,6 @@ func (a *App) OnRecvPacket(
 	payload types.Payload,
 ) types.RecvPacketResult {
 	assertCoreCaller(0, cur)
-	// TODO add parameter to disable the app
-	// TODO add parameter to block receiver addr
 
 	// Enforce that the source and destination portIDs are the same and equal to
 	// the transfer portID.
@@ -291,12 +290,27 @@ func (a *App) OnRecvPacket(
 		chain.Emit(EventTypePacket, attrs...)
 	}()
 
+	// While paused, answer with an error acknowledgement so the counterparty
+	// refunds its sender; nothing is minted or released on this side.
+	if paused {
+		ackErr = errors.New("transfer is paused")
+		ack = types.NewErrorAppAcknowledgement(ackErr)
+		return types.RecvPacketResult{Status: types.PacketStatus_Failure}
+	}
+
 	data, token, ackErr = unmarshalPayload(payload.Value)
 	if ackErr != nil {
 		ack = types.NewErrorAppAcknowledgement(ackErr)
 		return types.RecvPacketResult{Status: types.PacketStatus_Failure}
 	}
 	if ackErr = validateBaseDenomNoSlash(token); ackErr != nil {
+		ack = types.NewErrorAppAcknowledgement(ackErr)
+		return types.RecvPacketResult{Status: types.PacketStatus_Failure}
+	}
+	// A blocked receiver gets an error acknowledgement, so the counterparty
+	// refunds its sender; nothing is minted or released here.
+	if IsBlocked(address(data.Receiver)) {
+		ackErr = ufmt.Errorf("receiver %s is blocked", data.Receiver)
 		ack = types.NewErrorAppAcknowledgement(ackErr)
 		return types.RecvPacketResult{Status: types.PacketStatus_Failure}
 	}
