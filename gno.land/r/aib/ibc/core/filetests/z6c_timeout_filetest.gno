@@ -9,6 +9,7 @@ import (
 	"gno.land/p/aib/ics23/v0"
 	appstesting "gno.land/r/aib/ibc/apps/testing"
 	"gno.land/r/aib/ibc/core"
+	_ "gno.land/r/aib/ibc/core/impl/v0"
 )
 
 // Timeout client not found

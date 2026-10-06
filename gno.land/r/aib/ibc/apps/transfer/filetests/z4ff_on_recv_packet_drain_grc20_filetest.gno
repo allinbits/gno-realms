@@ -16,6 +16,7 @@ import (
 	"gno.land/r/aib/ibc/apps/testing/grc20test"
 	"gno.land/r/aib/ibc/apps/transfer"
 	"gno.land/r/aib/ibc/core"
+	_ "gno.land/r/aib/ibc/core/impl/v0"
 )
 
 // OnRecvPacket: per-client escrow isolation on the GRC20 release path.

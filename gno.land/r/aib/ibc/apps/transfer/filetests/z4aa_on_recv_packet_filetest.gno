@@ -14,6 +14,7 @@ import (
 	"gno.land/p/nt/testutils/v0"
 	"gno.land/r/aib/ibc/apps/transfer"
 	"gno.land/r/aib/ibc/core"
+	_ "gno.land/r/aib/ibc/core/impl/v0"
 )
 
 // OnRecvPacket: success w/ IBC token (returning native ugnot).

@@ -1,7 +1,10 @@
 // PKGPATH: gno.land/r/aib/main
 package main
 
-import "gno.land/r/aib/ibc/core"
+import (
+	"gno.land/r/aib/ibc/core"
+	_ "gno.land/r/aib/ibc/core/impl/v0"
+)
 
 // Pause / Unpause round trip by the admin; the admin page shows the state.
 func main(cur realm) {
@@ -23,6 +26,9 @@ func main(cur realm) {
 //   - [g1gjs8…qxd9](/u/g1gjs8nfdrd55z3xu9gjcatnj29vkwuyx4ffqxd9)
 //   - [g1p84d…zv5r](/u/g1p84dvfh4wrplyxx4zsmy77a8rxcnjup2j7zv5r)
 // - **Paused**: true
+// - **Implementation**: [`gno.land/r/aib/ibc/core/impl/v0`](/r/aib/ibc/core/impl/v0) (version v0)
+// - **Registered implementations**:
+//   - [`gno.land/r/aib/ibc/core/impl/v0`](/r/aib/ibc/core/impl/v0)
 // - **Relayers**: any (whitelist empty)
 //
 // paused: false

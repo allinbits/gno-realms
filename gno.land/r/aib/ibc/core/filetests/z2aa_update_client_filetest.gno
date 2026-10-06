@@ -4,10 +4,11 @@ package main
 import (
 	"time"
 
-	"gno.land/p/aib/ibc/lightclient/tendermint/v0"
 	tmtesting "gno.land/p/aib/ibc/lightclient/tendermint/testing/v0"
+	"gno.land/p/aib/ibc/lightclient/tendermint/v0"
 	"gno.land/p/aib/ibc/types/v0"
 	"gno.land/r/aib/ibc/core"
+	_ "gno.land/r/aib/ibc/core/impl/v0"
 )
 
 // UpdateClient success with non-adjacent height
@@ -123,4 +124,3 @@ func main(cur realm) {
 //     "pkg_path": "gno.land/r/aib/ibc/core"
 //   }
 // ]
-

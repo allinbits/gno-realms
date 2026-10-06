@@ -24,6 +24,14 @@ func NewTMLightClient() *TMLightClient {
 	}
 }
 
+// NewLightClient is NewTMLightClient typed as the generic light-client
+// interface, so it can be handed as a constructor value where a
+// func() lightclient.Interface is expected (the IBC core store allocates
+// verifiers through such a constructor).
+func NewLightClient() lightclient.Interface {
+	return NewTMLightClient()
+}
+
 var _ lightclient.Interface = (*TMLightClient)(nil)
 
 // Implements lightclient.Interface

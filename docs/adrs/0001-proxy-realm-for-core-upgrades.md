@@ -80,9 +80,11 @@ Nothing in this list can change after the first mainnet deploy.
 5. **Gated `Emit*` wrappers**, one per lifecycle event type of `p/aib/ibc/types`,
    guarded by the same realm assertion. They are the single source of truth for
    the event schema. Administrative events are emitted by proxy code directly.
-6. **No light-client code in the proxy.** The implementation constructs the
-   verifier it imports and hands it to `AddClient(0, rlm, typ, creator, lc)`;
-   the proxy stores it as a `lightclient.Interface`. Changing the verifier is an
+6. **No light-client code in the proxy.** The implementation chooses the
+   verifier and hands its `/p/` constructor to `AddClient(0, rlm, typ,
+   creator, newLightClient)`; the proxy calls it, so the verifier is allocated
+   in the proxy's storage rather than the implementation's, and stores it as a
+   `lightclient.Interface`. Changing the verifier is an
    ordinary implementation upgrade (see "Light clients").
 7. **Implementation lifecycle.**
    - `RegisterImpl(cur, ctor func(Store) Logic)`: callable only from a sub-realm
@@ -153,7 +155,8 @@ the `/p/` version that created them. Verification stays in `/p/`, versioned
 (`p/aib/ibc/lightclient/tendermint/v0`, `/v1`, ...). A new implementation that
 needs a new verifier converts each stored client lazily or in `OnInstall`,
 reading the exported fields of the v0 object and storing the result with
-`SetLightClient`; the consensus-state tree can be shared by pointer, so the
+`SetLightClient`, which takes the `/p/` conversion function for the same
+allocation reason as `AddClient`; the consensus-state tree can be shared by pointer, so the
 migration is O(1) per client. The store field stays typed
 `lightclient.Interface` forever, so a later verifier such as `tendermint/v1`
 must still implement it and the implementation type-asserts for anything newer. `RecoverClient` and a

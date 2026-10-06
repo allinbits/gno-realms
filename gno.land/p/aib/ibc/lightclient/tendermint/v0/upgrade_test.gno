@@ -18,7 +18,7 @@ func TestCalculateNewTrustingPeriod(t *testing.T) {
 		// trusting=2 weeks, current unbonding=3 weeks, new unbonding=2 weeks
 		// → new trusting = 2w * 2w / 3w = ~9.33d, truncated to seconds.
 		got := calculateNewTrustingPeriod(2*week, 3*week, 2*week)
-		want := time.Duration((2 * week / time.Second) * (2 * week / time.Second) / (3 * week / time.Second)) * time.Second
+		want := time.Duration((2*week/time.Second)*(2*week/time.Second)/(3*week/time.Second)) * time.Second
 		uassert.Equal(t, int64(want), int64(got))
 		// Sanity: result is strictly less than original trusting period.
 		uassert.True(t, got < 2*week)

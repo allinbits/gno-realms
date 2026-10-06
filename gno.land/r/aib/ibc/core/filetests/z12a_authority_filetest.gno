@@ -7,6 +7,7 @@ import (
 
 	"gno.land/p/aib/authority/v0"
 	"gno.land/r/aib/ibc/core"
+	_ "gno.land/r/aib/ibc/core/impl/v0"
 )
 
 // Authority: GovDAO is a member from the start, the test-framework bootstrap
@@ -41,6 +42,9 @@ func main(cur realm) {
 //   - [g1gjs8…qxd9](/u/g1gjs8nfdrd55z3xu9gjcatnj29vkwuyx4ffqxd9)
 //   - [g1p84d…zv5r](/u/g1p84dvfh4wrplyxx4zsmy77a8rxcnjup2j7zv5r)
 // - **Paused**: false
+// - **Implementation**: [`gno.land/r/aib/ibc/core/impl/v0`](/r/aib/ibc/core/impl/v0) (version v0)
+// - **Registered implementations**:
+//   - [`gno.land/r/aib/ibc/core/impl/v0`](/r/aib/ibc/core/impl/v0)
 // - **Relayers**:
 //   - [g1rela…0000](/u/g1relayer000000000000000000000000000000)
 //
@@ -51,6 +55,9 @@ func main(cur realm) {
 //   - [g1p84d…zv5r](/u/g1p84dvfh4wrplyxx4zsmy77a8rxcnjup2j7zv5r)
 //   - [g1some…0000](/u/g1someother00000000000000000000000000)
 // - **Paused**: false
+// - **Implementation**: [`gno.land/r/aib/ibc/core/impl/v0`](/r/aib/ibc/core/impl/v0) (version v0)
+// - **Registered implementations**:
+//   - [`gno.land/r/aib/ibc/core/impl/v0`](/r/aib/ibc/core/impl/v0)
 // - **Relayers**: any (whitelist empty)
 
 // Events:

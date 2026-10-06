@@ -1,7 +1,10 @@
 // PKGPATH: gno.land/r/aib/main
 package main
 
-import "gno.land/r/aib/ibc/core"
+import (
+	"gno.land/r/aib/ibc/core"
+	_ "gno.land/r/aib/ibc/core/impl/v0"
+)
 
 // Pause is admin-only.
 func main(cur realm) {

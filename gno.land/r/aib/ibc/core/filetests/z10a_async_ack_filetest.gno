@@ -1,7 +1,6 @@
 // PKGPATH: gno.land/r/aib/main
 package main
 
-
 import (
 	"encoding/hex"
 	"time"
@@ -11,6 +10,7 @@ import (
 	"gno.land/p/aib/ics23/v0"
 	appstesting "gno.land/r/aib/ibc/apps/testing"
 	"gno.land/r/aib/ibc/core"
+	_ "gno.land/r/aib/ibc/core/impl/v0"
 )
 
 // forwardingApp wraps the base mock and writes the deferred parent ack from

@@ -1,7 +1,10 @@
 // PKGPATH: gno.land/r/aib/main
 package main
 
-import "gno.land/r/aib/ibc/core"
+import (
+	"gno.land/r/aib/ibc/core"
+	_ "gno.land/r/aib/ibc/core/impl/v0"
+)
 
 // Every gated operation has a GovDAO proposal constructor; building the
 // requests needs no privilege (creating the proposal is GovDAO's job).
@@ -14,6 +17,7 @@ func main(cur realm) {
 	_ = core.NewUnpauseProposalRequest(cross(cur))
 	_ = core.NewAddAuthorityMemberProposalRequest(cross(cur), addr)
 	_ = core.NewRemoveAuthorityMemberProposalRequest(cross(cur), addr)
+	_ = core.NewUpdateImplProposalRequest(cross(cur), "gno.land/r/aib/ibc/core/impl/v1")
 	println("ok")
 }
 

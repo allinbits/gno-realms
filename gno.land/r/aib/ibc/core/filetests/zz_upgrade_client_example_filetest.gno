@@ -8,6 +8,7 @@ import (
 	"gno.land/p/aib/ibc/types/v0"
 	"gno.land/p/aib/ics23/v0"
 	"gno.land/r/aib/ibc/core"
+	_ "gno.land/r/aib/ibc/core/impl/v0"
 )
 
 func main(cur realm) {
@@ -57,7 +58,7 @@ func main(cur realm) {
 		ics23.CommitmentProof_Exist{
 			Exist: &ics23.ExistenceProof{
 				Key:   []byte("\x75\x70\x67\x72\x61\x64\x65\x64\x49\x42\x43\x53\x74\x61\x74\x65\x2f\x31\x30\x30\x2f\x75\x70\x67\x72\x61\x64\x65\x64\x43\x6c\x69\x65\x6e\x74"), // XXX update
-				Value: []byte{}, // XXX update — Any-wrapped ZeroCustomFields(upgradedClient) bytes
+				Value: []byte{},                                                                                                                                               // XXX update — Any-wrapped ZeroCustomFields(upgradedClient) bytes
 				Leaf: &ics23.LeafOp{
 					Hash:         specs.LeafSpec.Hash,
 					PrehashKey:   specs.LeafSpec.PrehashKey,
@@ -100,7 +101,7 @@ func main(cur realm) {
 		ics23.CommitmentProof_Exist{
 			Exist: &ics23.ExistenceProof{
 				Key:   []byte("\x75\x70\x67\x72\x61\x64\x65\x64\x49\x42\x43\x53\x74\x61\x74\x65\x2f\x31\x30\x30\x2f\x75\x70\x67\x72\x61\x64\x65\x64\x43\x6f\x6e\x73\x53\x74\x61\x74\x65"), // XXX update
-				Value: []byte{}, // XXX update — Any-wrapped upgradedConsState bytes
+				Value: []byte{},                                                                                                                                                           // XXX update — Any-wrapped upgradedConsState bytes
 				Leaf: &ics23.LeafOp{
 					Hash:         specs.LeafSpec.Hash,
 					PrehashKey:   specs.LeafSpec.PrehashKey,

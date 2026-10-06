@@ -9,6 +9,7 @@ import (
 	"gno.land/p/aib/ibc/types/v0"
 	"gno.land/r/aib/ibc/apps/transfer"
 	"gno.land/r/aib/ibc/core"
+	_ "gno.land/r/aib/ibc/core/impl/v0"
 )
 
 // OnSendPacket rejects a blocked sender, whatever the asset, before any escrow

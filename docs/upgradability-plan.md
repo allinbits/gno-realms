@@ -1,7 +1,7 @@
 # Contract upgradability plan
 
 - Status: decided 2026-10-01 (§8); Phase 0 done 2026-10-05 (ADR 0001, ADR 0002);
-  `/v0` rename done 2026-10-06; Phase 1 not started
+  `/v0` rename and Phase 1 (core proxy) done 2026-10-06; Phase 2 not started
 - Scope: `r/aib/ibc/core`, `r/aib/ibc/apps/transfer`, their `p/aib/...` dependencies,
   deploy scripts, tests
 - Related: issue #22 (Use proxy realms); `docs/adrs/0001-proxy-realm-for-core-upgrades.md`
@@ -166,8 +166,9 @@ Frozen surface, never changes after mainnet deploy:
    could still be useful is recorded in issue #59.
 6. **No light-client code in the proxy.** Today `addClient` hardwires
    `tendermint.NewTMLightClient()`. In the proxy design the implementation
-   constructs the verifier it imports and hands the object to the store
-   (`AddClient(0, rlm, typ, creator, lc)`, as onbloc does); the proxy only holds
+   chooses the verifier and hands its `/p/` constructor to the store
+   (`AddClient(0, rlm, typ, creator, newLightClient)`), which calls it so the
+   object is allocated in the proxy's storage; the proxy only holds
    the `lightclient.Interface` value per client and exposes `SetLightClient` for
    migrations. Changing the verifier is therefore an ordinary implementation
    upgrade, with no separate admin operation and no function-valued argument.
@@ -397,8 +398,8 @@ hoist the relayer and authority gates into the dispatchers; add
 `Version` / `OnInstall`, the auto-activation bootstrap, Render disclosure. Move the logic to
 `core/impl/v0`; the proxy keeps no `defaultLogic`. Tests: unit tests for every
 gate (foreign realm, non-current realm, unregistered path, non-authority), a new
-filetest category `z11*` for implementation switch and rollback, and the existing
-216 golden outputs byte-identical.
+filetest category `z14*` for implementation switch and rollback, and the existing
+golden outputs byte-identical except the render pages, which gain the disclosure.
 
 **Phase 2, transfer proxy.** Same treatment: store and voucher/escrow services in
 the proxy, callbacks forwarding non-crossing, `impl/v0`. New filetest category `z6*` (impl switch, refund after switch, voucher

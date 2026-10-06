@@ -6,6 +6,7 @@ import (
 
 	appstesting "gno.land/r/aib/ibc/apps/testing"
 	"gno.land/r/aib/ibc/core"
+	_ "gno.land/r/aib/ibc/core/impl/v0"
 )
 
 // A registration from outside this project's namespace is pending until the

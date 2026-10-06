@@ -9,6 +9,7 @@ import (
 
 	"gno.land/r/aib/ibc/apps/transfer"
 	"gno.land/r/aib/ibc/core"
+	_ "gno.land/r/aib/ibc/core/impl/v0"
 )
 
 // renderHome with a client registered: confirms the Transfer section lists one

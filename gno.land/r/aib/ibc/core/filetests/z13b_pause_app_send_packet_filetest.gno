@@ -8,6 +8,7 @@ import (
 	"gno.land/p/aib/ibc/types/v0"
 	appstesting "gno.land/r/aib/ibc/apps/testing"
 	"gno.land/r/aib/ibc/core"
+	_ "gno.land/r/aib/ibc/core/impl/v0"
 )
 
 // SendPacket is refused for a paused app; nothing is committed or sent.

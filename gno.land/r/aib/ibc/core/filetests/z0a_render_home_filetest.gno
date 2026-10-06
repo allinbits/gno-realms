@@ -7,6 +7,7 @@ import (
 	tmtesting "gno.land/p/aib/ibc/lightclient/tendermint/testing/v0"
 	"gno.land/p/aib/ibc/types/v0"
 	"gno.land/r/aib/ibc/core"
+	_ "gno.land/r/aib/ibc/core/impl/v0"
 )
 
 func main(cur realm) {
@@ -26,6 +27,8 @@ func main(cur realm) {
 // # IBC core
 //
 // IBC v2 core state and query endpoints.
+//
+// **Upgradeable realm**: the client and packet lifecycle runs in the implementation [`gno.land/r/aib/ibc/core/impl/v0`](/r/aib/ibc/core/impl/v0) (version v0), replaceable by the authority with `UpdateImpl` (see [`admin`](/r/aib/ibc/core:admin)).
 //
 // ## Clients (1)
 //

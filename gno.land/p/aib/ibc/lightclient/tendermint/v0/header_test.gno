@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"gno.land/p/aib/ibc/lightclient/v0"
 	"gno.land/p/aib/ibc/lightclient/tendermint/v0"
+	"gno.land/p/aib/ibc/lightclient/v0"
 	"gno.land/p/aib/ibc/types/v0"
 	"gno.land/p/nt/uassert/v0"
 )

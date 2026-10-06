@@ -8,6 +8,7 @@ import (
 	"gno.land/p/aib/ibc/types/v0"
 	"gno.land/p/aib/ics23/v0"
 	"gno.land/r/aib/ibc/core"
+	_ "gno.land/r/aib/ibc/core/impl/v0"
 )
 
 // RecvPacket fails multiple payloads
@@ -54,7 +55,7 @@ func main(cur realm) {
 				Exist: &ics23.ExistenceProof{},
 			},
 		},
-		ProofHeight:     trustedHeight,
+		ProofHeight: trustedHeight,
 	}
 
 	core.RecvPacket(cross(cur), recvPacket)

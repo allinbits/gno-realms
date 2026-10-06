@@ -6,8 +6,8 @@ import (
 	"strings"
 	"time"
 
-	"gno.land/p/aib/ibc/lightclient/v0"
 	"gno.land/p/aib/ibc/lightclient/tendermint/v0"
+	"gno.land/p/aib/ibc/lightclient/v0"
 	"gno.land/p/aib/ibc/types/v0"
 	"gno.land/p/aib/jsonpage/v0"
 	"gno.land/p/nt/bptree/v0"
@@ -43,6 +43,7 @@ func renderHome(w *mux.ResponseWriter, r *mux.Request) {
 	var out strings.Builder
 	out.WriteString("# IBC core\n\n")
 	out.WriteString("IBC v2 core state and query endpoints.\n\n")
+	out.WriteString(renderImplDisclosure())
 	out.WriteString(ufmt.Sprintf("## Clients (%d)\n\n", store.clientByID.Size()))
 	if store.clientByID.Size() > 0 {
 		out.WriteString("| Client | St. | Creator | Cpty | Height | Time | CS | Seq | Cmts | Rcpts | Acks |\n")
@@ -86,7 +87,7 @@ func renderHome(w *mux.ResponseWriter, r *mux.Request) {
 		out.WriteString("| Port | Pkg | Addr |\n")
 		out.WriteString("|------|-----|------|\n")
 		for port, app := range store.routes {
-			out.WriteString(ufmt.Sprintf("| %s | %s | %s |\n", port, renderPkgPath(app.pkgPath), renderAddr(app.address)))
+			out.WriteString(ufmt.Sprintf("| %s | %s | %s |\n", port, renderPkgPath(app.PkgPath), renderAddr(app.Address)))
 		}
 		out.WriteString("\n")
 	} else {
@@ -117,9 +118,9 @@ func renderApps(w *mux.ResponseWriter, r *mux.Request) {
 	for port, app := range store.routes {
 		nodes = append(nodes, json.ObjectNode("", map[string]*json.Node{
 			"port_id":  json.StringNode("", port),
-			"pkg_path": json.StringNode("", app.pkgPath),
-			"address":  json.StringNode("", app.address.String()),
-			"paused":   json.BoolNode("", app.paused),
+			"pkg_path": json.StringNode("", app.PkgPath),
+			"address":  json.StringNode("", app.Address.String()),
+			"paused":   json.BoolNode("", app.Paused),
 		}))
 	}
 	renderNode(w, json.ArrayNode("", nodes))
@@ -308,7 +309,7 @@ func renderClientUnreceivedPackets(w *mux.ResponseWriter, r *mux.Request) {
 			renderNode(w, nodeError(ufmt.Sprintf("invalid sequence %q: %v", seq, err)))
 			return
 		}
-		if !c.hasPacketReceipt(seqi) {
+		if !c.HasPacketReceipt(seqi) {
 			unreceivedSeqs = append(unreceivedSeqs, json.StringNode("", seq))
 		}
 	}
@@ -444,6 +445,11 @@ func renderAdmin(w *mux.ResponseWriter, r *mux.Request) {
 		out.WriteString(ufmt.Sprintf("  - %s\n", renderAddr(m)))
 	}
 	out.WriteString(ufmt.Sprintf("- **Paused**: %t\n", paused))
+	out.WriteString(ufmt.Sprintf("- **Implementation**: %s\n", renderImplRef(implPath, implVersion)))
+	out.WriteString("- **Registered implementations**:\n")
+	for _, p := range RegisteredImplPaths() {
+		out.WriteString(ufmt.Sprintf("  - %s\n", renderPkgPath(p)))
+	}
 	if relayers.Size() == 0 {
 		out.WriteString("- **Relayers**: any (whitelist empty)\n")
 	} else {
@@ -463,10 +469,10 @@ func renderPendingApps(w *mux.ResponseWriter, r *mux.Request) {
 	const limit = 100
 	var nodes []*json.Node
 	store.pendingApps.IterateByOffset(0, limit, func(_ string, v any) bool {
-		a := v.(ibcApp)
+		a := v.(App)
 		nodes = append(nodes, json.ObjectNode("", map[string]*json.Node{
-			"pkg_path": json.StringNode("", a.pkgPath),
-			"address":  json.StringNode("", a.address.String()),
+			"pkg_path": json.StringNode("", a.PkgPath),
+			"address":  json.StringNode("", a.Address.String()),
 		}))
 		return false
 	})
@@ -474,4 +480,17 @@ func renderPendingApps(w *mux.ResponseWriter, r *mux.Request) {
 		"total":   json.NumberNode("", float64(store.pendingApps.Size())),
 		"pending": json.ArrayNode("", nodes),
 	}))
+}
+
+// renderImplDisclosure is the upgradeable-realm notice of the home page.
+func renderImplDisclosure() string {
+	return ufmt.Sprintf("**Upgradeable realm**: the client and packet lifecycle runs in the implementation %s, replaceable by the authority with `UpdateImpl` (see [`admin`](/r/aib/ibc/core:admin)).\n\n",
+		renderImplRef(implPath, implVersion))
+}
+
+func renderImplRef(path, version string) string {
+	if path == "" {
+		return "none installed"
+	}
+	return ufmt.Sprintf("%s (version %s)", renderPkgPath(path), version)
 }

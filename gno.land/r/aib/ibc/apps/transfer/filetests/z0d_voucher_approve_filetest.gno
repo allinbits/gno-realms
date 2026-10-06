@@ -13,6 +13,7 @@ import (
 	"gno.land/r/aib/ibc/apps/transfer"
 	"gno.land/r/aib/ibc/core"
 	"gno.land/r/nt/grc20reg/v0"
+	_ "gno.land/r/aib/ibc/core/impl/v0"
 )
 
 // VoucherApprove: success for IBC voucher token via MsgCall helper.

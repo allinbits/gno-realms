@@ -7,6 +7,7 @@ import (
 	tmtesting "gno.land/p/aib/ibc/lightclient/tendermint/testing/v0"
 	"gno.land/p/aib/ibc/types/v0"
 	"gno.land/r/aib/ibc/core"
+	_ "gno.land/r/aib/ibc/core/impl/v0"
 )
 
 // CreateClient success
@@ -112,4 +113,3 @@ func main(cur realm) {
 //     "pkg_path": "gno.land/r/aib/ibc/core"
 //   }
 // ]
-

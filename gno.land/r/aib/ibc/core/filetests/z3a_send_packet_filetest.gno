@@ -1,7 +1,6 @@
 // PKGPATH: gno.land/r/aib/main
 package main
 
-
 import (
 	"time"
 
@@ -9,6 +8,7 @@ import (
 	"gno.land/p/aib/ibc/types/v0"
 	appstesting "gno.land/r/aib/ibc/apps/testing"
 	"gno.land/r/aib/ibc/core"
+	_ "gno.land/r/aib/ibc/core/impl/v0"
 )
 
 // SendPacket success

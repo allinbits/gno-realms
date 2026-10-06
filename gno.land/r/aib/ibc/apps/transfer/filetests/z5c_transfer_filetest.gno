@@ -9,6 +9,7 @@ import (
 
 	"gno.land/r/aib/ibc/apps/transfer"
 	"gno.land/r/aib/ibc/core"
+	_ "gno.land/r/aib/ibc/core/impl/v0"
 )
 
 // TransferGRC20: token not found in grc20reg
