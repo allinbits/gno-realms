@@ -1,12 +1,12 @@
-package transfer_test
+package ics20_test
 
 import (
 	"chain"
 	"testing"
 
+	"gno.land/p/aib/ibc/ics20/v0"
 	"gno.land/p/nt/uassert/v0"
 	"gno.land/p/nt/urequire/v0"
-	"gno.land/r/aib/ibc/apps/transfer"
 )
 
 func TestTokenToCoin(t *testing.T) {
@@ -16,19 +16,19 @@ func TestTokenToCoin(t *testing.T) {
 	)
 	testCases := []struct {
 		name     string
-		token    transfer.Token
+		token    ics20.Token
 		expCoin  chain.Coin
 		expError string
 	}{
 		{
 			"success: convert token to coin",
-			transfer.NewToken(tokenDenom, tokenAmount),
+			ics20.NewToken(tokenDenom, tokenAmount),
 			chain.NewCoin(tokenDenom, 100),
 			"",
 		},
 		{
 			"failure: invalid amount string",
-			transfer.NewToken(tokenDenom, "value"),
+			ics20.NewToken(tokenDenom, "value"),
 			chain.Coin{},
 			"unable to parse amount \"value\" into int64",
 		},

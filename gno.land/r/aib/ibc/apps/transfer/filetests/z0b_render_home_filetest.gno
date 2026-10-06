@@ -4,6 +4,7 @@ package main
 import (
 	"gno.land/r/aib/ibc/apps/transfer"
 	_ "gno.land/r/aib/ibc/core/impl/v0"
+	_ "gno.land/r/aib/ibc/apps/transfer/impl/v0"
 )
 
 func main() {
@@ -14,6 +15,8 @@ func main() {
 // # IBC transfer
 //
 // ICS-20 style transfer state and voucher token queries.
+//
+// **Upgradeable realm**: the ICS-20 logic runs in the implementation [`gno.land/r/aib/ibc/apps/transfer/impl/v0`](/r/aib/ibc/apps/transfer/impl/v0) (version v0), replaceable by the authority with `UpdateImpl` (see [`admin`](/r/aib/ibc/apps/transfer:admin)).
 //
 // ## Transfer
 //

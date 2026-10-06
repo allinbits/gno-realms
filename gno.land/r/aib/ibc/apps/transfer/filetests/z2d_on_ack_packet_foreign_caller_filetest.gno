@@ -7,13 +7,15 @@ package main
 // release escrowed coins to the attacker-chosen Sender.
 
 import (
+	"gno.land/p/aib/ibc/ics20/v0"
 	"gno.land/p/aib/ibc/types/v0"
 	"gno.land/r/aib/ibc/apps/transfer"
 	_ "gno.land/r/aib/ibc/core/impl/v0"
+	_ "gno.land/r/aib/ibc/apps/transfer/impl/v0"
 )
 
 func main(cur realm) {
-	data := transfer.NewFungibleTokenPacketData("ugnot", "1000", "g1wymu47drhr0kuq2098m792lytgtj2nyx77yrsm", "atone1user", "")
+	data := ics20.NewFungibleTokenPacketData("ugnot", "1000", "g1wymu47drhr0kuq2098m792lytgtj2nyx77yrsm", "atone1user", "")
 	payload := types.Payload{
 		SourcePort:      transfer.PortID,
 		DestinationPort: transfer.PortID,

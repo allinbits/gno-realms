@@ -10,6 +10,7 @@ import (
 	"gno.land/p/aib/ibc/host/v0"
 	"gno.land/p/aib/ibc/lightclient/tendermint/v0"
 	tmtesting "gno.land/p/aib/ibc/lightclient/tendermint/testing/v0"
+	"gno.land/p/aib/ibc/ics20/v0"
 	"gno.land/p/aib/ibc/types/v0"
 	"gno.land/p/aib/ics23/v0"
 	"gno.land/p/nt/testutils/v0"
@@ -17,6 +18,7 @@ import (
 	"gno.land/r/aib/ibc/apps/transfer"
 	"gno.land/r/aib/ibc/core"
 	_ "gno.land/r/aib/ibc/core/impl/v0"
+	_ "gno.land/r/aib/ibc/apps/transfer/impl/v0"
 )
 
 // OnRecvPacket: per-client escrow isolation on the GRC20 release path.
@@ -78,7 +80,7 @@ func main(cur realm) {
 	// OnRecvPacket strips it and takes the unescrow branch; the stripped base is
 	// a GRC20 alias, so it routes to unescrowGRC20.
 	denom := "transfer/" + cpartyB + "/" + alias
-	payload := transfer.NewFungibleTokenPacketData(denom, "100", "atone1attacker", attacker.String(), "")
+	payload := ics20.NewFungibleTokenPacketData(denom, "100", "atone1attacker", attacker.String(), "")
 	packet := types.Packet{
 		Sequence:          1,
 		SourceClient:      cpartyB,

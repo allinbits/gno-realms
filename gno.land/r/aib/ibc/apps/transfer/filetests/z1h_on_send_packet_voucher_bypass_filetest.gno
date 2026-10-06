@@ -18,12 +18,14 @@ import (
 	"time"
 
 	tmtesting "gno.land/p/aib/ibc/lightclient/tendermint/testing/v0"
+	"gno.land/p/aib/ibc/ics20/v0"
 	"gno.land/p/aib/ibc/types/v0"
 
 	"gno.land/p/aib/ics23/v0"
 	"gno.land/r/aib/ibc/apps/transfer"
 	"gno.land/r/aib/ibc/core"
 	_ "gno.land/r/aib/ibc/core/impl/v0"
+	_ "gno.land/r/aib/ibc/apps/transfer/impl/v0"
 )
 
 func main(cur realm) {
@@ -47,7 +49,7 @@ func main(cur realm) {
 	// Build a voucher send packet and submit it straight to the core router,
 	// bypassing transfer.Transfer and its guard. The guard must instead reject
 	// this at the OnSendPacket layer.
-	data := transfer.NewFungibleTokenPacketData("transfer/"+clientID+"/uphoton", "100", owner.String(), "atone1user", "")
+	data := ics20.NewFungibleTokenPacketData("transfer/"+clientID+"/uphoton", "100", owner.String(), "atone1user", "")
 	msg := types.MsgSendPacket{
 		SourceClient: clientID,
 		Payloads: []types.Payload{{
@@ -63,7 +65,7 @@ func main(cur realm) {
 }
 
 func recvPacket(cur realm, clientID, counterpartyID string, trustedHeight types.Height, receiver address) {
-	payload := transfer.NewFungibleTokenPacketData("uphoton", "100", "atone1user", receiver.String(), "")
+	payload := ics20.NewFungibleTokenPacketData("uphoton", "100", "atone1user", receiver.String(), "")
 	payloadBz := payload.ProtoMarshal()
 
 	specs := ics23.IavlSpec()

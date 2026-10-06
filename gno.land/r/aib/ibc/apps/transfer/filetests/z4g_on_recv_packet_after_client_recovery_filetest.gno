@@ -10,12 +10,14 @@ import (
 	"gno.land/p/aib/ibc/host/v0"
 	"gno.land/p/aib/ibc/lightclient/tendermint/v0"
 	tmtesting "gno.land/p/aib/ibc/lightclient/tendermint/testing/v0"
+	"gno.land/p/aib/ibc/ics20/v0"
 	"gno.land/p/aib/ibc/types/v0"
 	"gno.land/p/aib/ics23/v0"
 	"gno.land/p/nt/testutils/v0"
 	"gno.land/r/aib/ibc/apps/transfer"
 	"gno.land/r/aib/ibc/core"
 	_ "gno.land/r/aib/ibc/core/impl/v0"
+	_ "gno.land/r/aib/ibc/apps/transfer/impl/v0"
 )
 
 // OnRecvPacket: escrow stays reachable after the escrowing client is repaired.
@@ -165,7 +167,7 @@ func main(cur realm) {
 	// the unescrow branch rather than minting a voucher.
 	receiver := testutils.TestAddress("receiver")
 	denom := "transfer/" + cpartyA + "/ugnot"
-	payload := transfer.NewFungibleTokenPacketData(denom, "100", "atone1user", receiver.String(), "")
+	payload := ics20.NewFungibleTokenPacketData(denom, "100", "atone1user", receiver.String(), "")
 	packet := types.Packet{
 		Sequence:          1,
 		SourceClient:      cpartyA,

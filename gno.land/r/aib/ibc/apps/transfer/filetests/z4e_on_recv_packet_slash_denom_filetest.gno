@@ -7,12 +7,14 @@ import (
 	"time"
 
 	tmtesting "gno.land/p/aib/ibc/lightclient/tendermint/testing/v0"
+	"gno.land/p/aib/ibc/ics20/v0"
 	"gno.land/p/aib/ibc/types/v0"
 	"gno.land/p/aib/ics23/v0"
 	"gno.land/p/nt/testutils/v0"
 	"gno.land/r/aib/ibc/apps/transfer"
 	"gno.land/r/aib/ibc/core"
 	_ "gno.land/r/aib/ibc/core/impl/v0"
+	_ "gno.land/r/aib/ibc/apps/transfer/impl/v0"
 )
 
 func main(cur realm) {
@@ -31,7 +33,7 @@ func main(cur realm) {
 
 	// ---- RecvPacket: counterparty is the source, but slashed base is rejected.
 	receiver := testutils.TestAddress("receiver")
-	recvPayload := transfer.NewFungibleTokenPacketData(
+	recvPayload := ics20.NewFungibleTokenPacketData(
 		"factory/alice/token", // base denom containing slashes
 		"100",
 		"atone1user",
@@ -115,9 +117,9 @@ func main(cur realm) {
 	}
 	core.RecvPacket(cross(cur), recvPacket)
 
-	voucherDenom := transfer.NewDenom(
+	voucherDenom := ics20.NewDenom(
 		"factory/alice/token",
-		transfer.NewHop(transfer.PortID, clientID),
+		ics20.NewHop(transfer.PortID, clientID),
 	).IBCDenom()
 	println("voucher balance after recv:", transfer.VoucherBalanceOf(voucherDenom, receiver))
 }

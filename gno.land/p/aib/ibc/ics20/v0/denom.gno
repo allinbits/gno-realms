@@ -1,4 +1,7 @@
-package transfer
+// Package ics20 holds the ICS-20 fungible token transfer types shared by the
+// transfer realm and its implementations: denominations with their trace,
+// the packet data and its protobuf codec.
+package ics20
 
 import (
 	"crypto/sha256"
@@ -13,6 +16,9 @@ import (
 
 // Denom holds the base denom of a Token and a trace of the chains it was sent
 // through.
+// denomPrefix is the prefix of IBC voucher denominations ("ibc/<hash>").
+const denomPrefix = "ibc"
+
 type Denom struct {
 	// the base token denomination
 	Base string

@@ -5,11 +5,13 @@ import (
 	"time"
 
 	tmtesting "gno.land/p/aib/ibc/lightclient/tendermint/testing/v0"
+	"gno.land/p/aib/ibc/ics20/v0"
 	"gno.land/p/aib/ibc/types/v0"
 
 	"gno.land/r/aib/ibc/apps/transfer"
 	"gno.land/r/aib/ibc/core"
 	_ "gno.land/r/aib/ibc/core/impl/v0"
+	_ "gno.land/r/aib/ibc/apps/transfer/impl/v0"
 )
 
 // OnSendPacket: sender and signer mismatch
@@ -24,7 +26,7 @@ func main(cur realm) {
 	clientID := core.CreateClient(cross(cur), clientState, consensusState)
 	core.RegisterCounterparty(cross(cur), clientID, [][]byte{[]byte("iavlStoreKey"), []byte("prefix2")}, "07-tendermint-2")
 
-	payload := transfer.NewFungibleTokenPacketData("ugnot", "100", "g1user", "atone1user", "")
+	payload := ics20.NewFungibleTokenPacketData("ugnot", "100", "g1user", "atone1user", "")
 	packet := types.MsgSendPacket{
 		SourceClient:     clientID,
 		TimeoutTimestamp: uint64(time.Now().Add(time.Hour).Unix()),

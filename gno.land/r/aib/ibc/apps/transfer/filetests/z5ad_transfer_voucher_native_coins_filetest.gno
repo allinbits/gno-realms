@@ -17,12 +17,14 @@ import (
 	"time"
 
 	tmtesting "gno.land/p/aib/ibc/lightclient/tendermint/testing/v0"
+	"gno.land/p/aib/ibc/ics20/v0"
 	"gno.land/p/aib/ibc/types/v0"
 
 	"gno.land/p/aib/ics23/v0"
 	"gno.land/r/aib/ibc/apps/transfer"
 	"gno.land/r/aib/ibc/core"
 	_ "gno.land/r/aib/ibc/core/impl/v0"
+	_ "gno.land/r/aib/ibc/apps/transfer/impl/v0"
 )
 
 func main(cur realm) {
@@ -44,7 +46,7 @@ func main(cur realm) {
 	recvPacket(cur, clientID, counterpartyID, trustedHeight, owner)
 
 	// ibc/CAEF9CA8CE6C302D73A831A49E34E59149D3A9AD96CCEBDFBF62F6D5710D92D8
-	voucherDenom := transfer.NewDenom("uphoton", transfer.NewHop(transfer.PortID, clientID)).IBCDenom()
+	voucherDenom := ics20.NewDenom("uphoton", ics20.NewHop(transfer.PortID, clientID)).IBCDenom()
 	println("\nvoucher balance before:", transfer.VoucherBalanceOf(voucherDenom, owner))
 
 	// Direct user call so the IsUserCall guard passes, but native coins are
@@ -59,7 +61,7 @@ func main(cur realm) {
 }
 
 func recvPacket(cur realm, clientID, counterpartyID string, trustedHeight types.Height, receiver address) {
-	payload := transfer.NewFungibleTokenPacketData("uphoton", "100", "atone1user", receiver.String(), "")
+	payload := ics20.NewFungibleTokenPacketData("uphoton", "100", "atone1user", receiver.String(), "")
 	payloadBz := payload.ProtoMarshal()
 
 	specs := ics23.IavlSpec()

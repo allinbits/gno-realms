@@ -94,6 +94,16 @@ func rejectApp(_ int, rlm realm, portID, pkgPath string) {
 	chain.Emit(EventTypeAppRejected, "port", portID, "pkg_path", pkgPath)
 }
 
+// AppPkgPath returns the realm registered on portID, or "" if the port is
+// free.
+func AppPkgPath(portID string) string {
+	a, ok := store.routes[portID]
+	if !ok {
+		return ""
+	}
+	return a.PkgPath
+}
+
 // IsAppPending reports whether pkgPath has a pending registration for portID.
 func IsAppPending(portID, pkgPath string) bool {
 	return store.pendingApps.Has(pendingKey(portID, pkgPath))

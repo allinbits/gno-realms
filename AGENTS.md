@@ -57,6 +57,7 @@ gno.land/
     ibc/app/v0/               # IBCApp interface definition
     ibc/types/v0/             # Core types: Packet, Height, Msgs, Payload
     ibc/host/v0/              # ICS-024 identifier validation, packet key generation
+    ibc/ics20/v0/             # ICS-20 types: Denom, Hop, Token, FungibleTokenPacketData
     ibc/lightclient/v0/       # Light client interface (12 methods)
     ibc/lightclient/tendermint/v0/      # Tendermint light client implementation
     ibc/lightclient/tendermint/testing/v0/ # Test helpers: NewMsgHeader, GenValset, etc.
@@ -70,7 +71,8 @@ gno.land/
   r/aib/ibc/                  # Realms (stateful contracts)
     core/                     # IBC v2 core proxy: entry points, store, gates, admin (ADR 0001)
     core/impl/v0/             # Core lifecycle logic (CreateClient, SendPacket, RecvPacket, ...)
-    apps/transfer/            # Token transfer app (ICS-20 equivalent)
+    apps/transfer/            # Token transfer app proxy: entry points, store, value moves, admin (ADR 0002)
+    apps/transfer/impl/v0/    # ICS-20 logic (Transfer classification, callbacks, refunds)
     apps/testing/             # Mock IBCApp for tests
 ```
 

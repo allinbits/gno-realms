@@ -7,6 +7,7 @@ import (
 	"time"
 
 	tmtesting "gno.land/p/aib/ibc/lightclient/tendermint/testing/v0"
+	"gno.land/p/aib/ibc/ics20/v0"
 	"gno.land/p/aib/ibc/types/v0"
 	"gno.land/p/aib/ics23/v0"
 	"gno.land/p/nt/testutils/v0"
@@ -14,6 +15,7 @@ import (
 	"gno.land/r/aib/ibc/core"
 	"gno.land/r/nt/grc20reg/v0"
 	_ "gno.land/r/aib/ibc/core/impl/v0"
+	_ "gno.land/r/aib/ibc/apps/transfer/impl/v0"
 )
 
 // VoucherApprove: success for IBC voucher token via MsgCall helper.
@@ -35,7 +37,7 @@ func main(cur realm) {
 
 	mintVoucher(cur, clientID, counterpartyID, trustedHeight, owner)
 
-	voucherDenom := transfer.NewDenom("uphoton", transfer.NewHop(transfer.PortID, clientID)).IBCDenom()
+	voucherDenom := ics20.NewDenom("uphoton", ics20.NewHop(transfer.PortID, clientID)).IBCDenom()
 	// grc20reg keys tokens by rlmpath.symbol; the voucher symbol is the truncated
 	// IBC hash (VoucherSymbol), not the full hash.
 	token := grc20reg.MustGet("gno.land/r/aib/ibc/apps/transfer." + transfer.VoucherSymbol(voucherDenom))
@@ -49,7 +51,7 @@ func main(cur realm) {
 }
 
 func mintVoucher(cur realm, clientID, counterpartyID string, trustedHeight types.Height, receiver address) {
-	payload := transfer.NewFungibleTokenPacketData("uphoton", "100", "atone1user", receiver.String(), "")
+	payload := ics20.NewFungibleTokenPacketData("uphoton", "100", "atone1user", receiver.String(), "")
 	payloadBz := payload.ProtoMarshal()
 
 	specs := ics23.IavlSpec()

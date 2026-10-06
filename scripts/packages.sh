@@ -25,6 +25,9 @@ PACKAGES=(
   # depends on encoding, encoding/proto, ibc/host, ics23
   "gno.land/p/aib/ibc/types/v0:gno.land/p/aib/ibc/types/v0"
 
+  # depends on encoding/proto, ibc/host, ibc/types (ICS-20 types of the transfer app)
+  "gno.land/p/aib/ibc/ics20/v0:gno.land/p/aib/ibc/ics20/v0"
+
   # depends on ibc/types
   "gno.land/p/aib/ibc/app/v0:gno.land/p/aib/ibc/app/v0"
 
@@ -54,4 +57,7 @@ PACKAGES=(
   # depends on encoding/proto, ibc/app, ibc/host, lightclient/tendermint,
   # ibc/types, ics23, jsonpage, grc20test (filetest), r/aib/ibc/core
   "gno.land/r/aib/ibc/apps/transfer:gno.land/r/aib/ibc/apps/transfer"
+
+  # depends on r/aib/ibc/apps/transfer (registers itself as the transfer logic at init)
+  "gno.land/r/aib/ibc/apps/transfer/impl/v0:gno.land/r/aib/ibc/apps/transfer/impl/v0"
 )

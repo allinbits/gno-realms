@@ -8,12 +8,14 @@ import (
 	"time"
 
 	tmtesting "gno.land/p/aib/ibc/lightclient/tendermint/testing/v0"
+	"gno.land/p/aib/ibc/ics20/v0"
 	"gno.land/p/aib/ibc/types/v0"
 
 	"gno.land/p/aib/ics23/v0"
 	"gno.land/r/aib/ibc/apps/transfer"
 	"gno.land/r/aib/ibc/core"
 	_ "gno.land/r/aib/ibc/core/impl/v0"
+	_ "gno.land/r/aib/ibc/apps/transfer/impl/v0"
 )
 
 // Transfer: success for IBC voucher coins.
@@ -38,7 +40,7 @@ func main(cur realm) {
 	recvPacket(cur, clientID, counterpartyID, trustedHeight, signer)
 
 	// ibc/CAEF9CA8CE6C302D73A831A49E34E59149D3A9AD96CCEBDFBF62F6D5710D92D8
-	voucherDenom := transfer.NewDenom("uphoton", transfer.NewHop(transfer.PortID, clientID)).IBCDenom()
+	voucherDenom := ics20.NewDenom("uphoton", ics20.NewHop(transfer.PortID, clientID)).IBCDenom()
 	println("\nreceiver voucher balance after RecvPacket:", transfer.VoucherBalanceOf(voucherDenom, signer))
 
 	testing.SetRealm(testing.NewUserRealm(signer))
@@ -48,7 +50,7 @@ func main(cur realm) {
 }
 
 func recvPacket(cur realm, clientID, counterpartyID string, trustedHeight types.Height, receiver address) {
-	payload := transfer.NewFungibleTokenPacketData("uphoton", "100", "atone1user", receiver.String(), "")
+	payload := ics20.NewFungibleTokenPacketData("uphoton", "100", "atone1user", receiver.String(), "")
 	payloadBz := payload.ProtoMarshal()
 	// NOTE this base64 value is used in payload.value in the gen-proof command below.
 	println("Payload proto:", base64.StdEncoding.EncodeToString(payloadBz))

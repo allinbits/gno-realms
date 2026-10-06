@@ -208,10 +208,12 @@ alias := transfer.GRC20Alias("gno.land/r/demo/foo.FOO")
 
 ### NewDenom / NewHop
 
-Construct a `Denom` to compute the expected IBC denom hash:
+Construct a `Denom` (package `gno.land/p/aib/ibc/ics20/v0`, which holds the
+ICS-20 types shared by the realm and its implementations) to compute the
+expected IBC denom hash:
 
 ```gno
-denom := transfer.NewDenom("uphoton", transfer.NewHop(transfer.PortID, "07-tendermint-1"))
+denom := ics20.NewDenom("uphoton", ics20.NewHop(transfer.PortID, "07-tendermint-1"))
 ibcDenom := denom.IBCDenom()
 // "ibc/CAEF9CA8CE6C302D73A831A49E34E59149D3A9AD96CCEBDFBF62F6D5710D92D8"
 ```
@@ -358,3 +360,16 @@ This prevents the shared-escrow drain: an attacker who creates their own client
 and forges a valid proof against it cannot unescrow funds that honest users
 locked under a different client. See
 `z4f_on_recv_packet_drain_filetest.gno` for the regression test.
+
+## Upgrades
+
+This realm is a permanent, thin proxy (see
+[ADR 0002](../../../../../../docs/adrs/0002-proxy-realm-for-transfer-upgrades.md)):
+it holds the escrow, the voucher tokens with their ledgers and the known
+denominations, and forwards `Transfer`, the four IBC callbacks and `Render` to
+an implementation realm that holds the ICS-20 logic. The first one is
+`gno.land/r/aib/ibc/apps/transfer/impl/v0`. The lifecycle is the core's
+(`RegisterImpl` from the implementation's `init`, `UpdateImpl` by the
+authority or through `NewUpdateImplProposalRequest`, `ImplPath` and
+`ImplVersion`); see the core README's Upgrades section. The ICS-20 types
+shared by every implementation live in `gno.land/p/aib/ibc/ics20/v0`.

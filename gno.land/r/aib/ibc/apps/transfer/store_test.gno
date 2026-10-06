@@ -36,7 +36,7 @@ func TestGRC20AliasRoundTrip(t *testing.T) {
 			alias := GRC20Alias(tc.key)
 			uassert.Equal(t, tc.expAlias, alias)
 
-			got := resolveGRC20Alias(alias)
+			got := ResolveGRC20Alias(alias)
 			uassert.Equal(t, tc.key, got)
 		})
 	}
@@ -55,7 +55,7 @@ func TestIsGRC20Alias(t *testing.T) {
 	}
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			uassert.Equal(t, tc.expect, isGRC20Alias(tc.denom))
+			uassert.Equal(t, tc.expect, IsGRC20Alias(tc.denom))
 		})
 	}
 }

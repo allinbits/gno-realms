@@ -9,13 +9,15 @@ package main
 // core involvement.
 
 import (
+	"gno.land/p/aib/ibc/ics20/v0"
 	"gno.land/p/aib/ibc/types/v0"
 	"gno.land/r/aib/ibc/apps/transfer"
 	_ "gno.land/r/aib/ibc/core/impl/v0"
+	_ "gno.land/r/aib/ibc/apps/transfer/impl/v0"
 )
 
 func main(cur realm) {
-	data := transfer.NewFungibleTokenPacketData("uatom", "1000", "atone1user", "g1wymu47drhr0kuq2098m792lytgtj2nyx77yrsm", "")
+	data := ics20.NewFungibleTokenPacketData("uatom", "1000", "atone1user", "g1wymu47drhr0kuq2098m792lytgtj2nyx77yrsm", "")
 	payload := types.Payload{
 		SourcePort:      transfer.PortID,
 		DestinationPort: transfer.PortID,

@@ -36,8 +36,9 @@ Apply ADR 0001 to the transfer realm: `gno.land/r/aib/ibc/apps/transfer` is a
 permanent proxy, the ICS-20 logic lives in `gno.land/r/aib/ibc/apps/transfer/impl/v0`
 and is invoked non-crossing. The lifecycle (`RegisterImpl`, `UpdateImpl` with
 `OnInstall`, bootstrap auto-activation, `NewUpdateImplProposalRequest`,
-`ImplPath`/`ImplVersion`, Render disclosure) and the gating by `p/aib/authority`
-are the same as in ADR 0001 and are not repeated here.
+`ImplPath`/`ImplVersion`, `Render` forwarded to the implementation) and the
+gating by `p/aib/authority` are the same as in ADR 0001 and are not repeated
+here.
 
 ### Frozen surface
 
@@ -45,28 +46,41 @@ are the same as in ADR 0001 and are not repeated here.
    `VoucherSend`, `VoucherApprove`; the read helpers `VoucherBalanceOf`,
    `VoucherSymbol`, `GRC20Alias`; `Render`. Logic-bearing ones forward
    non-crossing to the implementation.
-2. **The direct-user-call guards stay in the proxy.** `Transfer` keeps
-   `cur.Previous().IsUserCall()` and the `OriginSend` check, and hands the
-   verified coin to the callback through the proxy-owned pending slot
-   (`pendingNativeEscrow`, cleared by `defer`), as today. The non-crossing
-   forward preserves `cur.Previous()`, so the implementation sees the same facts.
+2. **The direct-user-call guard stays in the proxy.** `Transfer` refuses any
+   caller but a direct user call before delegating, since the packet sender is
+   the tx origin and `OriginSend` describes coins that landed at the proxy. The
+   non-crossing forward preserves `cur.Previous()` and the tx-level facts, so
+   the implementation classifies the denom and checks `OriginSend` itself. The
+   sends it authorizes for `OnSendPacket` live in the proxy's store
+   (`SetPending*`/`ConsumePending*` accessors), and the proxy clears them on
+   every exit path of `Transfer`.
 3. **`App` implementing `app.IBCApp`**, registered once in `init` as today.
    Each callback keeps its core-caller assertion (PR #60) in the proxy and
    forwards non-crossing.
 4. **Administration stays in the proxy**: authority membership, the blocklist
    (`BlockAddress`/`UnblockAddress`/`IsBlocked`), the proposal constructors.
-   The blocked-address check runs in the proxy before delegating.
-5. **Store owned by the proxy**: `denoms`, per-client escrow accounting
-   (`totalEscrow`), `voucherTokens` (token plus `PrivateLedger`, never returned
-   to callers), `nextVoucherID`, the three pending slots. Exposed through
-   accessors gated on `rlm.IsCurrent() && rlm.PkgPath() == transferPkgPath`.
-6. **Value-moving services in the proxy**, taking `rlm`: `banker.NewBanker(
-   banker.BankerTypeRealmSend, rlm)` sends, grc20 `RealmTeller(0, rlm)`
-   transfers, voucher mint and burn through the ledger, token creation and
-   `grc20reg.Register(cross(rlm), ...)`. They work because the current realm is
-   the proxy, the token's home realm; the ledger pointer is only ever used
-   inside proxy code.
+   The implementation checks the blocklist through `IsBlocked` where the
+   sender or receiver is known, inside the packet data.
+5. **Store owned by the proxy**, exposed as the `Store` interface: the
+   denominations, the per-client escrow accounting, the voucher tokens (with
+   their `PrivateLedger`, never returned to callers), the voucher id sequence
+   and the three pending slots. Mutators are gated on
+   `rlm.IsCurrent() && rlm.PkgPath() == PkgPath`; rendering reads through
+   read-only views of the trees (the voucher view hands out the `*grc20.Token`,
+   not the entry holding the ledger).
+6. **Value-moving services in the proxy**, as gated `Store` methods:
+   `EscrowGRC20`, `UnescrowGRC20` and `UnescrowNative` (check, move, debit, so
+   the accounting never desyncs from the balances), `GetOrCreateVoucher`
+   (token creation and `grc20reg.Register(cross(rlm), ...)`), `MintVoucher`
+   and `BurnVoucher`. They work because the current realm is the proxy, the
+   token's home realm; the ledger pointer is only ever used inside proxy code.
 7. **Gated `Emit*` wrappers** for the four transfer event types.
+8. **Shared types in `/p/`**: `Denom`, `Hop`, `Token` and
+   `FungibleTokenPacketData` move to `gno.land/p/aib/ibc/ics20/v0`, since an
+   implementation cannot construct another realm's types.
+9. **Render** forwarded to the implementation, as for core; the routes the e2e
+   suite and tooling read are pinned by the `z0e` filetest, and `impl/v0`
+   exports its `Renderer` for reuse.
 
 ### `Logic`
 
@@ -77,7 +91,8 @@ non-crossing form, with `Version()` and `OnInstall` as in ADR 0001:
 type Logic interface {
     Version() string
     OnInstall(_ int, rlm realm, prevPath, prevVersion string)
-    Transfer(_ int, rlm realm, sender address, clientID, receiver, denom string, amount int64, timeoutTimestamp uint64, memo string)
+    Render(path string) string
+    Transfer(_ int, rlm realm, clientID, receiver, denom string, amount int64, timeoutTimestamp uint64, memo string) (types.MsgSendPacket, uint64)
     OnSendPacket(_ int, rlm realm, sourceClient, destinationClient string, sequence uint64, payload types.Payload) error
     OnRecvPacket(_ int, rlm realm, sourceClient, destinationClient string, sequence uint64, payload types.Payload) types.RecvPacketResult
     OnTimeoutPacket(_ int, rlm realm, sourceClient, destinationClient string, sequence uint64, payload types.Payload) error
@@ -115,6 +130,13 @@ Negative:
   pre-mainnet freeze review covers this list.
 - **The active implementation is fully trusted** with escrow and voucher
   supply, gated by the same authority as core's.
+
+Neutral:
+
+- The gno test harness instantiates the proxy a second time when it loads the
+  implementation realm, whose import of the proxy resolves outside the package
+  under test; the proxy's `init` therefore skips the port registration when
+  `core.AppPkgPath` already names it. On chain `init` runs once.
 
 ## Alternatives considered
 

@@ -1,7 +1,8 @@
 # Contract upgradability plan
 
 - Status: decided 2026-10-01 (§8); Phase 0 done 2026-10-05 (ADR 0001, ADR 0002);
-  `/v0` rename and Phase 1 (core proxy) done 2026-10-06; Phase 2 not started
+  `/v0` rename, Phase 1 (core proxy) and Phase 2 (transfer proxy) done
+  2026-10-06; Phase 3 not started
 - Scope: `r/aib/ibc/core`, `r/aib/ibc/apps/transfer`, their `p/aib/...` dependencies,
   deploy scripts, tests
 - Related: issue #22 (Use proxy realms); `docs/adrs/0001-proxy-realm-for-core-upgrades.md`
@@ -291,7 +292,9 @@ Frozen surface:
   rlm)` sends, grc20 `RealmTeller(0, rlm)` transfers, voucher mint/burn,
   `grc20reg.Register(cross(rlm), ...)`. They work because the current realm is
   the proxy, the token's home realm.
-- `RegisterImpl/UpdateImpl`, Render disclosure, as in core.
+- `RegisterImpl/UpdateImpl`, `Render` forwarded to the implementation, as in
+  core. The ICS-20 types (`Denom`, `Hop`, `Token`, `FungibleTokenPacketData`)
+  move to `p/aib/ibc/ics20/v0` so every implementation can construct them.
 
 Implementation realm: `gno.land/r/aib/ibc/apps/transfer/impl/v0` holding the
 ICS-20 logic (`OnSendPacket`, `OnRecvPacket`, refund paths, denom tracing).

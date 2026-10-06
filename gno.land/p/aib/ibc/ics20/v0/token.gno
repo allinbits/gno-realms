@@ -1,4 +1,4 @@
-package transfer
+package ics20
 
 import (
 	"chain"

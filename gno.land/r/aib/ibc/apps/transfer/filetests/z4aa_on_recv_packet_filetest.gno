@@ -9,12 +9,14 @@ import (
 	"time"
 
 	tmtesting "gno.land/p/aib/ibc/lightclient/tendermint/testing/v0"
+	"gno.land/p/aib/ibc/ics20/v0"
 	"gno.land/p/aib/ibc/types/v0"
 	"gno.land/p/aib/ics23/v0"
 	"gno.land/p/nt/testutils/v0"
 	"gno.land/r/aib/ibc/apps/transfer"
 	"gno.land/r/aib/ibc/core"
 	_ "gno.land/r/aib/ibc/core/impl/v0"
+	_ "gno.land/r/aib/ibc/apps/transfer/impl/v0"
 )
 
 // OnRecvPacket: success w/ IBC token (returning native ugnot).
@@ -50,7 +52,7 @@ func main(cur realm) {
 	testing.SetOriginSend(nil)
 
 	receiver := testutils.TestAddress("receiver")
-	payload := transfer.NewFungibleTokenPacketData(
+	payload := ics20.NewFungibleTokenPacketData(
 		"transfer/"+counterpartyID+"/ugnot", // expect transfer/07-tendermint-42/ugnot
 		"100",
 		"atone1user",
