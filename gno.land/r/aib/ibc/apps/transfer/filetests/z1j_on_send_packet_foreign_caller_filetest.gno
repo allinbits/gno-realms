@@ -8,7 +8,7 @@ package main
 // the other callbacks, so the four entry points share one gate.
 
 import (
-	"gno.land/p/aib/ibc/types"
+	"gno.land/p/aib/ibc/types/v0"
 	"gno.land/r/aib/ibc/apps/transfer"
 )
 

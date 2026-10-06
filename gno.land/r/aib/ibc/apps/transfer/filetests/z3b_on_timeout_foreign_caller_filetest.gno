@@ -7,7 +7,7 @@ package main
 // attacker-chosen Sender, bounded only by the per-client escrow accounting.
 
 import (
-	"gno.land/p/aib/ibc/types"
+	"gno.land/p/aib/ibc/types/v0"
 	"gno.land/r/aib/ibc/apps/transfer"
 )
 

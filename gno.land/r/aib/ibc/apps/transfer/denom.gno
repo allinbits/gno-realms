@@ -5,8 +5,8 @@ import (
 	"encoding/hex"
 	"strings"
 
-	"gno.land/p/aib/ibc/host"
-	"gno.land/p/aib/ibc/types"
+	"gno.land/p/aib/ibc/host/v0"
+	"gno.land/p/aib/ibc/types/v0"
 	"gno.land/p/nt/ufmt/v0"
 	"gno.land/p/onbloc/json/v0"
 )

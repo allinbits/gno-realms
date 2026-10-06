@@ -7,10 +7,10 @@ import (
 	"testing"
 	"time"
 
-	"gno.land/p/aib/ibc/lightclient/tendermint"
-	tmtesting "gno.land/p/aib/ibc/lightclient/tendermint/testing"
-	"gno.land/p/aib/ibc/types"
-	"gno.land/p/aib/ics23"
+	"gno.land/p/aib/ibc/lightclient/tendermint/v0"
+	tmtesting "gno.land/p/aib/ibc/lightclient/tendermint/testing/v0"
+	"gno.land/p/aib/ibc/types/v0"
+	"gno.land/p/aib/ics23/v0"
 	"gno.land/r/aib/ibc/apps/transfer"
 	"gno.land/r/aib/ibc/core"
 )
@@ -195,7 +195,7 @@ func main(cur realm) {
 // ----------- assert render total_escrow/ugnot after Transfer
 // {"denom":"ugnot","amount":100,"clients":[{"client":"07-tendermint-1","amount":100}]}
 //
-// timeout res: (2 gno.land/p/aib/ibc/types.ResponseResultType)
+// timeout res: (2 gno.land/p/aib/ibc/types/v0.ResponseResultType)
 // ----------- assert render total_escrow/ugnot after Ack
 // {"denom":"ugnot","amount":0,"clients":[{"client":"07-tendermint-1","amount":0}]}
 

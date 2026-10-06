@@ -1,8 +1,8 @@
 package testing
 
 import (
-	"gno.land/p/aib/ibc/app"
-	"gno.land/p/aib/ibc/types"
+	"gno.land/p/aib/ibc/app/v0"
+	"gno.land/p/aib/ibc/types/v0"
 	"gno.land/p/nt/ufmt/v0"
 )
 

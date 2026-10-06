@@ -6,7 +6,7 @@ import (
 	"chain/runtime/unsafe"
 	"strings"
 
-	"gno.land/p/aib/ibc/types"
+	"gno.land/p/aib/ibc/types/v0"
 	"gno.land/p/nt/ufmt/v0"
 	"gno.land/r/aib/ibc/core"
 	"gno.land/r/nt/grc20reg/v0"

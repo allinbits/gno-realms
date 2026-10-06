@@ -7,7 +7,7 @@ package main
 // release escrowed coins to the attacker-chosen Sender.
 
 import (
-	"gno.land/p/aib/ibc/types"
+	"gno.land/p/aib/ibc/types/v0"
 	"gno.land/r/aib/ibc/apps/transfer"
 )
 

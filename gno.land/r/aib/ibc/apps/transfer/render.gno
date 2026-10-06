@@ -6,8 +6,8 @@ import (
 	"strings"
 	"time"
 
-	"gno.land/p/aib/ibc/lightclient"
-	"gno.land/p/aib/jsonpage"
+	"gno.land/p/aib/ibc/lightclient/v0"
+	"gno.land/p/aib/jsonpage/v0"
 	"gno.land/p/moul/txlink/v0"
 	"gno.land/p/nt/bptree/v0"
 	"gno.land/p/nt/mux/v0"

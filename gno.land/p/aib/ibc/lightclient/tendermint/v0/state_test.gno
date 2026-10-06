@@ -1,0 +1,299 @@
+package tendermint_test
+
+import (
+	"bytes"
+	"strings"
+	"testing"
+	"time"
+
+	"gno.land/p/aib/ibc/lightclient/v0"
+	"gno.land/p/aib/ibc/lightclient/tendermint/v0"
+	"gno.land/p/aib/ibc/types/v0"
+	"gno.land/p/aib/ics23/v0"
+	"gno.land/p/nt/uassert/v0"
+)
+
+const (
+	chainID = "gno.land"
+	// Do not change the length of these variables
+	fiftyCharChainID    = "12345678901234567890123456789012345678901234567890"
+	fiftyOneCharChainID = "123456789012345678901234567890123456789012345678901"
+
+	trustingPeriod time.Duration = time.Hour * 24 * 7 * 2
+	ubdPeriod      time.Duration = time.Hour * 24 * 7 * 3
+	maxClockDrift  time.Duration = time.Second * 10
+)
+
+var (
+	invalidHash        = []byte("hash_too_small")
+	height             = types.NewHeight(0, 4)
+	upgradePath        = []string{"upgrade", "upgradedIBCState"}
+	invalidUpgradePath = []string{"upgrade", ""}
+)
+
+func TestClientStateValidateBasic(t *testing.T) {
+	testCases := []struct {
+		name        string
+		clientState *tendermint.ClientState
+		expErr      string
+	}{
+		{
+			name:        "valid client",
+			clientState: tendermint.NewClientState(chainID, tendermint.DefaultTrustLevel, trustingPeriod, ubdPeriod, maxClockDrift, height, ics23.GetSDKProofSpecs(), upgradePath),
+		},
+		{
+			name:        "valid client with nil upgrade path",
+			clientState: tendermint.NewClientState(chainID, tendermint.DefaultTrustLevel, trustingPeriod, ubdPeriod, maxClockDrift, height, ics23.GetSDKProofSpecs(), nil),
+		},
+		{
+			name:        "invalid chainID",
+			clientState: tendermint.NewClientState("  ", tendermint.DefaultTrustLevel, trustingPeriod, ubdPeriod, maxClockDrift, height, ics23.GetSDKProofSpecs(), upgradePath),
+			expErr:      "chainID cannot be empty string",
+		},
+		{
+			name:        "valid chainID - chainID validation did not fail for chainID of length 50!",
+			clientState: tendermint.NewClientState(fiftyCharChainID, tendermint.DefaultTrustLevel, trustingPeriod, ubdPeriod, maxClockDrift, height, ics23.GetSDKProofSpecs(), upgradePath),
+		},
+		{
+			// NOTE: if this test fails, the code must account for the change in chainID length across tendermint versions!
+			// Do not only fix the test, fix the code!
+			// https://github.com/cosmos/ibc-go/issues/177
+			name:        "invalid chainID - chainID validation failed for chainID of length 51!",
+			clientState: tendermint.NewClientState(fiftyOneCharChainID, tendermint.DefaultTrustLevel, trustingPeriod, ubdPeriod, maxClockDrift, height, ics23.GetSDKProofSpecs(), upgradePath),
+			expErr:      "chainID is too long",
+		},
+		{
+			name:        "invalid trust level",
+			clientState: tendermint.NewClientState(chainID, tendermint.NewFraction(0, 1), trustingPeriod, ubdPeriod, maxClockDrift, height, ics23.GetSDKProofSpecs(), upgradePath),
+			expErr:      "trustLevel must be within [1/3, 1]",
+		},
+		{
+			name:        "invalid zero trusting period",
+			clientState: tendermint.NewClientState(chainID, tendermint.DefaultTrustLevel, 0, ubdPeriod, maxClockDrift, height, ics23.GetSDKProofSpecs(), upgradePath),
+			expErr:      "trusting period must be greater than zero",
+		},
+		{
+			name:        "invalid negative trusting period",
+			clientState: tendermint.NewClientState(chainID, tendermint.DefaultTrustLevel, -1, ubdPeriod, maxClockDrift, height, ics23.GetSDKProofSpecs(), upgradePath),
+			expErr:      "trusting period must be greater than zero",
+		},
+		{
+			name:        "invalid zero unbonding period",
+			clientState: tendermint.NewClientState(chainID, tendermint.DefaultTrustLevel, trustingPeriod, 0, maxClockDrift, height, ics23.GetSDKProofSpecs(), upgradePath),
+			expErr:      "unbonding period must be greater than zero",
+		},
+		{
+			name:        "invalid negative unbonding period",
+			clientState: tendermint.NewClientState(chainID, tendermint.DefaultTrustLevel, trustingPeriod, -1, maxClockDrift, height, ics23.GetSDKProofSpecs(), upgradePath),
+			expErr:      "unbonding period must be greater than zero",
+		},
+		{
+			name:        "invalid zero max clock drift",
+			clientState: tendermint.NewClientState(chainID, tendermint.DefaultTrustLevel, trustingPeriod, ubdPeriod, 0, height, ics23.GetSDKProofSpecs(), upgradePath),
+			expErr:      "max clock drift must be greater than zero",
+		},
+		{
+			name:        "invalid negative max clock drift",
+			clientState: tendermint.NewClientState(chainID, tendermint.DefaultTrustLevel, trustingPeriod, ubdPeriod, -1, height, ics23.GetSDKProofSpecs(), upgradePath),
+			expErr:      "max clock drift must be greater than zero",
+		},
+		{
+			name:        "invalid revision number",
+			clientState: tendermint.NewClientState(chainID, tendermint.DefaultTrustLevel, trustingPeriod, ubdPeriod, maxClockDrift, types.NewHeight(1, 1), ics23.GetSDKProofSpecs(), upgradePath),
+			expErr:      "latest height revision number must match chain id revision number (1 != 0)",
+		},
+		{
+			name:        "invalid revision height",
+			clientState: tendermint.NewClientState(chainID, tendermint.DefaultTrustLevel, trustingPeriod, ubdPeriod, maxClockDrift, types.ZeroHeight(), ics23.GetSDKProofSpecs(), upgradePath),
+			expErr:      "tendermint client's latest height revision height cannot be zero",
+		},
+		{
+			name:        "trusting period not less than unbonding period",
+			clientState: tendermint.NewClientState(chainID, tendermint.DefaultTrustLevel, ubdPeriod, ubdPeriod, maxClockDrift, height, ics23.GetSDKProofSpecs(), upgradePath),
+			expErr:      "trusting period (504h0m0s) should be < unbonding period",
+		},
+		{
+			name:        "proof specs is nil",
+			clientState: tendermint.NewClientState(chainID, tendermint.DefaultTrustLevel, trustingPeriod, ubdPeriod, maxClockDrift, height, nil, upgradePath),
+			expErr:      "proof specs cannot be nil for tm client",
+		},
+		{
+			name:        "proof specs contains nil",
+			clientState: tendermint.NewClientState(chainID, tendermint.DefaultTrustLevel, trustingPeriod, ubdPeriod, maxClockDrift, height, []*ics23.ProofSpec{ics23.TendermintSpec(), nil}, upgradePath),
+			expErr:      "proof spec cannot be nil at index: 1",
+		},
+		{
+			name:        "invalid upgrade path",
+			clientState: tendermint.NewClientState(chainID, tendermint.DefaultTrustLevel, trustingPeriod, ubdPeriod, maxClockDrift, height, ics23.GetSDKProofSpecs(), invalidUpgradePath),
+			expErr:      "key in upgrade path at index 1 cannot be empty",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			if lightclient.Tendermint != tc.clientState.ClientType() {
+				t.Fatal("client type is not tendermint")
+			}
+
+			err := tc.clientState.ValidateBasic()
+
+			if tc.expErr == "" && err != nil {
+				t.Errorf("expected no error, got %s", err)
+				return
+			}
+			if tc.expErr != "" {
+				if err == nil || !strings.Contains(err.Error(), tc.expErr) {
+					t.Errorf("expected error %s, got %s", tc.expErr, err)
+				}
+			}
+		})
+	}
+}
+
+func TestConsensusStateValidateBasic(t *testing.T) {
+	var (
+		now      = time.Now()
+		valshash = bytes.Repeat([]byte{1}, 32)
+	)
+	testCases := []struct {
+		msg            string
+		consensusState *tendermint.ConsensusState
+		expectPass     bool
+	}{
+		{
+			"success",
+			&tendermint.ConsensusState{
+				Timestamp:          now,
+				Root:               tendermint.NewMerkleRoot([]byte("app_hash")),
+				NextValidatorsHash: valshash[:],
+			},
+			true,
+		},
+		{
+			"success with sentinel",
+			&tendermint.ConsensusState{
+				Timestamp:          now,
+				Root:               tendermint.NewMerkleRoot([]byte(tendermint.SentinelRoot)),
+				NextValidatorsHash: valshash[:],
+			},
+			true,
+		},
+		{
+			"root is nil",
+			&tendermint.ConsensusState{
+				Timestamp:          now,
+				Root:               tendermint.MerkleRoot{},
+				NextValidatorsHash: valshash[:],
+			},
+			false,
+		},
+		{
+			"root is empty",
+			&tendermint.ConsensusState{
+				Timestamp:          now,
+				Root:               tendermint.MerkleRoot{},
+				NextValidatorsHash: valshash[:],
+			},
+			false,
+		},
+		{
+			"nextvalshash is invalid",
+			&tendermint.ConsensusState{
+				Timestamp:          now,
+				Root:               tendermint.NewMerkleRoot([]byte("app_hash")),
+				NextValidatorsHash: []byte("hi"),
+			},
+			false,
+		},
+
+		{
+			"timestamp is zero",
+			&tendermint.ConsensusState{
+				Timestamp:          time.Time{},
+				Root:               tendermint.NewMerkleRoot([]byte("app_hash")),
+				NextValidatorsHash: valshash[:],
+			},
+			false,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.msg, func(t *testing.T) {
+			if lightclient.Tendermint != tc.consensusState.ClientType() {
+				t.Fatal("client type is not tendermint")
+			}
+
+			err := tc.consensusState.ValidateBasic()
+
+			if tc.expectPass && err != nil {
+				t.Errorf("expected pass but got error %s", err)
+				return
+			}
+			if !tc.expectPass && err == nil {
+				t.Errorf("expected fail but got not error")
+			}
+		})
+	}
+}
+
+func TestClientStateZeroCustomFields(t *testing.T) {
+	cs := tendermint.ClientState{
+		ChainID:         "chain-a",
+		TrustLevel:      tendermint.NewFraction(2, 3),
+		TrustingPeriod:  trustingPeriod,
+		UnbondingPeriod: ubdPeriod,
+		MaxClockDrift:   maxClockDrift,
+		FrozenHeight:    types.NewHeight(0, 5),
+		LatestHeight:    types.NewHeight(1, 100),
+		ProofSpecs:      ics23.GetSDKProofSpecs(),
+		UpgradePath:     []string{"upgrade", "upgradedIBCState"},
+	}
+
+	zeroed := cs.ZeroCustomFields()
+
+	// Preserved chain-specified fields.
+	uassert.Equal(t, "chain-a", zeroed.ChainID)
+	uassert.Equal(t, int64(ubdPeriod), int64(zeroed.UnbondingPeriod))
+	uassert.True(t, zeroed.LatestHeight.EQ(types.NewHeight(1, 100)))
+	uassert.Equal(t, len(cs.ProofSpecs), len(zeroed.ProofSpecs))
+	uassert.Equal(t, len(cs.UpgradePath), len(zeroed.UpgradePath))
+
+	// Zeroed customizable fields.
+	uassert.Equal(t, uint64(0), zeroed.TrustLevel.Numerator)
+	uassert.Equal(t, uint64(0), zeroed.TrustLevel.Denominator)
+	uassert.Equal(t, int64(0), int64(zeroed.TrustingPeriod))
+	uassert.Equal(t, int64(0), int64(zeroed.MaxClockDrift))
+	uassert.True(t, zeroed.FrozenHeight.IsZero())
+
+	// Caller's value untouched.
+	uassert.Equal(t, int64(trustingPeriod), int64(cs.TrustingPeriod))
+}
+
+func TestClientStateProtoMarshalSerializesProofSpecs(t *testing.T) {
+	// Build a ZeroCustomFields client state and confirm its marshal
+	// includes a ProofSpecs field (8) for each spec the chain pinned.
+	// We aren't comparing against an external golden; we just need to
+	// verify the field 8 tag (0x42) appears once per spec.
+	cs := tendermint.ClientState{
+		ChainID:         "chain-a",
+		UnbondingPeriod: ubdPeriod,
+		LatestHeight:    types.NewHeight(1, 100),
+		ProofSpecs:      ics23.GetSDKProofSpecs(),
+		UpgradePath:     []string{"upgrade", "upgradedIBCState"},
+	}
+
+	bz := cs.ProtoMarshal()
+
+	// 0x42 = (8<<3)|2 — the LEN-wire tag for field 8.
+	got := 0
+	for _, b := range bz {
+		if b == 0x42 {
+			got++
+		}
+	}
+	// SDK has 2 proof specs (Iavl, Tendermint), so the tag appears at
+	// least twice. (Could appear inside nested bytes too — that's why
+	// we use >=. The point is: it's not zero, which means ProofSpecs is
+	// no longer skipped.)
+	uassert.True(t, got >= 2, "expected ProofSpecs field 8 tag to appear at least twice")
+}

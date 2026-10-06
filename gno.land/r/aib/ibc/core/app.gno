@@ -4,8 +4,8 @@ import (
 	"chain"
 	"strings"
 
-	"gno.land/p/aib/ibc/app"
-	"gno.land/p/aib/ibc/host"
+	"gno.land/p/aib/ibc/app/v0"
+	"gno.land/p/aib/ibc/host/v0"
 	"gno.land/p/nt/ufmt/v0"
 )
 

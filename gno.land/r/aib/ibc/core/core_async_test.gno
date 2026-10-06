@@ -4,8 +4,8 @@ import (
 	"bytes"
 	"testing"
 
-	"gno.land/p/aib/ibc/lightclient"
-	"gno.land/p/aib/ibc/types"
+	"gno.land/p/aib/ibc/lightclient/v0"
+	"gno.land/p/aib/ibc/types/v0"
 	"gno.land/p/nt/uassert/v0"
 )
 

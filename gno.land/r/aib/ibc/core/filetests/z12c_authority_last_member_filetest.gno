@@ -4,7 +4,7 @@ package main
 import (
 	"chain"
 
-	"gno.land/p/aib/authority"
+	"gno.land/p/aib/authority/v0"
 	"gno.land/r/aib/ibc/core"
 )
 

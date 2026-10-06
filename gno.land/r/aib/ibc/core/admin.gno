@@ -4,7 +4,7 @@ import (
 	"chain"
 	"chain/runtime/unsafe"
 
-	"gno.land/p/aib/authority"
+	"gno.land/p/aib/authority/v0"
 	"gno.land/p/nt/bptree/v0"
 	"gno.land/p/nt/ufmt/v0"
 )

@@ -2,7 +2,7 @@
 package main
 
 import (
-	"gno.land/p/aib/ibc/lightclient"
+	"gno.land/p/aib/ibc/lightclient/v0"
 	"gno.land/r/aib/ibc/core"
 )
 

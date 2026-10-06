@@ -93,7 +93,7 @@ Gated by the authority; the proposal is built with
 3. Subject status ∈ {`Frozen`, `Expired`}; substitute status must be `Active`.
 4. Delegates to `subject.lightClient.RecoverClient(substitute.lightClient)`.
 
-`p/aib/ibc/lightclient/tendermint/tendermint.gno`:
+`p/aib/ibc/lightclient/tendermint/v0/tendermint.gno`:
 
 1. Type-assert substitute to `*TMLightClient`.
 2. `isMatchingClientState` check.
