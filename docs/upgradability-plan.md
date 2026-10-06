@@ -14,6 +14,11 @@ Master has no upgrade mechanism today. This document inventories what is
 path-bound, states the Gno rules the design has to respect, compares the options,
 and lays out a phased delivery. Section 8 records the decisions taken.
 
+Nothing is deployed anywhere yet. Until the first mainnet deploy there is no
+backward compatibility to preserve: paths, signatures, render routes and golden
+outputs can still change freely, and no change needs to be coordinated with a
+running relayer or counterparty.
+
 ## 1. Why this has to be designed in before the first mainnet deploy
 
 Gno has no in-place upgrade primitive:
@@ -36,8 +41,9 @@ one. `r/gnops/valopers/admin.gno:144-158` says it plainly for its own rotation
 entry point: "It must exist before deploy, because code cannot be added to a
 deployed realm."
 
-The project currently targets the onyx testnet (`scripts/env.sh`). The first
-mainnet deploy is the point after which the frozen surface can no longer change.
+The project targets the onyx testnet (`scripts/env.sh`), where nothing is
+deployed yet. The first mainnet deploy is the point after which the frozen
+surface can no longer change.
 
 ## 2. What is path-bound today
 
@@ -335,12 +341,9 @@ gno.land/p/aib/ibc/types/v0, host/v0, lightclient/v0, lightclient/tendermint/v0,
 - Adding `/v0` to the `p/aib/...` paths is a one-time rename of imports that is
   only possible before mainnet (decided). It costs nothing on-chain, matches
   nearly every `examples/` package, and is what lets a `types/v1` coexist later.
-  It is not invisible to callers, though: every `MsgRun` script that imports
-  those packages must be updated once. That includes the ts-relayer templates,
-  which import `p/aib/ibc/types`, `p/aib/ibc/lightclient/tendermint` and
-  `p/aib/ics23` to build their arguments, so a relayer release has to ship before
-  or with the renamed packages. `MsgCall` callers (`Transfer`, voucher helpers,
-  admin operations) and `vm/qrender` / `vm/qeval` queries are unaffected.
+  The ts-relayer templates import three of those packages (`ibc/types`,
+  `ibc/lightclient/tendermint`, `ics23`); their imports move in
+  ibc-v2-ts-relayer#37. With nothing deployed, the two changes just merge.
 - Implementation realms keep no state of their own beyond the injected store
   reference, so abandoning one wastes no storage deposit.
 
@@ -395,9 +398,8 @@ decisions of §8.
 **Rename to `/v0` (before Phase 1).** Move every `p/aib/...` package to its
 `/v0` path (§5.5) and update all imports, the README `run.gno` examples and the
 filetests, and add the `Ext any` field to the `Msg*` types (§5.1) in the same
-change, since it is the last chance to touch them. Coordinate a ts-relayer
-release that updates its templates' imports: until both sides are deployed, the
-relayer cannot talk to the renamed packages.
+change, since it is the last chance to touch them. The ts-relayer templates
+follow in ibc-v2-ts-relayer#37.
 
 **Phase 1, core proxy.** Port `upgrade.gno`, `emit.gno`, the dispatchers and
 `proxy_test.gno` from `chore/proxy`; export the store surface with the realm gate;
