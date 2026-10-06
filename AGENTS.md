@@ -303,7 +303,8 @@ e2e/
 ├── tx.go                   # buildMsgSendPacket, buildUnsignedTx
 ├── tx_test.go              # signAndBroadcastAtomOneTx, signAndBroadcastGnoCall (suite methods)
 ├── suite_test.go           # Testify suite: SetupSuite, waitForIBCClients, gnokey helpers
-└── ibc_transfer_test.go    # TestIBCTransferAtomOneToGno, TestIBCTransferGnoToAtomOne
+├── ibc_transfer_test.go    # TestIBCTransferAtomOneToGno, TestIBCTransferGnoToAtomOne
+└── upgrade_test.go         # TestGovDAOUpdateImpl: UpdateImpl through a real r/gov/dao proposal
 ```
 
 ### Ports

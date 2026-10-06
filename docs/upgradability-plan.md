@@ -1,8 +1,8 @@
 # Contract upgradability plan
 
 - Status: decided 2026-10-01 (§8); Phase 0 done 2026-10-05 (ADR 0001, ADR 0002);
-  `/v0` rename, Phase 1 (core proxy) and Phase 2 (transfer proxy) done
-  2026-10-06; Phase 3 not started
+  `/v0` rename, Phases 1 (core proxy), 2 (transfer proxy) and 3 (GovDAO path)
+  done 2026-10-06; Phase 4 not started
 - Scope: `r/aib/ibc/core`, `r/aib/ibc/apps/transfer`, their `p/aib/...` dependencies,
   deploy scripts, tests
 - Related: issue #22 (Use proxy realms); `docs/adrs/0001-proxy-realm-for-core-upgrades.md`
@@ -322,8 +322,9 @@ No timelock between `RegisterImpl` and `UpdateImpl` (decided). The two-step
 itself stays: a candidate is visible in `Render` and events from the moment it
 registers, and only the authority can activate it.
 
-The e2e suite should exercise a GovDAO-driven `UpdateImpl` through the proposal
-constructor against a real `r/gov/dao` once before mainnet.
+The GovDAO-driven `UpdateImpl` is exercised against the real `r/gov/dao` by
+the `z14f`/`z14g` (core) and `z6d` (transfer) filetests, which seed the DAO
+with `r/gov/dao/init/v0`, and by the e2e `TestGovDAOUpdateImpl`.
 
 ### 5.5 Versioning and layout
 
