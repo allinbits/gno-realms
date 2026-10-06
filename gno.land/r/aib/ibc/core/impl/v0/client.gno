@@ -4,8 +4,8 @@ import (
 	"chain/runtime/unsafe"
 
 	"gno.land/p/aib/ibc/host/v0"
-	"gno.land/p/aib/ibc/lightclient/v0"
 	"gno.land/p/aib/ibc/lightclient/tendermint/v0"
+	"gno.land/p/aib/ibc/lightclient/v0"
 	"gno.land/p/aib/ibc/types/v0"
 	"gno.land/p/nt/ufmt/v0"
 	"gno.land/r/aib/ibc/core"

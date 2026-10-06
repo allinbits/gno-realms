@@ -184,8 +184,11 @@ Frozen surface, never changes after mainnet deploy:
    import, see §5.6); every later switch requires `UpdateImpl`.
 8. **Authority**: the existing `p/aib/authority` member set (PR #65) gates
    `UpdateImpl` like every other administrative operation (§5.4).
-9. **Render** showing "upgradeable realm", the active impl path and version, and
-   the authority, per the Constitution's disclosure rule.
+9. **Render** forwarded to `Logic.Render`, JSON routes included, so the routes
+   follow the verifier across upgrades; the relayer-read routes are pinned by
+   the `z0c` filetest. The home page shows "upgradeable realm", the active
+   impl path and version, and the authority, per the Constitution's disclosure
+   rule.
 
 `Logic` interface (the branch's `upgrade.gno`, extended):
 
@@ -193,6 +196,7 @@ Frozen surface, never changes after mainnet deploy:
 type Logic interface {
     Version() string
     OnInstall(_ int, rlm realm, prevPath, prevVersion string) // migration hook, runs inside UpdateImpl
+    Render(path string) string                                // every route; relayer-read ones pinned by z0c
     CreateClient(_ int, rlm realm, relayer address, cs lightclient.ClientState, cons lightclient.ConsensusState) string
     RegisterCounterparty(_ int, rlm realm, ...)
     UpdateClient(_ int, rlm realm, ...)

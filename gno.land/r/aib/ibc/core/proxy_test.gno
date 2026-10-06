@@ -8,6 +8,7 @@ import (
 	"gno.land/p/aib/ibc/lightclient/v0"
 	"gno.land/p/aib/ibc/types/v0"
 	"gno.land/p/nt/bptree/v0"
+	"gno.land/p/nt/seqid/v0"
 	"gno.land/p/nt/uassert/v0"
 )
 
@@ -38,6 +39,10 @@ func (l *upgradeTestLogic) Version() string { return l.version }
 func (l *upgradeTestLogic) OnInstall(_ int, rlm realm, prevPath, prevVersion string) {
 	l.installs++
 	l.prevPath, l.prevVersion = prevPath, prevVersion
+}
+
+func (l *upgradeTestLogic) Render(path string) string {
+	return "rendered by " + l.version + ": " + path
 }
 
 func (l *upgradeTestLogic) SendPacket(_ int, rlm realm, msg types.MsgSendPacket) uint64 {
@@ -234,4 +239,34 @@ func TestGatesRejectStaleRealm(cur realm, t *testing.T) {
 	// The live cur passes.
 	c.SetPacketReceipt(0, cur, 1)
 	uassert.True(t, c.HasPacketReceipt(1))
+}
+
+// TestRenderDelegation: without an implementation the proxy answers a
+// fallback page; with one, every path is rendered by the implementation.
+func TestRenderDelegation(cur realm, t *testing.T) {
+	resetUpgradeState()
+	defer resetUpgradeState()
+
+	uassert.Equal(t, "# IBC core\n\nNo implementation installed.\n", Render(""))
+	uassert.Equal(t, "# IBC core\n\nNo implementation installed.\n", Render("clients"))
+
+	registerAs(cur, upgradeTestImplPath, newUpgradeTestLogic)
+	uassert.Equal(t, "rendered by vtest: ", Render(""))
+	uassert.Equal(t, "rendered by vtest: admin", Render("admin"))
+	uassert.Equal(t, "rendered by vtest: clients/07-tendermint-1?page=2", Render("clients/07-tendermint-1?page=2"))
+}
+
+func TestReadOnlyTreeViews(cur realm, t *testing.T) {
+	resetUpgradeState()
+	defer resetUpgradeState()
+
+	c := store.addClient(lightclient.Tendermint, address("g1jg8mtutu9khhfwc4nxmuhcpftf0pajdhfvsqf5"), tendermint.NewTMLightClient())
+	c.SetPacketReceipt(0, cur, 3)
+	view := c.PacketReceipts()
+	uassert.Equal(t, 1, view.Size())
+	uassert.True(t, view.Has(seqid.ID(3).Binary()))
+	uassert.PanicsContains(t, cur, "read-only tree", func() { view.Set("k", 1) })
+	uassert.PanicsContains(t, cur, "read-only tree", func() { view.Remove("k") })
+	uassert.Equal(t, 1, store.Clients().Size())
+	uassert.Equal(t, c.id, store.Clients().Get(c.id).(Client).ID())
 }

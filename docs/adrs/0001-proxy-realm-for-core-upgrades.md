@@ -102,8 +102,17 @@ Nothing in this list can change after the first mainnet deploy.
      auto-activates, mirroring `r/gov/dao`'s empty `allowedDAOs`. Genesis needs
      no extra transaction and filetests need only a blank import of `impl/v0`.
    - `ImplPath()` and `ImplVersion()` readers.
-8. **Render** discloses "upgradeable realm", the active implementation path and
-   version, and the authority members (Constitution, "Realm Upgrading").
+8. **Render** is forwarded to `Logic.Render`, JSON routes included: a route
+   frozen in the proxy could not follow the verifier it reads across a
+   light-client migration. The routes the relayer reads through `vm/qrender`
+   (`clients/{id}`, its consensus states, packet commitments and receipts)
+   are a compatibility contract pinned by the `z0c` filetest, so a shape
+   change surfaces as a failing test and requires a relayer release. The
+   implementation paginates over read-only views of the proxy's trees
+   (`bptree.ITree` with panicking mutators), never the trees themselves,
+   which would be a write capability. The home page discloses "upgradeable
+   realm", the active implementation path and version, and the admin page
+   the authority members (Constitution, "Realm Upgrading").
 
 ### `Logic`
 
@@ -111,6 +120,7 @@ Nothing in this list can change after the first mainnet deploy.
 type Logic interface {
     Version() string
     OnInstall(_ int, rlm realm, prevPath, prevVersion string)
+    Render(path string) string // every route; the relayer-read ones are pinned by z0c
     CreateClient(_ int, rlm realm, relayer address, cs lightclient.ClientState, cons lightclient.ConsensusState) string
     RegisterCounterparty(_ int, rlm realm, clientID string, counterpartyMerklePrefix [][]byte, counterpartyClientID string)
     UpdateClient(_ int, rlm realm, clientID string, clientMessage lightclient.ClientMessage)

@@ -369,6 +369,12 @@ survive and a failing migration leaves the current implementation active.
 Rollback is `UpdateImpl` with the previous path. `ImplPath()` and
 `ImplVersion()` tell which one is active; the home and `admin` pages show it.
 
+`Render` is forwarded to the implementation as well, JSON routes included, so
+the routes can follow the verifier they read across upgrades. The routes the
+relayer consumes (`clients`, `clients/{id}`, its consensus states, packet
+commitments and receipts) are a compatibility contract pinned by the `z0c`
+filetest: a change there means a relayer release.
+
 Emitted event:
 
 ```json

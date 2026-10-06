@@ -7,6 +7,7 @@ import (
 
 	tmtesting "gno.land/p/aib/ibc/lightclient/tendermint/testing/v0"
 	"gno.land/p/aib/ibc/types/v0"
+	"gno.land/p/nt/mux/v0"
 	"gno.land/r/aib/ibc/core"
 	implv0 "gno.land/r/aib/ibc/core/impl/v0"
 )
@@ -16,12 +17,25 @@ const (
 	v99Path = "gno.land/r/aib/ibc/core/impl/v99"
 )
 
-// v99 is a candidate implementation: v0's logic under a new version.
-type v99 struct{ core.Logic }
+// v99 is a candidate implementation: v0's logic under a new version, with a
+// home page of its own and every other route reused from v0's Renderer.
+type v99 struct {
+	core.Logic
+	store core.Store
+}
 
 func (v99) Version() string { return "v99" }
 
-func newV99(s core.Store) core.Logic { return v99{Logic: implv0.New(s)} }
+func (v v99) Render(path string) string {
+	router := mux.NewRouter()
+	router.HandleFunc("", func(w *mux.ResponseWriter, r *mux.Request) {
+		w.Write("# IBC core, rendered by v99\n\n" + implv0.RenderImplDisclosure())
+	})
+	implv0.NewRenderer(v.store).Register(router)
+	return router.Render(path)
+}
+
+func newV99(s core.Store) core.Logic { return v99{Logic: implv0.New(s), store: s} }
 
 // registerV99 registers the candidate as if from its own realm.
 func registerV99(cur realm) {
@@ -55,6 +69,8 @@ func main(cur realm) {
 	println("client before switch:", before, core.ClientStatus(before))
 	after := createClient(cur, "chainB-2")
 	println("client after switch:", after, core.ClientStatus(after))
+	println(core.Render(""))
+	println(core.Render("clients/" + before + "/status"))
 
 	core.UpdateImpl(cross(cur), v0Path)
 	println("after rollback:", core.ImplPath(), core.ImplVersion())
@@ -69,6 +85,12 @@ func main(cur realm) {
 // after update: gno.land/r/aib/ibc/core/impl/v99 v99
 // client before switch: 07-tendermint-1 Active
 // client after switch: 07-tendermint-2 Active
+// # IBC core, rendered by v99
+//
+// **Upgradeable realm**: the client and packet lifecycle runs in the implementation [`gno.land/r/aib/ibc/core/impl/v99`](/r/aib/ibc/core/impl/v99) (version v99), replaceable by the authority with `UpdateImpl` (see [`admin`](/r/aib/ibc/core:admin)).
+//
+//
+// {"status":"Active"}
 // after rollback: gno.land/r/aib/ibc/core/impl/v0 v0
 // clients: slice[("07-tendermint-1" string),("07-tendermint-2" string)]
 // ## Authority & Relayers

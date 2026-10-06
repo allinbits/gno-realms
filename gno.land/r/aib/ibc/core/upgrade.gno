@@ -46,6 +46,12 @@ type Logic interface {
 	// on rollback) and cheap. A panic aborts the switch. prevPath and
 	// prevVersion are empty at bootstrap.
 	OnInstall(_ int, rlm realm, prevPath, prevVersion string)
+	// Render serves every path: the proxy's Render forwards to it. The JSON
+	// routes the relayer reads through vm/qrender (clients, clients/{id},
+	// its consensus states, packet commitments and receipts) are a
+	// compatibility contract: their shape is pinned by the z0c filetest and
+	// changing it means a relayer release.
+	Render(path string) string
 
 	CreateClient(_ int, rlm realm, relayer address, clientState lightclient.ClientState, consensusState lightclient.ConsensusState) string
 	RegisterCounterparty(_ int, rlm realm, clientID string, counterpartyMerklePrefix [][]byte, counterpartyClientID string)

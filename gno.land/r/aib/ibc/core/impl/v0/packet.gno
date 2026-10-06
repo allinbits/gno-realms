@@ -62,7 +62,7 @@ func (l *logic) SendPacket(_ int, rlm realm, msg types.MsgSendPacket) (sequence 
 	}
 
 	// construct packet from given fields
-	sequence = c.NextSendSequence(0, rlm)
+	sequence = c.AllocateSendSequence(0, rlm)
 	packet := types.NewPacket(sequence, msg.SourceClient, counterpartyClientID, msg.TimeoutTimestamp, msg.Payloads...)
 	if err := packet.ValidateBasic(); err != nil {
 		panic(ufmt.Errorf("constructed packet failed basic validation: %v", err))

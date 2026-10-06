@@ -65,6 +65,11 @@ func removeAuthorityMember(_ int, rlm realm, addr address) {
 	chain.Emit(EventTypeAuthorityMemberRemoved, "address", string(addr))
 }
 
+// AuthorityMembers returns the members of the authority.
+func AuthorityMembers() []address {
+	return auth.Members()
+}
+
 // IsAuthorityMember reports whether addr may administer this realm.
 func IsAuthorityMember(addr address) bool {
 	return auth.IsMember(addr)
@@ -89,6 +94,16 @@ func RemoveRelayer(cur realm, addr address) {
 func removeRelayer(_ int, rlm realm, addr address) {
 	auth.Assert(0, rlm, "remove_relayer")
 	relayers.Remove(string(addr))
+}
+
+// Relayers returns the relayer whitelist, empty when any relayer is allowed.
+func Relayers() []address {
+	out := make([]address, 0, relayers.Size())
+	relayers.Iterate("", "", func(k string, _ any) bool {
+		out = append(out, address(k))
+		return false
+	})
+	return out
 }
 
 // Pause suspends the packet path: SendPacket, RecvPacket, WriteAcknowledgement,

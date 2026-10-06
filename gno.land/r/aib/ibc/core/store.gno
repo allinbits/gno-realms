@@ -38,6 +38,15 @@ type Store interface {
 	ClientIDs() []string
 	// Route returns the application registered on portID; panics if none.
 	Route(portID string) App
+	// Ports returns the ports with an active application, in registration
+	// order.
+	Ports() []string
+	// Clients is a read-only view of the clients keyed by id; values are
+	// Client.
+	Clients() bptree.ITree
+	// PendingApps is a read-only view of the registrations awaiting
+	// approval, keyed by port:pkgPath; values are App.
+	PendingApps() bptree.ITree
 }
 
 // Client is a stored client as seen by an implementation.
@@ -53,18 +62,26 @@ type Client interface {
 	// migration to a new light-client version. As for AddClient, convert must
 	// be a /p/-declared function so the new verifier is allocated here.
 	SetLightClient(_ int, rlm realm, convert func(current lightclient.Interface) lightclient.Interface)
-	// NextSendSequence allocates and returns the next send sequence.
-	NextSendSequence(_ int, rlm realm) uint64
+	// AllocateSendSequence allocates and returns the next send sequence.
+	AllocateSendSequence(_ int, rlm realm) uint64
+	// NextSequenceSend returns the sequence AllocateSendSequence would return
+	// next, without allocating it.
+	NextSequenceSend() uint64
 
 	PacketCommitment(sequence uint64) []byte
+	// PacketCommitments is a read-only view keyed by seqid binary; values
+	// are []byte. Same for PacketReceipts and PacketAcknowledgements.
+	PacketCommitments() bptree.ITree
 	SetPacketCommitment(_ int, rlm realm, packet types.Packet)
 	DeletePacketCommitment(_ int, rlm realm, sequence uint64)
 
 	HasPacketReceipt(sequence uint64) bool
+	PacketReceipts() bptree.ITree
 	SetPacketReceipt(_ int, rlm realm, sequence uint64)
 	DeletePacketReceipt(_ int, rlm realm, sequence uint64)
 
 	HasPacketAcknowledgement(sequence uint64) bool
+	PacketAcknowledgements() bptree.ITree
 	PacketAcknowledgement(sequence uint64) []byte
 	SetPacketAcknowledgement(_ int, rlm realm, sequence uint64, ackHash []byte)
 	DeletePacketAcknowledgement(_ int, rlm realm, sequence uint64)
@@ -190,6 +207,17 @@ func (cs *coreStore) ClientIDs() []string {
 	return ids
 }
 
+func (cs *coreStore) Clients() bptree.ITree     { return readOnlyTree{cs.clientByID} }
+func (cs *coreStore) PendingApps() bptree.ITree { return readOnlyTree{cs.pendingApps} }
+
+func (cs *coreStore) Ports() []string {
+	ports := make([]string, 0, len(cs.routes))
+	for port := range cs.routes {
+		ports = append(ports, port)
+	}
+	return ports
+}
+
 func (cs *coreStore) Route(portID string) App {
 	a, ok := cs.routes[portID]
 	if !ok {
@@ -223,10 +251,16 @@ func (c *client) SetLightClient(_ int, rlm realm, convert func(lightclient.Inter
 	c.lightClient = lc
 }
 
-func (c *client) NextSendSequence(_ int, rlm realm) uint64 {
+func (c *client) AllocateSendSequence(_ int, rlm realm) uint64 {
 	assertProxyRealm(0, rlm)
 	return uint64(c.sendSeq.Next())
 }
+
+func (c *client) NextSequenceSend() uint64 {
+	return uint64(c.sendSeq) + 1
+}
+
+func (c *client) PacketCommitments() bptree.ITree { return readOnlyTree{c.packetCommitmentsBySeq} }
 
 func (c *client) PacketCommitment(sequence uint64) []byte {
 	v := c.packetCommitmentsBySeq.Get(seqid.ID(sequence).Binary())
@@ -260,6 +294,8 @@ func (c *client) DeletePacketCommitment(_ int, rlm realm, sequence uint64) {
 	setChainParam(key, nil)
 }
 
+func (c *client) PacketReceipts() bptree.ITree { return readOnlyTree{c.packetReceiptsBySeq} }
+
 // HasPacketReceipt returns true if the packet receipt exists, otherwise false.
 func (c *client) HasPacketReceipt(sequence uint64) bool {
 	return c.packetReceiptsBySeq.Has(seqid.ID(sequence).Binary())
@@ -287,6 +323,10 @@ func (c *client) DeletePacketReceipt(_ int, rlm realm, sequence uint64) {
 
 	key := host.PacketReceiptKey(c.id, sequence)
 	setChainParam(key, nil)
+}
+
+func (c *client) PacketAcknowledgements() bptree.ITree {
+	return readOnlyTree{c.packetAcknowledgementsBySeq}
 }
 
 // HasPacketAcknowledgement checks if the packet ack hash is already on the
@@ -363,3 +403,34 @@ func (c *client) hasPendingAsyncAck(sequence uint64) bool {
 func setChainParam(key, value []byte) {
 	params.SetBytes(string(key), value)
 }
+
+// readOnlyTree is the view of a proxy-owned B+ tree handed to the
+// implementation for rendering. Handing the tree itself would hand a write
+// capability: a /p/ method on a foreign receiver runs with the receiver's
+// storage authority, so bptree.Set from the implementation would mutate it.
+// The view implements bptree.ITree, which jsonpage paginates, and panics on
+// the mutators.
+type readOnlyTree struct {
+	t *bptree.BPTree
+}
+
+var _ bptree.ITree = readOnlyTree{}
+
+func (r readOnlyTree) Size() int                      { return r.t.Size() }
+func (r readOnlyTree) Has(key string) bool            { return r.t.Has(key) }
+func (r readOnlyTree) Get(key string) any             { return r.t.Get(key) }
+func (r readOnlyTree) GetByIndex(i int) (string, any) { return r.t.GetByIndex(i) }
+func (r readOnlyTree) Iterate(start, end string, cb bptree.IterCbFn) bool {
+	return r.t.Iterate(start, end, cb)
+}
+func (r readOnlyTree) ReverseIterate(start, end string, cb bptree.IterCbFn) bool {
+	return r.t.ReverseIterate(start, end, cb)
+}
+func (r readOnlyTree) IterateByOffset(offset, count int, cb bptree.IterCbFn) bool {
+	return r.t.IterateByOffset(offset, count, cb)
+}
+func (r readOnlyTree) ReverseIterateByOffset(offset, count int, cb bptree.IterCbFn) bool {
+	return r.t.ReverseIterateByOffset(offset, count, cb)
+}
+func (readOnlyTree) Set(string, any) bool      { panic("core: read-only tree") }
+func (readOnlyTree) Remove(string) (any, bool) { panic("core: read-only tree") }
