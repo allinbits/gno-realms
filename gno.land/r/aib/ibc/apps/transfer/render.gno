@@ -41,8 +41,8 @@ func renderHome(w *mux.ResponseWriter, r *mux.Request) {
 	var out strings.Builder
 	out.WriteString("# IBC transfer\n\n")
 	out.WriteString("ICS-20 style transfer state and voucher token queries.\n\n")
-	if paused {
-		out.WriteString("> **Paused**: transfers are suspended by the admin; incoming packets are refused.\n\n")
+	if core.IsAppPaused(PortID) {
+		out.WriteString("> **Paused** by the IBC core: transfers and incoming packets are refused; refunds still go through.\n\n")
 	}
 	out.WriteString(renderTransferLinks())
 	out.WriteString(ufmt.Sprintf("## Vouchers (%d)\n\n", denoms.Size()))
@@ -388,7 +388,7 @@ func renderAdmin(w *mux.ResponseWriter, r *mux.Request) {
 	for _, m := range auth.Members() {
 		out.WriteString("  - " + string(m) + "\n")
 	}
-	out.WriteString(ufmt.Sprintf("- **Paused**: %t\n", paused))
+	out.WriteString(ufmt.Sprintf("- **Paused**: %t (set by the IBC core)\n", core.IsAppPaused(PortID)))
 	if blocked.Size() == 0 {
 		out.WriteString("- **Blocked addresses**: none\n")
 	} else {

@@ -210,6 +210,20 @@ func main(cur realm) {
 //     "pkg_path": "gno.land/r/aib/ibc/core"
 //   },
 //   {
+//     "type": "app_registered",
+//     "attrs": [
+//       {
+//         "key": "port",
+//         "value": "appID"
+//       },
+//       {
+//         "key": "pkg_path",
+//         "value": "gno.land/r/aib/main"
+//       }
+//     ],
+//     "pkg_path": "gno.land/r/aib/ibc/core"
+//   },
+//   {
 //     "type": "recv_packet",
 //     "attrs": [
 //       {
@@ -266,4 +280,3 @@ func main(cur realm) {
 //     "pkg_path": "gno.land/r/aib/ibc/core"
 //   }
 // ]
-

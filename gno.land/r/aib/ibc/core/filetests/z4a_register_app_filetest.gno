@@ -17,4 +17,4 @@ func main(cur realm) {
 
 // Output:
 // ----------- assert render apps
-// [{"port_id":"app1","pkg_path":"gno.land/r/aib/main","address":"g1gjs8nfdrd55z3xu9gjcatnj29vkwuyx4ffqxd9"},{"port_id":"app2","pkg_path":"gno.land/r/aib/main","address":"g1gjs8nfdrd55z3xu9gjcatnj29vkwuyx4ffqxd9"}]
+// [{"port_id":"app1","pkg_path":"gno.land/r/aib/main","address":"g1gjs8nfdrd55z3xu9gjcatnj29vkwuyx4ffqxd9","paused":false},{"port_id":"app2","pkg_path":"gno.land/r/aib/main","address":"g1gjs8nfdrd55z3xu9gjcatnj29vkwuyx4ffqxd9","paused":false}]

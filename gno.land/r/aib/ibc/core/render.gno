@@ -22,6 +22,7 @@ func Render(path string) string {
 	router.HandleFunc("", renderHome)
 	router.HandleFunc("admin", renderAdmin)
 	router.HandleFunc("apps", renderApps)
+	router.HandleFunc("apps/pending", renderPendingApps)
 	router.HandleFunc("clients", renderClients)
 	router.HandleFunc("clients/{id}", renderClient)
 	router.HandleFunc("clients/{id}/status", renderClientStatus)
@@ -94,6 +95,7 @@ func renderHome(w *mux.ResponseWriter, r *mux.Request) {
 	out.WriteString("## JSON endpoints\n\n")
 	out.WriteString("- [`admin`](/r/aib/ibc/core:admin): authority, pause state and relayers\n")
 	out.WriteString("- [`apps`](/r/aib/ibc/core:apps): list registered IBC applications\n")
+	out.WriteString("- [`apps/pending`](/r/aib/ibc/core:apps/pending): registrations awaiting the authority's approval\n")
 	out.WriteString("- [`clients`](/r/aib/ibc/core:clients): list clients (`?page`, `?limit`)\n")
 	out.WriteString("- `clients/{id}`: get client details\n")
 	out.WriteString("- `clients/{id}/status`: get client status\n")
@@ -117,6 +119,7 @@ func renderApps(w *mux.ResponseWriter, r *mux.Request) {
 			"port_id":  json.StringNode("", port),
 			"pkg_path": json.StringNode("", app.pkgPath),
 			"address":  json.StringNode("", app.address.String()),
+			"paused":   json.BoolNode("", app.paused),
 		}))
 	}
 	renderNode(w, json.ArrayNode("", nodes))
@@ -451,4 +454,24 @@ func renderAdmin(w *mux.ResponseWriter, r *mux.Request) {
 		})
 	}
 	w.Write(out.String())
+}
+
+// renderPendingApps lists the registrations awaiting approval, oldest key
+// first. Anyone may add to this set, so the listing is capped; the count is
+// always exact.
+func renderPendingApps(w *mux.ResponseWriter, r *mux.Request) {
+	const limit = 100
+	var nodes []*json.Node
+	store.pendingApps.IterateByOffset(0, limit, func(_ string, v any) bool {
+		a := v.(ibcApp)
+		nodes = append(nodes, json.ObjectNode("", map[string]*json.Node{
+			"pkg_path": json.StringNode("", a.pkgPath),
+			"address":  json.StringNode("", a.address.String()),
+		}))
+		return false
+	})
+	renderNode(w, json.ObjectNode("", map[string]*json.Node{
+		"total":   json.NumberNode("", float64(store.pendingApps.Size())),
+		"pending": json.ArrayNode("", nodes),
+	}))
 }

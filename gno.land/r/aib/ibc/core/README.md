@@ -15,6 +15,25 @@ $ gnokey maketx run -gas-fee 1000000ugnot -gas-wanted 90000000 \
 `run.gno` content depends on the called function, see the following sections
 for examples.
 
+## RegisterApp
+
+Applications register themselves with `core.RegisterApp(cross(cur), portID, app)`
+from their own realm (a user cannot call it), each port at most once, and a port
+is never freed.
+
+- A registration from this project's namespace, `gno.land/r/aib/...`, is active
+  immediately: only the owner of the `aib` namespace can deploy there.
+- A registration from any other realm is recorded as **pending** and routes
+  nothing until the authority activates it with `ApproveApp(portID, pkgPath)`,
+  or drops it with `RejectApp(portID, pkgPath)`; both have GovDAO proposal
+  constructors (`NewApproveAppProposalRequest`, `NewRejectAppProposalRequest`,
+  see the Authority section). Pending registrations claim no port, so they can
+  neither block a trusted app nor be approved once the port is taken.
+  `IsAppPending(portID, pkgPath)` and `/r/aib/ibc/core:apps/pending` report them.
+
+Emitted events: `app_registered`, `app_registration_pending`, `app_approved`,
+`app_rejected`, with `port` and `pkg_path` attributes.
+
 ## CreateClient
 
 See [`zz_create_client_example_filetest.gno`](./zz_create_client_example_filetest.gno)
@@ -275,6 +294,21 @@ in place and resume after `Unpause`; packets that time out meanwhile are
 refunded by the usual timeout path once resumed.
 
 Emitted events: `pause` and `unpause`, with no attributes.
+
+## PauseApp / UnpauseApp
+
+`core.PauseApp(portID)` suspends one application instead of the whole packet
+path: `SendPacket` refuses payloads for that port (the sender's transaction
+fails, nothing moves), and `RecvPacket` answers incoming packets for it with the
+error acknowledgement without invoking the app, so the counterparty refunds its
+senders. `Acknowledgement` and `Timeout` callbacks keep running, so refunds the
+app owes are never held back. `core.UnpauseApp(portID)` resumes it. Both are
+gated by the authority and `MsgCall`-compatible, with GovDAO constructors
+`NewPauseAppProposalRequest` / `NewUnpauseAppProposalRequest`. `IsAppPaused`
+and the `paused` field of `/r/aib/ibc/core:apps` report the state. Applications
+do not carry a pause switch of their own.
+
+Emitted events: `app_paused` and `app_unpaused`, with a `port` attribute.
 
 ## Authority
 
