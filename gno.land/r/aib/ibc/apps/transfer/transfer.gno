@@ -24,7 +24,6 @@ import (
 func Transfer(cur realm, clientID, receiver, denom string, amount int64, timeoutTimestamp uint64, memo string) (
 	packet types.MsgSendPacket, sequence uint64,
 ) {
-	ensureNotPaused()
 	switch {
 	case strings.HasPrefix(denom, "ibc/"):
 		// IBC voucher: value-moving authority must come from a direct

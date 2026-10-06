@@ -19,6 +19,8 @@ const (
 	EventTypeAppPending    = "app_registration_pending"
 	EventTypeAppApproved   = "app_approved"
 	EventTypeAppRejected   = "app_rejected"
+	EventTypeAppPaused     = "app_paused"
+	EventTypeAppUnpaused   = "app_unpaused"
 )
 
 // RegisterApp registers an IBCApp for portID. The app is identified by the
@@ -101,4 +103,49 @@ func IsAppPending(portID, pkgPath string) bool {
 // identifier character (host.IsValidID), so the key is unambiguous.
 func pendingKey(portID, pkgPath string) string {
 	return portID + ":" + pkgPath
+}
+
+// PauseApp suspends the application registered on portID: SendPacket refuses
+// payloads for that port, so a user's send fails and nothing moves, and
+// RecvPacket answers incoming packets for it with the error acknowledgement
+// without invoking the app, so the counterparty refunds its senders. The
+// Acknowledgement and Timeout callbacks keep running, so refunds already owed
+// by the app are never held back. Authority members only; see proposals.gno for
+// the GovDAO path, and Pause for suspending the whole packet path instead.
+func PauseApp(cur realm, portID string) {
+	pauseApp(0, cur, portID)
+}
+
+func pauseApp(_ int, rlm realm, portID string) {
+	auth.Assert(0, rlm, "pause_app")
+	setAppPaused(portID, true)
+	chain.Emit(EventTypeAppPaused, "port", portID)
+}
+
+// UnpauseApp resumes the application registered on portID. Authority members
+// only.
+func UnpauseApp(cur realm, portID string) {
+	unpauseApp(0, cur, portID)
+}
+
+func unpauseApp(_ int, rlm realm, portID string) {
+	auth.Assert(0, rlm, "unpause_app")
+	setAppPaused(portID, false)
+	chain.Emit(EventTypeAppUnpaused, "port", portID)
+}
+
+// IsAppPaused reports whether the application on portID is suspended. False
+// for an unregistered port.
+func IsAppPaused(portID string) bool {
+	a, ok := store.routes[portID]
+	return ok && a.paused
+}
+
+func setAppPaused(portID string, paused bool) {
+	a, ok := store.routes[portID]
+	if !ok {
+		panic(ufmt.Sprintf("no registered app for port %s", portID))
+	}
+	a.paused = paused
+	store.routes[portID] = a
 }

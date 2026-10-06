@@ -113,19 +113,12 @@ multisig) and the GovDAO proxy. Members call the functions below directly
 member cannot be removed), `IsAuthorityMember` reports it, and every operation
 has a GovDAO proposal constructor (`NewPauseProposalRequest`,
 `NewBlockAddressProposalRequest`, `NewAddAuthorityMemberProposalRequest`, ...),
-submitted as described in the core README. The authority can suspend the app:
-
-- `Pause()`: `Transfer` panics with `transfer is paused`, and `OnRecvPacket`
-  answers every incoming packet with an error acknowledgement so the
-  counterparty refunds its sender; nothing is minted or released on this side.
-  Refunds through `OnAcknowledgementPacket` and `OnTimeoutPacket` keep working,
-  so no user funds are held back by a pause. `VoucherSend` and `VoucherApprove`
-  are plain GRC20 operations and are not affected.
-- `Unpause()`: resumes the app.
-- `Paused()`: reports the state; the home page shows a banner while paused.
-
-and keep a blocklist of addresses, the equivalent of ibc-go's blocked
-addresses:
+submitted as described in the core README. Pausing is not the app's job: the
+core's authority suspends any application with `core.PauseApp("transfer")`
+(sends refused, incoming packets answered with an error acknowledgement so the
+counterparty refunds, refunds still delivered), and the home page shows a banner
+while that is the case. The authority of this realm keeps a blocklist of
+addresses, the equivalent of ibc-go's blocked addresses:
 
 - `BlockAddress(addr)`: a blocked address can no longer send (`OnSendPacket`
   rejects it, so `Transfer` fails) nor receive (`OnRecvPacket` answers with an
@@ -135,9 +128,8 @@ addresses:
 - `UnblockAddress(addr)`: removes it.
 - `IsBlocked(addr)`: reports the state; the `admin` page lists the blocklist.
 
-All of these are `MsgCall`-compatible and emit `pause` / `unpause` /
-`block` / `unblock` / `authority_member_added` / `authority_member_removed`
-events.
+All of these are `MsgCall`-compatible and emit `block` / `unblock` /
+`authority_member_added` / `authority_member_removed` events.
 
 ## Query endpoints
 

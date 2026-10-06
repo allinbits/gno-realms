@@ -85,6 +85,9 @@ func SendPacket(cur realm, msg types.MsgSendPacket) (sequence uint64) {
 	// Invoke registed app OnSendPacket() for each payload.SourcePort.
 	for i, payload := range msg.Payloads {
 		app := store.route(payload.SourcePort)
+		if app.paused {
+			panic(ufmt.Sprintf("app %q is paused", payload.SourcePort))
+		}
 		err := app.OnSendPacket(
 			cross(cur), msg.SourceClient, c.counterpartyClientID, sequence, payload,
 		)
@@ -194,6 +197,15 @@ func (c *client) writeRecvPacketAcknowledgement(_ int, rlm realm, packet types.P
 	// multi-payload packets has to make this loop atomic first.
 	for i, payload := range packet.Payloads {
 		app := store.route(payload.DestinationPort)
+		if app.paused {
+			// Refused without reaching the app: the counterparty sees the
+			// sentinel error acknowledgement and refunds its sender.
+			isSuccess = false
+			ack = types.Acknowledgement{
+				AppAcknowledgements: [][]byte{types.UniversalErrorAcknowledgement()},
+			}
+			break
+		}
 		res := app.OnRecvPacket(
 			cross(rlm), packet.SourceClient, packet.DestinationClient,
 			packet.Sequence, payload,

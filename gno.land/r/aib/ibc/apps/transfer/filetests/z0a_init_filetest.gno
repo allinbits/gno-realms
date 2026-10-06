@@ -30,4 +30,4 @@ func main(cur realm) {
 
 // Output:
 // ----------- assert render apps
-// [{"port_id":"transfer","pkg_path":"gno.land/r/aib/ibc/apps/transfer","address":"g1tp3gk4quumurav4858hjfdy6hxtyffwmnxyr00"}]
+// [{"port_id":"transfer","pkg_path":"gno.land/r/aib/ibc/apps/transfer","address":"g1tp3gk4quumurav4858hjfdy6hxtyffwmnxyr00","paused":false}]

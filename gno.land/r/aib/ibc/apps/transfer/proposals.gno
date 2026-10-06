@@ -11,20 +11,6 @@ func newProposalRequest(_ int, rlm realm, title, description string, cb func(cur
 	return dao.NewProposalRequest(proposalTitlePrefix+title, description, dao.NewSimpleExecutor(0, rlm, cb, ""))
 }
 
-// NewPauseProposalRequest proposes to suspend the transfer app.
-func NewPauseProposalRequest(cur realm) dao.ProposalRequest {
-	return newProposalRequest(0, cur, "pause",
-		"Suspend the IBC transfer app: Transfer fails and incoming packets are refused with an error acknowledgement, so the counterparty refunds its senders. Refunds keep working.",
-		func(cur realm) error { pause(0, cur); return nil })
-}
-
-// NewUnpauseProposalRequest proposes to resume the transfer app.
-func NewUnpauseProposalRequest(cur realm) dao.ProposalRequest {
-	return newProposalRequest(0, cur, "unpause",
-		"Resume the IBC transfer app.",
-		func(cur realm) error { unpause(0, cur); return nil })
-}
-
 // NewBlockAddressProposalRequest proposes to block addr from sending and receiving.
 func NewBlockAddressProposalRequest(cur realm, addr address) dao.ProposalRequest {
 	return newProposalRequest(0, cur, "block address "+string(addr),
