@@ -279,7 +279,7 @@ func (rd *Renderer) ClientNextSequenceSend(w *mux.ResponseWriter, r *mux.Request
 		RenderNode(w, NodeErrorClientNotFound(id))
 		return
 	}
-	w.Write(ufmt.Sprintf(`{"next_sequence_send": %d}"`, int64(c.NextSequenceSend())))
+	w.Write(ufmt.Sprintf(`{"next_sequence_send": %d}`, int64(c.NextSequenceSend())))
 }
 
 func (rd *Renderer) ClientPacketCommitments(w *mux.ResponseWriter, r *mux.Request) {

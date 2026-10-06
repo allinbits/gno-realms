@@ -68,7 +68,7 @@ func main(cur realm) {
 // --- clients/07-tendermint-1/consensus_states/2/2
 // {"height":{"revision_number":2,"revision_height":2},"timestamp":1234567890,"root":"YXBwaGFzaA==","next_validators_hash":"/9gNNzK6IBcVWTwBsskTrrKk/SQzd29h1wP8LYFJbKo="}
 // --- clients/07-tendermint-1/next_sequence_send
-// {"next_sequence_send": 2}"
+// {"next_sequence_send": 2}
 // --- clients/07-tendermint-1/packet_commitments
 // {"items":[{"sequence":"1","data":"AmCMHo+FFzRMDItBW4xA5xUsjGfABbv4PuObJ6W8G10="}],"page":1,"total":1}
 // --- clients/07-tendermint-1/packet_commitments/1
