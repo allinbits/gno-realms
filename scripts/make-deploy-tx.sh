@@ -9,6 +9,7 @@
 #   OUT=/tmp/tx.json ./scripts/make-deploy-tx.sh
 #   CREATOR=g1... ./scripts/make-deploy-tx.sh                 # another creator (address or local key name)
 #   KEEP_TESTS=1 ./scripts/make-deploy-tx.sh                  # keep filetests/ and *_test.gno
+#   ONLY=gno.land/r/aib/ibc/core/impl/v1 ./scripts/make-deploy-tx.sh   # a subset of packages.sh (comma-separated), e.g. one implementation
 #
 # CREATOR is the account that submits and pays, by default MULTISIG_ADDR from
 # env.sh. It does not need to be in the local keybase or unlocked: gnokey only
@@ -49,6 +50,25 @@ KEEP_TESTS="${KEEP_TESTS:-0}"
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$REPO_ROOT"
+
+# ---- optional subset --------------------------------------------------------
+# ONLY keeps the listed package paths, in packages.sh order; an upgrade deploys
+# a single implementation this way. Every listed path must be in packages.sh.
+ONLY="${ONLY:-}"
+if [[ -n "$ONLY" ]]; then
+  IFS=',' read -r -a wanted <<< "$ONLY"
+  filtered=()
+  for entry in "${PACKAGES[@]}"; do
+    for w in "${wanted[@]}"; do
+      [[ "${entry%%:*}" == "$w" ]] && filtered+=("$entry")
+    done
+  done
+  if [[ "${#filtered[@]}" -ne "${#wanted[@]}" ]]; then
+    echo "ERROR: ONLY lists ${#wanted[@]} package(s) but ${#filtered[@]} matched packages.sh: $ONLY" >&2
+    exit 1
+  fi
+  PACKAGES=("${filtered[@]}")
+fi
 
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT

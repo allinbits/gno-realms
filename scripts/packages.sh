@@ -7,6 +7,7 @@
 # ---- deploy order -----------------------------------------------------------
 # Format: "<gno.land/pkgpath>:<local dir relative to repo root>"
 # Order is topological: a package only depends on entries above it.
+# The impl/v99 realms (upgrade rehearsal, e2e only) are deliberately absent.
 PACKAGES=(
   # leaf packages (no aib deps)
   "gno.land/p/aib/encoding/v0:gno.land/p/aib/encoding/v0"

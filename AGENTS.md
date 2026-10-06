@@ -291,7 +291,8 @@ e2e/
 ├── go.mod / go.sum         # Only deps: testify, godotenv
 ├── gno/
 │   ├── Dockerfile          # git clone gnolang/gno@master, builds gnodev+gnokey
-│   └── entrypoint.sh       # gnodev local with resolvers for aibgno + examples
+│   ├── entrypoint.sh       # gnodev local with resolvers for aibgno + examples
+│   └── rehearsal/          # impl/v99 candidates of core and transfer, deployed by TestUpgradeRehearsal (outside gno.land/: gnodev eager-loads its workspace)
 ├── atomone/
 │   ├── Dockerfile          # git clone atomone-hub/atomone@main
 │   └── entrypoint.sh       # Single-validator init, fast blocks, starts atomoned
@@ -304,7 +305,7 @@ e2e/
 ├── tx_test.go              # signAndBroadcastAtomOneTx, signAndBroadcastGnoCall (suite methods)
 ├── suite_test.go           # Testify suite: SetupSuite, waitForIBCClients, gnokey helpers
 ├── ibc_transfer_test.go    # TestIBCTransferAtomOneToGno, TestIBCTransferGnoToAtomOne
-└── upgrade_test.go         # TestGovDAOUpdateImpl: UpdateImpl through a real r/gov/dao proposal
+└── upgrade_test.go         # TestGovDAOUpdateImpl (UpdateImpl through r/gov/dao), TestUpgradeRehearsal (deploy v99, switch, relay, roll back)
 ```
 
 ### Ports

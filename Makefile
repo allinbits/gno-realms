@@ -11,12 +11,12 @@ endif
 # --- Development ---
 
 gnodev:
-	go tool gnodev -empty-blocks
+	go tool gnodev -empty-blocks -paths gno.land/r/aib/ibc/core,gno.land/r/aib/ibc/core/impl/v0,gno.land/r/aib/ibc/apps/transfer,gno.land/r/aib/ibc/apps/transfer/impl/v0
 
 # --- Unit tests ---
 
 test:
-	go tool gno test ./gno.land/...
+	go tool gno test ./gno.land/... ./e2e/gno/rehearsal/...
 	go test -C ./cmd/gen-block-signatures
 	go test -C ./cmd/gen-proof
 

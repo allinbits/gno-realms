@@ -368,6 +368,10 @@ runs before the switch, so clients, commitments, receipts and acknowledgements
 survive and a failing migration leaves the current implementation active.
 Rollback is `UpdateImpl` with the previous path. `ImplPath()` and
 `ImplVersion()` tell which one is active; the home and `admin` pages show it.
+Nothing outside the chain changes during an upgrade: this path, the entry
+points, the events and the render routes are the proxy's, so the relayer, the
+counterparty and the users keep using them. The steps are in
+[`docs/upgrade-runbook.md`](../../../../../docs/upgrade-runbook.md).
 
 `Render` is forwarded to the implementation as well, JSON routes included, so
 the routes can follow the verifier they read across upgrades. The routes the

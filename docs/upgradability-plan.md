@@ -1,8 +1,8 @@
 # Contract upgradability plan
 
 - Status: decided 2026-10-01 (§8); Phase 0 done 2026-10-05 (ADR 0001, ADR 0002);
-  `/v0` rename, Phases 1 (core proxy), 2 (transfer proxy) and 3 (GovDAO path)
-  done 2026-10-06; Phase 4 not started
+  `/v0` rename, Phases 1 (core proxy), 2 (transfer proxy), 3 (GovDAO path) and
+  4 (rehearsal, runbook) done 2026-10-06; Phase 5 not started
 - Scope: `r/aib/ibc/core`, `r/aib/ibc/apps/transfer`, their `p/aib/...` dependencies,
   deploy scripts, tests
 - Related: issue #22 (Use proxy realms); `docs/adrs/0001-proxy-realm-for-core-upgrades.md`
