@@ -14,7 +14,7 @@ import (
 
 // Acknowledgement unauthorized relayer
 func main(cur realm) {
-	core.SetAdmin(cross(cur), "g1wymu47drhr0kuq2098m792lytgtj2nyx77yrsm")
+	core.AddAuthorityMember(cross(cur), cur.Address())
 	core.AddRelayer(cross(cur), "g1wymu47drhr0kuq2098m792lytgtj2nyx77yrsm")
 	var (
 		chainID        = "chain-id-2"

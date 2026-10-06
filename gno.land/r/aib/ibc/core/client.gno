@@ -184,7 +184,11 @@ func UpgradeClient(cur realm, clientID string, clientState, consensusState, proo
 // RecoverClient recovers a frozen or expired subject client using a healthy
 // substitute client that tracks the same counterparty chain.
 func RecoverClient(cur realm, subjectClientID, substituteClientID string) {
-	ensureAdminCaller()
+	recoverClient(0, cur, subjectClientID, substituteClientID)
+}
+
+func recoverClient(_ int, rlm realm, subjectClientID, substituteClientID string) {
+	auth.Assert(0, rlm, "recover_client")
 	if subjectClientID == substituteClientID {
 		panic("subject and substitute client IDs must differ")
 	}

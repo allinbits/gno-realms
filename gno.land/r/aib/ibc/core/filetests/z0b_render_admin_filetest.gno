@@ -7,7 +7,7 @@ import (
 
 // Render admin page
 func main(cur realm) {
-	core.SetAdmin(cross(cur), "g1wymu47drhr0kuq2098m792lytgtj2nyx77yrsm")
+	core.AddAuthorityMember(cross(cur), cur.Address())
 	println("=== no relayers ===")
 	println(core.Render("admin"))
 	core.AddRelayer(cross(cur), "g1wymu47drhr0kuq2098m792lytgtj2nyx77yrsm")
@@ -21,25 +21,31 @@ func main(cur realm) {
 
 // Output:
 // === no relayers ===
-// ## Admin & Relayers
+// ## Authority & Relayers
 //
-// - **Admin**: [g1wymu…yrsm](/u/g1wymu47drhr0kuq2098m792lytgtj2nyx77yrsm)
+// - **Authority members**:
+//   - [g1gjs8…qxd9](/u/g1gjs8nfdrd55z3xu9gjcatnj29vkwuyx4ffqxd9)
+//   - [g1p84d…zv5r](/u/g1p84dvfh4wrplyxx4zsmy77a8rxcnjup2j7zv5r)
 // - **Paused**: false
 // - **Relayers**: any (whitelist empty)
 //
 // === with relayers ===
-// ## Admin & Relayers
+// ## Authority & Relayers
 //
-// - **Admin**: [g1wymu…yrsm](/u/g1wymu47drhr0kuq2098m792lytgtj2nyx77yrsm)
+// - **Authority members**:
+//   - [g1gjs8…qxd9](/u/g1gjs8nfdrd55z3xu9gjcatnj29vkwuyx4ffqxd9)
+//   - [g1p84d…zv5r](/u/g1p84dvfh4wrplyxx4zsmy77a8rxcnjup2j7zv5r)
 // - **Paused**: false
 // - **Relayers**:
 //   - [g1some…0000](/u/g1someother00000000000000000000000000)
 //   - [g1wymu…yrsm](/u/g1wymu47drhr0kuq2098m792lytgtj2nyx77yrsm)
 //
 // === after remove one relayer ===
-// ## Admin & Relayers
+// ## Authority & Relayers
 //
-// - **Admin**: [g1wymu…yrsm](/u/g1wymu47drhr0kuq2098m792lytgtj2nyx77yrsm)
+// - **Authority members**:
+//   - [g1gjs8…qxd9](/u/g1gjs8nfdrd55z3xu9gjcatnj29vkwuyx4ffqxd9)
+//   - [g1p84d…zv5r](/u/g1p84dvfh4wrplyxx4zsmy77a8rxcnjup2j7zv5r)
 // - **Paused**: false
 // - **Relayers**:
 //   - [g1wymu…yrsm](/u/g1wymu47drhr0kuq2098m792lytgtj2nyx77yrsm)

@@ -77,7 +77,7 @@ gno.land/
 **IBCApp** (`p/aib/ibc/app/app.gno`): Apps must implement 4 callbacks:
 - `OnSendPacket`, `OnRecvPacket`, `OnTimeoutPacket`, `OnAcknowledgementPacket`
 - Every callback must first check that `cur.Previous().PkgPath()` is the core realm (transfer's `assertCoreCaller`): the methods are exported and a zero-value `App` is callable by any realm, so without the gate anyone can mint vouchers or release escrow
-- Register apps with `core.RegisterApp(cur, portID, app)`
+- Register apps with `core.RegisterApp(cur, portID, app)`: immediate for realms under `gno.land/r/aib/`, pending until `core.ApproveApp` by the authority for any other realm
 
 **lightclient.Interface** (`p/aib/ibc/lightclient/lightclient.gno`): 12 methods including `Initialize`, `VerifyClientMessage`, `UpdateState`, `VerifyMembership`, `VerifyNonMembership`, `Status`, `LatestHeight`
 
@@ -130,7 +130,7 @@ Most IBC functions require `MsgRun` (not `MsgCall`) because they take complex ar
 
 - `chain/banker` - coin manipulation interface; `banker.NewBanker(banker.BankerTypeRealmSend, rlm)` now requires the realm capability
 - `chain.Emit(eventType, kvPairs...)` - event emission
-- `chain/runtime/unsafe` - caller context: `unsafe.OriginCaller()`, `unsafe.OriginSend()`, `unsafe.PreviousRealm()`, `unsafe.CurrentRealm()`. In interrealm v2 these moved out of `runtime` into `chain/runtime/unsafe` (the package is *named* `unsafe`, import path `chain/runtime/unsafe` — unrelated to Go's `unsafe`). Prefer the `cur realm` value's methods (`cur.Previous()`, `cur.IsUserCall()`) where caller context is available; reach for `unsafe.*` only for tx-level EOA identity (e.g. EOA-bound admin/relayer auth, packet `Sender`).
+- `chain/runtime/unsafe` - caller context: `unsafe.OriginCaller()`, `unsafe.OriginSend()`, `unsafe.PreviousRealm()`, `unsafe.CurrentRealm()`. In interrealm v2 these moved out of `runtime` into `chain/runtime/unsafe` (the package is *named* `unsafe`, import path `chain/runtime/unsafe` — unrelated to Go's `unsafe`). Prefer the `cur realm` value's methods (`cur.Previous()`, `cur.IsUserCall()`) where caller context is available; reach for `unsafe.*` only for tx-level EOA identity (e.g. the EOA-bound relayer whitelist, packet `Sender`). Administrative operations are gated by `p/aib/authority` on `cur.Previous().Address()` instead.
 - `gno.land/p/nt/bptree/v0` - B+ tree (primary key-value storage)
 - `gno.land/p/nt/seqid/v0` - monotonic ID generation
 - `gno.land/p/nt/ufmt/v0` - string formatting
@@ -204,6 +204,10 @@ Naming convention: `z{category}{letter}_{description}_filetest.gno`
 **transfer app**: `z0*` = init, `z1*` = send packet, `z2*` = ack packet, `z3*` = timeout, `z4*` = recv packet, `z5*` = Transfer function. Double letters (e.g. `z1aa`) = IBC voucher token variant (vs `z1a` = native token)
 
 `zz_*_example_filetest.gno` = documentation examples (referenced from README)
+
+### Authority in filetests
+
+Administrative functions (`AddRelayer`, `Pause`, `BlockAddress`, ...) require a member of the realm's authority. At `init` in the test framework the deployer is unknown, so the first `AddAuthorityMember` is ungated: a filetest bootstraps with `core.AddAuthorityMember(cross(cur), cur.Address())`, because calls from `main` present the filetest realm's own address. To act as GovDAO, `testing.SetRealm(testing.NewCodeRealm(authority.GovDAOPath))` before the call.
 
 ### Unit Tests with Malleate Pattern
 

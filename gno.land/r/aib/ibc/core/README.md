@@ -15,6 +15,25 @@ $ gnokey maketx run -gas-fee 1000000ugnot -gas-wanted 90000000 \
 `run.gno` content depends on the called function, see the following sections
 for examples.
 
+## RegisterApp
+
+Applications register themselves with `core.RegisterApp(cross(cur), portID, app)`
+from their own realm (a user cannot call it), each port at most once, and a port
+is never freed.
+
+- A registration from this project's namespace, `gno.land/r/aib/...`, is active
+  immediately: only the owner of the `aib` namespace can deploy there.
+- A registration from any other realm is recorded as **pending** and routes
+  nothing until the authority activates it with `ApproveApp(portID, pkgPath)`,
+  or drops it with `RejectApp(portID, pkgPath)`; both have GovDAO proposal
+  constructors (`NewApproveAppProposalRequest`, `NewRejectAppProposalRequest`,
+  see the Authority section). Pending registrations claim no port, so they can
+  neither block a trusted app nor be approved once the port is taken.
+  `IsAppPending(portID, pkgPath)` and `/r/aib/ibc/core:apps/pending` report them.
+
+Emitted events: `app_registered`, `app_registration_pending`, `app_approved`,
+`app_rejected`, with `port` and `pkg_path` attributes.
+
 ## CreateClient
 
 See [`zz_create_client_example_filetest.gno`](./zz_create_client_example_filetest.gno)
@@ -262,11 +281,11 @@ Emitted event:
 paused` until `core.Unpause`. Client operations (`CreateClient`,
 `RegisterCounterparty`, `UpdateClient`, `UpgradeClient`, `RecoverClient`) keep
 working, so relayers can keep clients alive during a pause. Both functions are
-admin-only (see `admin.gno`) and `MsgCall`-compatible:
+gated by the authority (see below) and `MsgCall`-compatible:
 
 ```
 gnokey maketx call -pkgpath gno.land/r/aib/ibc/core -func Pause \
-    -gas-fee 1000000ugnot -gas-wanted 10000000 -broadcast -chainid dev ADMIN
+    -gas-fee 1000000ugnot -gas-wanted 10000000 -broadcast -chainid dev MEMBER
 ```
 
 `core.Paused()` reports the state, which is also shown on `/r/aib/ibc/core:admin`.
@@ -275,3 +294,53 @@ in place and resume after `Unpause`; packets that time out meanwhile are
 refunded by the usual timeout path once resumed.
 
 Emitted events: `pause` and `unpause`, with no attributes.
+
+## PauseApp / UnpauseApp
+
+`core.PauseApp(portID)` suspends one application instead of the whole packet
+path: `SendPacket` refuses payloads for that port (the sender's transaction
+fails, nothing moves), and `RecvPacket` answers incoming packets for it with the
+error acknowledgement without invoking the app, so the counterparty refunds its
+senders. `Acknowledgement` and `Timeout` callbacks keep running, so refunds the
+app owes are never held back. `core.UnpauseApp(portID)` resumes it. Both are
+gated by the authority and `MsgCall`-compatible, with GovDAO constructors
+`NewPauseAppProposalRequest` / `NewUnpauseAppProposalRequest`. `IsAppPaused`
+and the `paused` field of `/r/aib/ibc/core:apps` report the state. Applications
+do not carry a pause switch of their own.
+
+Emitted events: `app_paused` and `app_unpaused`, with a `port` attribute.
+
+## Authority
+
+Administrative operations (`AddRelayer`, `RemoveRelayer`, `Pause`, `Unpause`,
+`RecoverClient`, and the authority's own membership) are gated by an
+authority: a member set (`p/aib/authority`) bootstrapped at deploy with two
+members, the deployer (the AIB multisig) and the
+GovDAO proxy `gno.land/r/gov/dao`.
+
+The principal is the caller of the realm function, `cur.Previous().Address()`,
+not the transaction signer: a member must call these functions directly
+(`gnokey maketx call`), not through another realm nor `maketx run`.
+
+- `AddAuthorityMember(addr)` / `RemoveAuthorityMember(addr)`: members only; the
+  last member cannot be removed.
+- `IsAuthorityMember(addr)`: reports membership; `/r/aib/ibc/core:admin` lists
+  the members.
+
+GovDAO acts through proposals. Each gated operation has a constructor
+(`NewAddRelayerProposalRequest`, `NewRemoveRelayerProposalRequest`,
+`NewRecoverClientProposalRequest`, `NewPauseProposalRequest`,
+`NewUnpauseProposalRequest`, `NewAddAuthorityMemberProposalRequest`,
+`NewRemoveAuthorityMemberProposalRequest`) returning a `dao.ProposalRequest`
+whose callback runs the operation with the DAO proxy as caller. A GovDAO member
+submits it with `MsgRun`:
+
+```gno
+pid := dao.MustCreateProposal(cross(cur), core.NewAddRelayerProposalRequest(cross(cur), relayer))
+```
+
+then members vote (`MustVoteOnProposalSimple`) and anyone executes
+(`ExecuteProposal`), both plain `MsgCall`s on `gno.land/r/gov/dao`.
+
+Emitted events: `authority_member_added` and `authority_member_removed`, with an
+`address` attribute.

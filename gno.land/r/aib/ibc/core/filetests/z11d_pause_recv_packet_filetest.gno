@@ -8,7 +8,7 @@ import (
 
 // RecvPacket is rejected while paused.
 func main(cur realm) {
-	core.SetAdmin(cross(cur), "g1wymu47drhr0kuq2098m792lytgtj2nyx77yrsm")
+	core.AddAuthorityMember(cross(cur), cur.Address())
 	core.Pause(cross(cur))
 	core.RecvPacket(cross(cur), types.MsgRecvPacket{})
 }

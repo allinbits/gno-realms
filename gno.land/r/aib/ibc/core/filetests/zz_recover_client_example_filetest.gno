@@ -9,7 +9,7 @@ func main(cur realm) {
 	// Bootstrap so the test caller is the admin (RecoverClient is
 	// admin-gated; in production this is the deployer or, eventually,
 	// govDAO).
-	core.SetAdmin(cross(cur), "g1wymu47drhr0kuq2098m792lytgtj2nyx77yrsm")
+	core.AddAuthorityMember(cross(cur), cur.Address())
 
 	// RecoverClient revives a Frozen or Expired subject client by copying
 	// state from a healthy substitute that tracks the same counterparty.

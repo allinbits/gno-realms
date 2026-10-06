@@ -14,7 +14,7 @@ import (
 // Both subject and substitute are created with the same initial state, then
 // frozen via the same misbehaviour message.
 func main(cur realm) {
-	core.SetAdmin(cross(cur), "g1wymu47drhr0kuq2098m792lytgtj2nyx77yrsm")
+	core.AddAuthorityMember(cross(cur), cur.Address())
 	var (
 		chainID     = "atomone-1"
 		height      = uint64(2)

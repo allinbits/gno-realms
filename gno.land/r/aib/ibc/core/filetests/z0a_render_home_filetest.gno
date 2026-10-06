@@ -39,8 +39,9 @@ func main(cur realm) {
 //
 // ## JSON endpoints
 //
-// - [`admin`](/r/aib/ibc/core:admin): admin and relayers
+// - [`admin`](/r/aib/ibc/core:admin): authority, pause state and relayers
 // - [`apps`](/r/aib/ibc/core:apps): list registered IBC applications
+// - [`apps/pending`](/r/aib/ibc/core:apps/pending): registrations awaiting the authority's approval
 // - [`clients`](/r/aib/ibc/core:clients): list clients (`?page`, `?limit`)
 // - `clients/{id}`: get client details
 // - `clients/{id}/status`: get client status
