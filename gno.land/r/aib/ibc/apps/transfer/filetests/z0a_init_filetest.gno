@@ -9,9 +9,9 @@ import (
 
 	// Import to trigger the init and register the app
 	_ "gno.land/r/aib/ibc/apps/transfer"
+	_ "gno.land/r/aib/ibc/apps/transfer/impl/v0"
 	"gno.land/r/aib/ibc/core"
 	_ "gno.land/r/aib/ibc/core/impl/v0"
-	_ "gno.land/r/aib/ibc/apps/transfer/impl/v0"
 )
 
 // init: ensure app is registered

@@ -7,8 +7,8 @@ import (
 
 	"gno.land/p/aib/authority/v0"
 	"gno.land/r/aib/ibc/apps/transfer"
-	_ "gno.land/r/aib/ibc/core/impl/v0"
 	_ "gno.land/r/aib/ibc/apps/transfer/impl/v0"
+	_ "gno.land/r/aib/ibc/core/impl/v0"
 )
 
 // Authority: GovDAO is a member from the start, the bootstrap admits this realm,
