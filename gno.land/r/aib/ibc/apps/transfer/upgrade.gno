@@ -51,7 +51,9 @@ type Logic interface {
 	// Transfer is the user-side logic behind the Transfer entry point: it
 	// classifies the denom, records the send it authorizes for OnSendPacket
 	// in the store, builds the packet and sends it through the IBC core.
-	Transfer(_ int, rlm realm, clientID, receiver, denom string, amount int64, timeoutTimestamp uint64, memo string) (packet types.MsgSendPacket, sequence uint64)
+	// sent is the send envelope of the transaction, read by the proxy (see
+	// transfer.gno for why the implementation must not read it itself).
+	Transfer(_ int, rlm realm, sent []chain.Coin, clientID, receiver, denom string, amount int64, timeoutTimestamp uint64, memo string) (packet types.MsgSendPacket, sequence uint64)
 
 	// The app.IBCApp callbacks, in the non-crossing form.
 	OnSendPacket(_ int, rlm realm, sourceClient, destinationClient string, sequence uint64, payload types.Payload) error

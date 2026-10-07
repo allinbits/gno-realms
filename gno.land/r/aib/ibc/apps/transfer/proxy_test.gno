@@ -1,6 +1,7 @@
 package transfer
 
 import (
+	"chain"
 	"strings"
 	"testing"
 
@@ -42,7 +43,7 @@ func (l *upgradeTestLogic) Render(path string) string {
 	return "rendered by " + l.version + ": " + path
 }
 
-func (l *upgradeTestLogic) Transfer(_ int, rlm realm, clientID, receiver, denom string, amount int64, timeoutTimestamp uint64, memo string) (types.MsgSendPacket, uint64) {
+func (l *upgradeTestLogic) Transfer(_ int, rlm realm, sent []chain.Coin, clientID, receiver, denom string, amount int64, timeoutTimestamp uint64, memo string) (types.MsgSendPacket, uint64) {
 	panic("upgradeTestLogic.Transfer: not implemented")
 }
 

@@ -1,6 +1,7 @@
 package impl
 
 import (
+	"chain"
 	"chain/runtime/unsafe"
 	"strings"
 
@@ -14,11 +15,11 @@ import (
 
 // Transfer classifies the denom, records in the proxy's store the send it
 // authorizes for OnSendPacket, builds the packet and sends it through the IBC
-// core. The proxy already checked that the caller is a direct user call, so
-// unsafe.OriginSend describes coins that landed at the proxy and
-// unsafe.OriginCaller is the packet sender. The proxy clears the recorded
-// send on every exit path.
-func (l *logic) Transfer(_ int, rlm realm, clientID, receiver, denom string, amount int64, timeoutTimestamp uint64, memo string) (
+// core. The proxy already checked that the caller is a direct user call and
+// read the send envelope (sent), so sent describes coins that landed at the
+// proxy and unsafe.OriginCaller is the packet sender. The proxy clears the
+// recorded send on every exit path.
+func (l *logic) Transfer(_ int, rlm realm, sent []chain.Coin, clientID, receiver, denom string, amount int64, timeoutTimestamp uint64, memo string) (
 	packet types.MsgSendPacket, sequence uint64,
 ) {
 	sender := unsafe.OriginCaller().String()
@@ -27,7 +28,7 @@ func (l *logic) Transfer(_ int, rlm realm, clientID, receiver, denom string, amo
 		// IBC voucher: the voucher GRC20 token is burnt in OnSendPacket.
 		// Native coins sent with a voucher transfer would be stuck at the
 		// proxy.
-		if len(unsafe.OriginSend()) > 0 {
+		if len(sent) > 0 {
 			panic("voucher transfer must not include native coins")
 		}
 		// Validate it exists and resolve the denom path.
@@ -44,7 +45,7 @@ func (l *logic) Transfer(_ int, rlm realm, clientID, receiver, denom string, amo
 		// Non-IBC GRC20 token: escrow via TransferFrom happens in
 		// OnSendPacket. Native coins sent with a GRC20 transfer would be
 		// stuck at the proxy.
-		if len(unsafe.OriginSend()) > 0 {
+		if len(sent) > 0 {
 			panic("GRC20 transfer must not include native coins")
 		}
 		// Replace the denom with a slash-free alias for the IBC packet.
@@ -61,7 +62,6 @@ func (l *logic) Transfer(_ int, rlm realm, clientID, receiver, denom string, amo
 	default:
 		// Native coin: the coins landed at the proxy (direct user call,
 		// checked by the proxy).
-		sent := unsafe.OriginSend()
 		if len(sent) != 1 || sent[0].Amount == 0 {
 			panic("native transfer requires one non-zero coin to be sent")
 		}

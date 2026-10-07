@@ -1,6 +1,8 @@
 package transfer
 
 import (
+	"chain/runtime/unsafe"
+
 	"gno.land/p/aib/ibc/types/v0"
 	"gno.land/p/nt/ufmt/v0"
 )
@@ -16,13 +18,17 @@ import (
 // memo is included in the IBC packet payload.
 //
 // The classification and the packet construction are the implementation's
-// (see upgrade.gno). Two things stay here: the value-moving authority must
+// (see upgrade.gno). Three things stay here. The value-moving authority must
 // come from a direct user call, because the packet sender is the tx origin and
 // unsafe.OriginSend describes coins that actually landed at this realm (an
 // intermediate realm or a `maketx run` script can attach coins to the tx and
-// spend them elsewhere); and the sends the implementation records for
-// OnSendPacket are cleared on every exit path, so nothing bleeds into a
-// later transaction.
+// spend them elsewhere). The send envelope is read here and handed to the
+// implementation: the VM attributes the read to the realm whose code performs
+// it, and refuses a MsgCall whose coins the paid realm never observed, so a
+// read from the implementation's code would not count (the coins would be
+// reported as stranded). And the sends the implementation records for
+// OnSendPacket are cleared on every exit path, so nothing bleeds into a later
+// transaction.
 func Transfer(cur realm, clientID, receiver, denom string, amount int64, timeoutTimestamp uint64, memo string) (
 	packet types.MsgSendPacket, sequence uint64,
 ) {
@@ -30,7 +36,7 @@ func Transfer(cur realm, clientID, receiver, denom string, amount int64, timeout
 		panic("transfer must be a direct user call (maketx call)")
 	}
 	defer clearPendingSends()
-	return mustImpl().Transfer(0, cur, clientID, receiver, denom, amount, timeoutTimestamp, memo)
+	return mustImpl().Transfer(0, cur, unsafe.OriginSend(), clientID, receiver, denom, amount, timeoutTimestamp, memo)
 }
 
 // VoucherSend is a convenience helper to send an IBC voucher token from the
