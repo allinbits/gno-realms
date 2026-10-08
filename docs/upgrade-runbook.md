@@ -21,9 +21,19 @@ the proxies and stay provable across the switch.
   implements the proxy's `Logic`, registers itself from `init` with
   `RegisterImpl`, and reuses from `impl/v0` what it does not change (`New`, the
   exported `Renderer`).
-- `OnInstall` runs inside `UpdateImpl` before the switch and again on every
-  re-install and rollback: keep it idempotent, schema-aware and cheap. A
-  migration that is not additive forfeits the rollback.
+- `OnInstall` is the migration hook. It runs inside `UpdateImpl` before the
+  switch and again on every re-install and rollback: keep it idempotent,
+  schema-aware and cheap. A migration that is not additive forfeits the
+  rollback.
+- A migration rewrites the proxy's store in place. All the state lives in the
+  proxy (clients, commitments, receipts, acknowledgements; escrow, vouchers,
+  denominations) and the hook reaches it through the `Store` and `Client`
+  accessors: it can set and delete entries, and a deletion refunds its storage
+  deposit. An implementation realm holds no state of its own, so a superseded
+  one leaves only its code deployed and there is nothing to clean up after a
+  switch. What a migration cannot do is change the shape of the proxy's own
+  types, since their fields are frozen with the proxy: a new shape means new
+  objects, through the `/p/` types and the `Ext` fields of the messages.
 - `make test`, then the e2e suite with the candidate active (point the
   rehearsal at it, or run the steps below on gnodev).
 
