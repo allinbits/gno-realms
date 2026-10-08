@@ -7,13 +7,15 @@ import (
 	"testing"
 	"time"
 
-	"gno.land/p/aib/ibc/lightclient/tendermint"
-	tmtesting "gno.land/p/aib/ibc/lightclient/tendermint/testing"
-	"gno.land/p/aib/ibc/types"
-	"gno.land/p/aib/ics23"
+	tmtesting "gno.land/p/aib/ibc/lightclient/tendermint/testing/v0"
+	"gno.land/p/aib/ibc/lightclient/tendermint/v0"
+	"gno.land/p/aib/ibc/types/v0"
+	"gno.land/p/aib/ics23/v0"
 	"gno.land/r/aib/ibc/apps/testing/grc20test"
 	"gno.land/r/aib/ibc/apps/transfer"
+	_ "gno.land/r/aib/ibc/apps/transfer/impl/v0"
 	"gno.land/r/aib/ibc/core"
+	_ "gno.land/r/aib/ibc/core/impl/v0"
 )
 
 // OnAcknowledgementPacket: success w/ refund of non-IBC GRC20 token
@@ -164,6 +166,6 @@ func main(cur realm) {
 //
 // signer grc20 balance after Transfer: 900
 //
-// ack res: (2 gno.land/p/aib/ibc/types.ResponseResultType)
+// ack res: (2 gno.land/p/aib/ibc/types/v0.ResponseResultType)
 //
 // signer grc20 balance after Acknowledgement: 1000

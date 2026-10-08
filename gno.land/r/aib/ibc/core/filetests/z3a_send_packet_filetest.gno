@@ -1,14 +1,14 @@
 // PKGPATH: gno.land/r/aib/main
 package main
 
-
 import (
 	"time"
 
-	tmtesting "gno.land/p/aib/ibc/lightclient/tendermint/testing"
-	"gno.land/p/aib/ibc/types"
+	tmtesting "gno.land/p/aib/ibc/lightclient/tendermint/testing/v0"
+	"gno.land/p/aib/ibc/types/v0"
 	appstesting "gno.land/r/aib/ibc/apps/testing"
 	"gno.land/r/aib/ibc/core"
+	_ "gno.land/r/aib/ibc/core/impl/v0"
 )
 
 // SendPacket success
@@ -71,9 +71,9 @@ func main(cur realm) {
 }
 
 // Output:
-// next sequence: {"next_sequence_send": 1}"
+// next sequence: {"next_sequence_send": 1}
 // returned sequence: 1
-// next sequence: {"next_sequence_send": 2}"
+// next sequence: {"next_sequence_send": 2}
 // ----------- app1 report
 // OnSendPacket (1)
 // - sourceClient: 07-tendermint-1
@@ -97,7 +97,7 @@ func main(cur realm) {
 // OnAcknowledgementPacket (0)
 //
 // returned sequence: 2
-// next sequence: {"next_sequence_send": 3}"
+// next sequence: {"next_sequence_send": 3}
 // ----------- assert render clients/07-tendermint-1/packet_commitments
 // {"items":[{"sequence":"1","data":"oyZ+seOMNQrPOErL+0WJp0pHKAMur2SlkdChrVRzm28="},{"sequence":"2","data":"oyZ+seOMNQrPOErL+0WJp0pHKAMur2SlkdChrVRzm28="}],"page":1,"total":1}
 // ----------- assert render clients/07-tendermint-1/packet_commitments/1

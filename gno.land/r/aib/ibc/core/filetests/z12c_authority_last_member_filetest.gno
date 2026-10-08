@@ -4,8 +4,9 @@ package main
 import (
 	"chain"
 
-	"gno.land/p/aib/authority"
+	"gno.land/p/aib/authority/v0"
 	"gno.land/r/aib/ibc/core"
+	_ "gno.land/r/aib/ibc/core/impl/v0"
 )
 
 // The last member of the authority cannot be removed.

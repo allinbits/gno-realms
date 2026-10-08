@@ -5,8 +5,10 @@ import (
 	"chain"
 	"testing"
 
-	"gno.land/p/aib/authority"
+	"gno.land/p/aib/authority/v0"
 	"gno.land/r/aib/ibc/apps/transfer"
+	_ "gno.land/r/aib/ibc/apps/transfer/impl/v0"
+	_ "gno.land/r/aib/ibc/core/impl/v0"
 )
 
 // Authority: GovDAO is a member from the start, the bootstrap admits this realm,
@@ -33,6 +35,9 @@ func main(cur realm) {
 //   - g1gjs8nfdrd55z3xu9gjcatnj29vkwuyx4ffqxd9
 //   - g1p84dvfh4wrplyxx4zsmy77a8rxcnjup2j7zv5r
 // - **Paused**: false (set by the IBC core)
+// - **Implementation**: [`gno.land/r/aib/ibc/apps/transfer/impl/v0`](/r/aib/ibc/apps/transfer/impl/v0) (version v0)
+// - **Registered implementations**:
+//   - gno.land/r/aib/ibc/apps/transfer/impl/v0
 // - **Blocked addresses**:
 //   - g1someother00000000000000000000000000
 

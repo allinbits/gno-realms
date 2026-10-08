@@ -23,12 +23,12 @@ Under the hood:
 
 Run a single package's tests:
 ```bash
-go tool gno test ./gno.land/p/aib/ibc/types
+go tool gno test ./gno.land/p/aib/ibc/types/v0
 ```
 
 Run a specific test by name:
 ```bash
-go tool gno test -run TestPacketValidateBasic ./gno.land/p/aib/ibc/types
+go tool gno test -run TestPacketValidateBasic ./gno.land/p/aib/ibc/types/v0
 ```
 
 Run a single **filetest**: `-run` must match the full path to the test file,
@@ -54,32 +54,36 @@ cmd/                          # Go CLI tools
   gen-proof/                  # Generate IBC proof structures
 gno.land/
   p/aib/                      # Packages (stateless libraries)
-    ibc/app/                  # IBCApp interface definition
-    ibc/types/                # Core types: Packet, Height, Msgs, Payload
-    ibc/host/                 # ICS-024 identifier validation, packet key generation
-    ibc/lightclient/          # Light client interface (12 methods)
-    ibc/lightclient/tendermint/         # Tendermint light client implementation
-    ibc/lightclient/tendermint/testing/ # Test helpers: NewMsgHeader, GenValset, etc.
-    ibc/testing/              # ICS-23 proof test helpers
-    ics23/                    # ICS-23 Merkle proof verification
-    encoding/                 # Uint64 big-endian encoding
-    encoding/proto/           # Protobuf varint/field encoding
-    merkle/                   # RFC-6962 Merkle tree
-    jsonpage/                 # AVL tree JSON pagination
+    ibc/app/v0/               # IBCApp interface definition
+    ibc/types/v0/             # Core types: Packet, Height, Msgs, Payload
+    ibc/host/v0/              # ICS-024 identifier validation, packet key generation
+    ibc/ics20/v0/             # ICS-20 types: Denom, Hop, Token, FungibleTokenPacketData
+    ibc/lightclient/v0/       # Light client interface (12 methods)
+    ibc/lightclient/tendermint/v0/      # Tendermint light client implementation
+    ibc/lightclient/tendermint/testing/v0/ # Test helpers: NewMsgHeader, GenValset, etc.
+    ibc/testing/v0/           # ICS-23 proof test helpers
+    ics23/v0/                 # ICS-23 Merkle proof verification
+    encoding/v0/              # Uint64 big-endian encoding
+    encoding/proto/v0/        # Protobuf varint/field encoding
+    merkle/v0/                # RFC-6962 Merkle tree
+    authority/v0/             # Member authority (multisig + GovDAO) gating admin operations
+    jsonpage/v0/              # AVL tree JSON pagination
   r/aib/ibc/                  # Realms (stateful contracts)
-    core/                     # IBC v2 core: CreateClient, SendPacket, RecvPacket, etc.
-    apps/transfer/            # Token transfer app (ICS-20 equivalent)
+    core/                     # IBC v2 core proxy: entry points, store, gates, admin (ADR 0001)
+    core/impl/v0/             # Core lifecycle logic (CreateClient, SendPacket, RecvPacket, ...)
+    apps/transfer/            # Token transfer app proxy: entry points, store, value moves, admin (ADR 0002)
+    apps/transfer/impl/v0/    # ICS-20 logic (Transfer classification, callbacks, refunds)
     apps/testing/             # Mock IBCApp for tests
 ```
 
 ### Key Interfaces
 
-**IBCApp** (`p/aib/ibc/app/app.gno`): Apps must implement 4 callbacks:
+**IBCApp** (`p/aib/ibc/app/v0/app.gno`): Apps must implement 4 callbacks:
 - `OnSendPacket`, `OnRecvPacket`, `OnTimeoutPacket`, `OnAcknowledgementPacket`
 - Every callback must first check that `cur.Previous().PkgPath()` is the core realm (transfer's `assertCoreCaller`): the methods are exported and a zero-value `App` is callable by any realm, so without the gate anyone can mint vouchers or release escrow
 - Register apps with `core.RegisterApp(cur, portID, app)`: immediate for realms under `gno.land/r/aib/`, pending until `core.ApproveApp` by the authority for any other realm
 
-**lightclient.Interface** (`p/aib/ibc/lightclient/lightclient.gno`): 12 methods including `Initialize`, `VerifyClientMessage`, `UpdateState`, `VerifyMembership`, `VerifyNonMembership`, `Status`, `LatestHeight`
+**lightclient.Interface** (`p/aib/ibc/lightclient/v0/lightclient.gno`): 12 methods including `Initialize`, `VerifyClientMessage`, `UpdateState`, `VerifyMembership`, `VerifyNonMembership`, `Status`, `LatestHeight`
 
 ### IBC v2 Packet Lifecycle
 
@@ -234,8 +238,8 @@ for _, tc := range testCases {
 
 ### Test Helper Packages
 
-- **`p/aib/ibc/lightclient/tendermint/testing`** - `NewClientState()`, `GenValset()`, `GenConsensusState()`, `NewMsgHeader()`, `Hash()`, crypto helpers
-- **`p/aib/ibc/testing`** - `NewExistenceProof()` for ICS-23 proofs
+- **`p/aib/ibc/lightclient/tendermint/testing/v0`** - `NewClientState()`, `GenValset()`, `GenConsensusState()`, `NewMsgHeader()`, `Hash()`, crypto helpers
+- **`p/aib/ibc/testing/v0`** - `NewExistenceProof()` for ICS-23 proofs
 - **`r/aib/ibc/apps/testing`** - Mock `IBCApp` that records all callback invocations; use `SetOnSendPacketReturn()` etc. to configure, `Report()` to verify
 - **`r/aib/ibc/apps/transfer`** - `GRC20BalanceOf(ibcDenom, addr)` to query voucher token balances; filetests mint vouchers via a real `RecvPacket` flow
 
@@ -287,7 +291,8 @@ e2e/
 ├── go.mod / go.sum         # Only deps: testify, godotenv
 ├── gno/
 │   ├── Dockerfile          # git clone gnolang/gno@master, builds gnodev+gnokey
-│   └── entrypoint.sh       # gnodev local with resolvers for aibgno + examples
+│   ├── entrypoint.sh       # gnodev local with resolvers for aibgno + examples
+│   └── rehearsal/          # impl/v99 candidates of core and transfer, deployed by TestUpgradeRehearsal (outside gno.land/: gnodev eager-loads its workspace)
 ├── atomone/
 │   ├── Dockerfile          # git clone atomone-hub/atomone@main
 │   └── entrypoint.sh       # Single-validator init, fast blocks, starts atomoned
@@ -299,7 +304,8 @@ e2e/
 ├── tx.go                   # buildMsgSendPacket, buildUnsignedTx
 ├── tx_test.go              # signAndBroadcastAtomOneTx, signAndBroadcastGnoCall (suite methods)
 ├── suite_test.go           # Testify suite: SetupSuite, waitForIBCClients, gnokey helpers
-└── ibc_transfer_test.go    # TestIBCTransferAtomOneToGno, TestIBCTransferGnoToAtomOne
+├── ibc_transfer_test.go    # TestIBCTransferAtomOneToGno, TestIBCTransferGnoToAtomOne
+└── upgrade_test.go         # TestGovDAOUpdateImpl (UpdateImpl through r/gov/dao), TestUpgradeRehearsal (deploy v99, switch, relay, roll back)
 ```
 
 ### Ports
@@ -331,4 +337,5 @@ e2e/
 - **Relayer uses `--dquery`** for Gno's GraphQL endpoint: `http://tx-indexer:8546/graphql/query`
 - **Sign+broadcast retries on sequence mismatch** — the relayer shares the same account (TEST_MNEMONIC), causing occasional races
 - **`--force-recreate` required** in `docker compose up` to avoid stale container state (e.g. validator key already exists)
+- **Preload every package a test transaction imports** (`-paths` in `e2e/gno/entrypoint.sh`): gnodev's lazy loader reloads the node when a transaction references a package it has not loaded yet, which resets the chain under the relayer; AtomOne's light client of gno then rejects every update with "trusted validators ... does not hash"
 - **Adena dev build required for txlinks** — the transfer realm's render page exposes `txlink`-generated transaction links that open Adena. The published Adena release only accepts requests from `gno.land` / `*.gnoland.network`; sending from `localhost:8888` **silently fails** (no error popup — the click just does nothing). Use a locally built Adena in **dev mode** (`yarn build:dev` — i.e. `webpack --mode=development` — in `adena-wallet/packages/adena-extension`, then load the unpacked extension) so the chain-id `dev` and `127.0.0.1` origin are accepted. The e2e entrypoint sets `-web-help-remote http://127.0.0.1:26657` so Adena's downstream RPC fetch resolves correctly.

@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"os/exec"
+	"path/filepath"
 	"strings"
 )
 
@@ -43,4 +44,20 @@ func dockerExecStdin(ctx context.Context, containerID string, stdin string, args
 	cmd.Stderr = &stderr
 	err := cmd.Run()
 	return stdout.String(), stderr.String(), err
+}
+
+// dockerCp copies a local path into a container ("<container>:<path>") with
+// docker cp; the destination's parent directories are created.
+func dockerCp(src, dst string) error {
+	if i := strings.Index(dst, ":"); i > 0 {
+		mk := exec.Command("docker", "exec", dst[:i], "mkdir", "-p", filepath.Dir(dst[i+1:]))
+		if out, err := mk.CombinedOutput(); err != nil {
+			return fmt.Errorf("mkdir in container: %w: %s", err, out)
+		}
+	}
+	cmd := exec.Command("docker", "cp", src, dst)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("docker cp %s %s: %w: %s", src, dst, err, out)
+	}
+	return nil
 }

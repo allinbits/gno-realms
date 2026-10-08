@@ -6,12 +6,15 @@ import (
 	"testing"
 	"time"
 
-	tmtesting "gno.land/p/aib/ibc/lightclient/tendermint/testing"
-	"gno.land/p/aib/ibc/types"
-	"gno.land/p/aib/ics23"
+	"gno.land/p/aib/ibc/ics20/v0"
+	tmtesting "gno.land/p/aib/ibc/lightclient/tendermint/testing/v0"
+	"gno.land/p/aib/ibc/types/v0"
+	"gno.land/p/aib/ics23/v0"
 	"gno.land/p/nt/testutils/v0"
 	"gno.land/r/aib/ibc/apps/transfer"
+	_ "gno.land/r/aib/ibc/apps/transfer/impl/v0"
 	"gno.land/r/aib/ibc/core"
+	_ "gno.land/r/aib/ibc/core/impl/v0"
 )
 
 // VoucherSend: success for IBC voucher token via MsgCall helper.
@@ -33,7 +36,7 @@ func main(cur realm) {
 
 	mintVoucher(cur, clientID, counterpartyID, trustedHeight, signer)
 
-	voucherDenom := transfer.NewDenom("uphoton", transfer.NewHop(transfer.PortID, clientID)).IBCDenom()
+	voucherDenom := ics20.NewDenom("uphoton", ics20.NewHop(transfer.PortID, clientID)).IBCDenom()
 	println("signer voucher balance before VoucherSend:", transfer.VoucherBalanceOf(voucherDenom, signer))
 	println("recipient voucher balance before VoucherSend:", transfer.VoucherBalanceOf(voucherDenom, recipient))
 
@@ -45,7 +48,7 @@ func main(cur realm) {
 }
 
 func mintVoucher(cur realm, clientID, counterpartyID string, trustedHeight types.Height, receiver address) {
-	payload := transfer.NewFungibleTokenPacketData("uphoton", "100", "atone1user", receiver.String(), "")
+	payload := ics20.NewFungibleTokenPacketData("uphoton", "100", "atone1user", receiver.String(), "")
 	payloadBz := payload.ProtoMarshal()
 
 	specs := ics23.IavlSpec()

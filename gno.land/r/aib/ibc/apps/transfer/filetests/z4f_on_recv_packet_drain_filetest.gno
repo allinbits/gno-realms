@@ -7,14 +7,17 @@ import (
 	"testing"
 	"time"
 
-	"gno.land/p/aib/ibc/host"
-	"gno.land/p/aib/ibc/lightclient/tendermint"
-	tmtesting "gno.land/p/aib/ibc/lightclient/tendermint/testing"
-	"gno.land/p/aib/ibc/types"
-	"gno.land/p/aib/ics23"
+	"gno.land/p/aib/ibc/host/v0"
+	"gno.land/p/aib/ibc/ics20/v0"
+	tmtesting "gno.land/p/aib/ibc/lightclient/tendermint/testing/v0"
+	"gno.land/p/aib/ibc/lightclient/tendermint/v0"
+	"gno.land/p/aib/ibc/types/v0"
+	"gno.land/p/aib/ics23/v0"
 	"gno.land/p/nt/testutils/v0"
 	"gno.land/r/aib/ibc/apps/transfer"
+	_ "gno.land/r/aib/ibc/apps/transfer/impl/v0"
 	"gno.land/r/aib/ibc/core"
+	_ "gno.land/r/aib/ibc/core/impl/v0"
 )
 
 // OnRecvPacket: per-client escrow isolation prevents a shared-escrow drain.
@@ -73,7 +76,7 @@ func main(cur realm) {
 	// "returning token" packet: the denom trace starts with the counterparty of
 	// clientB, so OnRecvPacket takes the unescrow branch.
 	denom := "transfer/" + cpartyB + "/ugnot"
-	payload := transfer.NewFungibleTokenPacketData(denom, "100", "atone1attacker", attacker.String(), "")
+	payload := ics20.NewFungibleTokenPacketData(denom, "100", "atone1attacker", attacker.String(), "")
 	packet := types.Packet{
 		Sequence:          1,
 		SourceClient:      cpartyB,

@@ -1,15 +1,23 @@
 # Contract upgradability plan
 
-- Status: decided 2026-10-01 (§8), implementation not started
+- Status: decided 2026-10-01 (§8); Phase 0 done 2026-10-05 (ADR 0001, ADR 0002);
+  `/v0` rename, Phases 1 (core proxy), 2 (transfer proxy), 3 (GovDAO path) and
+  4 (rehearsal, runbook) done 2026-10-06; Phase 5 not started
 - Scope: `r/aib/ibc/core`, `r/aib/ibc/apps/transfer`, their `p/aib/...` dependencies,
   deploy scripts, tests
-- Related: issue #22 (Use proxy realms), branch `chore/proxy` (ADR 0001 "Proxy
-  realm for upgradeable IBC core", WIP from July 2026, never merged, based on
-  `135bd38`)
+- Related: issue #22 (Use proxy realms); `docs/adrs/0001-proxy-realm-for-core-upgrades.md`
+  and `docs/adrs/0002-proxy-realm-for-transfer-upgrades.md` (the decisions of this
+  plan, Phase 0); branch `chore/proxy` (July 2026 draft of ADR 0001 and of the
+  core proxy code, never merged, based on `135bd38`, kept as a reference)
 
 Master has no upgrade mechanism today. This document inventories what is
 path-bound, states the Gno rules the design has to respect, compares the options,
 and lays out a phased delivery. Section 8 records the decisions taken.
+
+Nothing is deployed anywhere yet. Until the first mainnet deploy there is no
+backward compatibility to preserve: paths, signatures, render routes and golden
+outputs can still change freely, and no change needs to be coordinated with a
+running relayer or counterparty.
 
 ## 1. Why this has to be designed in before the first mainnet deploy
 
@@ -33,8 +41,9 @@ one. `r/gnops/valopers/admin.gno:144-158` says it plainly for its own rotation
 entry point: "It must exist before deploy, because code cannot be added to a
 deployed realm."
 
-The project currently targets the onyx testnet (`scripts/env.sh`). The first
-mainnet deploy is the point after which the frozen surface can no longer change.
+The project targets the onyx testnet (`scripts/env.sh`), where nothing is
+deployed yet. The first mainnet deploy is the point after which the frozen
+surface can no longer change.
 
 ## 2. What is path-bound today
 
@@ -164,8 +173,9 @@ Frozen surface, never changes after mainnet deploy:
    could still be useful is recorded in issue #59.
 6. **No light-client code in the proxy.** Today `addClient` hardwires
    `tendermint.NewTMLightClient()`. In the proxy design the implementation
-   constructs the verifier it imports and hands the object to the store
-   (`AddClient(0, rlm, typ, creator, lc)`, as onbloc does); the proxy only holds
+   chooses the verifier and hands its `/p/` constructor to the store
+   (`AddClient(0, rlm, typ, creator, newLightClient)`), which calls it so the
+   object is allocated in the proxy's storage; the proxy only holds
    the `lightclient.Interface` value per client and exposes `SetLightClient` for
    migrations. Changing the verifier is therefore an ordinary implementation
    upgrade, with no separate admin operation and no function-valued argument.
@@ -181,8 +191,11 @@ Frozen surface, never changes after mainnet deploy:
    import, see §5.6); every later switch requires `UpdateImpl`.
 8. **Authority**: the existing `p/aib/authority` member set (PR #65) gates
    `UpdateImpl` like every other administrative operation (§5.4).
-9. **Render** showing "upgradeable realm", the active impl path and version, and
-   the authority, per the Constitution's disclosure rule.
+9. **Render** forwarded to `Logic.Render`, JSON routes included, so the routes
+   follow the verifier across upgrades; the relayer-read routes are pinned by
+   the `z0c` filetest. The home page shows "upgradeable realm", the active
+   impl path and version, and the authority, per the Constitution's disclosure
+   rule.
 
 `Logic` interface (the branch's `upgrade.gno`, extended):
 
@@ -190,6 +203,7 @@ Frozen surface, never changes after mainnet deploy:
 type Logic interface {
     Version() string
     OnInstall(_ int, rlm realm, prevPath, prevVersion string) // migration hook, runs inside UpdateImpl
+    Render(path string) string                                // every route; relayer-read ones pinned by z0c
     CreateClient(_ int, rlm realm, relayer address, cs lightclient.ClientState, cons lightclient.ConsensusState) string
     RegisterCounterparty(_ int, rlm realm, ...)
     UpdateClient(_ int, rlm realm, ...)
@@ -255,9 +269,9 @@ Light-client *state* is a set of core-owned objects whose methods are bound to t
   the migration is O(1) per client.
 - New clients get the new verifier simply because the new implementation
   constructs it.
-- The store field is typed `lightclient/v0.Interface` forever, so a later
-  `lightclient/v1` verifier must still implement the v0 methods; the
-  implementation type-asserts for anything newer.
+- The store field is typed `lightclient.Interface` forever, so a later verifier
+  such as `tendermint/v1` must still implement it; the implementation
+  type-asserts for anything newer.
 - `RecoverClient` and a brand-new client remain the fallback when the state
   itself must change shape (counterparty re-registration required).
 
@@ -284,7 +298,9 @@ Frozen surface:
   rlm)` sends, grc20 `RealmTeller(0, rlm)` transfers, voucher mint/burn,
   `grc20reg.Register(cross(rlm), ...)`. They work because the current realm is
   the proxy, the token's home realm.
-- `RegisterImpl/UpdateImpl`, Render disclosure, as in core.
+- `RegisterImpl/UpdateImpl`, `Render` forwarded to the implementation, as in
+  core. The ICS-20 types (`Denom`, `Hop`, `Token`, `FungibleTokenPacketData`)
+  move to `p/aib/ibc/ics20/v0` so every implementation can construct them.
 
 Implementation realm: `gno.land/r/aib/ibc/apps/transfer/impl/v0` holding the
 ICS-20 logic (`OnSendPacket`, `OnRecvPacket`, refund paths, denom tracing).
@@ -306,8 +322,9 @@ No timelock between `RegisterImpl` and `UpdateImpl` (decided). The two-step
 itself stays: a candidate is visible in `Render` and events from the moment it
 registers, and only the authority can activate it.
 
-The e2e suite should exercise a GovDAO-driven `UpdateImpl` through the proposal
-constructor against a real `r/gov/dao` once before mainnet.
+The GovDAO-driven `UpdateImpl` is exercised against the real `r/gov/dao` by
+the `z14f`/`z14g` (core) and `z6d` (transfer) filetests, which seed the DAO
+with `r/gov/dao/init/v0`, and by the e2e `TestGovDAOUpdateImpl`.
 
 ### 5.5 Versioning and layout
 
@@ -325,12 +342,9 @@ gno.land/p/aib/ibc/types/v0, host/v0, lightclient/v0, lightclient/tendermint/v0,
 - Adding `/v0` to the `p/aib/...` paths is a one-time rename of imports that is
   only possible before mainnet (decided). It costs nothing on-chain, matches
   nearly every `examples/` package, and is what lets a `types/v1` coexist later.
-  It is not invisible to callers, though: every `MsgRun` script that imports
-  those packages must be updated once. That includes the ts-relayer templates,
-  which import `p/aib/ibc/types`, `p/aib/ibc/lightclient/tendermint` and
-  `p/aib/ics23` to build their arguments, so a relayer release has to ship before
-  or with the renamed packages. `MsgCall` callers (`Transfer`, voucher helpers,
-  admin operations) and `vm/qrender` / `vm/qeval` queries are unaffected.
+  The ts-relayer templates import three of those packages (`ibc/types`,
+  `ibc/lightclient/tendermint`, `ics23`); their imports move in
+  ibc-v2-ts-relayer#37. With nothing deployed, the two changes just merge.
 - Implementation realms keep no state of their own beyond the injected store
   reference, so abandoning one wastes no storage deposit.
 
@@ -345,7 +359,7 @@ in-package code can quietly use unexported internals.
 Instead, as onbloc and `r/gov/dao` do, the proxy has **no** logic:
 `core/impl/v0` is a real external realm from day one.
 
-- Every one of the 182 filetests and the e2e flow then runs through the exported
+- Every one of the 216 realm filetests and the e2e flow then runs through the exported
   surface, so the frozen surface is proven complete before it freezes.
 - The proxy stays minimal, and no obsolete v0 logic is frozen into it forever.
 - Cost: one blank import `_ "gno.land/r/aib/ibc/core/impl/v0"` per filetest (the
@@ -385,9 +399,8 @@ decisions of §8.
 **Rename to `/v0` (before Phase 1).** Move every `p/aib/...` package to its
 `/v0` path (§5.5) and update all imports, the README `run.gno` examples and the
 filetests, and add the `Ext any` field to the `Msg*` types (§5.1) in the same
-change, since it is the last chance to touch them. Coordinate a ts-relayer
-release that updates its templates' imports: until both sides are deployed, the
-relayer cannot talk to the renamed packages.
+change, since it is the last chance to touch them. The ts-relayer templates
+follow in ibc-v2-ts-relayer#37.
 
 **Phase 1, core proxy.** Port `upgrade.gno`, `emit.gno`, the dispatchers and
 `proxy_test.gno` from `chore/proxy`; export the store surface with the realm gate;
@@ -395,8 +408,8 @@ hoist the relayer and authority gates into the dispatchers; add
 `Version` / `OnInstall`, the auto-activation bootstrap, Render disclosure. Move the logic to
 `core/impl/v0`; the proxy keeps no `defaultLogic`. Tests: unit tests for every
 gate (foreign realm, non-current realm, unregistered path, non-authority), a new
-filetest category `z11*` for implementation switch and rollback, and the existing
-182 golden outputs byte-identical.
+filetest category `z14*` for implementation switch and rollback, and the existing
+golden outputs byte-identical except the render pages, which gain the disclosure.
 
 **Phase 2, transfer proxy.** Same treatment: store and voucher/escrow services in
 the proxy, callbacks forwarding non-crossing, `impl/v0`. New filetest category `z6*` (impl switch, refund after switch, voucher

@@ -5,12 +5,14 @@ import (
 	"testing"
 	"time"
 
-	tmtesting "gno.land/p/aib/ibc/lightclient/tendermint/testing"
-	"gno.land/p/aib/ibc/types"
+	tmtesting "gno.land/p/aib/ibc/lightclient/tendermint/testing/v0"
+	"gno.land/p/aib/ibc/types/v0"
 
 	"gno.land/r/aib/ibc/apps/testing/grc20test"
 	"gno.land/r/aib/ibc/apps/transfer"
+	_ "gno.land/r/aib/ibc/apps/transfer/impl/v0"
 	"gno.land/r/aib/ibc/core"
+	_ "gno.land/r/aib/ibc/core/impl/v0"
 )
 
 // TransferGRC20: no approval (insufficient allowance)

@@ -6,6 +6,7 @@ import (
 
 	appstesting "gno.land/r/aib/ibc/apps/testing"
 	"gno.land/r/aib/ibc/core"
+	_ "gno.land/r/aib/ibc/core/impl/v0"
 )
 
 // A foreign realm cannot even queue a registration for a port that is already

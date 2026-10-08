@@ -7,12 +7,15 @@ import (
 	"testing"
 	"time"
 
-	tmtesting "gno.land/p/aib/ibc/lightclient/tendermint/testing"
-	"gno.land/p/aib/ibc/types"
-	"gno.land/p/aib/ics23"
+	"gno.land/p/aib/ibc/ics20/v0"
+	tmtesting "gno.land/p/aib/ibc/lightclient/tendermint/testing/v0"
+	"gno.land/p/aib/ibc/types/v0"
+	"gno.land/p/aib/ics23/v0"
 	"gno.land/r/aib/ibc/apps/testing/grc20test"
 	"gno.land/r/aib/ibc/apps/transfer"
+	_ "gno.land/r/aib/ibc/apps/transfer/impl/v0"
 	"gno.land/r/aib/ibc/core"
+	_ "gno.land/r/aib/ibc/core/impl/v0"
 )
 
 func main(cur realm) {
@@ -41,7 +44,7 @@ func main(cur realm) {
 	alias := transfer.GRC20Alias(grc20regKey)
 	recvVoucher(cur, clientA, "07-tendermint-42", trustedHeight, alias, owner)
 
-	voucherDenom := transfer.NewDenom(alias, transfer.NewHop(transfer.PortID, clientA)).IBCDenom()
+	voucherDenom := ics20.NewDenom(alias, ics20.NewHop(transfer.PortID, clientA)).IBCDenom()
 	println("voucher balance before Transfer:", transfer.VoucherBalanceOf(voucherDenom, owner))
 	println("GRC20 balance before Transfer:", grc20test.BalanceOf(owner))
 
@@ -53,7 +56,7 @@ func main(cur realm) {
 }
 
 func recvVoucher(cur realm, clientID, counterpartyID string, trustedHeight types.Height, baseDenom string, receiver address) {
-	payload := transfer.NewFungibleTokenPacketData(baseDenom, "100", "atone1user", receiver.String(), "")
+	payload := ics20.NewFungibleTokenPacketData(baseDenom, "100", "atone1user", receiver.String(), "")
 	payloadBz := payload.ProtoMarshal()
 
 	specs := ics23.IavlSpec()

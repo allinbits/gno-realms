@@ -4,11 +4,13 @@ package main
 import (
 	"time"
 
-	tmtesting "gno.land/p/aib/ibc/lightclient/tendermint/testing"
-	"gno.land/p/aib/ibc/types"
+	tmtesting "gno.land/p/aib/ibc/lightclient/tendermint/testing/v0"
+	"gno.land/p/aib/ibc/types/v0"
 
 	"gno.land/r/aib/ibc/apps/transfer"
+	_ "gno.land/r/aib/ibc/apps/transfer/impl/v0"
 	"gno.land/r/aib/ibc/core"
+	_ "gno.land/r/aib/ibc/core/impl/v0"
 )
 
 // renderHome with a client registered: confirms the Transfer section lists one
@@ -31,6 +33,8 @@ func main(cur realm) {
 // # IBC transfer
 //
 // ICS-20 style transfer state and voucher token queries.
+//
+// **Upgradeable realm**: the ICS-20 logic runs in the implementation [`gno.land/r/aib/ibc/apps/transfer/impl/v0`](/r/aib/ibc/apps/transfer/impl/v0) (version v0), replaceable by the authority with `UpdateImpl` (see [`admin`](/r/aib/ibc/apps/transfer:admin)).
 //
 // ## Transfer
 //

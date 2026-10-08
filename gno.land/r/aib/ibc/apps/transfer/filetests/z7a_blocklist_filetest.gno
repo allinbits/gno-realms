@@ -1,7 +1,11 @@
 // PKGPATH: gno.land/r/aib/main
 package main
 
-import "gno.land/r/aib/ibc/apps/transfer"
+import (
+	"gno.land/r/aib/ibc/apps/transfer"
+	_ "gno.land/r/aib/ibc/apps/transfer/impl/v0"
+	_ "gno.land/r/aib/ibc/core/impl/v0"
+)
 
 // Block / unblock round trip by the admin; the admin page lists the blocklist.
 func main(cur realm) {
@@ -24,6 +28,9 @@ func main(cur realm) {
 //   - g1gjs8nfdrd55z3xu9gjcatnj29vkwuyx4ffqxd9
 //   - g1p84dvfh4wrplyxx4zsmy77a8rxcnjup2j7zv5r
 // - **Paused**: false (set by the IBC core)
+// - **Implementation**: [`gno.land/r/aib/ibc/apps/transfer/impl/v0`](/r/aib/ibc/apps/transfer/impl/v0) (version v0)
+// - **Registered implementations**:
+//   - gno.land/r/aib/ibc/apps/transfer/impl/v0
 // - **Blocked addresses**:
 //   - g1someother00000000000000000000000000
 //
@@ -34,6 +41,9 @@ func main(cur realm) {
 //   - g1gjs8nfdrd55z3xu9gjcatnj29vkwuyx4ffqxd9
 //   - g1p84dvfh4wrplyxx4zsmy77a8rxcnjup2j7zv5r
 // - **Paused**: false (set by the IBC core)
+// - **Implementation**: [`gno.land/r/aib/ibc/apps/transfer/impl/v0`](/r/aib/ibc/apps/transfer/impl/v0) (version v0)
+// - **Registered implementations**:
+//   - gno.land/r/aib/ibc/apps/transfer/impl/v0
 // - **Blocked addresses**: none
 
 // Events:

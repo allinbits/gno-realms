@@ -5,11 +5,12 @@ import (
 	"errors"
 	"time"
 
-	"gno.land/p/aib/ibc/lightclient"
-	"gno.land/p/aib/ibc/lightclient/tendermint/testing"
-	tmtesting "gno.land/p/aib/ibc/lightclient/tendermint/testing"
-	"gno.land/p/aib/ibc/types"
+	"gno.land/p/aib/ibc/lightclient/tendermint/testing/v0"
+	tmtesting "gno.land/p/aib/ibc/lightclient/tendermint/testing/v0"
+	"gno.land/p/aib/ibc/lightclient/v0"
+	"gno.land/p/aib/ibc/types/v0"
 	"gno.land/r/aib/ibc/core"
+	_ "gno.land/r/aib/ibc/core/impl/v0"
 )
 
 // validateError implements ClientState or ConsensusState in order to returns

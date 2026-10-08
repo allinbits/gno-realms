@@ -103,3 +103,10 @@ func NewUnpauseAppProposalRequest(cur realm, portID string) dao.ProposalRequest 
 		"Resume the IBC application registered on port "+portID+".",
 		func(cur realm) error { unpauseApp(0, cur, portID); return nil })
 }
+
+// NewUpdateImplProposalRequest proposes to activate a registered implementation.
+func NewUpdateImplProposalRequest(cur realm, path string) dao.ProposalRequest {
+	return newProposalRequest(0, cur, "update implementation to "+path,
+		"Activate the implementation registered at "+path+" as the client and packet lifecycle logic of the IBC core. Its OnInstall hook runs any migration; a panic there leaves the current implementation active.",
+		func(cur realm) error { updateImpl(0, cur, path); return nil })
+}

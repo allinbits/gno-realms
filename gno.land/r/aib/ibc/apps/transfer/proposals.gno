@@ -38,3 +38,10 @@ func NewRemoveAuthorityMemberProposalRequest(cur realm, addr address) dao.Propos
 		"Remove "+string(addr)+" from the authority of the IBC transfer app.",
 		func(cur realm) error { removeAuthorityMember(0, cur, addr); return nil })
 }
+
+// NewUpdateImplProposalRequest proposes to activate a registered implementation.
+func NewUpdateImplProposalRequest(cur realm, path string) dao.ProposalRequest {
+	return newProposalRequest(0, cur, "update implementation to "+path,
+		"Activate the implementation registered at "+path+" as the ICS-20 logic of the IBC transfer app. Its OnInstall hook runs any migration; a panic there leaves the current implementation active.",
+		func(cur realm) error { updateImpl(0, cur, path); return nil })
+}

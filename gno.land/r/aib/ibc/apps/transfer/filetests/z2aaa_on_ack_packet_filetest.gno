@@ -7,12 +7,15 @@ import (
 	"testing"
 	"time"
 
-	"gno.land/p/aib/ibc/lightclient/tendermint"
-	tmtesting "gno.land/p/aib/ibc/lightclient/tendermint/testing"
-	"gno.land/p/aib/ibc/types"
-	"gno.land/p/aib/ics23"
+	"gno.land/p/aib/ibc/ics20/v0"
+	tmtesting "gno.land/p/aib/ibc/lightclient/tendermint/testing/v0"
+	"gno.land/p/aib/ibc/lightclient/tendermint/v0"
+	"gno.land/p/aib/ibc/types/v0"
+	"gno.land/p/aib/ics23/v0"
 	"gno.land/r/aib/ibc/apps/transfer"
+	_ "gno.land/r/aib/ibc/apps/transfer/impl/v0"
 	"gno.land/r/aib/ibc/core"
+	_ "gno.land/r/aib/ibc/core/impl/v0"
 )
 
 // OnAcknowledgementPacket: success w/ refund of IBC voucher token
@@ -39,10 +42,10 @@ func main(cur realm) {
 
 	signer := cur.Address()
 	// ibc/F9A67CB19B2CAD2ADEC20AD475BE86DF851DEC2B6F6CABC9B7B781BD9131D18F
-	voucherDenom := transfer.NewDenom("uatone", transfer.NewHop(transfer.PortID, clientID)).IBCDenom()
+	voucherDenom := ics20.NewDenom("uatone", ics20.NewHop(transfer.PortID, clientID)).IBCDenom()
 
 	// Mint voucher tokens via a real RecvPacket flow.
-	recvPayload := transfer.NewFungibleTokenPacketData("uatone", "100", "atone1user", signer.String(), "")
+	recvPayload := ics20.NewFungibleTokenPacketData("uatone", "100", "atone1user", signer.String(), "")
 	recvPayloadBz := recvPayload.ProtoMarshal()
 	// NOTE this base64 value is used in payload.value in the gen-proof command below.
 	println("Payload proto:", base64.StdEncoding.EncodeToString(recvPayloadBz))
@@ -246,7 +249,7 @@ func main(cur realm) {
 //
 // signer voucher balance after Transfer: 0
 //
-// ack res: (2 gno.land/p/aib/ibc/types.ResponseResultType)
+// ack res: (2 gno.land/p/aib/ibc/types/v0.ResponseResultType)
 //
 // signer voucher balance after Acknowledgement: 100
 

@@ -5,10 +5,13 @@ import (
 	"encoding/hex"
 	"time"
 
-	tmtesting "gno.land/p/aib/ibc/lightclient/tendermint/testing"
-	"gno.land/p/aib/ibc/types"
+	"gno.land/p/aib/ibc/ics20/v0"
+	tmtesting "gno.land/p/aib/ibc/lightclient/tendermint/testing/v0"
+	"gno.land/p/aib/ibc/types/v0"
 	"gno.land/r/aib/ibc/apps/transfer"
+	_ "gno.land/r/aib/ibc/apps/transfer/impl/v0"
 	"gno.land/r/aib/ibc/core"
+	_ "gno.land/r/aib/ibc/core/impl/v0"
 )
 
 // OnSendPacket rejects a blocked sender, whatever the asset, before any escrow
@@ -30,7 +33,7 @@ func main(cur realm) {
 	transfer.AddAuthorityMember(cross(cur), cur.Address())
 	transfer.BlockAddress(cross(cur), sender)
 
-	data := transfer.NewFungibleTokenPacketData("ugnot", "100", sender.String(), "atone1user", "")
+	data := ics20.NewFungibleTokenPacketData("ugnot", "100", sender.String(), "atone1user", "")
 	msg := types.MsgSendPacket{
 		SourceClient: clientID,
 		Payloads: []types.Payload{{

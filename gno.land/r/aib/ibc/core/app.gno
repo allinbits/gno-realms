@@ -4,8 +4,8 @@ import (
 	"chain"
 	"strings"
 
-	"gno.land/p/aib/ibc/app"
-	"gno.land/p/aib/ibc/host"
+	"gno.land/p/aib/ibc/app/v0"
+	"gno.land/p/aib/ibc/host/v0"
 	"gno.land/p/nt/ufmt/v0"
 )
 
@@ -42,18 +42,18 @@ func RegisterApp(cur realm, portID string, a app.IBCApp) {
 	if _, ok := store.routes[portID]; ok {
 		panic(ufmt.Errorf("portID %s has already been registered", portID))
 	}
-	entry := ibcApp{
+	entry := App{
 		IBCApp:  a,
-		pkgPath: caller.PkgPath(),
-		address: caller.Address(),
+		PkgPath: caller.PkgPath(),
+		Address: caller.Address(),
 	}
-	if strings.HasPrefix(entry.pkgPath, trustedAppPrefix) {
+	if strings.HasPrefix(entry.PkgPath, trustedAppPrefix) {
 		store.routes[portID] = entry
-		chain.Emit(EventTypeAppRegistered, "port", portID, "pkg_path", entry.pkgPath)
+		chain.Emit(EventTypeAppRegistered, "port", portID, "pkg_path", entry.PkgPath)
 		return
 	}
-	store.pendingApps.Set(pendingKey(portID, entry.pkgPath), entry)
-	chain.Emit(EventTypeAppPending, "port", portID, "pkg_path", entry.pkgPath)
+	store.pendingApps.Set(pendingKey(portID, entry.PkgPath), entry)
+	chain.Emit(EventTypeAppPending, "port", portID, "pkg_path", entry.PkgPath)
 }
 
 // ApproveApp activates the pending registration of pkgPath for portID.
@@ -72,7 +72,7 @@ func approveApp(_ int, rlm realm, portID, pkgPath string) {
 	if _, ok := store.routes[portID]; ok {
 		panic(ufmt.Errorf("portID %s has already been registered", portID))
 	}
-	store.routes[portID] = v.(ibcApp)
+	store.routes[portID] = v.(App)
 	store.pendingApps.Remove(key)
 	chain.Emit(EventTypeAppApproved, "port", portID, "pkg_path", pkgPath)
 }
@@ -92,6 +92,16 @@ func rejectApp(_ int, rlm realm, portID, pkgPath string) {
 	}
 	store.pendingApps.Remove(key)
 	chain.Emit(EventTypeAppRejected, "port", portID, "pkg_path", pkgPath)
+}
+
+// AppPkgPath returns the realm registered on portID, or "" if the port is
+// free.
+func AppPkgPath(portID string) string {
+	a, ok := store.routes[portID]
+	if !ok {
+		return ""
+	}
+	return a.PkgPath
 }
 
 // IsAppPending reports whether pkgPath has a pending registration for portID.
@@ -138,7 +148,7 @@ func unpauseApp(_ int, rlm realm, portID string) {
 // for an unregistered port.
 func IsAppPaused(portID string) bool {
 	a, ok := store.routes[portID]
-	return ok && a.paused
+	return ok && a.Paused
 }
 
 func setAppPaused(portID string, paused bool) {
@@ -146,6 +156,6 @@ func setAppPaused(portID string, paused bool) {
 	if !ok {
 		panic(ufmt.Sprintf("no registered app for port %s", portID))
 	}
-	a.paused = paused
+	a.Paused = paused
 	store.routes[portID] = a
 }

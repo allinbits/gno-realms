@@ -1,16 +1,16 @@
 // PKGPATH: gno.land/r/aib/main
 package main
 
-
 import (
 	"encoding/hex"
 	"time"
 
-	tmtesting "gno.land/p/aib/ibc/lightclient/tendermint/testing"
-	"gno.land/p/aib/ibc/types"
-	"gno.land/p/aib/ics23"
+	tmtesting "gno.land/p/aib/ibc/lightclient/tendermint/testing/v0"
+	"gno.land/p/aib/ibc/types/v0"
+	"gno.land/p/aib/ics23/v0"
 	appstesting "gno.land/r/aib/ibc/apps/testing"
 	"gno.land/r/aib/ibc/core"
+	_ "gno.land/r/aib/ibc/core/impl/v0"
 )
 
 // forwardingApp wraps the base mock and writes the deferred parent ack from
@@ -285,12 +285,12 @@ func main(cur realm) {
 }
 
 // Output:
-// recv res: (2 gno.land/p/aib/ibc/types.ResponseResultType)
+// recv res: (2 gno.land/p/aib/ibc/types/v0.ResponseResultType)
 //
 // ----------- parent ack BEFORE child is acked (deferred, should not exist)
 // {"error":"sequence 1 not found"}
 //
-// ack res: (2 gno.land/p/aib/ibc/types.ResponseResultType)
+// ack res: (2 gno.land/p/aib/ibc/types/v0.ResponseResultType)
 //
 // ----------- parent ack AFTER child is acked (written by mock.OnAck)
 // {"sequence":"1","data":"5HN8pSo727oJNsvAPYWESzo9UNpM5u0nIHMoEOg7WuA="}

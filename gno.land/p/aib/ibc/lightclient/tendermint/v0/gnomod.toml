@@ -1,0 +1,2 @@
+module = "gno.land/p/aib/ibc/lightclient/tendermint/v0"
+gno = "0.9"

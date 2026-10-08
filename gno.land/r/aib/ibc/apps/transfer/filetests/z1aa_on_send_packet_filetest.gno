@@ -7,12 +7,15 @@ import (
 	"testing"
 	"time"
 
-	tmtesting "gno.land/p/aib/ibc/lightclient/tendermint/testing"
-	"gno.land/p/aib/ibc/types"
-	"gno.land/p/aib/ics23"
+	"gno.land/p/aib/ibc/ics20/v0"
+	tmtesting "gno.land/p/aib/ibc/lightclient/tendermint/testing/v0"
+	"gno.land/p/aib/ibc/types/v0"
+	"gno.land/p/aib/ics23/v0"
 	"gno.land/p/nt/testutils/v0"
 	"gno.land/r/aib/ibc/apps/transfer"
+	_ "gno.land/r/aib/ibc/apps/transfer/impl/v0"
 	"gno.land/r/aib/ibc/core"
+	_ "gno.land/r/aib/ibc/core/impl/v0"
 )
 
 // OnSendPacket: success w/ IBC voucher token
@@ -32,7 +35,7 @@ func main(cur realm) {
 
 	// Mint voucher tokens via a real RecvPacket flow.
 	receiver := testutils.TestAddress("receiver")
-	recvPayload := transfer.NewFungibleTokenPacketData("uatone", "100", "atone1user", receiver.String(), "")
+	recvPayload := ics20.NewFungibleTokenPacketData("uatone", "100", "atone1user", receiver.String(), "")
 	recvPayloadBz := recvPayload.ProtoMarshal()
 	// NOTE this base64 value is used in payload.value in the gen-proof command below.
 	println("Payload proto:", base64.StdEncoding.EncodeToString(recvPayloadBz))
@@ -113,7 +116,7 @@ func main(cur realm) {
 	// Now send the voucher tokens back (burn)
 	testing.SetRealm(testing.NewUserRealm(receiver))
 	// ibc/F9A67CB19B2CAD2ADEC20AD475BE86DF851DEC2B6F6CABC9B7B781BD9131D18F
-	voucherDenom := transfer.NewDenom("uatone", transfer.NewHop(transfer.PortID, clientID)).IBCDenom()
+	voucherDenom := ics20.NewDenom("uatone", ics20.NewHop(transfer.PortID, clientID)).IBCDenom()
 	println("signer voucher balance before SendPacket:", transfer.VoucherBalanceOf(voucherDenom, receiver))
 	println("----------- assert render voucher before SendPacket")
 	println(transfer.Render("voucher/" + voucherDenom))

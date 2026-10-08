@@ -3,7 +3,7 @@ package transfer
 import (
 	"chain"
 
-	"gno.land/p/aib/authority"
+	"gno.land/p/aib/authority/v0"
 	"gno.land/p/nt/bptree/v0"
 )
 
@@ -53,6 +53,11 @@ func removeAuthorityMember(_ int, rlm realm, addr address) {
 	chain.Emit(EventTypeAuthorityMemberRemoved, "address", string(addr))
 }
 
+// AuthorityMembers returns the members of the authority.
+func AuthorityMembers() []address {
+	return auth.Members()
+}
+
 // IsAuthorityMember reports whether addr may administer this realm.
 func IsAuthorityMember(addr address) bool {
 	return auth.IsMember(addr)
@@ -88,4 +93,14 @@ func unblockAddress(_ int, rlm realm, addr address) {
 // IsBlocked reports whether addr is on the blocklist.
 func IsBlocked(addr address) bool {
 	return blocked.Has(string(addr))
+}
+
+// BlockedAddresses returns the blocklist, sorted.
+func BlockedAddresses() []address {
+	out := make([]address, 0, blocked.Size())
+	blocked.Iterate("", "", func(k string, _ any) bool {
+		out = append(out, address(k))
+		return false
+	})
+	return out
 }

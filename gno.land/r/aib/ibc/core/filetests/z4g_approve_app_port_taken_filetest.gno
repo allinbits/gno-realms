@@ -6,6 +6,7 @@ import (
 
 	appstesting "gno.land/r/aib/ibc/apps/testing"
 	"gno.land/r/aib/ibc/core"
+	_ "gno.land/r/aib/ibc/core/impl/v0"
 )
 
 // A pending registration cannot be approved once a trusted app took the port

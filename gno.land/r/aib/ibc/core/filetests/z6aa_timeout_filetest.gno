@@ -6,12 +6,13 @@ import (
 	"testing"
 	"time"
 
-	"gno.land/p/aib/ibc/lightclient/tendermint"
-	tmtesting "gno.land/p/aib/ibc/lightclient/tendermint/testing"
-	"gno.land/p/aib/ibc/types"
-	"gno.land/p/aib/ics23"
+	tmtesting "gno.land/p/aib/ibc/lightclient/tendermint/testing/v0"
+	"gno.land/p/aib/ibc/lightclient/tendermint/v0"
+	"gno.land/p/aib/ibc/types/v0"
+	"gno.land/p/aib/ics23/v0"
 	appstesting "gno.land/r/aib/ibc/apps/testing"
 	"gno.land/r/aib/ibc/core"
+	_ "gno.land/r/aib/ibc/core/impl/v0"
 )
 
 // Timeout success with authorized relayer
@@ -207,7 +208,7 @@ func main(cur realm) {
 }
 
 // Output:
-// res: (2 gno.land/p/aib/ibc/types.ResponseResultType)
+// res: (2 gno.land/p/aib/ibc/types/v0.ResponseResultType)
 //
 // ----------- assert render clients/07-tendermint-1/packet_commitments
 // {"items":[],"page":1,"total":1}
@@ -240,7 +241,7 @@ func main(cur realm) {
 //
 // OnAcknowledgementPacket (0)
 //
-// res: (1 gno.land/p/aib/ibc/types.ResponseResultType)
+// res: (1 gno.land/p/aib/ibc/types/v0.ResponseResultType)
 //
 // ----------- app report
 // OnSendPacket (1)

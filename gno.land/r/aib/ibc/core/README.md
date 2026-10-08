@@ -344,3 +344,51 @@ then members vote (`MustVoteOnProposalSimple`) and anyone executes
 
 Emitted events: `authority_member_added` and `authority_member_removed`, with an
 `address` attribute.
+
+## Upgrades
+
+This realm is a permanent, thin proxy (see
+[ADR 0001](../../../../../docs/adrs/0001-proxy-realm-for-core-upgrades.md)): it
+owns the state, the chain params and the events, which must never move, and
+forwards every entry point to an implementation realm that holds the client and
+packet lifecycle logic. The first one is `gno.land/r/aib/ibc/core/impl/v0`.
+
+An implementation registers itself from its `init` with `RegisterImpl`; the
+first registration activates at once (bootstrap), every later one is only a
+candidate until the authority activates it:
+
+```
+gnokey maketx call -pkgpath gno.land/r/aib/ibc/core -func UpdateImpl \
+  -args gno.land/r/aib/ibc/core/impl/v1 ...
+```
+
+or, through GovDAO, with `NewUpdateImplProposalRequest(cross(cur), path)`. The
+new implementation is built against the same store and its `OnInstall` hook
+runs before the switch, so clients, commitments, receipts and acknowledgements
+survive and a failing migration leaves the current implementation active.
+Rollback is `UpdateImpl` with the previous path. `ImplPath()` and
+`ImplVersion()` tell which one is active; the home and `admin` pages show it.
+Nothing outside the chain changes during an upgrade: this path, the entry
+points, the events and the render routes are the proxy's, so the relayer, the
+counterparty and the users keep using them. The steps are in
+[`docs/upgrade-runbook.md`](../../../../../docs/upgrade-runbook.md).
+
+`Render` is forwarded to the implementation as well, JSON routes included, so
+the routes can follow the verifier they read across upgrades. The routes the
+relayer consumes (`clients`, `clients/{id}`, its consensus states, packet
+commitments and receipts) are a compatibility contract pinned by the `z0c`
+filetest: a change there means a relayer release.
+
+Emitted event:
+
+```json
+{
+  "type": "impl_updated",
+  "attrs": [
+    {"key": "old_path", "value": "gno.land/r/aib/ibc/core/impl/v0"},
+    {"key": "new_path", "value": "gno.land/r/aib/ibc/core/impl/v1"},
+    {"key": "version", "value": "v1"}
+  ],
+  "pkg_path": "gno.land/r/aib/ibc/core"
+}
+```
