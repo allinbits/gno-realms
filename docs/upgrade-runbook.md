@@ -22,9 +22,13 @@ the proxies and stay provable across the switch.
   `RegisterImpl`, and reuses from `impl/v0` what it does not change (`New`, the
   exported `Renderer`).
 - `OnInstall` is the migration hook. It runs inside `UpdateImpl` before the
-  switch and again on every re-install and rollback: keep it idempotent,
-  schema-aware and cheap. A migration that is not additive forfeits the
-  rollback.
+  switch, and `prevVersion` tells it which implementation was active, which
+  is also the layout of the data as long as versions activate in sequence.
+  Its contract: do nothing when `prevVersion` is its own version (a
+  re-install), migrate when it is the version it was written to follow, panic
+  otherwise. Keep the migration cheap: at most linear in the number of
+  clients, with anything proportional to packets left to lazy conversion on
+  access. A migration that is not additive forfeits the rollback.
 - A migration rewrites the proxy's store in place. All the state lives in the
   proxy (clients, commitments, receipts, acknowledgements; escrow, vouchers,
   denominations) and the hook reaches it through the `Store` and `Client`
@@ -112,6 +116,20 @@ Either way the proxy builds the candidate against its store, runs
 If the proposal is executed before the candidate is live, the proxy panics,
 the execution transaction aborts and the proposal stays executable: run step
 3 again later and execute again.
+
+### When a migration fails
+
+- A panic in `OnInstall` aborts the whole transaction: the switch does not
+  happen, nothing the hook wrote persists, the previous implementation stays
+  active and the candidate stays registered. Activating it again later
+  merely retries.
+- A realm path cannot be redeployed, so a fix ships as the next version. Its
+  hook is installed over the implementation that is still active, not over
+  the failed one: a `v2` written after a failed `v1` carries the migration
+  from `v0`, and `prevVersion` tells it so.
+- A migration that completes but is wrong cannot be detected by the proxy;
+  the smoke test of step 5 is what catches it, and the remedy is the next
+  version, or the rollback when the migration was additive.
 
 ## 5. Smoke test
 

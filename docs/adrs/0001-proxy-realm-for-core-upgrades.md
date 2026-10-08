@@ -135,11 +135,16 @@ type Logic interface {
 ```
 
 `OnInstall` is the migration hook. It runs inside `UpdateImpl` before any entry
-point reaches the new implementation. It must be idempotent (it runs again on
-re-install and on rollback), schema-aware (a schema version in the store lets an
-implementation refuse a store it does not understand) and cheap: at most linear
-in the number of clients, with anything proportional to packets left to lazy
-conversion on access. A migration that is not additive forfeits rollback.
+point reaches the new implementation, with the version that was active as
+`prevVersion`, which is also the layout of the data as long as versions
+activate in sequence. Its contract: do nothing when `prevVersion` is its own
+version, migrate when it is the version it follows, panic otherwise. A panic
+aborts the whole transaction, so the previous implementation stays active and
+nothing the hook wrote persists; a fix then ships as the next version, whose
+hook is installed over the still-active one. The migration must be cheap: at
+most linear in the number of clients, with anything proportional to packets
+left to lazy conversion on access. A migration that is not additive forfeits
+rollback.
 
 ### What an implementation may and may not do
 

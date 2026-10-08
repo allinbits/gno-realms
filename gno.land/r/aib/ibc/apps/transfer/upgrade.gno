@@ -40,8 +40,12 @@ type Logic interface {
 	Version() string
 	// OnInstall runs inside UpdateImpl, after the implementation is built
 	// against the store and before any entry point reaches it. It is the
-	// migration hook: idempotent and cheap; a panic aborts the switch.
-	// prevPath and prevVersion are empty at bootstrap.
+	// migration hook, with the contract of the core's Logic.OnInstall: do
+	// nothing when prevVersion is this version, migrate when it is the
+	// version this one follows, panic otherwise. A panic aborts the whole
+	// transaction, so the previous implementation stays active and nothing
+	// the hook wrote persists. prevPath and prevVersion are empty at
+	// bootstrap.
 	OnInstall(_ int, rlm realm, prevPath, prevVersion string)
 	// Render serves every path: the proxy's Render forwards to it. The
 	// routes the e2e suite and tooling read (denoms, vouchers, voucher
@@ -129,6 +133,8 @@ func install(_ int, rlm realm, path string) {
 	if l == nil {
 		panic(ufmt.Sprintf("implementation %s returned a nil Logic", path))
 	}
+	// A panic in the hook unwinds the transaction: nothing below runs and
+	// nothing the hook wrote persists.
 	l.OnInstall(0, rlm, implPath, implVersion)
 	oldPath := implPath
 	impl = l

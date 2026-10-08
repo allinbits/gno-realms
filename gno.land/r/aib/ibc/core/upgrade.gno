@@ -42,9 +42,17 @@ type Logic interface {
 	Version() string
 	// OnInstall runs inside UpdateImpl, after the implementation is built
 	// against the store and before any entry point reaches it. It is the
-	// migration hook: it must be idempotent (it runs again on re-install and
-	// on rollback) and cheap. A panic aborts the switch. prevPath and
-	// prevVersion are empty at bootstrap.
+	// migration hook. prevVersion is the version of the implementation that
+	// was active, which is also the layout of the data as long as versions
+	// activate in sequence; it is empty at bootstrap. The contract:
+	//   - prevVersion is this version: a re-install, do nothing;
+	//   - prevVersion is the version this one was written to follow: run the
+	//     migration, at most linear in the number of clients, with anything
+	//     proportional to packets left to lazy conversion on access;
+	//   - anything else: panic.
+	// A panic aborts the whole transaction, so neither the switch nor any
+	// write the hook already made survives: the previous implementation
+	// stays active and the candidate stays registered.
 	OnInstall(_ int, rlm realm, prevPath, prevVersion string)
 	// Render serves every path: the proxy's Render forwards to it. The JSON
 	// routes the relayer reads through vm/qrender (clients, clients/{id},
@@ -134,6 +142,8 @@ func install(_ int, rlm realm, path string) {
 	if l == nil {
 		panic(ufmt.Sprintf("implementation %s returned a nil Logic", path))
 	}
+	// A panic in the hook unwinds the transaction: nothing below runs and
+	// nothing the hook wrote persists.
 	l.OnInstall(0, rlm, implPath, implVersion)
 	oldPath := implPath
 	impl = l
