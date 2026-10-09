@@ -65,7 +65,7 @@ Nothing in this list can change after the first mainnet deploy.
    into `Logic`, since the implementation records it as `creator`.
 3. **Administration stays in the proxy**: authority membership, relayer
    whitelist, `Pause`/`Unpause`, `RegisterApp`/`ApproveApp`/`RejectApp`,
-   `PauseApp`/`UnpauseApp`, every `New*ProposalRequest` constructor. They are
+   `PauseApp`/`UnpauseApp`, `ReplaceApp`/`UnregisterApp`, every `New*ProposalRequest` constructor. They are
    small, `MsgCall`-compatible, and they are the gates themselves.
 4. **Store owned by the proxy**, exposed to implementations as an interface
    (`Store`). Every mutator takes `(_ int, rlm realm, ...)` and asserts
@@ -271,9 +271,6 @@ Negative:
   provide more narrowly. Rejected.
 - **Timelock between `RegisterImpl` and `UpdateImpl`.** Rejected; the authority
   and the visible two-step are enough.
-- **Authority-gated `ReplaceApp`/`UnregisterApp`.** Not needed for the
-  transfer upgrade path, since the registered value is the transfer proxy
-  forever. Why it could still be useful is recorded in issue #59.
 
 ## References
 
