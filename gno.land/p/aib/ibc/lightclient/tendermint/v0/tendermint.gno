@@ -155,6 +155,11 @@ func (tm *TMLightClient) UpdateState(clientMsg lightclient.ClientMessage) []type
 		// perform no-op
 		return []types.Height{msgHeight}
 	}
+	// Amortized pruning, as ibc-go does: each update removes at most the
+	// oldest consensus state if it expired, so the set converges to roughly
+	// trustingPeriod / updateInterval entries and the storage deposit of the
+	// removed bytes is refunded to the updater.
+	tm.pruneOldestConsensusState(time.Now())
 	// Update latestHeight if required. Whole-slot replace; see
 	// UpdateStateOnMisbehaviour for the v2 borrow-rule rationale.
 	if msgHeight.GT(tm.ClientState.LatestHeight) {
@@ -578,6 +583,37 @@ func (tm *TMLightClient) GetPreviousConsensusState(height types.Height) (*Consen
 		return true
 	})
 	return cs, cs != nil
+}
+
+// pruneOldestConsensusState removes the lowest-height consensus state if it
+// has expired at now, and reports whether it did. Only the oldest entry is
+// examined, so the cost per call is constant.
+func (tm *TMLightClient) pruneOldestConsensusState(now time.Time) bool {
+	if tm.ConsensusStateByHeight.Size() == 0 {
+		return false
+	}
+	key, v := tm.ConsensusStateByHeight.GetByIndex(0)
+	if !tm.IsExpired(v.(*ConsensusState).Timestamp, now) {
+		return false
+	}
+	tm.ConsensusStateByHeight.Remove(key)
+	return true
+}
+
+// PruneExpiredConsensusStates removes every consensus state that has expired
+// at now and returns how many were removed. An expired consensus state can no
+// longer verify headers or packet proofs, so removing it loses nothing.
+// UpdateState already prunes one entry per update; this bulk variant catches
+// up on clients that accumulated history before that, e.g. from an
+// implementation's OnInstall migration. Timestamps increase with height
+// (CheckForMisbehaviour freezes the client otherwise), so stopping at the
+// first unexpired entry finds them all.
+func (tm *TMLightClient) PruneExpiredConsensusStates(now time.Time) int {
+	n := 0
+	for tm.pruneOldestConsensusState(now) {
+		n++
+	}
+	return n
 }
 
 // IsExpired returns whether or not the client has passed the trusting period

@@ -331,3 +331,69 @@ func TestVerifyUpgradeAndUpdateStateFailures(t *testing.T) {
 		urequire.ErrorContains(t, err, "upgradeConsensusStateProof cannot be empty")
 	})
 }
+
+func TestPruneExpiredConsensusStates(t *testing.T) {
+	now := time.Now().UTC()
+	expired := now.Add(-trustingPeriod - time.Hour)
+	newConsState := func(ts time.Time) *tendermint.ConsensusState {
+		return &tendermint.ConsensusState{
+			Timestamp:          ts,
+			Root:               tendermint.NewMerkleRoot([]byte("root")),
+			NextValidatorsHash: []byte("nextVals"),
+		}
+	}
+	// Heights 1 and 2 are expired, 3 is not.
+	setup := func() *tendermint.TMLightClient {
+		tm := tendermint.NewTMLightClient()
+		clientState := tendermint.NewClientState(chainID, tendermint.DefaultTrustLevel, trustingPeriod, ubdPeriod, maxClockDrift, types.NewHeight(0, 3), ics23.GetSDKProofSpecs(), upgradePath)
+		urequire.NoError(t, tm.Initialize(*clientState, *newConsState(now)))
+		tm.SetConsensusState(types.NewHeight(0, 1), newConsState(expired))
+		tm.SetConsensusState(types.NewHeight(0, 2), newConsState(expired.Add(time.Minute)))
+		return tm
+	}
+
+	t.Run("UpdateState prunes only the oldest expired consensus state", func(t *testing.T) {
+		tm := setup()
+		header := &tendermint.MsgHeader{Header: &tendermint.Header{
+			ChainID: chainID,
+			Height:  10,
+			Time:    now,
+			AppHash: []byte("apphash"),
+		}}
+		tm.UpdateState(header)
+
+		uassert.False(t, tm.HasConsensusState(types.NewHeight(0, 1)))
+		uassert.True(t, tm.HasConsensusState(types.NewHeight(0, 2)))
+		uassert.True(t, tm.HasConsensusState(types.NewHeight(0, 3)))
+		uassert.True(t, tm.HasConsensusState(types.NewHeight(0, 10)))
+		uassert.Equal(t, 3, tm.ConsensusStateByHeight.Size())
+
+		// A duplicate update is a no-op and prunes nothing.
+		tm.UpdateState(header)
+		uassert.True(t, tm.HasConsensusState(types.NewHeight(0, 2)))
+	})
+
+	t.Run("UpdateState prunes nothing when the oldest has not expired", func(t *testing.T) {
+		tm := setup()
+		tm.PruneExpiredConsensusStates(now)
+		tm.UpdateState(&tendermint.MsgHeader{Header: &tendermint.Header{
+			ChainID: chainID,
+			Height:  10,
+			Time:    now,
+			AppHash: []byte("apphash"),
+		}})
+		uassert.Equal(t, 2, tm.ConsensusStateByHeight.Size())
+	})
+
+	t.Run("bulk prune removes every expired consensus state", func(t *testing.T) {
+		tm := setup()
+		uassert.Equal(t, 2, tm.PruneExpiredConsensusStates(now))
+		uassert.Equal(t, 1, tm.ConsensusStateByHeight.Size())
+		uassert.True(t, tm.HasConsensusState(types.NewHeight(0, 3)))
+		uassert.Equal(t, 0, tm.PruneExpiredConsensusStates(now))
+	})
+
+	t.Run("bulk prune on an empty client", func(t *testing.T) {
+		uassert.Equal(t, 0, tendermint.NewTMLightClient().PruneExpiredConsensusStates(now))
+	})
+}
