@@ -65,7 +65,10 @@ func (m Misbehaviour) ValidateBasic() error {
 // validateCommit checks if the given commit is a valid commit from the
 // passed-in MsgHeader.
 func validateCommit(msg *MsgHeader) error {
-	votingPowerNeeded := msg.ValidatorSet.TotalVotingPower * 2 / 3
+	votingPowerNeeded, err := votingPowerThreshold(msg.ValidatorSet, 2, 3)
+	if err != nil {
+		return ufmt.Errorf("validator set: %v", err)
+	}
 	if err := verifyCommit(msg.Header.ChainID, msg.ValidatorSet, msg.Commit, votingPowerNeeded, true); err != nil {
 		return ufmt.Errorf("validator set did not commit to header: %v", err)
 	}

@@ -81,11 +81,11 @@ func (tm *TMLightClient) verifyHeader(msg *MsgHeader) error {
 	} else {
 		// Heights aren't adjacent, this requires to check if at least trustlevel
 		// ([1/3, 1]) of trusted validators have signed correctly.
-		var (
-			tl                = tm.ClientState.TrustLevel
-			votingPowerNeeded = trustedValset.TotalVotingPower *
-				int64(tl.Numerator) / int64(tl.Denominator)
-		)
+		tl := tm.ClientState.TrustLevel
+		votingPowerNeeded, err := votingPowerThreshold(trustedValset, tl.Numerator, tl.Denominator)
+		if err != nil {
+			return ufmt.Errorf("trusted validators: %v", err)
+		}
 		if err := verifyCommit(chainID, trustedValset, msg.Commit, votingPowerNeeded, false); err != nil {
 			return ufmt.Errorf("check trusted validators VP>%d: %v", votingPowerNeeded, err)
 		}
@@ -94,8 +94,11 @@ func (tm *TMLightClient) verifyHeader(msg *MsgHeader) error {
 	//
 	// NOTE: this should always be the last check because untrustedValset can be
 	// intentionally made very large to DOS the light client.
-	votingPowerNeeded := untrustedValset.TotalVotingPower * 2 / 3
-	err := verifyCommit(chainID, untrustedValset, msg.Commit, votingPowerNeeded, true)
+	votingPowerNeeded, err := votingPowerThreshold(untrustedValset, 2, 3)
+	if err != nil {
+		return ufmt.Errorf("untrusted validators: %v", err)
+	}
+	err = verifyCommit(chainID, untrustedValset, msg.Commit, votingPowerNeeded, true)
 	if err != nil {
 		return ufmt.Errorf("check untrusted validators VP>%d: %v", votingPowerNeeded, err)
 	}
@@ -308,12 +311,11 @@ func (tm TMLightClient) checkMisbehaviourHeader(consState *ConsensusState, msg *
 	// FromValidatorSet
 	// - ValidatorSets on both headers are valid given the last trusted
 	// ValidatorSet
-	var (
-		tl = tm.ClientState.TrustLevel
-		// TODO protect against overflows
-		votingPowerNeeded = msg.TrustedValidators.TotalVotingPower *
-			int64(tl.Numerator) / int64(tl.Denominator)
-	)
+	tl := tm.ClientState.TrustLevel
+	votingPowerNeeded, err := votingPowerThreshold(msg.TrustedValidators, tl.Numerator, tl.Denominator)
+	if err != nil {
+		return ufmt.Errorf("trusted validators: %v", err)
+	}
 	if err := verifyCommit(chainID, msg.TrustedValidators, msg.Commit, votingPowerNeeded, false); err != nil {
 		return ufmt.Errorf("validator set in header has too much change from trusted validator set: %v", err)
 	}
