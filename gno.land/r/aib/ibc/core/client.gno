@@ -18,8 +18,23 @@ func CreateClient(cur realm, clientState lightclient.ClientState, consensusState
 // ClientIDs returns the list of known client identifiers, sorted lexically by
 // id (the underlying b+tree order). Intended for read-only callers (UIs,
 // other realms building txlinks).
+//
+// The set only grows and, while the relayer whitelist is empty, anyone may add
+// to it: a caller that renders all of it can be pushed past the query gas
+// limit. Listings should use ClientIDsLimit.
 func ClientIDs() []string {
 	return store.ClientIDs()
+}
+
+// ClientIDsLimit returns at most limit client identifiers, in the order of
+// ClientIDs, and the total number of clients.
+func ClientIDsLimit(limit int) (ids []string, total int) {
+	clients := store.Clients()
+	clients.IterateByOffset(0, limit, func(id string, _ any) bool {
+		ids = append(ids, id)
+		return false
+	})
+	return ids, clients.Size()
 }
 
 // ClientLatestHeight returns the latest (highest) consensus height the given
