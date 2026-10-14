@@ -187,9 +187,20 @@ func (l *logic) OnRecvPacket(_ int, rlm realm, sourceClient, destinationClient s
 		ack = types.NewErrorAppAcknowledgement(ackErr)
 		return types.RecvPacketResult{Status: types.PacketStatus_Failure}
 	}
+	// Decode the receiver, as ibc-go does with addressCodec.StringToBytes:
+	// the counterparty may send any string, and bech32 accepts two spellings
+	// of one account. Everything below uses the canonical address: the
+	// blocklist and the GRC20 ledger key by the string, so an uppercase
+	// spelling would miss a blocked account and strand minted vouchers.
+	receiver, ok := transfer.CanonicalAddress(data.Receiver)
+	if !ok {
+		ackErr = ufmt.Errorf("invalid receiver address %s", data.Receiver)
+		ack = types.NewErrorAppAcknowledgement(ackErr)
+		return types.RecvPacketResult{Status: types.PacketStatus_Failure}
+	}
 	// A blocked receiver gets an error acknowledgement, so the counterparty
 	// refunds its sender; nothing is minted or released here.
-	if transfer.IsBlocked(address(data.Receiver)) {
+	if transfer.IsBlocked(receiver) {
 		ackErr = ufmt.Errorf("receiver %s is blocked", data.Receiver)
 		ack = types.NewErrorAppAcknowledgement(ackErr)
 		return types.RecvPacketResult{Status: types.PacketStatus_Failure}
@@ -222,9 +233,9 @@ func (l *logic) OnRecvPacket(_ int, rlm realm, sourceClient, destinationClient s
 		// packet arriving on a different client from draining escrow that
 		// belongs to another client.
 		if transfer.IsGRC20Alias(coin.Denom) {
-			ackErr = l.store.UnescrowGRC20(0, rlm, destinationClient, data.Receiver, coin)
+			ackErr = l.store.UnescrowGRC20(0, rlm, destinationClient, string(receiver), coin)
 		} else {
-			ackErr = l.store.UnescrowNative(0, rlm, destinationClient, data.Receiver, coin)
+			ackErr = l.store.UnescrowNative(0, rlm, destinationClient, string(receiver), coin)
 		}
 		if ackErr != nil {
 			ack = types.NewErrorAppAcknowledgement(ackErr)
@@ -254,7 +265,7 @@ func (l *logic) OnRecvPacket(_ int, rlm realm, sourceClient, destinationClient s
 			return types.RecvPacketResult{Status: types.PacketStatus_Failure}
 		}
 		l.store.GetOrCreateVoucher(0, rlm, token.Denom.Base, voucherDenom)
-		if err := l.store.MintVoucher(0, rlm, voucherDenom, address(data.Receiver), amount); err != nil {
+		if err := l.store.MintVoucher(0, rlm, voucherDenom, receiver, amount); err != nil {
 			ackErr = ufmt.Errorf("mint voucher error: %v", err)
 			ack = types.NewErrorAppAcknowledgement(ackErr)
 			return types.RecvPacketResult{Status: types.PacketStatus_Failure}

@@ -9,7 +9,7 @@ import (
 
 // Every gated operation has a GovDAO proposal constructor.
 func main(cur realm) {
-	const addr = "g1someother00000000000000000000000000"
+	const addr = "g1wdhk6et0w35x2ujlta047h6lta047h6l82cvgx"
 	_ = transfer.NewBlockAddressProposalRequest(cross(cur), addr)
 	_ = transfer.NewUnblockAddressProposalRequest(cross(cur), addr)
 	_ = transfer.NewAddAuthorityMemberProposalRequest(cross(cur), addr)

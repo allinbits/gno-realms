@@ -9,7 +9,7 @@ import (
 
 // BlockAddress is admin-only.
 func main(cur realm) {
-	transfer.AddAuthorityMember(cross(cur), "g1someother00000000000000000000000000")
+	transfer.AddAuthorityMember(cross(cur), "g1wdhk6et0w35x2ujlta047h6lta047h6l82cvgx")
 	transfer.BlockAddress(cross(cur), "g1wymu47drhr0kuq2098m792lytgtj2nyx77yrsm")
 }
 
