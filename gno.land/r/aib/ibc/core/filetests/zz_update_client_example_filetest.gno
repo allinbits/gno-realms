@@ -35,7 +35,6 @@ func main(cur realm) {
 				PubKey:      tmtesting.GenPubkey("val1_pubkey"),
 				VotingPower: 2,
 			},
-			TotalVotingPower: 5,
 		}
 		trustedHeight = types.Height{2, 2}        // XXX update
 		trustedValset = &tendermint.ValidatorSet{ // XXX update
@@ -56,7 +55,6 @@ func main(cur realm) {
 				PubKey:      tmtesting.GenPubkey("val1_pubkey"),
 				VotingPower: 2,
 			},
-			TotalVotingPower: 5,
 		}
 		msgHeader = &tendermint.MsgHeader{
 			Header: &tendermint.Header{
