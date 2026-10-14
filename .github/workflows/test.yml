@@ -1,6 +1,12 @@
 name: Tests
 
-on: [push, pull_request]
+# Pull requests are tested on their merge commit; branch pushes outside a PR
+# are not. Listing push for every branch as well ran the whole workflow twice
+# for each push to a PR branch.
+on:
+  push:
+    branches: [master]
+  pull_request:
 
 jobs:
   unit:
