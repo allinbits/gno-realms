@@ -15,8 +15,15 @@ gnodev:
 
 # --- Unit tests ---
 
+# One `gno test` per package: within a run, gno test reuses a store across the
+# packages a worker tests (all of them with -p 1), so a realm's init side
+# effects leak into later packages. Loading the transfer realm registers its
+# port in core, which then fails the core filetests that list apps, depending
+# on scheduling.
+GNO_TEST_PKGS = $(shell find gno.land e2e/gno/rehearsal -name gnomod.toml -exec dirname {} \; | sort)
+
 test:
-	go tool gno test ./gno.land/... ./e2e/gno/rehearsal/...
+	@set -e; for pkg in $(GNO_TEST_PKGS); do go tool gno test ./$$pkg; done
 	go test -C ./cmd/gen-block-signatures
 	go test -C ./cmd/gen-proof
 
