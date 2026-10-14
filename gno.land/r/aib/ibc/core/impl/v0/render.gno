@@ -68,18 +68,29 @@ func (rd *Renderer) Register(router *mux.Router) {
 	router.HandleFunc("clients/{id}/unreceived_packets", rd.ClientUnreceivedPackets)
 }
 
+// homeListLimit caps the clients listed on the home page.
+const homeListLimit = 100
+
 func (rd *Renderer) Home(w *mux.ResponseWriter, r *mux.Request) {
 	var out strings.Builder
 	out.WriteString("# IBC core\n\n")
 	out.WriteString("IBC v2 core state and query endpoints.\n\n")
 	out.WriteString(RenderImplDisclosure())
-	ids := rd.store.ClientIDs()
-	out.WriteString(ufmt.Sprintf("## Clients (%d)\n\n", len(ids)))
-	if len(ids) > 0 {
+	if len(core.Relayers()) == 0 {
+		out.WriteString("> **Open relaying**: the relayer whitelist is empty, so any address may create clients and relay packets. The authority restricts it with `AddRelayer` (see [`admin`](/r/aib/ibc/core:admin)).\n\n")
+	}
+	// Clients are never removed and, while the relayer whitelist is empty,
+	// anyone may create one: list only the first homeListLimit, like every
+	// other listing here, so the page cannot be pushed past the query gas
+	// limit. The count stays exact.
+	clients := rd.store.Clients()
+	total := clients.Size()
+	out.WriteString(ufmt.Sprintf("## Clients (%d)\n\n", total))
+	if total > 0 {
 		out.WriteString("| Client | St. | Creator | Cpty | Height | Time | CS | Seq | Cmts | Rcpts | Acks |\n")
 		out.WriteString("|--------|-----|---------|------|--------|------|----|-----|------|-------|------|\n")
-		for _, id := range ids {
-			c := rd.store.Client(id)
+		clients.IterateByOffset(0, homeListLimit, func(id string, v any) bool {
+			c := v.(core.Client)
 			lc := c.LightClient()
 			var (
 				nConsStates int
@@ -107,6 +118,10 @@ func (rd *Renderer) Home(w *mux.ResponseWriter, r *mux.Request) {
 				c.PacketReceipts().Size(), id,
 				c.PacketAcknowledgements().Size(), id,
 			))
+			return false
+		})
+		if total > homeListLimit {
+			out.WriteString(ufmt.Sprintf("\nFirst %d of %d clients; see [`clients`](/r/aib/ibc/core:clients) (`?page`, `?limit`) for all of them.\n", homeListLimit, total))
 		}
 		out.WriteString("\n")
 	} else {
