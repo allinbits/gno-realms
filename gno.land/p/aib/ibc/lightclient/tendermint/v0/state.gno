@@ -93,6 +93,14 @@ func (cs ConsensusState) Equal(other ConsensusState) bool {
 		bytes.Equal(cs.NextValidatorsHash, other.NextValidatorsHash)
 }
 
+// isSentinel reports whether cs is the placeholder VerifyUpgradeAndUpdateState
+// stores at the upgraded height. Its root is SentinelRoot, which no real
+// AppHash can equal, so it stands for "no header seen at this height yet":
+// the first genuine header at that height replaces it.
+func (cs ConsensusState) isSentinel() bool {
+	return bytes.Equal(cs.Root.Hash, []byte(SentinelRoot))
+}
+
 type MerkleRoot struct {
 	Hash []byte
 }
