@@ -76,6 +76,9 @@ func (rd *Renderer) Home(w *mux.ResponseWriter, r *mux.Request) {
 	out.WriteString("# IBC core\n\n")
 	out.WriteString("IBC v2 core state and query endpoints.\n\n")
 	out.WriteString(RenderImplDisclosure())
+	if len(core.Relayers()) == 0 {
+		out.WriteString("> **Open relaying**: the relayer whitelist is empty, so any address may create clients and relay packets. The authority restricts it with `AddRelayer` (see [`admin`](/r/aib/ibc/core:admin)).\n\n")
+	}
 	// Clients are never removed and, while the relayer whitelist is empty,
 	// anyone may create one: list only the first homeListLimit, like every
 	// other listing here, so the page cannot be pushed past the query gas
