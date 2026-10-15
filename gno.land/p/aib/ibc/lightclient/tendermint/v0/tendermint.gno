@@ -76,7 +76,11 @@ func (tm *TMLightClient) CheckForMisbehaviour(clientMsg lightclient.ClientMessag
 		// If the consensus state exists, and it matches the header then we return
 		// early since header has already been submitted in a previous
 		// UpdateClient.
-		if existingConsState, found := tm.GetConsensusState(msg.GetHeight()); found {
+		// The placeholder stored at the upgraded height by
+		// VerifyUpgradeAndUpdateState is not a header, so it is treated as
+		// absent: the genuine header at that height must replace it, not be
+		// read as conflicting with it (which would freeze the client).
+		if existingConsState, found := tm.GetConsensusState(msg.GetHeight()); found && !existingConsState.isSentinel() {
 			// This header has already been submitted and the necessary state is
 			// already stored in client store, thus we can return early without
 			// further validation.
@@ -149,9 +153,11 @@ func (tm *TMLightClient) UpdateState(clientMsg lightclient.ClientMessage) []type
 		return []types.Height{}
 	}
 
-	// check for duplicate update
+	// check for duplicate update; the placeholder stored at the upgraded
+	// height is overwritten by the first genuine header at that height (see
+	// CheckForMisbehaviour).
 	msgHeight := msg.GetHeight()
-	if tm.HasConsensusState(msgHeight) {
+	if existing, found := tm.GetConsensusState(msgHeight); found && !existing.isSentinel() {
 		// perform no-op
 		return []types.Height{msgHeight}
 	}

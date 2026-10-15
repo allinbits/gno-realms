@@ -397,3 +397,66 @@ func TestPruneExpiredConsensusStates(t *testing.T) {
 		uassert.Equal(t, 0, tendermint.NewTMLightClient().PruneExpiredConsensusStates(now))
 	})
 }
+
+// TestUpdateAfterSameRevisionUpgrade covers the header at the height an
+// upgrade installed. VerifyUpgradeAndUpdateState stores a placeholder there
+// (SentinelRoot), and nothing requires the upgrade to bump the revision, so the
+// genuine header at that height can be submitted. It must replace the
+// placeholder; it used to be read as conflicting with it, freezing the client.
+func TestUpdateAfterSameRevisionUpgrade(t *testing.T) {
+	const upgradeChainID = "chain-1"
+	var (
+		now            = time.Now().UTC()
+		upgradedHeight = types.NewHeight(1, 101)
+	)
+	header := func(apphash string, ts time.Time) *tendermint.MsgHeader {
+		return &tendermint.MsgHeader{Header: &tendermint.Header{
+			ChainID:            upgradeChainID,
+			Height:             101,
+			Time:               ts,
+			AppHash:            []byte(apphash),
+			NextValidatorsHash: []byte("nextVals"),
+		}}
+	}
+	// The client after an upgrade from 1-100 to 1-101: the trusted state at
+	// 1-100 and the sentinel placeholder at 1-101.
+	setup := func() *tendermint.TMLightClient {
+		tm := tendermint.NewTMLightClient()
+		clientState := tendermint.NewClientState(upgradeChainID, tendermint.DefaultTrustLevel, trustingPeriod, ubdPeriod, maxClockDrift, upgradedHeight, ics23.GetSDKProofSpecs(), upgradePath)
+		urequire.NoError(t, tm.Initialize(*clientState, tendermint.ConsensusState{
+			Timestamp:          now.Add(-time.Minute),
+			Root:               tendermint.NewMerkleRoot([]byte(tendermint.SentinelRoot)),
+			NextValidatorsHash: []byte("nextVals"),
+		}))
+		tm.SetConsensusState(types.NewHeight(1, 100), &tendermint.ConsensusState{
+			Timestamp:          now.Add(-2 * time.Minute),
+			Root:               tendermint.NewMerkleRoot([]byte("apphash-100")),
+			NextValidatorsHash: []byte("nextVals"),
+		})
+		return tm
+	}
+
+	t.Run("genuine header replaces the placeholder", func(t *testing.T) {
+		tm := setup()
+		msg := header("apphash-101", now)
+
+		uassert.False(t, tm.CheckForMisbehaviour(msg), "the placeholder is not a conflicting header")
+		heights := tm.UpdateState(msg)
+		urequire.Equal(t, 1, len(heights))
+		uassert.True(t, heights[0].EQ(upgradedHeight))
+		cs, found := tm.GetConsensusState(upgradedHeight)
+		urequire.True(t, found)
+		uassert.Equal(t, "apphash-101", string(cs.Root.Hash), "real root installed")
+
+		// Once replaced, the height behaves as any other: the same header is
+		// a duplicate, a different one is misbehaviour.
+		uassert.False(t, tm.CheckForMisbehaviour(header("apphash-101", now)))
+		uassert.True(t, tm.CheckForMisbehaviour(header("apphash-conflict", now)))
+	})
+
+	t.Run("header replacing the placeholder must keep timestamps monotonic", func(t *testing.T) {
+		tm := setup()
+		// Not after the trusted state at 1-100.
+		uassert.True(t, tm.CheckForMisbehaviour(header("apphash-101", now.Add(-3*time.Minute))))
+	})
+}
