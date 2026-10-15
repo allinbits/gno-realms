@@ -182,7 +182,8 @@ func (rd *Renderer) Denom(w *mux.ResponseWriter, r *mux.Request) {
 	denom := "ibc/" + r.GetVar("hash")
 	d, found := rd.store.Denom(denom)
 	if !found {
-		RenderNode(w, NodeError(ufmt.Sprintf("denom %s not found", denom)))
+		// The path segment is not echoed: it comes from the URL.
+		RenderNode(w, NodeError("denom not found"))
 		return
 	}
 	RenderNode(w, d.RenderJSON())
@@ -190,6 +191,11 @@ func (rd *Renderer) Denom(w *mux.ResponseWriter, r *mux.Request) {
 
 func (rd *Renderer) TotalEscrowForDenom(w *mux.ResponseWriter, r *mux.Request) {
 	denom := r.GetVar("denom")
+	// The denom comes from the URL and is echoed: accept only a plain one.
+	if !isPlainDenom(denom) {
+		RenderNode(w, NodeError("invalid denom"))
+		return
+	}
 	// List the per-client amounts so the client/escrow binding is visible, not
 	// just the aggregate. The total is kept at the top level for quick checks.
 	clients := []*json.Node{}
@@ -232,7 +238,7 @@ func (rd *Renderer) Voucher(w *mux.ResponseWriter, r *mux.Request) {
 	ibcDenom := "ibc/" + r.GetVar("hash")
 	token := rd.store.VoucherToken(ibcDenom)
 	if token == nil {
-		RenderNode(w, NodeError("voucher token %s not found", ibcDenom))
+		RenderNode(w, NodeError("voucher token not found"))
 		return
 	}
 	RenderNode(w, VoucherJSON(ibcDenom, token))
@@ -255,13 +261,20 @@ func (rd *Renderer) VoucherBalance(w *mux.ResponseWriter, r *mux.Request) {
 	addr := r.GetVar("addr")
 	token := rd.store.VoucherToken(ibcDenom)
 	if token == nil {
-		RenderNode(w, NodeError("voucher token %s not found", ibcDenom))
+		RenderNode(w, NodeError("voucher token not found"))
 		return
 	}
-	balance := token.BalanceOf(address(addr))
+	// Echo only a valid address, in its canonical spelling, which is also
+	// the one the GRC20 ledger keys balances by.
+	canonical, ok := transfer.CanonicalAddress(addr)
+	if !ok {
+		RenderNode(w, NodeError("invalid address"))
+		return
+	}
+	balance := token.BalanceOf(canonical)
 	RenderNode(w, json.ObjectNode("", map[string]*json.Node{
 		"denom":   json.StringNode("", ibcDenom),
-		"address": json.StringNode("", addr),
+		"address": json.StringNode("", string(canonical)),
 		"balance": json.NumberNode("", float64(balance)),
 	}))
 }
