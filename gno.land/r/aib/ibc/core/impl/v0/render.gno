@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"gno.land/p/aib/ibc/lightclient/ethereum/v0"
 	"gno.land/p/aib/ibc/lightclient/tendermint/v0"
 	"gno.land/p/aib/ibc/lightclient/v0"
 	"gno.land/p/aib/ibc/types/v0"
@@ -269,6 +270,14 @@ func (rd *Renderer) ClientConsensusState(w *mux.ResponseWriter, r *mux.Request) 
 			return
 		}
 		RenderNode(w, RenderConsensusState(height, cs))
+	case ethereum.ClientType:
+		lc := c.LightClient().(*ethereum.EthLightClient)
+		cs, found := lc.GetConsensusState(height)
+		if !found {
+			RenderNode(w, NodeError("consensus state not found for height %s", height))
+			return
+		}
+		RenderNode(w, RenderEthConsensusState(height, cs))
 	}
 }
 
@@ -454,6 +463,19 @@ func RenderConsensusState(height types.Height, cs *tendermint.ConsensusState) *j
 		"timestamp":            json.NumberNode("", float64(cs.Timestamp.Unix())),
 		"root":                 json.StringNode("", base64.StdEncoding.EncodeToString(cs.Root.Hash)),
 		"next_validators_hash": json.StringNode("", base64.StdEncoding.EncodeToString(cs.NextValidatorsHash)),
+	})
+}
+
+// RenderEthConsensusState renders the consensus state of an Ethereum client.
+// next_sync_committee_known tells a relayer whether the client still needs
+// the period's update revealing the next sync committee.
+func RenderEthConsensusState(height types.Height, cs *ethereum.ConsensusState) *json.Node {
+	return json.ObjectNode("", map[string]*json.Node{
+		"height":                    RenderHeight(height),
+		"slot":                      json.NumberNode("", float64(cs.Slot)),
+		"timestamp":                 json.NumberNode("", float64(cs.Timestamp)),
+		"state_root":                json.StringNode("", base64.StdEncoding.EncodeToString(cs.StateRoot)),
+		"next_sync_committee_known": json.BoolNode("", cs.NextSyncCommittee != nil),
 	})
 }
 

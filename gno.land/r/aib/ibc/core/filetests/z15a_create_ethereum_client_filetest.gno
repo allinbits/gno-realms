@@ -63,6 +63,7 @@ func main(cur realm) {
 	// Packets on this client carry their proof in Ext; an ICS23 proof is
 	// refused before any verification.
 	core.RegisterCounterparty(cross(cur), id, [][]byte{{}}, "client-0")
+	println(core.Render("clients/" + id + "/consensus_states/0/72"))
 	core.RecvPacket(cross(cur), types.MsgRecvPacket{
 		Packet: types.Packet{
 			Sequence: 1, SourceClient: "client-0", DestinationClient: id, TimeoutTimestamp: 1761903000,
@@ -75,6 +76,7 @@ func main(cur realm) {
 
 // Output:
 // ethereum-1
+// {"height":{"revision_number":0,"revision_height":72},"slot":72,"timestamp":1761902371,"state_root":"q4lNCXiYYNW6M0L2Hrd/aBZJ0CJSzBwCYPwO83mVBIE=","next_sync_committee_known":false}
 
 // Error:
 // failed packet commitment verification for client (ethereum-1): account proof: mpt: proof is missing a node
