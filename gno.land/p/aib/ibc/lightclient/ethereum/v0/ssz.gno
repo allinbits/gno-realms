@@ -177,13 +177,20 @@ func floorLog2(n uint64) int {
 	return d
 }
 
-// isValidMerkleBranch implements is_valid_merkle_branch for a generalized
-// index: leaf is at gindex in the tree whose root is root.
+// isValidMerkleBranch implements is_valid_normalized_merkle_branch for a
+// generalized index: leaf is at gindex in the tree whose root is root. A
+// branch longer than the index's depth must start with zero hashes.
 func isValidMerkleBranch(leaf []byte, branch [][]byte, gindex uint64, root []byte) bool {
 	depth := floorLog2(gindex)
-	if len(branch) != depth {
+	if len(branch) < depth {
 		return false
 	}
+	for _, extra := range branch[:len(branch)-depth] {
+		if !bytesEqual(extra, zeroHashes[0]) {
+			return false
+		}
+	}
+	branch = branch[len(branch)-depth:]
 	index := gindex - (1 << uint(depth))
 	value := leaf
 	for i := 0; i < depth; i++ {

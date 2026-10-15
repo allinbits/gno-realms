@@ -10,14 +10,21 @@ import (
 // ethereum-<n>.
 const ClientType = "ethereum"
 
-// Generalized indices of the light-client proofs, from Electra on (Fulu did
-// not change them). See the Electra light-client sync protocol.
+// Generalized indices of the light-client proofs. Electra's hold through
+// Fulu; Gloas (EIP-7688, EIP-7732) moved them. See the light-client sync
+// protocols of both forks.
 const (
-	finalizedRootGindex        = 169
-	currentSyncCommitteeGindex = 86
-	nextSyncCommitteeGindex    = 87
-	executionPayloadGindex     = 25
+	finalizedRootGindexElectra     = 169
+	nextSyncCommitteeGindexElectra = 87
+	executionPayloadGindex         = 25
+
+	finalizedRootGindexGloas      = 735
+	nextSyncCommitteeGindexGloas  = 2946
+	executionBlockHashGindexGloas = 2856
 )
+
+// FarFutureEpoch marks a fork that is not scheduled.
+const FarFutureEpoch = ^uint64(0)
 
 var domainSyncCommittee = [4]byte{0x07, 0x00, 0x00, 0x00}
 
@@ -44,11 +51,16 @@ type ForkParameters struct {
 	Deneb              Fork
 	Electra            Fork
 	Fulu               Fork
+	// Gloas is the ePBS fork. Set its epoch to FarFutureEpoch while it is
+	// not scheduled.
+	Gloas Fork
 }
 
 // forkVersion implements compute_fork_version.
 func (p ForkParameters) forkVersion(epoch uint64) [4]byte {
 	switch {
+	case epoch >= p.Gloas.Epoch:
+		return p.Gloas.Version
 	case epoch >= p.Fulu.Epoch:
 		return p.Fulu.Version
 	case epoch >= p.Electra.Epoch:
@@ -124,6 +136,24 @@ func (cs ClientState) slotAtTimestamp(t uint64) (uint64, bool) {
 		return 0, false
 	}
 	return (t-cs.GenesisTime)/cs.SecondsPerSlot + cs.GenesisSlot, true
+}
+
+func (cs ClientState) isGloas(slot uint64) bool {
+	return cs.epochAtSlot(slot) >= cs.ForkParameters.Gloas.Epoch
+}
+
+func (cs ClientState) finalizedRootGindex(slot uint64) uint64 {
+	if cs.isGloas(slot) {
+		return finalizedRootGindexGloas
+	}
+	return finalizedRootGindexElectra
+}
+
+func (cs ClientState) nextSyncCommitteeGindex(slot uint64) uint64 {
+	if cs.isGloas(slot) {
+		return nextSyncCommitteeGindexGloas
+	}
+	return nextSyncCommitteeGindexElectra
 }
 
 // verifySupportedFork rejects slots before Electra, whose generalized
@@ -215,12 +245,15 @@ type ExecutionPayloadHeader struct {
 	ExcessBlobGas    uint64
 }
 
-// LightClientHeader is a beacon header with its execution payload header and
-// the branch proving the latter in the beacon block body.
+// LightClientHeader is a beacon header with the execution data it commits to
+// and the branch proving it in the beacon block body. Before Gloas that is
+// the execution payload header (Execution); from Gloas on, it is only the
+// hash of the latest execution block (ExecutionBlockHash).
 type LightClientHeader struct {
-	Beacon          BeaconBlockHeader
-	Execution       ExecutionPayloadHeader
-	ExecutionBranch [][]byte
+	Beacon             BeaconBlockHeader
+	Execution          ExecutionPayloadHeader
+	ExecutionBlockHash []byte
+	ExecutionBranch    [][]byte
 }
 
 // SyncCommittee is a full sync committee.
@@ -285,6 +318,10 @@ type LightClientUpdate struct {
 	FinalityBranch          [][]byte
 	SyncAggregate           SyncAggregate
 	SignatureSlot           uint64
+	// FinalizedExecutionHeader is the RLP-encoded execution block header
+	// whose hash is FinalizedHeader.ExecutionBlockHash, from which a Gloas
+	// update takes the execution state root. Unused before Gloas.
+	FinalizedExecutionHeader []byte
 }
 
 func (u LightClientUpdate) validateBasic() error {

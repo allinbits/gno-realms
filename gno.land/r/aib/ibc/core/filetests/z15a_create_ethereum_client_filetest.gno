@@ -38,6 +38,7 @@ func main(cur realm) {
 			GenesisForkVersion: [4]byte{0x10, 0, 0, 0x38},
 			Altair:             fork(0x20, 0), Bellatrix: fork(0x30, 0), Capella: fork(0x40, 0),
 			Deneb: fork(0x50, 0), Electra: fork(0x60, 0), Fulu: fork(0x70, 1),
+			Gloas: ethereum.Fork{Epoch: ethereum.FarFutureEpoch},
 		},
 		SecondsPerSlot:               2,
 		SlotsPerEpoch:                8,

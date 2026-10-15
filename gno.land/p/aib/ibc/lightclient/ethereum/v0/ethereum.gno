@@ -155,7 +155,8 @@ func (c *EthLightClient) verifyHeader(h *Header) error {
 	if cs.periodAtSlot(u.FinalizedHeader.Beacon.Slot) > cs.periodAtSlot(trusted.Slot) && u.NextSyncCommittee == nil {
 		return errors.New("an update into the next period must carry the next sync committee")
 	}
-	return nil
+	_, err = c.finalizedExecution(u)
+	return err
 }
 
 // validateUpdate implements validate_light_client_update.
@@ -206,7 +207,7 @@ func (c *EthLightClient) validateUpdate(trusted *ConsensusState, committee SyncC
 		return err
 	}
 	if !isValidMerkleBranch(u.FinalizedHeader.Beacon.HashTreeRoot(), u.FinalityBranch,
-		finalizedRootGindex, u.AttestedHeader.Beacon.StateRoot) {
+		cs.finalizedRootGindex(attestedSlot), u.AttestedHeader.Beacon.StateRoot) {
 		return errors.New("invalid finality branch")
 	}
 
@@ -219,7 +220,7 @@ func (c *EthLightClient) validateUpdate(trusted *ConsensusState, committee SyncC
 			return errors.New("next sync committee does not match the trusted one")
 		}
 		if !isValidMerkleBranch(u.NextSyncCommittee.hashTreeRoot(), u.NextSyncCommitteeBranch,
-			nextSyncCommitteeGindex, u.AttestedHeader.Beacon.StateRoot) {
+			cs.nextSyncCommitteeGindex(attestedSlot), u.AttestedHeader.Beacon.StateRoot) {
 			return errors.New("invalid next sync committee branch")
 		}
 	}
@@ -256,16 +257,44 @@ func (c *EthLightClient) validateUpdate(trusted *ConsensusState, committee SyncC
 }
 
 // validateLightClientHeader implements is_valid_light_client_header for
-// Electra and later: the execution payload header is in the beacon body.
+// Electra and later: the execution payload header, or from Gloas on the
+// execution block hash, is in the beacon block body.
 func (c *EthLightClient) validateLightClientHeader(h LightClientHeader) error {
 	if err := c.ClientState.verifySupportedFork(h.Beacon.Slot); err != nil {
 		return err
 	}
-	if !isValidMerkleBranch(h.Execution.HashTreeRoot(), h.ExecutionBranch,
-		executionPayloadGindex, h.Beacon.BodyRoot) {
+	leaf, gindex := h.Execution.HashTreeRoot(), uint64(executionPayloadGindex)
+	if c.ClientState.isGloas(h.Beacon.Slot) {
+		if len(h.ExecutionBlockHash) != hashSize {
+			return errors.New("execution block hash must be 32 bytes")
+		}
+		leaf, gindex = h.ExecutionBlockHash, executionBlockHashGindexGloas
+	}
+	if !isValidMerkleBranch(leaf, h.ExecutionBranch, gindex, h.Beacon.BodyRoot) {
 		return errors.New("invalid execution branch")
 	}
 	return nil
+}
+
+// executionData is what the client keeps of an execution block.
+type executionData struct {
+	stateRoot   []byte
+	timestamp   uint64
+	blockNumber uint64
+}
+
+// finalizedExecution returns the execution data of the update's finalized
+// header: its execution payload header before Gloas, the execution block
+// header whose hash the beacon block commits to from Gloas on.
+func (c *EthLightClient) finalizedExecution(u LightClientUpdate) (executionData, error) {
+	h := u.FinalizedHeader
+	if !c.ClientState.isGloas(h.Beacon.Slot) {
+		return executionData{h.Execution.StateRoot, h.Execution.Timestamp, h.Execution.BlockNumber}, nil
+	}
+	if !bytesEqual(keccak(u.FinalizedExecutionHeader), h.ExecutionBlockHash) {
+		return executionData{}, errors.New("finalized execution header does not match the execution block hash")
+	}
+	return decodeExecutionHeader(u.FinalizedExecutionHeader)
 }
 
 func (c *EthLightClient) verifyMisbehaviour(m *Misbehaviour) error {
@@ -276,8 +305,8 @@ func (c *EthLightClient) verifyMisbehaviour(m *Misbehaviour) error {
 	if m.Update1.AttestedHeader.Beacon.Slot != m.Update2.AttestedHeader.Beacon.Slot {
 		return errors.New("misbehaviour updates attest different slots")
 	}
-	if bytesEqual(m.Update1.AttestedHeader.Execution.StateRoot, m.Update2.AttestedHeader.Execution.StateRoot) {
-		return errors.New("misbehaviour updates attest the same state root")
+	if bytesEqual(m.Update1.AttestedHeader.Beacon.HashTreeRoot(), m.Update2.AttestedHeader.Beacon.HashTreeRoot()) {
+		return errors.New("misbehaviour updates attest the same beacon header")
 	}
 	current, err := c.currentSlot()
 	if err != nil {
@@ -301,7 +330,11 @@ func (c *EthLightClient) CheckForMisbehaviour(clientMsg lightclient.ClientMessag
 	case *Header:
 		u := msg.ConsensusUpdate
 		existing, ok := c.GetConsensusState(heightAtSlot(u.FinalizedHeader.Beacon.Slot))
-		return ok && !bytesEqual(existing.StateRoot, u.FinalizedHeader.Execution.StateRoot)
+		if !ok {
+			return false
+		}
+		exec, err := c.finalizedExecution(u)
+		return err == nil && !bytesEqual(existing.StateRoot, exec.stateRoot)
 	}
 	return false
 }
@@ -346,15 +379,19 @@ func (c *EthLightClient) UpdateState(clientMsg lightclient.ClientMessage) []type
 		}
 		next.NextSyncCommittee = updateNext
 	}
+	exec, err := c.finalizedExecution(u)
+	if err != nil {
+		panic(err) // checked by VerifyClientMessage
+	}
 	next.Slot = finalizedSlot
-	next.StateRoot = u.FinalizedHeader.Execution.StateRoot
-	next.Timestamp = u.FinalizedHeader.Execution.Timestamp
+	next.StateRoot = exec.stateRoot
+	next.Timestamp = exec.timestamp
 	c.setConsensusState(&next)
 
 	if finalizedSlot > cs.LatestSlot {
 		updated := *cs
 		updated.LatestSlot = finalizedSlot
-		updated.LatestExecutionBlockNumber = u.FinalizedHeader.Execution.BlockNumber
+		updated.LatestExecutionBlockNumber = exec.blockNumber
 		c.ClientState = &updated
 	}
 	return []types.Height{heightAtSlot(finalizedSlot)}

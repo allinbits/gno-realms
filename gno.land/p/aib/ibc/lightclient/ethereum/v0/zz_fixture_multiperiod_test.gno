@@ -14,7 +14,7 @@ func fixtureMultiperiod() fixture {
 			SyncCommitteeSize:            32,
 			GenesisTime:                  1761905863,
 			GenesisSlot:                  0,
-			ForkParameters:               ForkParameters{GenesisForkVersion: [4]byte{0x10, 0x00, 0x00, 0x38}, GenesisSlot: 0, Altair: Fork{Version: [4]byte{0x20, 0x00, 0x00, 0x38}, Epoch: 0}, Bellatrix: Fork{Version: [4]byte{0x30, 0x00, 0x00, 0x38}, Epoch: 0}, Capella: Fork{Version: [4]byte{0x40, 0x00, 0x00, 0x38}, Epoch: 0}, Deneb: Fork{Version: [4]byte{0x50, 0x00, 0x00, 0x38}, Epoch: 0}, Electra: Fork{Version: [4]byte{0x60, 0x00, 0x00, 0x38}, Epoch: 0}, Fulu: Fork{Version: [4]byte{0x70, 0x00, 0x00, 0x38}, Epoch: 1}},
+			ForkParameters:               ForkParameters{GenesisForkVersion: [4]byte{0x10, 0x00, 0x00, 0x38}, GenesisSlot: 0, Altair: Fork{Version: [4]byte{0x20, 0x00, 0x00, 0x38}, Epoch: 0}, Bellatrix: Fork{Version: [4]byte{0x30, 0x00, 0x00, 0x38}, Epoch: 0}, Capella: Fork{Version: [4]byte{0x40, 0x00, 0x00, 0x38}, Epoch: 0}, Deneb: Fork{Version: [4]byte{0x50, 0x00, 0x00, 0x38}, Epoch: 0}, Electra: Fork{Version: [4]byte{0x60, 0x00, 0x00, 0x38}, Epoch: 0}, Fulu: Fork{Version: [4]byte{0x70, 0x00, 0x00, 0x38}, Epoch: 1}, Gloas: Fork{Epoch: FarFutureEpoch}},
 			SecondsPerSlot:               2,
 			SlotsPerEpoch:                8,
 			EpochsPerSyncCommitteePeriod: 8,

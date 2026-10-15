@@ -177,3 +177,42 @@ func storageValue(storageRoot, key []byte, proof [][]byte) ([]byte, error) {
 	copy(out[32-len(item.payload):], item.payload)
 	return out, nil
 }
+
+// decodeExecutionHeader reads the state root, block number and timestamp of
+// an RLP-encoded execution block header. Later forks only append fields.
+func decodeExecutionHeader(rlp []byte) (executionData, error) {
+	item, err := rlpDecode(rlp)
+	if err != nil {
+		return executionData{}, err
+	}
+	fields, err := rlpList(item)
+	if err != nil {
+		return executionData{}, err
+	}
+	// [parentHash, ommersHash, coinbase, stateRoot, txRoot, receiptsRoot,
+	//  bloom, difficulty, number, gasLimit, gasUsed, timestamp, ...]
+	if len(fields) < 12 || fields[3].isList || len(fields[3].payload) != 32 {
+		return executionData{}, errors.New("invalid execution header")
+	}
+	number, err := rlpUint64(fields[8])
+	if err != nil {
+		return executionData{}, err
+	}
+	timestamp, err := rlpUint64(fields[11])
+	if err != nil {
+		return executionData{}, err
+	}
+	return executionData{stateRoot: fields[3].payload, timestamp: timestamp, blockNumber: number}, nil
+}
+
+// rlpUint64 reads a canonical RLP unsigned integer of at most 8 bytes.
+func rlpUint64(it rlpItem) (uint64, error) {
+	if it.isList || len(it.payload) > 8 || (len(it.payload) > 0 && it.payload[0] == 0) {
+		return 0, errRLP
+	}
+	var v uint64
+	for _, c := range it.payload {
+		v = v<<8 | uint64(c)
+	}
+	return v, nil
+}
