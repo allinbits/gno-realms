@@ -11,6 +11,7 @@ import (
 	"gno.land/p/aib/jsonpage/v0"
 	"gno.land/p/moul/txlink/v0"
 	"gno.land/p/nt/grc20/v0"
+	"gno.land/p/nt/markdown/sanitize/v0"
 	"gno.land/p/nt/mux/v0"
 	"gno.land/p/nt/ufmt/v0"
 	"gno.land/p/onbloc/json/v0"
@@ -104,9 +105,12 @@ func (rd *Renderer) Home(w *mux.ResponseWriter, r *mux.Request) {
 				NewVoucherSendLink(ibcDenom).URL(),
 				NewVoucherApproveLink(ibcDenom).URL(),
 			)
+			// The base denom comes from the counterparty's packet data and is
+			// only checked for slashes on receive, so it can carry markdown:
+			// escape it (and the path that embeds it) as a table cell.
 			out.WriteString(ufmt.Sprintf(
 				"| [`%s`](/r/aib/ibc/apps/transfer:denoms/%s) | %s | %s | %s | %s | %s |\n",
-				ShortDenom(ibcDenom), ibcDenom, d.Base, d.Path(), supply, grc20link, actions,
+				ShortDenom(ibcDenom), ibcDenom, sanitize.TableCell(d.Base), sanitize.TableCell(d.Path()), supply, grc20link, actions,
 			))
 		}
 		out.WriteString("\n")
