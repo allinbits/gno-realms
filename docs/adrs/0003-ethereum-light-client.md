@@ -40,8 +40,13 @@ unaffected.
 of solidity-ibc-eureka (client type `ethereum`):
 
 - Updates follow the Altair sync protocol: the trusted state keeps summaries
-  (pubkeys hash, aggregate key) of the current and next committees, and the
-  relayer supplies the full active committee, checked against its summary.
+  (pubkeys root, aggregate key) of the current and next committees. Updates
+  never carry a committee's 512 keys: a next committee travels as its
+  summary, which is all its branch commits to, and the signature is checked
+  with `crypto/bls12381.FastAggregateVerifyExcluding` against the trusted
+  aggregate key minus the non-signers, which the update lists with Merkle
+  branches to the pubkeys root. The committee commits to its aggregate key
+  next to its keys, so this equals verifying over the signers' keys.
 - Finality, next sync committee and execution branches are checked with the
   generalized indices of the attested slot's fork: Electra/Fulu, or Gloas.
 - Before Gloas the execution state root comes from the execution payload
@@ -57,6 +62,14 @@ of solidity-ibc-eureka (client type `ethereum`):
   finalized execution state root, at the router's
   `commitments[keccak256(path)]` slot. Non-membership is a proof of the zero
   value.
+
+**Transport.** Relayers send client messages and packets as `[]byte`
+`MsgCall` arguments to `r/aib/ibc/ethrelay`, in the positional wire format of
+`gno.land/p/clockwork/wire` (vendored until it is deployed), which decodes
+them and forwards them to the core. `MsgRun` scripts paid 1,250 gas per byte
+of preprocessing on update literals; a `[]byte` argument is base64-decoded
+natively. Together with the non-signer scheme this took a live Sepolia
+finality update from 641M gas to 40M, with messages of about 2.5 KB.
 
 **Encoding.** `p/aib/ibc/ics20/abi` encodes and decodes the Solidity layout.
 The transfer implementation accepts either encoding on receive, ack and
