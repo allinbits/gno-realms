@@ -64,6 +64,7 @@ func main(cur realm) {
 	// refused before any verification.
 	core.RegisterCounterparty(cross(cur), id, [][]byte{{}}, "client-0")
 	println(core.Render("clients/" + id + "/consensus_states/0/72"))
+	println(core.Render("clients/" + id))
 	core.RecvPacket(cross(cur), types.MsgRecvPacket{
 		Packet: types.Packet{
 			Sequence: 1, SourceClient: "client-0", DestinationClient: id, TimeoutTimestamp: 1761903000,
@@ -76,7 +77,8 @@ func main(cur realm) {
 
 // Output:
 // ethereum-1
-// {"height":{"revision_number":0,"revision_height":72},"slot":72,"timestamp":1761902371,"state_root":"q4lNCXiYYNW6M0L2Hrd/aBZJ0CJSzBwCYPwO83mVBIE=","next_sync_committee_known":false}
+// {"height":{"revision_number":0,"revision_height":72},"slot":72,"timestamp":1761902371,"state_root":"q4lNCXiYYNW6M0L2Hrd/aBZJ0CJSzBwCYPwO83mVBIE=","current_sync_committee":{"pubkeys_hash":"Iqn/CGyjxIVK0GKMgWoV/IcY1+/JspOvKlrHHVS0sU8=","aggregate_pubkey":"uSh4ZTA79IGqgNfyUBJ7sLIoGf9oGgImJoDTHnE0+1MX9VMcX4QkRkG2ku7xvRUc"},"next_sync_committee_known":false}
+// {"id":"ethereum-1","type":"ethereum","creator":"g1wymu47drhr0kuq2098m792lytgtj2nyx77yrsm","status":"Active","counterparty_client_id":"client-0","counterparty_merke_prefix":[""],"client_state":{"chain_id":"3151908","genesis_validators_root":"0ewwW5e/YzZXHCNI5Ki/FzaEsM235V9+ZVTVH4R4taM=","min_sync_committee_participants":"11","sync_committee_size":"32","genesis_time":"1761902227","genesis_slot":"0","seconds_per_slot":"2","slots_per_epoch":"8","epochs_per_sync_committee_period":"8","latest_height":{"revision_number":0,"revision_height":72},"latest_execution_block_number":"72","is_frozen":false,"ibc_contract_address":"HZXVRFhurLY7YVTp5FEisy3tEao=","ibc_commitment_slot":"EmCURIknKYjZ3yhRSbWqGw9I8hNtb0FhWfhAo+B0dgA=","fork_parameters":{"genesis_fork_version":"EAAAOA==","altair":{"version":"IAAAOA==","epoch":"0"},"bellatrix":{"version":"MAAAOA==","epoch":"0"},"capella":{"version":"QAAAOA==","epoch":"0"},"deneb":{"version":"UAAAOA==","epoch":"0"},"electra":{"version":"YAAAOA==","epoch":"0"},"fulu":{"version":"cAAAOA==","epoch":"1"},"gloas":{"version":"AAAAAA==","epoch":"18446744073709551615"}}},"last_consensus_state":{"height":{"revision_number":0,"revision_height":72},"slot":72,"timestamp":1761902371,"state_root":"q4lNCXiYYNW6M0L2Hrd/aBZJ0CJSzBwCYPwO83mVBIE=","current_sync_committee":{"pubkeys_hash":"Iqn/CGyjxIVK0GKMgWoV/IcY1+/JspOvKlrHHVS0sU8=","aggregate_pubkey":"uSh4ZTA79IGqgNfyUBJ7sLIoGf9oGgImJoDTHnE0+1MX9VMcX4QkRkG2ku7xvRUc"},"next_sync_committee_known":false}}
 
 // Error:
 // failed packet commitment verification for client (ethereum-1): account proof: mpt: proof is missing a node
