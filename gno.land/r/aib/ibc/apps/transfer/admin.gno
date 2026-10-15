@@ -75,8 +75,9 @@ func BlockAddress(cur realm, addr address) {
 
 func blockAddress(_ int, rlm realm, addr address) {
 	auth.Assert(0, rlm, "block_address")
-	blocked.Set(string(addr), true)
-	chain.Emit(EventTypeBlock, "address", string(addr))
+	canonical := mustCanonicalAddress(addr)
+	blocked.Set(string(canonical), true)
+	chain.Emit(EventTypeBlock, "address", string(canonical))
 }
 
 // UnblockAddress removes addr from the blocklist. Members only.
@@ -86,13 +87,25 @@ func UnblockAddress(cur realm, addr address) {
 
 func unblockAddress(_ int, rlm realm, addr address) {
 	auth.Assert(0, rlm, "unblock_address")
-	blocked.Remove(string(addr))
-	chain.Emit(EventTypeUnblock, "address", string(addr))
+	canonical := mustCanonicalAddress(addr)
+	blocked.Remove(string(canonical))
+	chain.Emit(EventTypeUnblock, "address", string(canonical))
 }
 
-// IsBlocked reports whether addr is on the blocklist.
+// IsBlocked reports whether addr is on the blocklist, whatever its spelling.
+// The blocklist is keyed by canonical addresses (see CanonicalAddress); an
+// invalid address is never blocked.
 func IsBlocked(addr address) bool {
-	return blocked.Has(string(addr))
+	canonical, ok := CanonicalAddress(string(addr))
+	return ok && blocked.Has(string(canonical))
+}
+
+func mustCanonicalAddress(addr address) address {
+	canonical, ok := CanonicalAddress(string(addr))
+	if !ok {
+		panic("invalid address: " + string(addr))
+	}
+	return canonical
 }
 
 // BlockedAddresses returns the blocklist, sorted.

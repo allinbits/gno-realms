@@ -128,6 +128,14 @@ addresses, the equivalent of ibc-go's blocked addresses:
 - `UnblockAddress(addr)`: removes it.
 - `IsBlocked(addr)`: reports the state; the `admin` page lists the blocklist.
 
+The blocklist holds canonical (lowercase) addresses: bech32 also accepts the
+all-uppercase spelling of an address, so `BlockAddress` and `UnblockAddress`
+normalize their argument (and reject an invalid address), and `IsBlocked`
+matches either spelling. On receive, `OnRecvPacket` decodes the packet's
+receiver as ibc-go does: a receiver that is not a valid gno address gets an
+error acknowledgement, and every check and transfer uses the canonical form
+(`CanonicalAddress`).
+
 All of these are `MsgCall`-compatible and emit `block` / `unblock` /
 `authority_member_added` / `authority_member_removed` events.
 

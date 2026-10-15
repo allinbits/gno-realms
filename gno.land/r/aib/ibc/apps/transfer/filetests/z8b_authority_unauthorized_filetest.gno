@@ -9,8 +9,8 @@ import (
 
 // A non-member cannot administer the realm.
 func main(cur realm) {
-	transfer.AddAuthorityMember(cross(cur), "g1someother00000000000000000000000000")
-	transfer.BlockAddress(cross(cur), "g1someother00000000000000000000000000")
+	transfer.AddAuthorityMember(cross(cur), "g1wdhk6et0w35x2ujlta047h6lta047h6l82cvgx")
+	transfer.BlockAddress(cross(cur), "g1wdhk6et0w35x2ujlta047h6lta047h6l82cvgx")
 }
 
 // Error:

@@ -20,8 +20,8 @@ func main(cur realm) {
 	println("main member:  ", transfer.IsAuthorityMember(cur.Address()))
 
 	testing.SetRealm(testing.NewCodeRealm(authority.GovDAOPath))
-	transfer.BlockAddress(cross(cur), "g1someother00000000000000000000000000")
-	println("blocked:", transfer.IsBlocked("g1someother00000000000000000000000000"))
+	transfer.BlockAddress(cross(cur), "g1wdhk6et0w35x2ujlta047h6lta047h6l82cvgx")
+	println("blocked:", transfer.IsBlocked("g1wdhk6et0w35x2ujlta047h6lta047h6l82cvgx"))
 	println(transfer.Render("admin"))
 }
 
@@ -39,7 +39,7 @@ func main(cur realm) {
 // - **Registered implementations**:
 //   - gno.land/r/aib/ibc/apps/transfer/impl/v0
 // - **Blocked addresses**:
-//   - g1someother00000000000000000000000000
+//   - g1wdhk6et0w35x2ujlta047h6lta047h6l82cvgx
 
 // Events:
 // [
@@ -58,7 +58,7 @@ func main(cur realm) {
 //     "attrs": [
 //       {
 //         "key": "address",
-//         "value": "g1someother00000000000000000000000000"
+//         "value": "g1wdhk6et0w35x2ujlta047h6lta047h6l82cvgx"
 //       }
 //     ],
 //     "pkg_path": "gno.land/r/aib/ibc/apps/transfer"
