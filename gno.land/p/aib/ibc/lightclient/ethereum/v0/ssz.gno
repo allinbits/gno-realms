@@ -143,14 +143,10 @@ func (h ExecutionPayloadHeader) HashTreeRoot() []byte {
 	}, 17)
 }
 
-// pubkeysRoot is hash_tree_root(Vector[BLSPubkey, len(pubkeys)]), the
-// pubkeys field of a SyncCommittee.
-func pubkeysRoot(pubkeys [][]byte) []byte {
-	leaves := make([][]byte, len(pubkeys))
-	for i, pk := range pubkeys {
-		leaves[i] = hash2(pk[:chunkSize], padChunk(pk[chunkSize:]))
-	}
-	return merkleize(leaves, len(pubkeys))
+// pubkeyLeaf is the hash_tree_root of a 48-byte BLS public key, its leaf in
+// a sync committee's pubkeys vector.
+func pubkeyLeaf(pk []byte) []byte {
+	return hash2(pk[:chunkSize], padChunk(pk[chunkSize:]))
 }
 
 // computeDomain implements compute_domain for the given domain type.

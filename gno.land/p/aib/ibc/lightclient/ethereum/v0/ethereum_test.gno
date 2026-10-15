@@ -54,9 +54,19 @@ func TestUpdateRejectsTampering(t *testing.T) {
 		{"finality branch", func(h *Header) {
 			h.ConsensusUpdate.FinalityBranch[0] = flip(h.ConsensusUpdate.FinalityBranch[0], 0)
 		}, "invalid finality branch"},
-		{"active committee", func(h *Header) {
-			h.ActiveSyncCommittee.Pubkeys[0] = h.ActiveSyncCommittee.Pubkeys[1]
-		}, "active sync committee does not match"},
+		{"missing non-signer", func(h *Header) {
+			bits := h.ConsensusUpdate.SyncAggregate.SyncCommitteeBits
+			bits[0] &^= 1 // member 0 did not sign, but the update does not say who it is
+			h.ConsensusUpdate.NonSigners = nil
+		}, "non-signer 0 is missing"},
+		{"forged non-signer", func(h *Header) {
+			bits := h.ConsensusUpdate.SyncAggregate.SyncCommitteeBits
+			bits[0] &^= 1
+			h.ConsensusUpdate.NonSigners = []NonSigner{{Pubkey: make([]byte, 48), Branch: [][]byte{make([]byte, 32)}}}
+		}, "invalid branch for non-signer 0"},
+		{"extra non-signer", func(h *Header) {
+			h.ConsensusUpdate.NonSigners = append(h.ConsensusUpdate.NonSigners, NonSigner{Pubkey: make([]byte, 48)})
+		}, "more non-signers than unset participation bits"},
 		{"participation", func(h *Header) {
 			bits := h.ConsensusUpdate.SyncAggregate.SyncCommitteeBits
 			for i := range bits {

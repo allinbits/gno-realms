@@ -106,7 +106,7 @@ func (cs ClientState) ValidateBasic() error {
 	switch {
 	case len(cs.GenesisValidatorsRoot) != hashSize:
 		return errors.New("genesis validators root must be 32 bytes")
-	case cs.SyncCommitteeSize == 0 || cs.SyncCommitteeSize%8 != 0 || cs.SyncCommitteeSize > 1<<maxZeroHashDepth:
+	case cs.SyncCommitteeSize < 8 || cs.SyncCommitteeSize&(cs.SyncCommitteeSize-1) != 0 || cs.SyncCommitteeSize > 1<<maxZeroHashDepth:
 		return ufmt.Errorf("invalid sync committee size %d", cs.SyncCommitteeSize)
 	case cs.MinSyncCommitteeParticipants == 0 || cs.MinSyncCommitteeParticipants > cs.SyncCommitteeSize:
 		return ufmt.Errorf("invalid min sync committee participants %d", cs.MinSyncCommitteeParticipants)
@@ -256,38 +256,19 @@ type LightClientHeader struct {
 	ExecutionBranch    [][]byte
 }
 
-// SyncCommittee is a full sync committee.
-type SyncCommittee struct {
-	Pubkeys         [][]byte
-	AggregatePubkey []byte
-}
-
-func (c SyncCommittee) summarize() SummarizedSyncCommittee {
-	return SummarizedSyncCommittee{
-		PubkeysHash:     pubkeysRoot(c.Pubkeys),
-		AggregatePubkey: c.AggregatePubkey,
-	}
-}
-
-// hashTreeRoot of the SyncCommittee container, from its summary.
+// committeeRoot is the hash_tree_root of the SyncCommittee container the
+// summary commits to.
 func (s SummarizedSyncCommittee) committeeRoot() []byte {
 	agg := hash2(s.AggregatePubkey[:chunkSize], padChunk(s.AggregatePubkey[chunkSize:]))
 	return hash2(s.PubkeysHash, agg)
 }
 
-func (c SyncCommittee) validate(size uint64) error {
-	if uint64(len(c.Pubkeys)) != size {
-		return ufmt.Errorf("sync committee has %d pubkeys, want %d", len(c.Pubkeys), size)
-	}
-	for i, pk := range c.Pubkeys {
-		if len(pk) != blsPubKeySize {
-			return ufmt.Errorf("sync committee pubkey %d is not 48 bytes", i)
-		}
-	}
-	if len(c.AggregatePubkey) != blsPubKeySize {
-		return errors.New("sync committee aggregate pubkey is not 48 bytes")
-	}
-	return nil
+// NonSigner is a sync committee member whose participation bit is unset: its
+// public key and the branch proving it at its index in the committee's
+// pubkeys vector.
+type NonSigner struct {
+	Pubkey []byte
+	Branch [][]byte
 }
 
 // SyncAggregate is the sync committee's signature over an attested header.
@@ -308,11 +289,15 @@ func (a SyncAggregate) participants() uint64 {
 
 func (a SyncAggregate) size() uint64 { return uint64(len(a.SyncCommitteeBits)) * 8 }
 
-// LightClientUpdate is a light-client update as served by the beacon API.
-// NextSyncCommittee and NextSyncCommitteeBranch are both set or both unset.
+// LightClientUpdate is a light-client update as served by the beacon API,
+// with the sync committees reduced to what the client verifies: the next
+// committee as its summary (its pubkeys root and aggregate key, which is all
+// its branch commits to), and of the signing committee only the members that
+// did not sign. NextSyncCommittee and NextSyncCommitteeBranch are both set or
+// both unset.
 type LightClientUpdate struct {
 	AttestedHeader          LightClientHeader
-	NextSyncCommittee       *SyncCommittee
+	NextSyncCommittee       *SummarizedSyncCommittee
 	NextSyncCommitteeBranch [][]byte
 	FinalizedHeader         LightClientHeader
 	FinalityBranch          [][]byte
@@ -322,11 +307,24 @@ type LightClientUpdate struct {
 	// whose hash is FinalizedHeader.ExecutionBlockHash, from which a Gloas
 	// update takes the execution state root. Unused before Gloas.
 	FinalizedExecutionHeader []byte
+	// NonSigners are the members of the signing committee whose bit in
+	// SyncAggregate is unset, in committee order.
+	NonSigners []NonSigner
 }
 
 func (u LightClientUpdate) validateBasic() error {
 	if (u.NextSyncCommittee == nil) != (len(u.NextSyncCommitteeBranch) == 0) {
 		return errors.New("next sync committee and its branch must be set together")
+	}
+	if u.NextSyncCommittee != nil {
+		if err := validateSummary(*u.NextSyncCommittee); err != nil {
+			return ufmt.Errorf("next sync committee: %v", err)
+		}
+	}
+	for i, ns := range u.NonSigners {
+		if len(ns.Pubkey) != blsPubKeySize {
+			return ufmt.Errorf("non-signer %d: pubkey is not 48 bytes", i)
+		}
 	}
 	if len(u.SyncAggregate.SyncCommitteeSignature) != blsSignatureSize {
 		return errors.New("sync committee signature must be 96 bytes")
@@ -334,14 +332,13 @@ func (u LightClientUpdate) validateBasic() error {
 	return nil
 }
 
-// Header is the client message that updates the client. ActiveSyncCommittee
-// is the full committee whose summary the trusted consensus state at
-// TrustedSlot holds: the current one, or the next one if ActiveIsNext.
+// Header is the client message that updates the client from the trusted
+// consensus state at TrustedSlot. The update is signed by that state's
+// current sync committee, or by its next one if ActiveIsNext.
 type Header struct {
-	ActiveSyncCommittee SyncCommittee
-	ActiveIsNext        bool
-	ConsensusUpdate     LightClientUpdate
-	TrustedSlot         uint64
+	ActiveIsNext    bool
+	ConsensusUpdate LightClientUpdate
+	TrustedSlot     uint64
 }
 
 func (*Header) ClientType() string { return ClientType }
@@ -353,11 +350,10 @@ func (h *Header) ValidateBasic() error {
 // Misbehaviour is two valid updates attesting different execution state
 // roots at the same slot.
 type Misbehaviour struct {
-	ActiveSyncCommittee SyncCommittee
-	ActiveIsNext        bool
-	Update1             LightClientUpdate
-	Update2             LightClientUpdate
-	TrustedSlot         uint64
+	ActiveIsNext bool
+	Update1      LightClientUpdate
+	Update2      LightClientUpdate
+	TrustedSlot  uint64
 }
 
 func (*Misbehaviour) ClientType() string { return ClientType }

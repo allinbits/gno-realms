@@ -272,9 +272,44 @@ func consensusState(cs map[string]any) string {
 		u64(cs["slot"]), b(cs["state_root"]), u64(cs["timestamp"]), summary(cs["current_sync_committee"]), next)
 }
 
-func committee(v any) string {
-	c := obj(v)
-	return fmt.Sprintf("SyncCommittee{Pubkeys: %s, AggregatePubkey: %s}", bs(c["pubkeys"]), b(c["aggregate_pubkey"]))
+func committeeKeys(v any) [][]byte {
+	var keys [][]byte
+	for _, pk := range obj(v)["pubkeys"].([]any) {
+		keys = append(keys, pubkeyBytes(pk))
+	}
+	return keys
+}
+
+// summary renders the SummarizedSyncCommittee of a full committee.
+func committeeSummary(v any) string {
+	layers := pubkeysTree(committeeKeys(v))
+	root := layers[len(layers)-1][0]
+	return fmt.Sprintf("SummarizedSyncCommittee{PubkeysHash: h(%q), AggregatePubkey: %s}",
+		hex.EncodeToString(root), b(obj(v)["aggregate_pubkey"]))
+}
+
+// nonSigners renders the members of committee v whose bit is unset in bits,
+// with their branches.
+func nonSigners(v any, bitsHex any) string {
+	keys := committeeKeys(v)
+	layers := pubkeysTree(keys)
+	bits, err := hex.DecodeString(strings.TrimPrefix(str(bitsHex), "0x"))
+	if err != nil {
+		panic(err)
+	}
+	var items []string
+	for i := range keys {
+		if bits[i/8]&(1<<(i%8)) != 0 {
+			continue
+		}
+		var br []string
+		for _, s := range branch(layers, i) {
+			br = append(br, fmt.Sprintf("h(%q)", hex.EncodeToString(s)))
+		}
+		items = append(items, fmt.Sprintf("{Pubkey: h(%q), Branch: [][]byte{%s}}",
+			hex.EncodeToString(keys[i]), strings.Join(br, ", ")))
+	}
+	return "[]NonSigner{" + strings.Join(items, ", ") + "}"
 }
 
 func lcHeader(v any) string {
@@ -308,12 +343,11 @@ func header(h map[string]any) string {
 	u := obj(h["consensus_update"])
 	next, nextBranch := "nil", "nil"
 	if u["next_sync_committee"] != nil {
-		next = "&" + committee(u["next_sync_committee"])
+		next = "&" + committeeSummary(u["next_sync_committee"])
 		nextBranch = bs(u["next_sync_committee_branch"])
 	}
 	agg := obj(u["sync_aggregate"])
 	return fmt.Sprintf(`&Header{
-ActiveSyncCommittee: %s,
 ActiveIsNext: %t,
 TrustedSlot: %d,
 ConsensusUpdate: LightClientUpdate{
@@ -324,12 +358,13 @@ FinalizedHeader: %s,
 FinalityBranch: %s,
 SyncAggregate: SyncAggregate{SyncCommitteeBits: %s, SyncCommitteeSignature: %s},
 SignatureSlot: %d,
+NonSigners: %s,
 },
 }`,
-		committee(c), isNext, u64(h["trusted_slot"]),
+		isNext, u64(h["trusted_slot"]),
 		lcHeader(u["attested_header"]), next, nextBranch, lcHeader(u["finalized_header"]),
 		bs(u["finality_branch"]), b(agg["sync_committee_bits"]), b(agg["sync_committee_signature"]),
-		u64(u["signature_slot"]))
+		u64(u["signature_slot"]), nonSigners(c, agg["sync_committee_bits"]))
 }
 
 func membershipProof(raw []byte) string {
