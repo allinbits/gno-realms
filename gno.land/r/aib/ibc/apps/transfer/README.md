@@ -252,6 +252,13 @@ The token name is the base denomination (e.g. `uatom`) and the symbol is the
 truncated hash (e.g. `CAEF9CA8CE6`). For the full denom and richer metadata
 (trace hops, total supply), query the render endpoint `voucher/ibc/{HASH}`.
 
+The base denomination of a voucher must be a plain denomination: a letter
+followed by letters, digits, `:`, `.`, `_` or `-` (the Cosmos SDK charset
+without `/`), at most `grc20.MaxNameLen` (64) bytes, the limit of a token
+name. It is stored and shown by the render routes, so anything else, such as
+markdown, gets an error acknowledgement and the counterparty refunds its
+sender.
+
 ### Trading
 
 1. A user receives voucher tokens via an IBC `RecvPacket`.
