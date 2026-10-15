@@ -31,6 +31,16 @@ import (
 type EthLightClient struct {
 	ClientState            *ClientState
 	ConsensusStateByHeight *bptree.BPTree // height:*ConsensusState
+
+	// verified carries the next sync committee summary VerifyClientMessage
+	// computed to the UpdateState call that follows it in the same
+	// transaction, which would otherwise hash the 512 keys again.
+	verified *verifiedHeader
+}
+
+type verifiedHeader struct {
+	header      *Header
+	nextSummary SummarizedSyncCommittee
 }
 
 var (
@@ -142,8 +152,13 @@ func (c *EthLightClient) verifyHeader(h *Header) error {
 		return err
 	}
 	u := h.ConsensusUpdate
-	if err := c.validateUpdate(trusted, h.ActiveSyncCommittee, h.ActiveIsNext, u, current); err != nil {
+	nextSummary, err := c.validateUpdate(trusted, h.ActiveSyncCommittee, h.ActiveIsNext, u, current)
+	if err != nil {
 		return err
+	}
+	c.verified = nil
+	if nextSummary != nil {
+		c.verified = &verifiedHeader{header: h, nextSummary: *nextSummary}
 	}
 	// Only a 2/3 supermajority may move the client.
 	if u.SyncAggregate.participants()*3 < u.SyncAggregate.size()*2 {
@@ -168,24 +183,25 @@ func (c *EthLightClient) verifyHeader(h *Header) error {
 }
 
 // validateUpdate implements validate_light_client_update.
-func (c *EthLightClient) validateUpdate(trusted *ConsensusState, committee SyncCommittee, committeeIsNext bool, u LightClientUpdate, currentSlot uint64) error {
+// It returns the summary of the update's next sync committee, if any.
+func (c *EthLightClient) validateUpdate(trusted *ConsensusState, committee SyncCommittee, committeeIsNext bool, u LightClientUpdate, currentSlot uint64) (*SummarizedSyncCommittee, error) {
 	cs := c.ClientState
 	if u.SyncAggregate.participants() < cs.MinSyncCommitteeParticipants {
-		return ufmt.Errorf("insufficient sync committee participants: %d", u.SyncAggregate.participants())
+		return nil, ufmt.Errorf("insufficient sync committee participants: %d", u.SyncAggregate.participants())
 	}
 	if err := c.validateLightClientHeader(u.AttestedHeader); err != nil {
-		return ufmt.Errorf("attested header: %v", err)
+		return nil, ufmt.Errorf("attested header: %v", err)
 	}
 	attestedSlot := u.AttestedHeader.Beacon.Slot
 	finalizedSlot := u.FinalizedHeader.Beacon.Slot
 	if finalizedSlot == cs.GenesisSlot {
-		return errors.New("finalized slot is the genesis slot")
+		return nil, errors.New("finalized slot is the genesis slot")
 	}
 	if currentSlot < u.SignatureSlot {
-		return ufmt.Errorf("signature slot %d is after the current slot %d", u.SignatureSlot, currentSlot)
+		return nil, ufmt.Errorf("signature slot %d is after the current slot %d", u.SignatureSlot, currentSlot)
 	}
 	if !(u.SignatureSlot > attestedSlot && attestedSlot >= finalizedSlot) {
-		return errors.New("slots must satisfy signature > attested >= finalized")
+		return nil, errors.New("slots must satisfy signature > attested >= finalized")
 	}
 
 	storedPeriod := cs.periodAtSlot(trusted.Slot)
@@ -195,55 +211,59 @@ func (c *EthLightClient) validateUpdate(trusted *ConsensusState, committee SyncC
 	nextKnown := committeeIsNext
 	if nextKnown {
 		if signaturePeriod != storedPeriod && signaturePeriod != storedPeriod+1 {
-			return ufmt.Errorf("signature period %d is not the stored period %d or the next", signaturePeriod, storedPeriod)
+			return nil, ufmt.Errorf("signature period %d is not the stored period %d or the next", signaturePeriod, storedPeriod)
 		}
 	} else if signaturePeriod != storedPeriod {
-		return ufmt.Errorf("signature period %d is not the stored period %d", signaturePeriod, storedPeriod)
+		return nil, ufmt.Errorf("signature period %d is not the stored period %d", signaturePeriod, storedPeriod)
 	}
 
 	attestedPeriod := cs.periodAtSlot(attestedSlot)
 	isNextCommitteeUpdate := u.NextSyncCommittee != nil
 	hasNextCommittee := !nextKnown && isNextCommitteeUpdate && attestedPeriod == storedPeriod
 	if !(attestedSlot > trusted.Slot || hasNextCommittee) {
-		return errors.New("irrelevant update")
+		return nil, errors.New("irrelevant update")
 	}
 
 	if err := c.validateLightClientHeader(u.FinalizedHeader); err != nil {
-		return ufmt.Errorf("finalized header: %v", err)
+		return nil, ufmt.Errorf("finalized header: %v", err)
 	}
 	if err := cs.verifySupportedFork(attestedSlot); err != nil {
-		return err
+		return nil, err
 	}
 	if !isValidMerkleBranch(u.FinalizedHeader.Beacon.HashTreeRoot(), u.FinalityBranch,
 		cs.finalizedRootGindex(attestedSlot), u.AttestedHeader.Beacon.StateRoot) {
-		return errors.New("invalid finality branch")
+		return nil, errors.New("invalid finality branch")
 	}
 
+	var nextSummary *SummarizedSyncCommittee
 	if isNextCommitteeUpdate {
 		if err := u.NextSyncCommittee.validate(cs.SyncCommitteeSize); err != nil {
-			return ufmt.Errorf("next sync committee: %v", err)
+			return nil, ufmt.Errorf("next sync committee: %v", err)
 		}
 		// The committee hashes 512 keys: summarize it once.
-		nextSummary := u.NextSyncCommittee.summarize()
-		if attestedPeriod == storedPeriod && nextKnown && !nextSummary.equal(committee.summarize()) {
-			return errors.New("next sync committee does not match the trusted one")
+		s := u.NextSyncCommittee.summarize()
+		nextSummary = &s
+		// When nextKnown, the active committee is the trusted next one,
+		// already checked against its summary.
+		if attestedPeriod == storedPeriod && nextKnown && !s.equal(*trusted.NextSyncCommittee) {
+			return nil, errors.New("next sync committee does not match the trusted one")
 		}
-		if !isValidMerkleBranch(nextSummary.committeeRoot(), u.NextSyncCommitteeBranch,
+		if !isValidMerkleBranch(s.committeeRoot(), u.NextSyncCommitteeBranch,
 			cs.nextSyncCommitteeGindex(attestedSlot), u.AttestedHeader.Beacon.StateRoot) {
-			return errors.New("invalid next sync committee branch")
+			return nil, errors.New("invalid next sync committee branch")
 		}
 	}
 
 	// The signing committee: the current one within the stored period, the
 	// next one across it.
 	if signaturePeriod == storedPeriod && committeeIsNext {
-		return errors.New("update signed in the stored period needs the current sync committee")
+		return nil, errors.New("update signed in the stored period needs the current sync committee")
 	}
 	if signaturePeriod != storedPeriod && !committeeIsNext {
-		return errors.New("update signed in the next period needs the next sync committee")
+		return nil, errors.New("update signed in the next period needs the next sync committee")
 	}
 	if u.SyncAggregate.size() != uint64(len(committee.Pubkeys)) {
-		return ufmt.Errorf("sync committee bits cover %d members, committee has %d", u.SyncAggregate.size(), len(committee.Pubkeys))
+		return nil, ufmt.Errorf("sync committee bits cover %d members, committee has %d", u.SyncAggregate.size(), len(committee.Pubkeys))
 	}
 	var participants []byte
 	for i, pk := range committee.Pubkeys {
@@ -260,9 +280,9 @@ func (c *EthLightClient) validateUpdate(trusted *ConsensusState, committee SyncC
 	domain := computeDomain(domainSyncCommittee, forkVersion, cs.GenesisValidatorsRoot)
 	signingRoot := computeSigningRoot(u.AttestedHeader.Beacon.HashTreeRoot(), domain)
 	if !bls12381.FastAggregateVerify(participants, signingRoot, u.SyncAggregate.SyncCommitteeSignature) {
-		return errors.New("invalid sync committee signature")
+		return nil, errors.New("invalid sync committee signature")
 	}
-	return nil
+	return nextSummary, nil
 }
 
 // validateLightClientHeader implements is_valid_light_client_header for
@@ -321,10 +341,10 @@ func (c *EthLightClient) verifyMisbehaviour(m *Misbehaviour) error {
 	if err != nil {
 		return err
 	}
-	if err := c.validateUpdate(trusted, m.ActiveSyncCommittee, m.ActiveIsNext, m.Update1, current); err != nil {
+	if _, err := c.validateUpdate(trusted, m.ActiveSyncCommittee, m.ActiveIsNext, m.Update1, current); err != nil {
 		return ufmt.Errorf("update 1: %v", err)
 	}
-	if err := c.validateUpdate(trusted, m.ActiveSyncCommittee, m.ActiveIsNext, m.Update2, current); err != nil {
+	if _, err := c.validateUpdate(trusted, m.ActiveSyncCommittee, m.ActiveIsNext, m.Update2, current); err != nil {
 		return ufmt.Errorf("update 2: %v", err)
 	}
 	return nil
@@ -362,6 +382,17 @@ func isNextCommitteeOnly(cs *ClientState, trusted *ConsensusState, u LightClient
 		cs.periodAtSlot(u.AttestedHeader.Beacon.Slot) == cs.periodAtSlot(trusted.Slot)
 }
 
+// nextSummary returns the summary of h's next sync committee, from the
+// verification of h when it just happened, and consumes that cache.
+func (c *EthLightClient) nextSummary(h *Header) SummarizedSyncCommittee {
+	v := c.verified
+	c.verified = nil
+	if v != nil && v.header == h {
+		return v.nextSummary
+	}
+	return h.ConsensusUpdate.NextSyncCommittee.summarize()
+}
+
 // Implements lightclient.Interface: update_consensus_state.
 func (c *EthLightClient) UpdateState(clientMsg lightclient.ClientMessage) []types.Height {
 	h, ok := clientMsg.(*Header)
@@ -378,7 +409,7 @@ func (c *EthLightClient) UpdateState(clientMsg lightclient.ClientMessage) []type
 		// A next-committee-only update (see verifyHeader): record the
 		// committee in the trusted state and change nothing else.
 		next := copyConsensusState(*trusted)
-		s := u.NextSyncCommittee.summarize()
+		s := c.nextSummary(h)
 		next.NextSyncCommittee = &s
 		c.setConsensusState(&next)
 		return []types.Height{heightAtSlot(trusted.Slot)}
@@ -390,7 +421,7 @@ func (c *EthLightClient) UpdateState(clientMsg lightclient.ClientMessage) []type
 	next := copyConsensusState(*trusted)
 	var updateNext *SummarizedSyncCommittee
 	if u.NextSyncCommittee != nil {
-		s := u.NextSyncCommittee.summarize()
+		s := c.nextSummary(h)
 		updateNext = &s
 	}
 	if trusted.NextSyncCommittee != nil {
