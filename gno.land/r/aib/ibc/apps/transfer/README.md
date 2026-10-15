@@ -381,3 +381,38 @@ an implementation realm that holds the ICS-20 logic. The first one is
 authority or through `NewUpdateImplProposalRequest`, `ImplPath` and
 `ImplVersion`); see the core README's Upgrades section. The ICS-20 types
 shared by every implementation live in `gno.land/p/aib/ibc/ics20/v0`.
+
+### Upgrade through `UpdateImpl`, never through core's `ReplaceApp`
+
+Core's authority can hand the `transfer` port to another realm
+(`core.ReplaceApp`) or free it (`core.UnregisterApp`). Neither moves any value:
+they only change which realm core routes the port to. Everything this realm
+holds stays here, out of reach of the new route:
+
+| Asset | Held by | After `ReplaceApp` / `UnregisterApp` |
+|---|---|---|
+| Escrowed native coins | this realm's bank account | stuck: only this realm's code releases escrow, and core no longer calls it |
+| Escrowed GRC20 tokens | this realm's address, in each token's ledger | stuck, for the same reason |
+| Voucher tokens | ledgers in this realm's store, registered in `grc20reg` under this realm's path | balances survive and stay usable on gno (transfers, DEX), but vouchers can no longer leave over IBC: only this realm burns them on send |
+
+A successor starts with no escrow and no ledgers, so:
+
+- a gno-native token coming home cannot be unescrowed: the successor answers
+  with an error acknowledgement, the counterparty refunds, and the token stays
+  on the counterparty as a voucher;
+- a counterparty token arriving is minted as a new voucher of the successor's,
+  registered under a different `grc20reg` key: two tokens for one asset;
+- acknowledgements and timeouts of packets this realm sent reach the successor,
+  which cannot refund from this realm's escrow or re-mint into its ledgers.
+
+`Transfer` here stays callable but cannot leak value, provided the successor
+rejects in `OnSendPacket` a send it did not start (as this realm does): the
+transaction then reverts and the user keeps the coins.
+
+The transfer app is upgraded in place with `UpdateImpl` (above), which keeps
+the realm, its address, the escrow, the ledgers and the `grc20reg` keys.
+`ReplaceApp` exists for applications that are not proxies. If the port were
+moved by mistake, this realm is still an upgradeable proxy: an implementation
+activated with `UpdateImpl` can pay escrowed coins out through the store's
+escrow functions. Vouchers cannot move, since their ledgers live here, so the
+successor would have to accept them in exchange for its own.

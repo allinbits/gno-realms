@@ -15,12 +15,14 @@ import (
 const trustedAppPrefix = "gno.land/r/aib/"
 
 const (
-	EventTypeAppRegistered = "app_registered"
-	EventTypeAppPending    = "app_registration_pending"
-	EventTypeAppApproved   = "app_approved"
-	EventTypeAppRejected   = "app_rejected"
-	EventTypeAppPaused     = "app_paused"
-	EventTypeAppUnpaused   = "app_unpaused"
+	EventTypeAppRegistered   = "app_registered"
+	EventTypeAppPending      = "app_registration_pending"
+	EventTypeAppApproved     = "app_approved"
+	EventTypeAppRejected     = "app_rejected"
+	EventTypeAppPaused       = "app_paused"
+	EventTypeAppUnpaused     = "app_unpaused"
+	EventTypeAppUnregistered = "app_unregistered"
+	EventTypeAppReplaced     = "app_replaced"
 )
 
 // RegisterApp registers an IBCApp for portID. The app is identified by the
@@ -30,7 +32,9 @@ const (
 // by the authority with ApproveApp (directly, or through a GovDAO proposal
 // built with NewApproveAppProposalRequest). Pending registrations claim no
 // port: several candidates may wait for the same one, and none can block a
-// trusted app. A registration for a port that is already active is refused.
+// trusted app. A registration for a port that is already active is recorded as
+// pending whatever its namespace: it can only take the port through ReplaceApp.
+// The active app registering its own port again is refused.
 func RegisterApp(cur realm, portID string, a app.IBCApp) {
 	caller := cur.Previous()
 	if caller.IsUser() {
@@ -39,15 +43,16 @@ func RegisterApp(cur realm, portID string, a app.IBCApp) {
 	if err := host.PortIdentifierValidator(portID); err != nil {
 		panic(ufmt.Errorf("invalid portID: %v", err))
 	}
-	if _, ok := store.routes[portID]; ok {
-		panic(ufmt.Errorf("portID %s has already been registered", portID))
-	}
 	entry := App{
 		IBCApp:  a,
 		PkgPath: caller.PkgPath(),
 		Address: caller.Address(),
 	}
-	if strings.HasPrefix(entry.PkgPath, trustedAppPrefix) {
+	active, taken := store.routes[portID]
+	if taken && active.PkgPath == entry.PkgPath {
+		panic(ufmt.Errorf("portID %s has already been registered", portID))
+	}
+	if !taken && strings.HasPrefix(entry.PkgPath, trustedAppPrefix) {
 		store.routes[portID] = entry
 		chain.Emit(EventTypeAppRegistered, "port", portID, "pkg_path", entry.PkgPath)
 		return
@@ -92,6 +97,84 @@ func rejectApp(_ int, rlm realm, portID, pkgPath string) {
 	}
 	store.pendingApps.Remove(key)
 	chain.Emit(EventTypeAppRejected, "port", portID, "pkg_path", pkgPath)
+}
+
+// UnregisterApp frees portID: packets for that port are no longer routed, and
+// any realm may register it again. Authority members only; see proposals.gno for
+// the GovDAO path. Refused while the app owes an asynchronous acknowledgement,
+// which only it may write.
+//
+// Packets the app sent and that are still in flight lose their app: their
+// acknowledgement or timeout finds no route, so the refund the app owes its
+// senders cannot run until a successor holds the port. Pause the app first
+// and wait for in-flight packets to settle before unregistering it.
+func UnregisterApp(cur realm, portID string) {
+	unregisterApp(0, cur, portID)
+}
+
+func unregisterApp(_ int, rlm realm, portID string) {
+	auth.Assert(0, rlm, "unregister_app")
+	current := mustActiveApp(portID)
+	assertNoPendingAsyncAck(current.PkgPath)
+	delete(store.routes, portID)
+	chain.Emit(EventTypeAppUnregistered, "port", portID, "pkg_path", current.PkgPath)
+}
+
+// ReplaceApp hands portID from its active app to the pending registration of
+// pkgPath, in one step, so the port is never free between two transactions. The
+// successor registers first with RegisterApp, which records it as pending
+// because the port is taken. It inherits the pause state of the port, so a
+// paused port stays paused until UnpauseApp. Authority members only; see
+// proposals.gno for the GovDAO path. Refused while the current app owes an
+// asynchronous acknowledgement, which only it may write.
+//
+// Acknowledgements and timeouts of packets the previous app sent are routed to
+// the successor, which must be able to refund them (a successor sharing the
+// previous app's state, or a port drained first by PauseApp).
+func ReplaceApp(cur realm, portID, pkgPath string) {
+	replaceApp(0, cur, portID, pkgPath)
+}
+
+func replaceApp(_ int, rlm realm, portID, pkgPath string) {
+	auth.Assert(0, rlm, "replace_app")
+	current := mustActiveApp(portID)
+	key := pendingKey(portID, pkgPath)
+	v := store.pendingApps.Get(key)
+	if v == nil {
+		panic(ufmt.Sprintf("no pending registration of %s for port %s", pkgPath, portID))
+	}
+	assertNoPendingAsyncAck(current.PkgPath)
+	successor := v.(App)
+	successor.Paused = current.Paused
+	store.routes[portID] = successor
+	store.pendingApps.Remove(key)
+	chain.Emit(EventTypeAppReplaced, "port", portID, "old_pkg_path", current.PkgPath, "new_pkg_path", pkgPath)
+}
+
+func mustActiveApp(portID string) App {
+	a, ok := store.routes[portID]
+	if !ok {
+		panic(ufmt.Sprintf("no registered app for port %s", portID))
+	}
+	return a
+}
+
+// assertNoPendingAsyncAck panics if pkgPath still owes an asynchronous
+// acknowledgement: WriteAcknowledgement only accepts it from that realm, so
+// swapping or dropping its route would strand it. The check is per realm, not
+// per port, which is stricter for a realm holding several ports.
+func assertNoPendingAsyncAck(pkgPath string) {
+	store.clientByID.Iterate("", "", func(_ string, v any) bool {
+		c := v.(*client)
+		c.pendingAsyncAcksBySeq.Iterate("", "", func(_ string, p any) bool {
+			ack := p.(*pendingAsyncAck)
+			if ack.appPkgPath == pkgPath {
+				panic(ufmt.Sprintf("%s owes an asynchronous acknowledgement on client %s for sequence %d", pkgPath, c.id, ack.packet.Sequence))
+			}
+			return false
+		})
+		return false
+	})
 }
 
 // AppPkgPath returns the realm registered on portID, or "" if the port is

@@ -104,6 +104,21 @@ func NewUnpauseAppProposalRequest(cur realm, portID string) dao.ProposalRequest 
 		func(cur realm) error { unpauseApp(0, cur, portID); return nil })
 }
 
+// NewUnregisterAppProposalRequest proposes to free portID.
+func NewUnregisterAppProposalRequest(cur realm, portID string) dao.ProposalRequest {
+	return newProposalRequest(0, cur, "unregister app on port "+portID,
+		"Free port "+portID+" of the IBC core: packets for that port are no longer routed to its application, and any realm may register it again. Acknowledgements and timeouts of packets the application sent find no route until a successor holds the port.",
+		func(cur realm) error { unregisterApp(0, cur, portID); return nil })
+}
+
+// NewReplaceAppProposalRequest proposes to hand portID to the pending
+// registration of pkgPath.
+func NewReplaceAppProposalRequest(cur realm, portID, pkgPath string) dao.ProposalRequest {
+	return newProposalRequest(0, cur, "replace app on port "+portID+" with "+pkgPath,
+		"Hand port "+portID+" of the IBC core from its current application to the pending registration of the realm "+pkgPath+". The successor keeps the pause state of the port and receives the acknowledgements and timeouts of packets the previous application sent.",
+		func(cur realm) error { replaceApp(0, cur, portID, pkgPath); return nil })
+}
+
 // NewUpdateImplProposalRequest proposes to activate a registered implementation.
 func NewUpdateImplProposalRequest(cur realm, path string) dao.ProposalRequest {
 	return newProposalRequest(0, cur, "update implementation to "+path,

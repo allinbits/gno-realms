@@ -167,10 +167,11 @@ Frozen surface, never changes after mainnet deploy:
    and the authority check run in the frozen proxy before delegating, so a buggy
    implementation cannot drop them. `CreateClient` passes the relayer address into
    `Logic` since it is recorded as `creator`.
-5. **App registry unchanged**: `RegisterApp` stays as on master. No
-   authority-gated `ReplaceApp` or `UnregisterApp`: not needed for the transfer
-   upgrade path (the registered value is the transfer proxy forever); why they
-   could still be useful is recorded in issue #59.
+5. **App registry in the proxy**: `RegisterApp`, approval, per-port pause, and
+   the authority-gated `ReplaceApp`/`UnregisterApp` (issue #59) all live in the
+   frozen proxy. The transfer upgrade path never uses the last two, since the
+   registered value is the transfer proxy forever; they exist for non-proxy
+   apps, whose port could otherwise never move.
 6. **No light-client code in the proxy.** Today `addClient` hardwires
    `tendermint.NewTMLightClient()`. In the proxy design the implementation
    chooses the verifier and hands its `/p/` constructor to the store
