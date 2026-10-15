@@ -105,6 +105,16 @@ type MerkleRoot struct {
 	Hash []byte
 }
 
+// clone returns a copy of cs sharing no slice or pointer with it (see
+// cloneBytes).
+func (cs ClientState) clone() ClientState {
+	cs.ProofSpecs = cloneProofSpecs(cs.ProofSpecs)
+	if cs.UpgradePath != nil {
+		cs.UpgradePath = append([]string{}, cs.UpgradePath...)
+	}
+	return cs
+}
+
 func NewMerkleRoot(hash []byte) MerkleRoot {
 	return MerkleRoot{Hash: hash}
 }

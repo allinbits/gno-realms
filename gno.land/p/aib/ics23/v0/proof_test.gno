@@ -220,3 +220,22 @@ func TestIsLeftNeighbor_NoPanicOnEdgeCases(cur realm, t *testing.T) {
 		})
 	}
 }
+
+func TestProofSpecClone(t *testing.T) {
+	spec := ics23.IavlSpec()
+	clone := spec.Clone()
+	uassert.True(t, clone.SpecEquals(spec))
+	uassert.Equal(t, spec.MaxDepth, clone.MaxDepth)
+	uassert.Equal(t, spec.MinDepth, clone.MinDepth)
+	uassert.Equal(t, spec.PrehashKeyBeforeComparison, clone.PrehashKeyBeforeComparison)
+
+	// Nothing is shared: changing the original leaves the clone as it was.
+	spec.LeafSpec.Prefix[0] = 0xff
+	spec.InnerSpec.ChildOrder[0] = 7
+	spec.InnerSpec.EmptyChild = append(spec.InnerSpec.EmptyChild, 1)
+	spec.LeafSpec.Hash = ics23.HashOp_NO_HASH
+	uassert.True(t, clone.SpecEquals(ics23.IavlSpec()))
+
+	var nilSpec *ics23.ProofSpec
+	uassert.True(t, nilSpec.Clone() == nil)
+}

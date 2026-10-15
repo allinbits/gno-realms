@@ -42,6 +42,22 @@ type Packet struct {
 }
 
 // NewPacket constructs a new packet.
+// Clone returns a deep copy of p: its payloads and their values are not
+// shared with p. A packet received from another realm stays writable by that
+// realm, so a realm that keeps one must keep a copy.
+func (p Packet) Clone() Packet {
+	c := p
+	c.Payloads = nil
+	if p.Payloads != nil {
+		c.Payloads = make([]Payload, len(p.Payloads))
+		for i, pl := range p.Payloads {
+			c.Payloads[i] = pl
+			c.Payloads[i].Value = append([]byte(nil), pl.Value...)
+		}
+	}
+	return c
+}
+
 func NewPacket(sequence uint64, sourceClient, destinationClient string, timeoutTimestamp uint64, payloads ...Payload) Packet {
 	return Packet{
 		Sequence:          sequence,

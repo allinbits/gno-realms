@@ -71,6 +71,20 @@ type LeafOp struct {
 	Prefix []byte
 }
 
+// Clone returns a deep copy of m (see ProofSpec.Clone).
+func (m *LeafOp) Clone() *LeafOp {
+	if m == nil {
+		return nil
+	}
+	return &LeafOp{
+		Hash:         m.Hash,
+		PrehashKey:   m.PrehashKey,
+		PrehashValue: m.PrehashValue,
+		Length:       m.Length,
+		Prefix:       append([]byte(nil), m.Prefix...),
+	}
+}
+
 func (m *LeafOp) GetHash() HashOp {
 	if m != nil {
 		return m.Hash
