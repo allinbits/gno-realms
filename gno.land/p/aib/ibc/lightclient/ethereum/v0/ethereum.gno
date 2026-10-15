@@ -150,7 +150,15 @@ func (c *EthLightClient) verifyHeader(h *Header) error {
 		return errors.New("not enough sync committee signatures")
 	}
 	if u.FinalizedHeader.Beacon.Slot <= trusted.Slot {
-		return ufmt.Errorf("finalized slot %d is not after trusted slot %d", u.FinalizedHeader.Beacon.Slot, trusted.Slot)
+		// As in the sync protocol's apply_light_client_update, an update that
+		// does not advance finality is still useful when it reveals the next
+		// sync committee: without it a client bootstrapped late in a period
+		// could never cross into the next one. validateUpdate checked it is
+		// such an update.
+		if !isNextCommitteeOnly(cs, trusted, u) {
+			return ufmt.Errorf("finalized slot %d is not after trusted slot %d", u.FinalizedHeader.Beacon.Slot, trusted.Slot)
+		}
+		return nil
 	}
 	if cs.periodAtSlot(u.FinalizedHeader.Beacon.Slot) > cs.periodAtSlot(trusted.Slot) && u.NextSyncCommittee == nil {
 		return errors.New("an update into the next period must carry the next sync committee")
@@ -215,11 +223,12 @@ func (c *EthLightClient) validateUpdate(trusted *ConsensusState, committee SyncC
 		if err := u.NextSyncCommittee.validate(cs.SyncCommitteeSize); err != nil {
 			return ufmt.Errorf("next sync committee: %v", err)
 		}
-		if attestedPeriod == storedPeriod && nextKnown &&
-			!u.NextSyncCommittee.summarize().equal(committee.summarize()) {
+		// The committee hashes 512 keys: summarize it once.
+		nextSummary := u.NextSyncCommittee.summarize()
+		if attestedPeriod == storedPeriod && nextKnown && !nextSummary.equal(committee.summarize()) {
 			return errors.New("next sync committee does not match the trusted one")
 		}
-		if !isValidMerkleBranch(u.NextSyncCommittee.hashTreeRoot(), u.NextSyncCommitteeBranch,
+		if !isValidMerkleBranch(nextSummary.committeeRoot(), u.NextSyncCommitteeBranch,
 			cs.nextSyncCommitteeGindex(attestedSlot), u.AttestedHeader.Beacon.StateRoot) {
 			return errors.New("invalid next sync committee branch")
 		}
@@ -346,6 +355,13 @@ func (c *EthLightClient) UpdateStateOnMisbehaviour(lightclient.ClientMessage) {
 	c.ClientState = &cs
 }
 
+// isNextCommitteeOnly reports whether u only reveals the next sync committee
+// of the trusted state's period, which the trusted state does not know yet.
+func isNextCommitteeOnly(cs *ClientState, trusted *ConsensusState, u LightClientUpdate) bool {
+	return trusted.NextSyncCommittee == nil && u.NextSyncCommittee != nil &&
+		cs.periodAtSlot(u.AttestedHeader.Beacon.Slot) == cs.periodAtSlot(trusted.Slot)
+}
+
 // Implements lightclient.Interface: update_consensus_state.
 func (c *EthLightClient) UpdateState(clientMsg lightclient.ClientMessage) []types.Height {
 	h, ok := clientMsg.(*Header)
@@ -358,6 +374,15 @@ func (c *EthLightClient) UpdateState(clientMsg lightclient.ClientMessage) []type
 		panic("trusted consensus state disappeared")
 	}
 	u := h.ConsensusUpdate
+	if u.FinalizedHeader.Beacon.Slot <= trusted.Slot {
+		// A next-committee-only update (see verifyHeader): record the
+		// committee in the trusted state and change nothing else.
+		next := copyConsensusState(*trusted)
+		s := u.NextSyncCommittee.summarize()
+		next.NextSyncCommittee = &s
+		c.setConsensusState(&next)
+		return []types.Height{heightAtSlot(trusted.Slot)}
+	}
 	storePeriod := cs.periodAtSlot(trusted.Slot)
 	finalizedSlot := u.FinalizedHeader.Beacon.Slot
 	finalizedPeriod := cs.periodAtSlot(finalizedSlot)

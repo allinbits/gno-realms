@@ -269,10 +269,10 @@ func (c SyncCommittee) summarize() SummarizedSyncCommittee {
 	}
 }
 
-// hashTreeRoot of the SyncCommittee container.
-func (c SyncCommittee) hashTreeRoot() []byte {
-	agg := hash2(c.AggregatePubkey[:chunkSize], padChunk(c.AggregatePubkey[chunkSize:]))
-	return hash2(pubkeysRoot(c.Pubkeys), agg)
+// hashTreeRoot of the SyncCommittee container, from its summary.
+func (s SummarizedSyncCommittee) committeeRoot() []byte {
+	agg := hash2(s.AggregatePubkey[:chunkSize], padChunk(s.AggregatePubkey[chunkSize:]))
+	return hash2(s.PubkeysHash, agg)
 }
 
 func (c SyncCommittee) validate(size uint64) error {

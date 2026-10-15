@@ -118,3 +118,21 @@ func TestProofRejectsTampering(t *testing.T) {
 
 	urequire.ErrorContains(t, c.VerifyMembership(p.height, nil, ethPath(key), value), "extproof")
 }
+
+// An update that does not advance finality is only accepted when it reveals
+// a next sync committee the trusted state does not know yet.
+func TestUpdateWithoutProgressRejected(t *testing.T) {
+	c, hdr := firstUpdate(t, fixtureErc20())
+	c.UpdateState(hdr)
+	finalized := hdr.ConsensusUpdate.FinalizedHeader.Beacon.Slot
+	cons, ok := c.GetConsensusState(heightAtSlot(finalized))
+	urequire.True(t, ok)
+	urequire.True(t, cons.NextSyncCommittee != nil, "fixture state should know the next committee")
+
+	// The update rolled the client into the period its committee signs in,
+	// where that committee is now the current one.
+	again := *hdr
+	again.TrustedSlot = finalized
+	again.ActiveIsNext = false
+	urequire.ErrorContains(t, c.VerifyClientMessage(&again), "is not after trusted slot")
+}
