@@ -167,8 +167,10 @@ mapping: [ADR 0004](../../../../../../docs/adrs/0004-ethereum-route-controls.md)
 - **Backfill.** A send made over an Ethereum client before the controls
   (impl/v0) has no record: its acknowledgement or timeout is refused until
   anyone calls **`Backfill(packet)`**, which records it from the commitment
-  the core still holds. After activating impl/v1 and enabling the route's
-  denoms, backfill every outstanding send before relaying resumes.
+  the core still holds. impl/v1 is activated together with its first route
+  and denoms (ibcgov's `NewTransferActivateControlsRequest`), so voucher
+  returns work at once; backfill every outstanding send before relaying
+  resumes.
 - **Receives** are refused with an error acknowledgement, before any state
   change, under a `credits` flag, on a closed route, for a denom not enabled,
   past a minted denom's supply cap, or for a blocked receiver. Otherwise they

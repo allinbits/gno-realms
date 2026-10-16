@@ -162,10 +162,13 @@ implementation is still registered, so nothing needs redeploying; its
 Switching the transfer app to `impl/v1` puts every Ethereum client under the
 route controls (ADR 0004). Before relaying resumes on an Ethereum client:
 
-1. Enroll the route (`NewEnrollRouteRequest`) and enable every denom it
-   carries (`NewSetDenomRequest`), the Ethereum tokens whose vouchers impl/v0
-   minted included: their outstanding supply is read from the voucher at that
-   moment, and a voucher return waits until its denom is enabled.
+1. Activate with `NewTransferActivateControlsRequest(path, client,
+   feeCollector, denoms)`: the one decision switches to impl/v1, enrolls the
+   route and enables every denom it carries, the Ethereum tokens whose
+   vouchers impl/v0 minted included (their outstanding supply is read from
+   the voucher at that moment), in one transaction, so voucher returns work
+   at once. Further routes are enrolled later (`NewEnrollRouteRequest`,
+   `NewSetDenomRequest`).
 2. Backfill every send impl/v0 made over the client that is still
    outstanding: for each commitment the core holds
    (`core.PacketCommitment`), anyone calls `transfer.Backfill(packet)`. An

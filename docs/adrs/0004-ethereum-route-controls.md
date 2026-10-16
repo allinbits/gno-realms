@@ -74,6 +74,10 @@ still change; once deployed they freeze (ADR 0001, 0002).
   - `SendRecord`: the packet, its commitment, metadata, outcome, payment
     state, refunded amount, remaining supply reservation (minted sends,
     released or consumed once), reconciliation settlement (once), backfilled.
+  - Per client, the processed send records not settled by reconciliation,
+    ordered by processing height (an `avl.Node`, so the records processed at
+    or after a replacement's suspect height are counted in logarithmic work);
+    per retired client, its suspect height.
   - Escrow stays in the proxy's existing per-key accounting, keyed by the
     route key (= the first client id, so pre-existing escrow carries over).
 - **ibcgov**: `ledger`, `yielded`, `seats[6]`, `flags` (route|fn|seat),
@@ -123,15 +127,18 @@ except a seat change from day 21 of the hold.
   `NewSweepRequest`, `NewRecordLossRequest`, `NewRecapitalizeRequest`,
   `NewRevokeRecapRequest`, `NewReduceRequest`, `NewAcceptDeficitRequest`,
   `NewSettleRequest`,
-  `NewReplaceRouteRequest`, `NewReopenRouteRequest`,
+  `NewReplaceRouteRequest` (with its gno.land suspect height),
+  `NewReopenRouteRequest`, `NewTransferActivateControlsRequest` (impl/v1
+  with its first route and denoms, in one transaction),
   `NewBindGovernanceRequest`) and Ethereum-bound builders `NewEth*Request`
   for kinds 1–13 (`NewEthSettleRequest`, `NewEthReopenRequest`); reads `Flagged`, `PayoutsEpoch`, `NamedSuspect`, `Held`,
   `HoldSince`, `Seat`, `SeatOf`, `Flags`, `Epoch`, `EpochClient`, `LastSeq`,
   `DispatchBody`, `DispatchState`, `DispatchTransport`, `Decision`,
   `LastDecision`, `Governor`, `Yielded`, `Render` (`""`, `decisions`,
   `dispatch/<e>/<seq>`).
-- **transfer**: `Claim`, `ClaimRefunds`, `Backfill`, `Recapitalize`,
-  `GovApply`, `ExtView`; renders `routes…` (README).
+- **transfer**: `Claim`, `ClaimRefunds`, `Backfill`, `ContinueReopen`,
+  `Recapitalize`, `GovApply` (refuses when the active implementation keeps no
+  controls), `ExtView`; renders `routes…` (README).
 - **core**: `RetireClient`, `IsClientRetired`, `MigrateClient`, `ClientType`,
   `CounterpartyClientID`, `PacketCommitment`, `PacketReceipt`,
   `PacketAcknowledgement`, `HasPendingAsyncAck`, `PendingAsyncAck`,
@@ -156,13 +163,15 @@ Each send is authorized once (client, epoch, seq, payload hash), consumed in
 the status (a cancel beyond IBCAdmin's window is acked buffered with
 `redispatch = 1`) → re-dispatchable (current epoch only); statuses 1–5
 recorded. Router client ids follow eureka's grammar (`client-N`, or a custom
-id); those governance adds (kind 6 op 1, kind 10's new client) must be valid
-custom ids (4 to 128 characters of eureka's alphabet, not starting with
+id of up to 128 characters, also in packets); those governance adds (kind 6
+op 1, kind 10's new client) must be valid custom ids (4 to 128 characters of eureka's alphabet, not starting with
 `client-` or `channel-`). `Redispatch` re-sends identical bytes. Envelopes are
 checked byte for byte against gno-eth-ibc's
 `contracts/test/fixtures/gov-vectors.json` and against viem
 (`ibcgov/filetests/z2b`, `z2c` at gno-eth-ibc 8dad3f9, kinds 12 and 13
-included; `z2e` adds viem vectors and the builders' bounds).
+included; `z2e` adds viem vectors and the builders' bounds). Kind 10 carries
+`suspectFrom` (an Ethereum block); 8dad3f9's kind 10 vector predates it, so
+z2b checks the new tuple against viem until the fixture is regenerated.
 
 ### ADR pr6375 rule → code
 
@@ -182,7 +191,8 @@ included; `z2e` adds viem vectors and the builders' bounds).
 | R19 identifying receipts | `types.CommitPacketReceipt`, `core/store.gno`, `core/impl/v0/packet.gno` |
 | §7.3 refusals before state change | `transfer/impl/v1/recv.gno` (`refuse`) |
 | §7.11 on-chain records | `controls.Reader` JSON: route totals, claims, sweeps, sends, losses; `route_*` events |
-| §7.12 gno side | route replacement above; settlements of a retired client's sends (`Route.SettleRecords`, `NewSettleRequest`: whole remainders, forged refunds, each record once), `NewRecordLossRequest`; owed refunds reserved; retired client ids final; a retired client takes the authorized app's pending asynchronous acknowledgements |
+| §7.12 gno side | route replacement above, naming its suspect height; settlements of a retired client's sends (`Route.SettleRecords`, `NewSettleRequest`: whole remainders, zero for a genuine refund paid in full, forged refunds, each record once); a reopening waits for every open record and every record processed in the suspect interval, and runs its deficit acceptance in batches (`ContinueReopen`); `NewRecordLossRequest`; owed refunds reserved; retired client ids final; a retired client takes the authorized app's pending asynchronous acknowledgements |
+| R17, §6.7 activation | `NewTransferActivateControlsRequest`: the switch to impl/v1, the first route's enrolment and its denoms in one decision, so voucher returns never wait for configuration |
 | §7.13 refund meter, refunds hold, send records for every send, backfill of older ones | `controls/refunds.gno`, `transfer/impl/v1/ack.gno`, `send.gno`, `controls.gno` (`ClaimRefunds`, `Backfill`) |
 
 ### Parameters (§9)
@@ -227,11 +237,12 @@ vouchers in circulation when it is enabled.
       timeouts and refunds go on, under the refund meter and refunds hold;
     - a credit by vote only replaces a sweep entry booked at the receipt
       after the route's activation (or completes a pending asynchronous
-      acknowledgement), for at most what the packet carried;
+      acknowledgement), for exactly what the packet carried;
     - only a withheld void is restored; a forged void and a voided sweep entry
       are final;
     - a voucher return waits until its denom is enabled on the route, so every
-      send has a record;
+      send has a record; the staged activation enables the route's denoms
+      with the upgrade, so no return waits on a live route;
     - settlements apply only to the sends of a client a replacement retired,
       as on Ethereum, and a settlement whose payments exceed the free escrow
       is refused whole (Ethereum parks the payment instead).
