@@ -24,10 +24,11 @@ is never freed.
 - A registration from this project's namespace, `gno.land/r/aib/...`, is active
   immediately: only the owner of the `aib` namespace can deploy there.
 - A registration from any other realm is recorded as **pending** and routes
-  nothing until the authority activates it with `ApproveApp(portID, pkgPath)`,
-  or drops it with `RejectApp(portID, pkgPath)`; both have GovDAO proposal
-  constructors (`NewApproveAppProposalRequest`, `NewRejectAppProposalRequest`,
-  see the Authority section). Pending registrations claim no port, so they can
+  nothing until an ibcgov decision activates it with
+  `ApproveApp(portID, pkgPath)`, or the authority drops it with
+  `RejectApp(portID, pkgPath)` (GovDAO constructor
+  `NewRejectAppProposalRequest`, see the Authority section). Pending
+  registrations claim no port, so they can
   neither block a trusted app nor be approved once the port is taken.
   `IsAppPending(portID, pkgPath)` and `/r/aib/ibc/core:apps/pending` report them.
 
@@ -280,13 +281,11 @@ Emitted event:
 `WriteAcknowledgement`, `Acknowledgement` and `Timeout` panic with `core is
 paused` until `core.Unpause`. Client operations (`CreateClient`,
 `RegisterCounterparty`, `UpdateClient`, `UpgradeClient`, `RecoverClient`) keep
-working, so relayers can keep clients alive during a pause. Both functions are
-gated by the authority (see below) and `MsgCall`-compatible:
-
-```
-gnokey maketx call -pkgpath gno.land/r/aib/ibc/core -func Pause \
-    -gas-fee 1000000ugnot -gas-wanted 10000000 -broadcast -chainid dev MEMBER
-```
+working, so relayers can keep clients alive during a pause. `Pause` is gated
+by the authority (GovDAO or ibcgov, see below); `Unpause` is an ibcgov
+decision. A pause blocks refunds too, so it is reserved for a core bug: the
+incident tool for the Ethereum route is the per-client flags of the transfer
+app (ADR pr6375 §7.3).
 
 `core.Paused()` reports the state, which is also shown on `/r/aib/ibc/core:admin`.
 In-flight packets are not lost: commitments, receipts and acknowledgements stay
@@ -302,9 +301,9 @@ path: `SendPacket` refuses payloads for that port (the sender's transaction
 fails, nothing moves), and `RecvPacket` answers incoming packets for it with the
 error acknowledgement without invoking the app, so the counterparty refunds its
 senders. `Acknowledgement` and `Timeout` callbacks keep running, so refunds the
-app owes are never held back. `core.UnpauseApp(portID)` resumes it. Both are
-gated by the authority and `MsgCall`-compatible, with GovDAO constructors
-`NewPauseAppProposalRequest` / `NewUnpauseAppProposalRequest`. `IsAppPaused`
+app owes are never held back. `core.UnpauseApp(portID)` resumes it. `PauseApp`
+is gated by the authority (GovDAO constructor `NewPauseAppProposalRequest`);
+`UnpauseApp` is an ibcgov decision. `IsAppPaused`
 and the `paused` field of `/r/aib/ibc/core:apps` report the state. Applications
 do not carry a pause switch of their own.
 
@@ -312,38 +311,75 @@ Emitted events: `app_paused` and `app_unpaused`, with a `port` attribute.
 
 ## Authority
 
-Administrative operations (`AddRelayer`, `RemoveRelayer`, `Pause`, `Unpause`,
-`RecoverClient`, and the authority's own membership) are gated by an
-authority: a member set (`p/aib/authority`) bootstrapped at deploy with two
-members, the deployer (the AIB multisig) and the
-GovDAO proxy `gno.land/r/gov/dao`.
+Administration is split by direction (ADR pr6375 R14):
 
-The principal is the caller of the realm function, `cur.Previous().Address()`,
-not the transaction signer: a member must call these functions directly
-(`gnokey maketx call`), not through another realm nor `maketx run`.
+- **Tightening operations** (`Pause`, `PauseApp`, `RejectApp`) act at once and
+  are gated by an authority (`p/aib/authority`) whose members are fixed at
+  init to the GovDAO proxy `gno.land/r/gov/dao` and the governance realm
+  `gno.land/r/aib/ibc/ibcgov` (`IBCGovPath`). There is no deployer member.
+- **Loosening operations** (`Unpause`, `UnpauseApp`, `ApproveApp`,
+  `AddRelayer`, `RemoveRelayer`, `RecoverClient`, `UpdateImpl`,
+  `MigrateClient`, `RetireClient`, `AddAuthorityMember`,
+  `RemoveAuthorityMember`) are decisions of `gno.land/r/aib/ibc/ibcgov` alone:
+  its decision ledger applies the 7-day delay, the governor's one-way yield to
+  GovDAO and the guardians' holds. A call from anyone else, GovDAO's proxy
+  included, panics with `only gno.land/r/aib/ibc/ibcgov decides this`.
 
-- `AddAuthorityMember(addr)` / `RemoveAuthorityMember(addr)`: members only; the
-  last member cannot be removed.
+The principal is the caller of the realm function, `cur.Previous()`, not the
+transaction signer.
+
 - `IsAuthorityMember(addr)`: reports membership; `/r/aib/ibc/core:admin` lists
   the members.
 
-GovDAO acts through proposals. Each gated operation has a constructor
-(`NewAddRelayerProposalRequest`, `NewRemoveRelayerProposalRequest`,
-`NewRecoverClientProposalRequest`, `NewPauseProposalRequest`,
-`NewUnpauseProposalRequest`, `NewAddAuthorityMemberProposalRequest`,
-`NewRemoveAuthorityMemberProposalRequest`) returning a `dao.ProposalRequest`
-whose callback runs the operation with the DAO proxy as caller. A GovDAO member
-submits it with `MsgRun`:
+GovDAO acts on the tightening operations through proposals
+(`NewPauseProposalRequest`, `NewPauseAppProposalRequest`,
+`NewRejectAppProposalRequest`) returning a `dao.ProposalRequest` whose callback
+runs the operation with the DAO proxy as caller. A GovDAO member submits it
+with `MsgRun`:
 
 ```gno
-pid := dao.MustCreateProposal(cross(cur), core.NewAddRelayerProposalRequest(cross(cur), relayer))
+pid := dao.MustCreateProposal(cross(cur), core.NewPauseProposalRequest(cross(cur)))
 ```
 
 then members vote (`MustVoteOnProposalSimple`) and anyone executes
 (`ExecuteProposal`), both plain `MsgCall`s on `gno.land/r/gov/dao`.
 
 Emitted events: `authority_member_added` and `authority_member_removed`, with an
-`address` attribute.
+`address` attribute; `client_retired`, with a `client_id` attribute.
+
+## Relaying for Ethereum clients
+
+`UpdateClient`, `RecvPacket`, `Acknowledgement` and `Timeout` apply the relayer
+whitelist only to non-Ethereum clients. For a client of type `ethereum`, every
+one of them is permissionless (ADR pr6375 R17): all of them are proof-checked,
+and a refund needs both a fresh client update and the acknowledgement or
+timeout, so neither may wait on a listed relayer. `CreateClient` and
+`UpgradeClient` keep the whitelist.
+
+## Receipts
+
+A received packet's receipt is `types.CommitPacketReceipt(packet)`, a sha256
+commitment to the sequence, the source client and the packet's IBC v2
+commitment, stored at the ICS24 receipt path (ADR pr6375 R19). It says which
+packet occupies a sequence, so a reconciliation can recompute it from the
+authenticated packet; counterparties only prove a receipt's absence. The same
+packet relayed again is a no-op; a different packet at a received sequence is
+refused.
+
+## Client migration and retirement
+
+`MigrateClient(clientID, migration, params)` replaces the verifier of a live
+client while keeping its id, consensus states and packet state (ADR pr6375
+R16), through an implementation that implements `core.ClientMigrator`
+(`impl/v1`: migration `ethereum-fork-schedule`, params
+`ethereum.EncodeForkParameters(...)`). `RetireClient(clientID)` refuses every
+later packet message, update and registration naming the client, for a route
+replacement (ADR pr6375 §7.12, R18). Both are governance decisions.
+
+The read accessors `ClientType`, `CounterpartyClientID`, `IsClientRetired`,
+`PacketCommitment`, `PacketReceipt`, `PacketAcknowledgement` and
+`HasPendingAsyncAck` return copies, for realms (the transfer app, ibcgov) that
+must check a packet's state.
 
 ## Upgrades
 
@@ -355,14 +391,8 @@ packet lifecycle logic. The first one is `gno.land/r/aib/ibc/core/impl/v0`.
 
 An implementation registers itself from its `init` with `RegisterImpl`; the
 first registration activates at once (bootstrap), every later one is only a
-candidate until the authority activates it:
-
-```
-gnokey maketx call -pkgpath gno.land/r/aib/ibc/core -func UpdateImpl \
-  -args gno.land/r/aib/ibc/core/impl/v1 ...
-```
-
-or, through GovDAO, with `NewUpdateImplProposalRequest(cross(cur), path)`. The
+candidate until an `UpdateImpl` decision of `gno.land/r/aib/ibc/ibcgov`
+(7 days) activates it. The
 new implementation is built against the same store and its `OnInstall` hook
 runs before the switch, so clients, commitments, receipts and acknowledgements
 survive and a failing migration leaves the current implementation active.

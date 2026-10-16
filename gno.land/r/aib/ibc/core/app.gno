@@ -27,8 +27,9 @@ const (
 // calling realm, hence it must be a realm. A registration from this project's
 // namespace (trustedAppPrefix) is active immediately. Any other realm's
 // registration is only recorded as pending, routes nothing, and is activated
-// by the authority with ApproveApp (directly, or through a GovDAO proposal
-// built with NewApproveAppProposalRequest). Pending registrations claim no
+// by a governance decision with ApproveApp (ADR pr6375 R14: approving an app
+// loosens, so it waits for the decision's delay in ibcgov). Pending
+// registrations claim no
 // port: several candidates may wait for the same one, and none can block a
 // trusted app. A registration for a port that is already active is refused.
 func RegisterApp(cur realm, portID string, a app.IBCApp) {
@@ -57,13 +58,9 @@ func RegisterApp(cur realm, portID string, a app.IBCApp) {
 }
 
 // ApproveApp activates the pending registration of pkgPath for portID.
-// Authority members only; see proposals.gno for the GovDAO path.
+// Governance only.
 func ApproveApp(cur realm, portID, pkgPath string) {
-	approveApp(0, cur, portID, pkgPath)
-}
-
-func approveApp(_ int, rlm realm, portID, pkgPath string) {
-	auth.Assert(0, rlm, "approve_app")
+	assertGovernance(0, cur, "approve_app")
 	key := pendingKey(portID, pkgPath)
 	v := store.pendingApps.Get(key)
 	if v == nil {
@@ -78,7 +75,7 @@ func approveApp(_ int, rlm realm, portID, pkgPath string) {
 }
 
 // RejectApp drops the pending registration of pkgPath for portID. Authority
-// members only. The storage deposit the entry held is refunded to the sender
+// members only (GovDAO through proposals.gno, or ibcgov). The storage deposit the entry held is refunded to the sender
 // of this transaction, as for any deletion.
 func RejectApp(cur realm, portID, pkgPath string) {
 	rejectApp(0, cur, portID, pkgPath)
@@ -132,14 +129,9 @@ func pauseApp(_ int, rlm realm, portID string) {
 	chain.Emit(EventTypeAppPaused, "port", portID)
 }
 
-// UnpauseApp resumes the application registered on portID. Authority members
-// only.
+// UnpauseApp resumes the application registered on portID. Governance only.
 func UnpauseApp(cur realm, portID string) {
-	unpauseApp(0, cur, portID)
-}
-
-func unpauseApp(_ int, rlm realm, portID string) {
-	auth.Assert(0, rlm, "unpause_app")
+	assertGovernance(0, cur, "unpause_app")
 	setAppPaused(portID, false)
 	chain.Emit(EventTypeAppUnpaused, "port", portID)
 }

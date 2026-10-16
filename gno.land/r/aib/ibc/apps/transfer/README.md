@@ -105,19 +105,20 @@ gnokey maketx call -pkgpath gno.land/r/aib/ibc/apps/transfer -func Transfer \
 
 ## Authority
 
-The realm is administered by an authority, the same model as the core realm: a
-member set (`p/aib/authority`) bootstrapped at deploy with the deployer (the AIB
-multisig) and the GovDAO proxy. Members call the functions below directly
-(`gnokey maketx call`); the principal is the caller, not the transaction signer.
-`AddAuthorityMember` / `RemoveAuthorityMember` manage membership (the last
-member cannot be removed), `IsAuthorityMember` reports it, and every operation
-has a GovDAO proposal constructor (`NewPauseProposalRequest`,
-`NewBlockAddressProposalRequest`, `NewAddAuthorityMemberProposalRequest`, ...),
-submitted as described in the core README. Pausing is not the app's job: the
-core's authority suspends any application with `core.PauseApp("transfer")`
-(sends refused, incoming packets answered with an error acknowledgement so the
-counterparty refunds, refunds still delivered), and the home page shows a banner
-while that is the case. The authority of this realm keeps a blocklist of
+Administration follows the core realm's split (ADR pr6375 R14). The
+tightening operation `BlockAddress` acts at once and is gated by an authority
+(`p/aib/authority`) whose members are fixed at init to the GovDAO proxy and the
+governance realm `gno.land/r/aib/ibc/ibcgov` (`IBCGovPath`); there is no
+deployer member. GovDAO submits it with `NewBlockAddressProposalRequest`, as
+described in the core README. Every loosening operation (`UnblockAddress`,
+`UpdateImpl`, `AddAuthorityMember`, `RemoveAuthorityMember`, and the Ethereum
+route controls of `GovApply`) is a decision of `gno.land/r/aib/ibc/ibcgov`
+alone, with its delay. Pausing is not the app's job: the core suspends any
+application with `core.PauseApp("transfer")` (sends refused, incoming packets
+answered with an error acknowledgement so the counterparty refunds, refunds
+still delivered), and the home page shows a banner while that is the case; the
+incident tool of the Ethereum route is its per-client flags (see the Ethereum
+route controls section). The authority of this realm keeps a blocklist of
 addresses, the equivalent of ibc-go's blocked addresses:
 
 - `BlockAddress(addr)`: a blocked address can no longer send (`OnSendPacket`
@@ -125,7 +126,7 @@ addresses, the equivalent of ibc-go's blocked addresses:
   error acknowledgement, so the counterparty refunds its sender). Refunds to a
   blocked sender still go through: blocking never confiscates funds already in
   flight.
-- `UnblockAddress(addr)`: removes it.
+- `UnblockAddress(addr)`: removes it (an ibcgov decision).
 - `IsBlocked(addr)`: reports the state; the `admin` page lists the blocklist.
 
 The blocklist holds canonical (lowercase) addresses: bech32 also accepts the
@@ -377,7 +378,7 @@ it holds the escrow, the voucher tokens with their ledgers and the known
 denominations, and forwards `Transfer`, the four IBC callbacks and `Render` to
 an implementation realm that holds the ICS-20 logic. The first one is
 `gno.land/r/aib/ibc/apps/transfer/impl/v0`. The lifecycle is the core's
-(`RegisterImpl` from the implementation's `init`, `UpdateImpl` by the
-authority or through `NewUpdateImplProposalRequest`, `ImplPath` and
+(`RegisterImpl` from the implementation's `init`, `UpdateImpl` by an ibcgov
+decision, `ImplPath` and
 `ImplVersion`); see the core README's Upgrades section. The ICS-20 types
 shared by every implementation live in `gno.land/p/aib/ibc/ics20/v0`.

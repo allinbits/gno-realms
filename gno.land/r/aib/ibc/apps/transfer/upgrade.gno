@@ -110,17 +110,13 @@ func RegisterImpl(cur realm, ctor func(Store) Logic) {
 }
 
 // UpdateImpl activates a registered implementation, identified by its realm
-// path. Authority members only; see proposals.gno for the GovDAO path. The
-// implementation is built against the proxy-owned store and its OnInstall
-// hook runs before the switch, so a panic there leaves the previous
+// path. Governance only (ADR pr6375 R14): an upgrade is a 7-day decision in
+// ibcgov. The implementation is built against the proxy-owned store and its
+// OnInstall hook runs before the switch, so a panic there leaves the previous
 // implementation active. Rollback is UpdateImpl with the previous path.
 func UpdateImpl(cur realm, path string) {
-	updateImpl(0, cur, path)
-}
-
-func updateImpl(_ int, rlm realm, path string) {
-	auth.Assert(0, rlm, "update_impl")
-	install(0, rlm, path)
+	assertGovernance(0, cur, "update_impl")
+	install(0, cur, path)
 }
 
 func install(_ int, rlm realm, path string) {

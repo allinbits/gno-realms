@@ -81,7 +81,7 @@ gno.land/
 **IBCApp** (`p/aib/ibc/app/v0/app.gno`): Apps must implement 4 callbacks:
 - `OnSendPacket`, `OnRecvPacket`, `OnTimeoutPacket`, `OnAcknowledgementPacket`
 - Every callback must first check that `cur.Previous().PkgPath()` is the core realm (transfer's `assertCoreCaller`): the methods are exported and a zero-value `App` is callable by any realm, so without the gate anyone can mint vouchers or release escrow
-- Register apps with `core.RegisterApp(cur, portID, app)`: immediate for realms under `gno.land/r/aib/`, pending until `core.ApproveApp` by the authority for any other realm
+- Register apps with `core.RegisterApp(cur, portID, app)`: immediate for realms under `gno.land/r/aib/`, pending until a `core.ApproveApp` decision of ibcgov for any other realm
 
 **lightclient.Interface** (`p/aib/ibc/lightclient/v0/lightclient.gno`): 12 methods including `Initialize`, `VerifyClientMessage`, `UpdateState`, `VerifyMembership`, `VerifyNonMembership`, `Status`, `LatestHeight`
 
@@ -211,7 +211,7 @@ Naming convention: `z{category}{letter}_{description}_filetest.gno`
 
 ### Authority in filetests
 
-Administrative functions (`AddRelayer`, `Pause`, `BlockAddress`, ...) require a member of the realm's authority. At `init` in the test framework the deployer is unknown, so the first `AddAuthorityMember` is ungated: a filetest bootstraps with `core.AddAuthorityMember(cross(cur), cur.Address())`, because calls from `main` present the filetest realm's own address. To act as GovDAO, `testing.SetRealm(testing.NewCodeRealm(authority.GovDAOPath))` before the call.
+Administration is split (ADR pr6375 R14, see the core README's Authority section). The authority of core and transfer has fixed members, the GovDAO proxy and the governance realm `gno.land/r/aib/ibc/ibcgov`; it gates only the immediate tightening operations (`Pause`, `PauseApp`, `RejectApp`, `BlockAddress`). Every loosening operation (`AddRelayer`, `RemoveRelayer`, `Unpause`, `UnpauseApp`, `ApproveApp`, `RecoverClient`, `UpdateImpl`, `MigrateClient`, `RetireClient`, `UnblockAddress`, membership, transfer's `GovApply`) is gated on a call from ibcgov alone. A filetest acts as ibcgov with `testing.SetRealm(testing.NewCodeRealm(core.IBCGovPath))` right before the call (in the same function: an override set in a helper that returns does not reliably carry over), and as GovDAO with `testing.SetRealm(testing.NewCodeRealm(authority.GovDAOPath))`. Restore the filetest's own identity afterwards with `testing.SetRealm(testing.NewCodeRealm("gno.land/r/aib/main"))` when later calls depend on it (app registrations record the caller's path).
 
 ### Unit Tests with Malleate Pattern
 

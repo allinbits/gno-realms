@@ -2,6 +2,8 @@
 package main
 
 import (
+	"testing"
+
 	"time"
 
 	tmtesting "gno.land/p/aib/ibc/lightclient/tendermint/testing/v0"
@@ -13,8 +15,9 @@ import (
 
 // UpdateClient success with authorized relayer
 func main(cur realm) {
-	core.AddAuthorityMember(cross(cur), cur.Address())
+	testing.SetRealm(testing.NewCodeRealm(core.IBCGovPath)) // decided by the governance realm
 	core.AddRelayer(cross(cur), "g1wymu47drhr0kuq2098m792lytgtj2nyx77yrsm")
+	testing.SetRealm(testing.NewCodeRealm("gno.land/r/aib/main"))
 	// CreateClient and RegisterCounterparty
 	var (
 		chainID     = "atomone-1"
@@ -89,16 +92,6 @@ func main(cur realm) {
 
 // Events:
 // [
-//   {
-//     "type": "authority_member_added",
-//     "attrs": [
-//       {
-//         "key": "address",
-//         "value": "g1gjs8nfdrd55z3xu9gjcatnj29vkwuyx4ffqxd9"
-//       }
-//     ],
-//     "pkg_path": "gno.land/r/aib/ibc/core"
-//   },
 //   {
 //     "type": "create_client",
 //     "attrs": [

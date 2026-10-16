@@ -39,8 +39,9 @@ func createClient(cur realm, chainID string) string {
 
 // UpdateImpl refuses a path that never registered.
 func main(cur realm) {
-	core.AddAuthorityMember(cross(cur), cur.Address())
+	testing.SetRealm(testing.NewCodeRealm(core.IBCGovPath)) // decided by the governance realm
 	core.UpdateImpl(cross(cur), v99Path)
+	testing.SetRealm(testing.NewCodeRealm("gno.land/r/aib/main"))
 }
 
 // Error:

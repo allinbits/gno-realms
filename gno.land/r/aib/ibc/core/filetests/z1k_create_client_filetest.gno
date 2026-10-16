@@ -2,6 +2,8 @@
 package main
 
 import (
+	"testing"
+
 	"time"
 
 	tmtesting "gno.land/p/aib/ibc/lightclient/tendermint/testing/v0"
@@ -13,8 +15,9 @@ import (
 
 // CreateClient with non-empty whitelist (only whitelisted relayers allowed)
 func main(cur realm) {
-	core.AddAuthorityMember(cross(cur), cur.Address())
+	testing.SetRealm(testing.NewCodeRealm(core.IBCGovPath)) // decided by the governance realm
 	core.AddRelayer(cross(cur), "g1someother00000000000000000000000000")
+	testing.SetRealm(testing.NewCodeRealm("gno.land/r/aib/main"))
 	// Note: caller is not in the whitelist
 
 	var (

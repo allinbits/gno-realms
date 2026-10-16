@@ -10,9 +10,11 @@ tracks the same counterparty chain.
 core.RecoverClient(cross, subjectClientID, substituteClientID string)
 ```
 
-Only a member of the authority can call it (see `admin.gno` and the README's
-Authority section): the AIB multisig directly, or GovDAO through a proposal
-built with `NewRecoverClientProposalRequest`.
+Only the governance realm `gno.land/r/aib/ibc/ibcgov` can call it (see
+`admin.gno` and the README's Authority section): a recovery trusts the
+substitute, so it is a decision with ibcgov's 7-day delay
+(`ibcgov.NewRecoverClientRequest`), made by the governor before its yield and
+by GovDAO after.
 
 ## End-to-end flow
 
@@ -80,15 +82,15 @@ A proposal asks to run:
 core.RecoverClient(cross, subjectID, substituteID)
 ```
 
-Gated by the authority; the proposal is built with
-`core.NewRecoverClientProposalRequest(cross(cur), subjectID, substituteID)`.
+Gated on the governance realm; the decision is built with
+`ibcgov.NewRecoverClientRequest(cross(cur), subjectID, substituteID)`.
 
 ### 6. `RecoverClient` executes
 
 `r/aib/ibc/core/client.gno`:
 
-1. `auth.Assert(0, rlm, "recover_client")`: the caller must be a member of the
-   authority.
+1. `assertGovernance(0, cur, "recover_client")`: the caller must be
+   `gno.land/r/aib/ibc/ibcgov`; neither client may be retired.
 2. Subject and substitute IDs must differ; both must resolve; `typ` must match.
 3. Subject status ∈ {`Frozen`, `Expired`}; substitute status must be `Active`.
 4. Delegates to `subject.lightClient.RecoverClient(substitute.lightClient)`.

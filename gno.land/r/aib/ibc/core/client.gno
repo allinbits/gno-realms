@@ -50,14 +50,17 @@ func ClientStatus(clientID string) string {
 // given clientID. It must be called by the same relayer that called
 // CreateClient.
 func RegisterCounterparty(cur realm, clientID string, counterpartyMerklePrefix [][]byte, counterpartyClientID string) {
+	ensureNotRetired(clientID)
 	mustImpl().RegisterCounterparty(0, cur, clientID, counterpartyMerklePrefix, counterpartyClientID)
 }
 
 // UpdateClient will update the given IBC v2 light client with a new header.
 // Can also be used to submit a misbehavior (clientMessage can be a header or
-// a misbehavior). Relayers only.
+// a misbehavior). Relayers only, except for an Ethereum client, whose updates
+// anyone may submit (see ensureRelayerFor): a refund needs a fresh client.
 func UpdateClient(cur realm, clientID string, clientMessage lightclient.ClientMessage) {
-	ensureAuthorizedRelayer()
+	ensureNotRetired(clientID)
+	ensureRelayerFor(clientID)
 	mustImpl().UpdateClient(0, cur, clientID, clientMessage)
 }
 
@@ -66,18 +69,105 @@ func UpdateClient(cur realm, clientID string, clientMessage lightclient.ClientMe
 // at its UpgradePath under the current client's latest consensus root.
 // Relayers only.
 func UpgradeClient(cur realm, clientID string, clientState, consensusState, proofUpgradeClient, proofUpgradeConsensusState any) {
+	ensureNotRetired(clientID)
 	ensureAuthorizedRelayer()
 	mustImpl().UpgradeClient(0, cur, clientID, clientState, consensusState, proofUpgradeClient, proofUpgradeConsensusState)
 }
 
 // RecoverClient recovers a frozen or expired subject client using a healthy
-// substitute client that tracks the same counterparty chain. Authority
-// members only; see proposals.gno for the GovDAO path.
+// substitute client that tracks the same counterparty chain. Governance only
+// (ADR pr6375 R14): a recovery trusts the substitute, so it waits for its
+// decision's delay in ibcgov.
 func RecoverClient(cur realm, subjectClientID, substituteClientID string) {
-	recoverClient(0, cur, subjectClientID, substituteClientID)
+	assertGovernance(0, cur, "recover_client")
+	ensureNotRetired(subjectClientID)
+	ensureNotRetired(substituteClientID)
+	mustImpl().RecoverClient(0, cur, subjectClientID, substituteClientID)
 }
 
-func recoverClient(_ int, rlm realm, subjectClientID, substituteClientID string) {
-	auth.Assert(0, rlm, "recover_client")
-	mustImpl().RecoverClient(0, rlm, subjectClientID, substituteClientID)
+// ClientMigrator is implemented by an implementation that can replace the
+// verifier of a live client while keeping its id, its consensus states and
+// its packet state (ADR pr6375 R16): for an Ethereum client, a new fork
+// schedule before a fork, or a conversion to a new light-client package
+// version whose containers changed. migration names the conversion and
+// params carries its arguments in the wire format it documents.
+type ClientMigrator interface {
+	MigrateClient(_ int, rlm realm, clientID, migration string, params []byte)
+}
+
+// MigrateClient migrates the verifier of clientID (see ClientMigrator).
+// Governance only. Panics if the active implementation migrates nothing.
+func MigrateClient(cur realm, clientID, migration string, params []byte) {
+	assertGovernance(0, cur, "migrate_client")
+	ensureNotRetired(clientID)
+	m, ok := mustImpl().(ClientMigrator)
+	if !ok {
+		panic("core: the active implementation " + implVersion + " cannot migrate clients")
+	}
+	m.MigrateClient(0, cur, clientID, migration, params)
+}
+
+// ClientType returns the type of clientID ("07-tendermint", "ethereum", ...),
+// or "" if the client is unknown.
+func ClientType(clientID string) string {
+	c := store.getClient(clientID)
+	if c == nil {
+		return ""
+	}
+	return c.typ
+}
+
+// CounterpartyClientID returns the counterparty client id registered for
+// clientID, or "" if none (or the client is unknown).
+func CounterpartyClientID(clientID string) string {
+	c := store.getClient(clientID)
+	if c == nil {
+		return ""
+	}
+	return c.counterpartyClientID
+}
+
+// PacketCommitment returns a copy of the commitment stored for a packet sent
+// on clientID, or nil.
+func PacketCommitment(clientID string, sequence uint64) []byte {
+	c := store.getClient(clientID)
+	if c == nil {
+		return nil
+	}
+	return cloneBytes(c.PacketCommitment(sequence))
+}
+
+// PacketReceipt returns a copy of the receipt stored for a packet received on
+// clientID (types.CommitPacketReceipt of the packet), or nil.
+func PacketReceipt(clientID string, sequence uint64) []byte {
+	c := store.getClient(clientID)
+	if c == nil {
+		return nil
+	}
+	return cloneBytes(c.PacketReceipt(sequence))
+}
+
+// PacketAcknowledgement returns a copy of the acknowledgement commitment
+// written for a packet received on clientID, or nil (none yet, or an
+// asynchronous acknowledgement still unwritten).
+func PacketAcknowledgement(clientID string, sequence uint64) []byte {
+	c := store.getClient(clientID)
+	if c == nil {
+		return nil
+	}
+	return cloneBytes(c.PacketAcknowledgement(sequence))
+}
+
+// HasPendingAsyncAck reports whether a packet received on clientID waits for
+// its asynchronous acknowledgement.
+func HasPendingAsyncAck(clientID string, sequence uint64) bool {
+	c := store.getClient(clientID)
+	return c != nil && c.hasPendingAsyncAck(sequence)
+}
+
+func cloneBytes(b []byte) []byte {
+	if b == nil {
+		return nil
+	}
+	return append([]byte{}, b...)
 }

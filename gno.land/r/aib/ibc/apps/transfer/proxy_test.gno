@@ -64,8 +64,8 @@ func (l *upgradeTestLogic) OnAcknowledgementPacket(_ int, rlm realm, sourceClien
 	panic("upgradeTestLogic.OnAcknowledgementPacket: not implemented")
 }
 
-// resetUpgradeState restores an empty store, no implementation and an
-// authority without members, as at genesis in the test framework.
+// resetUpgradeState restores an empty store, no implementation and the
+// authority of init, as at genesis.
 func resetUpgradeState() {
 	denoms = bptree.NewBPTree32()
 	totalEscrow = bptree.NewBPTree32()
@@ -75,7 +75,7 @@ func resetUpgradeState() {
 	implPath = ""
 	implVersion = ""
 	implCtors = bptree.NewBPTree32()
-	auth = authority.New("")
+	auth = authority.NewWithMembers(chain.PackageAddress(authority.GovDAOPath), chain.PackageAddress(IBCGovPath))
 	blocked = bptree.NewBPTree32()
 }
 
@@ -112,10 +112,10 @@ func TestUpdateImplRequiresAuthority(cur realm, t *testing.T) {
 
 	registerAs(cur, upgradeTestImplPath, newUpgradeTestLogic)
 	registerAs(cur, upgradeTestImplPath2, newUpgradeTestLogic2)
-	uassert.AbortsContains(t, cur, "is not a member of the authority", func() {
+	uassert.AbortsContains(t, cur, "update_impl: only "+IBCGovPath+" decides this", func() {
 		UpdateImpl(cross(cur), upgradeTestImplPath2)
 	})
-	AddAuthorityMember(cross(cur), cur.Address())
+	testing.SetRealm(testing.NewCodeRealm(IBCGovPath))
 	uassert.AbortsContains(t, cur, "no implementation registered at", func() {
 		UpdateImpl(cross(cur), implPathPrefix+"nowhere")
 	})
@@ -134,7 +134,7 @@ func TestUpdateImplSwapsDispatchAndSharesStore(cur realm, t *testing.T) {
 	setDenom(d)
 
 	registerAs(cur, upgradeTestImplPath2, newUpgradeTestLogic2)
-	AddAuthorityMember(cross(cur), cur.Address())
+	testing.SetRealm(testing.NewCodeRealm(IBCGovPath))
 	UpdateImpl(cross(cur), upgradeTestImplPath2)
 	uassert.Equal(t, "vtest2", ImplVersion())
 
@@ -145,6 +145,7 @@ func TestUpdateImplSwapsDispatchAndSharesStore(cur realm, t *testing.T) {
 	// The callbacks' forwarding through the core-caller gate is covered by
 	// every packet filetest.
 
+	testing.SetRealm(testing.NewCodeRealm(IBCGovPath))
 	UpdateImpl(cross(cur), upgradeTestImplPath)
 	uassert.Equal(t, upgradeTestImplPath, ImplPath())
 	uassert.True(t, hasDenom(d.IBCDenom()))

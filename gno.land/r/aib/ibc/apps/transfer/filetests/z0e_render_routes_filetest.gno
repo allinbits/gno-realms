@@ -157,6 +157,7 @@ func main(cur realm) {
 // ## Authority
 //
 // - **Authority members**:
+//   - g12l3du5z70zzq9rkc82asre09srefve7p5mfay4
 //   - g1p84dvfh4wrplyxx4zsmy77a8rxcnjup2j7zv5r
 // - **Paused**: false (set by the IBC core)
 // - **Implementation**: [`gno.land/r/aib/ibc/apps/transfer/impl/v0`](/r/aib/ibc/apps/transfer/impl/v0) (version v0)

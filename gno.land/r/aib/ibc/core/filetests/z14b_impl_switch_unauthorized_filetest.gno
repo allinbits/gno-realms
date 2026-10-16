@@ -44,4 +44,4 @@ func main(cur realm) {
 }
 
 // Error:
-// update_impl: caller g1gjs8nfdrd55z3xu9gjcatnj29vkwuyx4ffqxd9 is not a member of the authority
+// update_impl: only gno.land/r/aib/ibc/ibcgov decides this, not gno.land/r/aib/main

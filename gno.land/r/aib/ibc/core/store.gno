@@ -76,8 +76,14 @@ type Client interface {
 	DeletePacketCommitment(_ int, rlm realm, sequence uint64)
 
 	HasPacketReceipt(sequence uint64) bool
+	// PacketReceipt returns the receipt stored at sequence
+	// (types.CommitPacketReceipt of the received packet), or nil.
+	PacketReceipt(sequence uint64) []byte
 	PacketReceipts() bptree.ITree
-	SetPacketReceipt(_ int, rlm realm, sequence uint64)
+	// SetPacketReceipt stores types.CommitPacketReceipt(packet) at the
+	// packet's sequence, so the receipt identifies the packet (ADR pr6375
+	// R19).
+	SetPacketReceipt(_ int, rlm realm, packet types.Packet)
 	DeletePacketReceipt(_ int, rlm realm, sequence uint64)
 
 	HasPacketAcknowledgement(sequence uint64) bool
@@ -118,6 +124,8 @@ type coreStore struct {
 	// pendingKey(port, pkgPath); a B+ tree, because anyone may add to it and
 	// a map would be loaded whole on every access.
 	pendingApps *bptree.BPTree // port:pkgPath -> App
+	// retired holds the clients RetireClient retired (see admin.gno).
+	retired *bptree.BPTree // clientID -> true
 }
 
 var _ Store = (*coreStore)(nil)
@@ -127,7 +135,12 @@ func newStore() *coreStore {
 		clientByID:  bptree.NewBPTree32(),
 		routes:      make(map[string]App),
 		pendingApps: bptree.NewBPTree32(),
+		retired:     bptree.NewBPTree32(),
 	}
+}
+
+func (cs *coreStore) isRetired(clientID string) bool {
+	return cs.retired.Has(clientID)
 }
 
 type client struct {
@@ -301,19 +314,33 @@ func (c *client) HasPacketReceipt(sequence uint64) bool {
 	return c.packetReceiptsBySeq.Has(seqid.ID(sequence).Binary())
 }
 
-// SetPacketReceipt writes the packet receipt under the receipt path
-// This is a public path that is standardized by the IBC V2 specification.
-func (c *client) SetPacketReceipt(_ int, rlm realm, sequence uint64) {
+// PacketReceipt returns the receipt stored at sequence, or nil.
+func (c *client) PacketReceipt(sequence uint64) []byte {
+	v := c.packetReceiptsBySeq.Get(seqid.ID(sequence).Binary())
+	if v == nil {
+		return nil
+	}
+	return v.([]byte)
+}
+
+// SetPacketReceipt writes the packet receipt under the receipt path, the
+// public path the IBC v2 specification standardizes (ICS24). ibc-go stores the
+// constant 0x02 there; this core stores types.CommitPacketReceipt(packet), a
+// sha256 commitment to the sequence, the source client and the packet's IBC v2
+// commitment (destination client, timeout, payloads), so that the receipt
+// says which packet occupies the sequence (ADR pr6375 R19). Counterparties
+// only prove a receipt's absence (timeouts), which the value does not affect.
+func (c *client) SetPacketReceipt(_ int, rlm realm, packet types.Packet) {
 	assertProxyRealm(0, rlm)
-	value := []byte{byte(2)} // constant value
+	value := types.CommitPacketReceipt(packet)
 
 	// store in client data
-	c.packetReceiptsBySeq.Set(seqid.ID(sequence).Binary(), value)
+	c.packetReceiptsBySeq.Set(seqid.ID(packet.Sequence).Binary(), value)
 
 	// store in params, so it is provable by the counterparty
 	// The key will be: (abci path=.store/main/key)
 	// "/pv/vm:gno.land/r/aib/ibc/core:" + clientID + "2" + sequence
-	key := host.PacketReceiptKey(c.id, sequence)
+	key := host.PacketReceiptKey(c.id, packet.Sequence)
 	setChainParam(key, value)
 }
 

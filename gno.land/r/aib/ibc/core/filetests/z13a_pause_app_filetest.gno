@@ -2,6 +2,8 @@
 package main
 
 import (
+	"testing"
+
 	appstesting "gno.land/r/aib/ibc/apps/testing"
 	"gno.land/r/aib/ibc/core"
 	_ "gno.land/r/aib/ibc/core/impl/v0"
@@ -9,13 +11,16 @@ import (
 
 // PauseApp / UnpauseApp round trip by the authority; the apps page shows it.
 func main(cur realm) {
-	core.AddAuthorityMember(cross(cur), cur.Address())
 	core.RegisterApp(cross(cur), "app1", appstesting.NewApp(cross(cur)))
 	println("paused:", core.IsAppPaused("app1"))
+	testing.SetRealm(testing.NewCodeRealm(core.IBCGovPath)) // decided by the governance realm
 	core.PauseApp(cross(cur), "app1")
+	testing.SetRealm(testing.NewCodeRealm("gno.land/r/aib/main"))
 	println("paused:", core.IsAppPaused("app1"))
 	println(core.Render("apps"))
+	testing.SetRealm(testing.NewCodeRealm(core.IBCGovPath)) // decided by the governance realm
 	core.UnpauseApp(cross(cur), "app1")
+	testing.SetRealm(testing.NewCodeRealm("gno.land/r/aib/main"))
 	println("paused:", core.IsAppPaused("app1"))
 	println("unknown port paused:", core.IsAppPaused("nope"))
 }
@@ -29,16 +34,6 @@ func main(cur realm) {
 
 // Events:
 // [
-//   {
-//     "type": "authority_member_added",
-//     "attrs": [
-//       {
-//         "key": "address",
-//         "value": "g1gjs8nfdrd55z3xu9gjcatnj29vkwuyx4ffqxd9"
-//       }
-//     ],
-//     "pkg_path": "gno.land/r/aib/ibc/core"
-//   },
 //   {
 //     "type": "app_registered",
 //     "attrs": [

@@ -136,9 +136,17 @@ func (l *logic) RecvPacket(_ int, rlm realm, msg types.MsgRecvPacket) types.Resp
 	// Packet receipts must not be pruned, unless it has been marked stale by the
 	// increase of the recvStartSequence. TODO check relevancy of comment
 	if c.HasPacketReceipt(msg.Packet.Sequence) {
-		// This error indicates that the packet has already been relayed. Core IBC
-		// will treat this error as a no-op in order to prevent an entire relay
-		// transaction from failing and consuming unnecessary fees.
+		// The receipt identifies the packet (types.CommitPacketReceipt): the
+		// same packet again has already been relayed, which Core IBC treats as
+		// a no-op so that an entire relay transaction does not fail and consume
+		// unnecessary fees. A different packet at a received sequence is
+		// refused, as eureka refuses a different receipt at a sequence.
+		if !bytes.Equal(c.PacketReceipt(msg.Packet.Sequence), types.CommitPacketReceipt(msg.Packet)) {
+			panic(ufmt.Sprintf(
+				"a different packet was already received at sequence %d on client %s",
+				msg.Packet.Sequence, clientID,
+			))
+		}
 		return types.RESPONSE_NOOP
 	}
 
@@ -158,7 +166,7 @@ func (l *logic) RecvPacket(_ int, rlm realm, msg types.MsgRecvPacket) types.Resp
 	}
 
 	// Set Packet Receipt to prevent timeout from occurring on counterparty
-	c.SetPacketReceipt(0, rlm, msg.Packet.Sequence)
+	c.SetPacketReceipt(0, rlm, msg.Packet)
 
 	// Emit events
 	core.EmitRecvPacket(0, rlm, msg.Packet)

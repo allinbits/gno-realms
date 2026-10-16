@@ -5,6 +5,7 @@ import (
 
 	"gno.land/p/aib/authority/v0"
 	"gno.land/p/nt/bptree/v0"
+	"gno.land/p/nt/ufmt/v0"
 )
 
 const (
@@ -14,42 +15,61 @@ const (
 	EventTypeAuthorityMemberRemoved = "authority_member_removed"
 )
 
+// IBCGovPath is the governance realm of the IBC realms (ADR pr6375 R11,
+// R14). Every power that loosens something here (an implementation upgrade,
+// unblocking an address, the authority's membership, the Ethereum route
+// controls of GovApply) is gated on a call from it, so no decision skips its
+// delay.
+const IBCGovPath = "gno.land/r/aib/ibc/ibcgov"
+
 var (
-	// auth gates every administrative operation: the blocklist and its own
-	// membership. Pausing the app is the IBC core's job (core.PauseApp). Bootstrapped at init with the deployer
-	// (the AIB multisig on mainnet) and the GovDAO proxy, which acts through
-	// the proposal constructors in proposals.gno. Same model as
-	// r/aib/ibc/core/admin.gno.
+	// auth gates the immediate, tightening operation BlockAddress. Its members
+	// are fixed at init to the GovDAO proxy, which acts through the proposal
+	// constructors in proposals.gno, and the ibcgov realm; there is no
+	// deployer member (ADR pr6375 R14). Pausing the app is the IBC core's job
+	// (core.PauseApp); the per-route flags of the Ethereum route are ibcgov's.
 	auth    *authority.Authority
 	blocked = bptree.NewBPTree32() // address -> true
 )
 
 func init(cur realm) {
-	auth = authority.New(cur.Previous().Address())
+	auth = authority.NewWithMembers(
+		chain.PackageAddress(authority.GovDAOPath),
+		chain.PackageAddress(IBCGovPath),
+	)
 }
 
-// Exported administrative functions are thin crossing wrappers over
-// non-crossing helpers, which the GovDAO proposal callbacks invoke; see
+// assertGovernance panics unless the caller of the realm function holding rlm
+// is the ibcgov realm. rlm must be that function's live cur.
+func assertGovernance(_ int, rlm realm, op string) {
+	if !rlm.IsCurrent() {
+		panic(op + ": rlm is not the caller's live realm")
+	}
+	if p := rlm.Previous().PkgPath(); p != IBCGovPath {
+		caller := p
+		if caller == "" {
+			caller = string(rlm.Previous().Address())
+		}
+		panic(ufmt.Sprintf("%s: only %s decides this, not %s", op, IBCGovPath, caller))
+	}
+}
+
+// BlockAddress, the tightening operation, is a thin crossing wrapper over a
+// non-crossing helper, which the GovDAO proposal callback invokes; see
 // r/aib/ibc/core/admin.gno for why.
 
-// AddAuthorityMember adds a member to the authority. Members only.
+// AddAuthorityMember adds a member to the authority. Governance only.
 func AddAuthorityMember(cur realm, addr address) {
-	addAuthorityMember(0, cur, addr)
-}
-
-func addAuthorityMember(_ int, rlm realm, addr address) {
-	auth.AddMember(0, rlm, addr)
+	assertGovernance(0, cur, "add_authority_member")
+	auth.AddMember(0, cur, addr)
 	chain.Emit(EventTypeAuthorityMemberAdded, "address", string(addr))
 }
 
 // RemoveAuthorityMember removes a member; the last one cannot be removed.
-// Members only.
+// Governance only.
 func RemoveAuthorityMember(cur realm, addr address) {
-	removeAuthorityMember(0, cur, addr)
-}
-
-func removeAuthorityMember(_ int, rlm realm, addr address) {
-	auth.RemoveMember(0, rlm, addr)
+	assertGovernance(0, cur, "remove_authority_member")
+	auth.RemoveMember(0, cur, addr)
 	chain.Emit(EventTypeAuthorityMemberRemoved, "address", string(addr))
 }
 
@@ -58,7 +78,7 @@ func AuthorityMembers() []address {
 	return auth.Members()
 }
 
-// IsAuthorityMember reports whether addr may administer this realm.
+// IsAuthorityMember reports whether addr may block addresses.
 func IsAuthorityMember(addr address) bool {
 	return auth.IsMember(addr)
 }
@@ -68,7 +88,7 @@ func IsAuthorityMember(addr address) bool {
 // answers with an error acknowledgement, so the counterparty refunds its
 // sender). Refunds to a blocked sender through OnAcknowledgementPacket and
 // OnTimeoutPacket still go through: blocking never confiscates funds that were
-// already in flight. Members only.
+// already in flight. Authority members only (GovDAO or ibcgov).
 func BlockAddress(cur realm, addr address) {
 	blockAddress(0, cur, addr)
 }
@@ -80,13 +100,9 @@ func blockAddress(_ int, rlm realm, addr address) {
 	chain.Emit(EventTypeBlock, "address", string(canonical))
 }
 
-// UnblockAddress removes addr from the blocklist. Members only.
+// UnblockAddress removes addr from the blocklist. Governance only.
 func UnblockAddress(cur realm, addr address) {
-	unblockAddress(0, cur, addr)
-}
-
-func unblockAddress(_ int, rlm realm, addr address) {
-	auth.Assert(0, rlm, "unblock_address")
+	assertGovernance(0, cur, "unblock_address")
 	canonical := mustCanonicalAddress(addr)
 	blocked.Remove(string(canonical))
 	chain.Emit(EventTypeUnblock, "address", string(canonical))

@@ -1,6 +1,7 @@
 package core
 
 import (
+	"chain"
 	"testing"
 
 	"gno.land/p/aib/authority/v0"
@@ -86,16 +87,16 @@ func (l *upgradeTestLogic) Timeout(_ int, rlm realm, msg types.MsgTimeout) types
 	panic("upgradeTestLogic.Timeout: not implemented")
 }
 
-// resetUpgradeState restores a fresh store, no implementation and an authority
-// without members, as at genesis in the test framework. Every test here resets
-// on entry and exit so a swapped implementation never leaks into other tests.
+// resetUpgradeState restores a fresh store, no implementation and the
+// authority of init, as at genesis. Every test here resets on entry and exit
+// so a swapped implementation never leaks into other tests.
 func resetUpgradeState() {
 	store = newStore()
 	impl = nil
 	implPath = ""
 	implVersion = ""
 	implCtors = bptree.NewBPTree32()
-	auth = authority.New("")
+	auth = authority.NewWithMembers(chain.PackageAddress(authority.GovDAOPath), chain.PackageAddress(IBCGovPath))
 	relayers = bptree.NewBPTree32()
 	paused = false
 }
@@ -141,7 +142,7 @@ func TestUpdateImplRejectsUnregisteredPath(cur realm, t *testing.T) {
 	resetUpgradeState()
 	defer resetUpgradeState()
 
-	AddAuthorityMember(cross(cur), cur.Address())
+	testing.SetRealm(testing.NewCodeRealm(IBCGovPath))
 	uassert.AbortsContains(t, cur, "no implementation registered at "+upgradeTestImplPath, func() {
 		UpdateImpl(cross(cur), upgradeTestImplPath)
 	})
@@ -154,8 +155,13 @@ func TestUpdateImplRequiresAuthority(cur realm, t *testing.T) {
 	registerAs(cur, upgradeTestImplPath, newUpgradeTestLogic)
 	registerAs(cur, upgradeTestImplPath2, newUpgradeTestLogic2)
 
-	// This realm is not a member of the authority.
-	uassert.AbortsContains(t, cur, "is not a member of the authority", func() {
+	// This realm is not the governance realm, and neither is GovDAO: an
+	// upgrade is an ibcgov decision.
+	uassert.AbortsContains(t, cur, "update_impl: only "+IBCGovPath+" decides this", func() {
+		UpdateImpl(cross(cur), upgradeTestImplPath2)
+	})
+	testing.SetRealm(testing.NewCodeRealm(authority.GovDAOPath))
+	uassert.AbortsContains(t, cur, "update_impl: only "+IBCGovPath+" decides this", func() {
 		UpdateImpl(cross(cur), upgradeTestImplPath2)
 	})
 	uassert.Equal(t, upgradeTestImplPath, ImplPath())
@@ -173,7 +179,7 @@ func TestUpdateImplSwapsDispatchAndSharesStore(cur realm, t *testing.T) {
 	seeded := store.addClient(lightclient.Tendermint, address("g1jg8mtutu9khhfwc4nxmuhcpftf0pajdhfvsqf5"), tendermint.NewTMLightClient())
 
 	registerAs(cur, upgradeTestImplPath2, newUpgradeTestLogic2)
-	AddAuthorityMember(cross(cur), cur.Address())
+	testing.SetRealm(testing.NewCodeRealm(IBCGovPath))
 	UpdateImpl(cross(cur), upgradeTestImplPath2)
 
 	uassert.Equal(t, upgradeTestImplPath2, ImplPath())
@@ -190,6 +196,7 @@ func TestUpdateImplSwapsDispatchAndSharesStore(cur realm, t *testing.T) {
 	uassert.True(t, tl.store.Client(seeded.id) != nil)
 
 	// Rollback.
+	testing.SetRealm(testing.NewCodeRealm(IBCGovPath))
 	UpdateImpl(cross(cur), upgradeTestImplPath)
 	uassert.Equal(t, upgradeTestImplPath, ImplPath())
 	uassert.True(t, store.getClient(seeded.id) != nil)
@@ -201,7 +208,7 @@ func TestUpdateImplAbortsWhenOnInstallPanics(cur realm, t *testing.T) {
 
 	registerAs(cur, upgradeTestImplPath, newUpgradeTestLogic)
 	registerAs(cur, upgradeTestImplPath2, func(s Store) Logic { return &panickingLogic{} })
-	AddAuthorityMember(cross(cur), cur.Address())
+	testing.SetRealm(testing.NewCodeRealm(IBCGovPath))
 
 	uassert.AbortsContains(t, cur, "migration failed", func() {
 		UpdateImpl(cross(cur), upgradeTestImplPath2)
@@ -227,7 +234,7 @@ func TestGatesRejectStaleRealm(cur realm, t *testing.T) {
 	c := store.addClient(lightclient.Tendermint, address("g1jg8mtutu9khhfwc4nxmuhcpftf0pajdhfvsqf5"), tendermint.NewTMLightClient())
 
 	uassert.PanicsContains(t, cur, "access denied", func() {
-		c.SetPacketReceipt(0, stale, 1)
+		c.SetPacketReceipt(0, stale, types.Packet{Sequence: 1})
 	})
 	uassert.False(t, c.HasPacketReceipt(1))
 	uassert.PanicsContains(t, cur, "access denied", func() {
@@ -237,7 +244,7 @@ func TestGatesRejectStaleRealm(cur realm, t *testing.T) {
 		EmitSendPacket(0, stale, types.Packet{})
 	})
 	// The live cur passes.
-	c.SetPacketReceipt(0, cur, 1)
+	c.SetPacketReceipt(0, cur, types.Packet{Sequence: 1})
 	uassert.True(t, c.HasPacketReceipt(1))
 }
 
@@ -261,7 +268,7 @@ func TestReadOnlyTreeViews(cur realm, t *testing.T) {
 	defer resetUpgradeState()
 
 	c := store.addClient(lightclient.Tendermint, address("g1jg8mtutu9khhfwc4nxmuhcpftf0pajdhfvsqf5"), tendermint.NewTMLightClient())
-	c.SetPacketReceipt(0, cur, 3)
+	c.SetPacketReceipt(0, cur, types.Packet{Sequence: 3})
 	view := c.PacketReceipts()
 	uassert.Equal(t, 1, view.Size())
 	uassert.True(t, view.Has(seqid.ID(3).Binary()))
