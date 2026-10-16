@@ -46,8 +46,9 @@ func (l *logic) Render(path string) string {
 func (l *logic) home(w *mux.ResponseWriter, r *mux.Request) {
 	var out strings.Builder
 	v0 := mux.NewRouter()
-	implv0.NewRenderer(l.store).Register(v0)
-	out.WriteString(v0.Render(""))
+	rd := implv0.NewRenderer(l.store)
+	rd.Register(v0)
+	out.WriteString(l.routeLinks(rd, v0.Render("")))
 	out.WriteString("\n## Ethereum routes\n\n")
 	keys := l.reader().Routes()
 	if len(keys) == 0 {
@@ -60,4 +61,28 @@ func (l *logic) home(w *mux.ResponseWriter, r *mux.Request) {
 			k, l.reader().Client(k), strings.Join(l.reader().Denoms(k), ", "), k, k))
 	}
 	w.Write(out.String())
+}
+
+// routeLinks rewrites impl/v0's "send back" links of the vouchers of a route
+// whose client a replacement retired (ADR pr6375 §7.12, Codex review #18):
+// v0 builds them from the voucher's first trace hop, the route key, which
+// names the retired client. They go through the route's current client
+// instead, or are withdrawn while the route is closed.
+func (l *logic) routeLinks(rd *implv0.Renderer, page string) string {
+	rdr := l.reader()
+	for _, d := range rd.DenomsByClientOrder() {
+		key := d.Trace[0].ClientId
+		current := rdr.Client(key)
+		if current == "" || current == key && !rdr.Closed(key) {
+			continue
+		}
+		ibcDenom := d.IBCDenom()
+		old := ufmt.Sprintf("[send back](%s) via `%s`", implv0.NewTransferLink(key, "", ibcDenom).URL(), key)
+		repl := ufmt.Sprintf("[send back](%s) via `%s`", implv0.NewTransferLink(current, "", ibcDenom).URL(), current)
+		if rdr.Closed(key) {
+			repl = ufmt.Sprintf("send back closed (route `%s` awaits its reopening)", key)
+		}
+		page = strings.ReplaceAll(page, old, repl)
+	}
+	return page
 }

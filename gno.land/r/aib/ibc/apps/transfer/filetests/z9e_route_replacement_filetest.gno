@@ -5,6 +5,7 @@ import (
 	"chain"
 	"chain/banker"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -129,6 +130,18 @@ func meters(route, denom string) string {
 	return "bridge " + strconv.FormatInt(b, 10) + ", bob " + strconv.FormatInt(r, 10)
 }
 
+// sendBack is the home page's "send back" action of the voucher (its link
+// names the client the return goes through).
+func sendBack() string {
+	for _, line := range strings.Split(transfer.Render(""), "\n") {
+		if i := strings.Index(line, "send back"); i >= 0 {
+			j := strings.Index(line[i:], " — ")
+			return line[i : i+j]
+		}
+	}
+	return "none"
+}
+
 func decided(id int64) string {
 	d, _ := ibcgov.Decision(id)
 	return d.State() + " - " + d.Note
@@ -185,6 +198,9 @@ func main(cur realm) {
 	println("send over the old client:", revive(func() { send(cur, route, 100, 120, ethReceiver) }))
 	println("receive over the old client:", recvOn(cur, "client-0", route, 3, weth, bob.String(), 1).Status)
 
+	// Rendered returns no longer name the retired client (Codex review #18).
+	println("send back while closed:", sendBack())
+
 	// Closed: the new client carries nothing either until the reopening.
 	println("send over the new client:", revive(func() { send(cur, newClient, 1_000, 1_020, ethReceiver) }))
 	println("receive over the new client:", recvOn(cur, "client-1", newClient, 1, weth, bob.String(), 300).Status)
@@ -215,6 +231,8 @@ func main(cur realm) {
 	t, _ := controlsView().Totals(route, "ugnot")
 	println("reopen:", decided(reopen), "| closed:", controlsView().Closed(route), "| accepted", t.Accepted, "unrecovered", t.Unrecovered())
 
+	println("send back after the reopening:", sendBack())
+
 	// Reopened, the new client carries the route: same escrow, same vouchers.
 	seq := send(cur, newClient, 1_000, 1_020, ethReceiver)
 	println(transfer.Render("total_escrow/ugnot"))
@@ -243,6 +261,7 @@ func main(cur realm) {
 // governance epoch 2 over ethereum-2 | epoch 1's seq 1 again: ibcgov: epoch 1 is past: its decisions are never sent again
 // send over the old client: client ethereum-1 is an Ethereum client of no enrolled route: it carries no transfer
 // receive over the old client: (2 gno.land/p/aib/ibc/types/v0.PacketStatus)
+// send back while closed: send back closed (route `ethereum-1` awaits its reopening)
 // send over the new client: route ethereum-1 is closed until a governed reopening: it carries no send
 // receive over the new client: (2 gno.land/p/aib/ibc/types/v0.PacketStatus)
 // claims paid: 0
@@ -253,6 +272,7 @@ func main(cur realm) {
 // restore: applied - restore
 // unresolved: 20
 // reopen: applied - reopen | closed: false | accepted 20 unrecovered 20
+// send back after the reopening: send back](/r/aib/main$help&func=Transfer&amount=&clientID=ethereum-2&denom=ibc%2F2495500BDD01666856D26EE034DB2F940FD4DA91239F4D5C7AE1E9D07538CFFE&memo=&receiver=&timeoutTimestamp=1241850702) via `ethereum-2`
 // {"denom":"ugnot","amount":2000,"clients":[{"client":"ethereum-1","amount":2000}]}
 // voucher back: wire denom transfer/ethereum-2/0x457df1a9866af7b6a78eeba9291fc3e58b4d864b | bob's vouchers: 390
 // ugnot send on the wire: ugnot
