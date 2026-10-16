@@ -238,6 +238,16 @@ func ClientLatestTimestamp(clientID string) (uint64, bool) {
 	return t, true
 }
 
+// ClientTimestampAt is the counterparty time (unix seconds) of clientID's
+// consensus state at height.
+func ClientTimestampAt(clientID string, height types.Height) (uint64, error) {
+	c := store.getClient(clientID)
+	if c == nil {
+		return 0, ufmt.Errorf("client %s not found", clientID)
+	}
+	return c.LightClient().TimestampAtHeight(height)
+}
+
 // valueProver is implemented by a light client that reads a counterparty
 // commitment's value from a proof (the Ethereum client).
 type valueProver interface {
@@ -253,6 +263,14 @@ func CounterpartyValue(clientID string, height types.Height, proof any, key []by
 	c := store.getClient(clientID)
 	if c == nil {
 		return nil, ufmt.Errorf("client %s not found", clientID)
+	}
+	// Only a healthy verifier speaks for the counterparty: not frozen,
+	// expired or retired (ADR pr6375 §5.4 "Proven outcomes").
+	if store.isRetired(clientID) {
+		return nil, ufmt.Errorf("client %s is retired", clientID)
+	}
+	if status := c.LightClient().Status(); status != lightclient.Active {
+		return nil, ufmt.Errorf("client %s is %s, not Active", clientID, status)
 	}
 	vp, ok := c.LightClient().(valueProver)
 	if !ok {

@@ -177,7 +177,10 @@ func main(cur realm) {
 	router.Commit(host.PacketReceiptKey("client-0", 3), []byte("another packet's receipt.......!")) // seq 3: a collision
 	router.CommitReceipt(packet(4))                                                                 // seq 4: delivered
 	router.CommitAcknowledgement(packet(4), types.Acknowledgement{AppAcknowledgements: [][]byte{[]byte(`{"result":"AQ=="}`)}})
-	newClient := core.CreateClient(cross(cur), ethtesting.ClientState(), ethtesting.ConsensusStateWithRoot(router.StateRoot()))
+	// The replacement client's state is two hours on, past the sends'
+	// timeouts: an absence there is final.
+	newClient := core.CreateClient(cross(cur), ethtesting.ClientState(),
+		ethtesting.ConsensusStateAt(router.StateRoot(), uint64(time.Now().Add(2*time.Hour).Unix())))
 	core.RegisterCounterparty(cross(cur), newClient, [][]byte{{}}, "client-1")
 	execute(cur, govern(cur, ibcgov.NewReplaceRouteRequest(cross(cur), route, newClient, 1)))
 	println("a proof past the client's latest slot:", revive(func() {

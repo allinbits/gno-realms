@@ -56,6 +56,7 @@ type SendRecord struct {
 	Settlement      uint8 // the reconciliation's action (SettlePay...), 0 while unsettled
 	Reservation     int64 // KindMint: the supply this send still holds against the cap, released or consumed once
 	Proven          uint8 // the destination's outcome, proven through the replacement client (ProvenDelivered...)
+	ProvenBy        string // the client that verified it: the outcome is void once it is no longer Active
 	ProvenAt        uint64 // the proof's height on the replacement client
 	Incident        string
 }
@@ -501,7 +502,7 @@ type SettleItem struct {
 // any action, paid only by SettlePay. lock is the escrow of an unescrowed
 // denom: payments never take what open claims reserve. Every item is checked
 // before anything changes. It returns the refunds to pay.
-func (rt *Route) SettleRecords(client string, items []SettleItem, incident string, lock func(denom string) int64) ([]RefundPayment, error) {
+func (rt *Route) SettleRecords(client string, items []SettleItem, incident string, lock func(denom string) int64, active func(client string) bool) ([]RefundPayment, error) {
 	retired := false
 	for _, c := range rt.Replaced {
 		if c == client {
@@ -555,6 +556,8 @@ func (rt *Route) SettleRecords(client string, items []SettleItem, incident strin
 		// The action must match the outcome proven through the replacement
 		// client (ADR pr6375 §7.12): governance chooses, the proof decides.
 		switch {
+		case r.Proven != ProvenNone && !active(r.ProvenBy):
+			return nil, ufmt.Errorf("controls: item %d: send %s's outcome was proven through %s, no longer Active: prove it again", i, key, r.ProvenBy)
 		case (it.Action == SettlePay) && r.Proven != ProvenRefundable && r.Proven != ProvenCollision,
 			(it.Action == SettleReject || it.Action == SettleDelivered || it.Action == SettleLoss) && r.Proven != ProvenDelivered:
 			return nil, ufmt.Errorf("controls: item %d: action %d does not match send %s's proven outcome (%d)", i, it.Action, key, r.Proven)
@@ -708,7 +711,7 @@ func (rt *Route) forgedReceive(key string) (string, int64, error) {
 // replacement retired, the record unsettled, and height not below an earlier
 // proof's (a later state of the destination supersedes an earlier one, never
 // the other way round).
-func (rt *Route) ProveOutcome(key string, packet types.Packet, outcome uint8, height uint64) error {
+func (rt *Route) ProveOutcome(key string, packet types.Packet, outcome uint8, height uint64, verifier string, active func(client string) bool) error {
 	r := rt.send(key)
 	if r == nil {
 		return errors.New("controls: no send record for " + key)
@@ -731,10 +734,13 @@ func (rt *Route) ProveOutcome(key string, packet types.Packet, outcome uint8, he
 	if outcome < ProvenDelivered || outcome > ProvenCollision {
 		return errors.New("controls: unknown outcome")
 	}
-	if height < r.ProvenAt {
-		return ufmt.Errorf("controls: send %s's outcome was proven at height %d already", key, r.ProvenAt)
+	// A proven outcome is final (an acknowledgement, a receipt, an absence
+	// past the timeout): it is proven again only once its verifier is no
+	// longer Active, which voids it.
+	if r.Proven != ProvenNone && active(r.ProvenBy) {
+		return ufmt.Errorf("controls: send %s's outcome is proven already", key)
 	}
-	r.Proven, r.ProvenAt = outcome, height
+	r.Proven, r.ProvenAt, r.ProvenBy = outcome, height, verifier
 	return nil
 }
 

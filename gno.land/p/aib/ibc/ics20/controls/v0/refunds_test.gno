@@ -584,6 +584,8 @@ func TestZeroSettlementIgnoresCapacity(t *testing.T) {
 
 // settleProven proves for each item the outcome its action needs (a test of
 // the actions; TestProvenOutcomes covers the proofs' gate), then settles.
+func activeAll(string) bool { return true }
+
 func settleProven(rt *Route, client string, items []SettleItem, incident string, lock func(string) int64) ([]RefundPayment, error) {
 	for _, it := range items {
 		r := rt.send(PacketKey(client, it.Seq))
@@ -596,7 +598,7 @@ func settleProven(rt *Route, client string, items []SettleItem, incident string,
 			r.Proven = ProvenDelivered
 		}
 	}
-	return rt.SettleRecords(client, items, incident, lock)
+	return rt.SettleRecords(client, items, incident, lock, activeAll)
 }
 
 // A settlement's action must match the destination's outcome proven through
@@ -607,31 +609,37 @@ func TestProvenOutcomes(t *testing.T) {
 	r, rt := newRoute(t)
 	rt.RecordSend(sendRec(1, "ugnot", KindUnescrow, 1_000))
 	rec, _ := rt.Send(pk(1))
-	if err := rt.ProveOutcome(pk(1), rec.Packet, ProvenDelivered, 10); err == nil {
+	if err := rt.ProveOutcome(pk(1), rec.Packet, ProvenDelivered, 10, "ethereum-2", activeAll); err == nil {
 		t.Fatalf("proved the outcome of a live client's send")
 	}
 	r.Replace("ethereum-1", "ethereum-2", 0, 1000)
 	other := rec.Packet
 	other.TimeoutTimestamp++
-	if err := rt.ProveOutcome(pk(1), other, ProvenDelivered, 10); err == nil {
+	if err := rt.ProveOutcome(pk(1), other, ProvenDelivered, 10, "ethereum-2", activeAll); err == nil {
 		t.Fatalf("proved with another packet")
 	}
-	if err := rt.ProveOutcome(pk(1), rec.Packet, ProvenRefundable, 10); err != nil {
+	if err := rt.ProveOutcome(pk(1), rec.Packet, ProvenDelivered, 10, "ethereum-2", activeAll); err != nil {
 		t.Fatal(err)
 	}
-	if err := rt.ProveOutcome(pk(1), rec.Packet, ProvenDelivered, 9); err == nil {
-		t.Fatalf("an older proof overrode a newer one")
+	// A proven outcome is final while its verifier is Active (Codex round 5
+	// #1): no later proof replaces it.
+	if err := rt.ProveOutcome(pk(1), rec.Packet, ProvenRefundable, 11, "ethereum-2", activeAll); err == nil {
+		t.Fatalf("a proof replaced a final outcome")
 	}
-	if _, err := rt.SettleRecords("ethereum-1", []SettleItem{{Seq: 1, Action: SettleDelivered}}, "inc", lockOf(big)); err == nil {
-		t.Fatalf("settled as delivered a send proven refundable")
-	}
-	if err := rt.ProveOutcome(pk(1), rec.Packet, ProvenDelivered, 11); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := rt.SettleRecords("ethereum-1", []SettleItem{{Seq: 1, Action: SettlePay, Amount: 1_000}}, "inc", lockOf(big)); err == nil {
+	if _, err := rt.SettleRecords("ethereum-1", []SettleItem{{Seq: 1, Action: SettlePay, Amount: 1_000}}, "inc", lockOf(big), activeAll); err == nil {
 		t.Fatalf("refunded a send proven delivered")
 	}
-	if _, err := rt.SettleRecords("ethereum-1", []SettleItem{{Seq: 1, Action: SettleDelivered}}, "inc", lockOf(big)); err != nil {
+	// The verifier froze or expired between the proof and the settlement:
+	// the outcome is void and must be proven again through a healthy client
+	// (Codex round 5 #5).
+	frozen := func(c string) bool { return c != "ethereum-2" }
+	if _, err := rt.SettleRecords("ethereum-1", []SettleItem{{Seq: 1, Action: SettleDelivered}}, "inc", lockOf(big), frozen); err == nil {
+		t.Fatalf("settled on an outcome its frozen verifier proved")
+	}
+	if err := rt.ProveOutcome(pk(1), rec.Packet, ProvenDelivered, 12, "ethereum-3", frozen); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := rt.SettleRecords("ethereum-1", []SettleItem{{Seq: 1, Action: SettleDelivered}}, "inc", lockOf(big), frozen); err != nil {
 		t.Fatal(err)
 	}
 
@@ -643,22 +651,22 @@ func TestProvenOutcomes(t *testing.T) {
 	rt2.Credit(t0, 10, 0, pk(6), "ugnot", alice, 400, ByPacket, "bridge realm", big)
 	rt2.PaySweeps([]string{pk(6)}, bob, big)
 	r2.Replace("ethereum-1", "ethereum-2", 0, 1000)
-	if _, err := rt2.SettleRecords("ethereum-1", []SettleItem{{Seq: 5, Action: SettleForgedReceive, Amount: c.Paid + 1}}, "inc", lockOf(big)); err == nil {
+	if _, err := rt2.SettleRecords("ethereum-1", []SettleItem{{Seq: 5, Action: SettleForgedReceive, Amount: c.Paid + 1}}, "inc", lockOf(big), activeAll); err == nil {
 		t.Fatalf("booked more than the receive paid out")
 	}
-	if _, err := rt2.SettleRecords("ethereum-1", []SettleItem{{Seq: 5, Action: SettleForgedReceive, Amount: c.Paid}, {Seq: 6, Action: SettleForgedReceive, Amount: 400}}, "inc", lockOf(big)); err != nil {
+	if _, err := rt2.SettleRecords("ethereum-1", []SettleItem{{Seq: 5, Action: SettleForgedReceive, Amount: c.Paid}, {Seq: 6, Action: SettleForgedReceive, Amount: 400}}, "inc", lockOf(big), activeAll); err != nil {
 		t.Fatal(err)
 	}
 	if rt2.Denom("ugnot").Totals.Lost != c.Paid+400 {
 		t.Fatalf("%+v", rt2.Denom("ugnot").Totals)
 	}
-	if _, err := rt2.SettleRecords("ethereum-1", []SettleItem{{Seq: 6, Action: SettleForgedReceive, Amount: 400}}, "inc", lockOf(big)); err == nil {
+	if _, err := rt2.SettleRecords("ethereum-1", []SettleItem{{Seq: 6, Action: SettleForgedReceive, Amount: 400}}, "inc", lockOf(big), activeAll); err == nil {
 		t.Fatalf("booked a forged receive twice")
 	}
 	if rt2.Voidable(pk(5), true) {
 		t.Fatalf("a forged receive's claim can be voided as forged again")
 	}
-	if _, err := rt2.SettleRecords("ethereum-1", []SettleItem{{Seq: 7, Action: SettleForgedReceive, Amount: 1}}, "inc", lockOf(big)); err == nil {
+	if _, err := rt2.SettleRecords("ethereum-1", []SettleItem{{Seq: 7, Action: SettleForgedReceive, Amount: 1}}, "inc", lockOf(big), activeAll); err == nil {
 		t.Fatalf("booked a receive that paid nothing")
 	}
 	// The forged claim's remainder is gone: through the reopening, no later

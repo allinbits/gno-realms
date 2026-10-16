@@ -77,6 +77,14 @@ func (r *Router) tries() ([]byte, ethereum.MembershipProof) {
 	return stateRoot, ethereum.MembershipProof{AccountProof: accountNodes, StorageProof: storageNodes}
 }
 
+// ConsensusStateAt is ConsensusStateWithRoot with the counterparty time set
+// to timestamp (unix seconds).
+func ConsensusStateAt(root []byte, timestamp uint64) ethereum.ConsensusState {
+	cs := ConsensusStateWithRoot(root)
+	cs.Timestamp = timestamp
+	return cs
+}
+
 // ConsensusStateWithRoot is ConsensusState with the execution state root set
 // to root.
 func ConsensusStateWithRoot(root []byte) ethereum.ConsensusState {

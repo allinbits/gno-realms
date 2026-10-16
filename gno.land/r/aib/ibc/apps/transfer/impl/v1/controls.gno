@@ -159,6 +159,7 @@ func (l *logic) ProveOutcome(_ int, rlm realm, packet types.Packet, proofHeight 
 		panic("client " + packet.SourceClient + " is no client a replacement retired")
 	}
 	rt := reg.Route(k)
+	// CounterpartyValue refuses a verifier that is not Active or retired.
 	receipt, err := core.CounterpartyValue(rt.Client, proofHeight, receiptProof, host.PacketReceiptKey(packet.DestinationClient, packet.Sequence))
 	if err != nil {
 		panic(err)
@@ -166,6 +167,16 @@ func (l *logic) ProveOutcome(_ int, rlm realm, packet types.Packet, proofHeight 
 	var outcome uint8
 	switch {
 	case isZero(receipt):
+		// An absence is final only once the destination can never receive
+		// the packet: at a proof height whose destination time is at or
+		// past the packet's timeout (IBC's own timeout rule).
+		at, err := core.ClientTimestampAt(rt.Client, proofHeight)
+		if err != nil {
+			panic(err)
+		}
+		if at < packet.TimeoutTimestamp {
+			panic(ufmt.Sprintf("the destination's time at that height (%d) precedes the packet's timeout (%d): its absence is not final", at, packet.TimeoutTimestamp))
+		}
 		outcome = controls.ProvenRefundable
 	case bytes.Equal(receipt, ethereum.PacketReceiptCommitment(packet)):
 		ack, err := core.CounterpartyValue(rt.Client, proofHeight, ackProof, host.PacketAcknowledgementKey(packet.DestinationClient, packet.Sequence))
@@ -185,11 +196,17 @@ func (l *logic) ProveOutcome(_ int, rlm realm, packet types.Packet, proofHeight 
 		outcome = controls.ProvenCollision
 	}
 	key := controls.PacketKey(packet.SourceClient, packet.Sequence)
-	if err := rt.ProveOutcome(key, packet, outcome, proofHeight.RevisionHeight); err != nil {
+	if err := rt.ProveOutcome(key, packet, outcome, proofHeight.RevisionHeight, rt.Client, verifierActive); err != nil {
 		panic(err)
 	}
 	transfer.EmitRoute(0, rlm, "proven", "route", rt.Key, "packet", key, "outcome", strconv.Itoa(int(outcome)),
 		"height", proofHeight.String())
+}
+
+// verifierActive reports whether a client can still vouch for an outcome it
+// proved: Active (not frozen or expired) and not retired.
+func verifierActive(client string) bool {
+	return client != "" && core.ClientStatus(client) == "Active" && !core.IsClientRetired(client)
 }
 
 func isZero(b []byte) bool {
@@ -430,7 +447,7 @@ func (l *logic) GovApply(_ int, rlm realm, op string, params []byte) string {
 		err = rt.Accept(p.Denom, p.Amount, p.Incident)
 	case controls.OpSettle:
 		var ps []controls.RefundPayment
-		ps, err = rt.SettleRecords(p.Client, p.Items, p.Incident, func(denom string) int64 { return l.lockOf(rt, denom) })
+		ps, err = rt.SettleRecords(p.Client, p.Items, p.Incident, func(denom string) int64 { return l.lockOf(rt, denom) }, verifierActive)
 		for _, x := range ps {
 			l.payOut(0, rlm, rt, x.Denom, x.To, x.Amount)
 		}
