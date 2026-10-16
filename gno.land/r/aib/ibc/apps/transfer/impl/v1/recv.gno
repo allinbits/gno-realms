@@ -53,8 +53,9 @@ func receivedDenom(rt *controls.Route, sourceClient string, payload types.Payloa
 // the transaction of the receipt, and answers a success acknowledgement; the
 // claim is paid later by Claim. Every refusal answers an error acknowledgement
 // before any state change, so the sender is refunded on Ethereum: a credits
-// flag, an Ethereum client of no route, an invalid or blocked receiver, a
-// denom not enabled on the route, a minted denom past its supply cap.
+// flag, a closed route, an Ethereum client of no route, a blocked receiver, a
+// denom not enabled on the route, a minted denom past its supply cap. An
+// undecodable receiver is no refusal: it is swept, owed to a decision.
 func (l *logic) OnRecvPacket(_ int, rlm realm, sourceClient, destinationClient string, sequence uint64, payload types.Payload) types.RecvPacketResult {
 	rt, covered := l.routeOf(0, rlm, destinationClient)
 	if !covered {
@@ -100,13 +101,14 @@ func (l *logic) OnRecvPacket(_ int, rlm realm, sourceClient, destinationClient s
 	if ibcgov.Flagged(rt.Key, ibcgov.FnCredits) {
 		return refuse(ufmt.Errorf("credits are paused on route %s", rt.Key))
 	}
-	// An undecodable receiver is refused with an error acknowledgement (the
-	// sender is refunded at the source) rather than swept: IBC has the exit.
+	// An undecodable receiver is booked as an owed sweep entry keeping the
+	// raw receiver, with a success acknowledgement: it is paid only by a
+	// 7-day decision naming the payee (ADR pr6375 §6.8, §7.1).
+	reason := ""
 	receiver, ok := transfer.CanonicalAddress(data.Receiver)
 	if !ok {
-		return refuse(ufmt.Errorf("invalid receiver address %s", data.Receiver))
-	}
-	if transfer.IsBlocked(receiver) {
+		receiver, reason = address(data.Receiver), "invalid receiver"
+	} else if transfer.IsBlocked(receiver) {
 		return refuse(ufmt.Errorf("receiver %s is blocked", data.Receiver))
 	}
 	amount, err := token.AmountInt64()
@@ -130,8 +132,7 @@ func (l *logic) OnRecvPacket(_ int, rlm realm, sourceClient, destinationClient s
 		transfer.EmitDenom(0, rlm, denom.HashHex(), string(denom.MarshalJSON()))
 		l.store.GetOrCreateVoucher(0, rlm, denom.Base, accDenom)
 	}
-	reason := ""
-	if isBridgeRealm(receiver) {
+	if reason == "" && isBridgeRealm(receiver) {
 		reason = "bridge realm"
 	}
 	epoch, _ := ibcgov.PayoutsEpoch(rt.Key)
