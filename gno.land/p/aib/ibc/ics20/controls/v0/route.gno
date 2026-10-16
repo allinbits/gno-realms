@@ -201,8 +201,8 @@ type Route struct {
 	Key          string
 	Client       string   // the current client id
 	Replaced     []string // the client ids replacements retired, oldest first
-	Enrolled     int64 // block time of the enrolment
-	Activated    int64 // block height of the enrolment: the controls' cutoff
+	Enrolled     int64    // block time of the enrolment
+	Activated    int64    // block height of the enrolment: the controls' cutoff
 	FeeCollector address
 
 	refused   avl.Tree // lower-case Ethereum address -> true: refused send recipients

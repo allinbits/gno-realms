@@ -3,7 +3,6 @@ package impl
 import (
 	"bytes"
 	"chain"
-	"errors"
 	"strconv"
 	"strings"
 
@@ -319,17 +318,11 @@ func (l *logic) GovApply(_ int, rlm realm, op string, params []byte) string {
 		err = rt.Reduce(p.Key, p.Amount, p.Incident)
 	case controls.OpAccept:
 		err = rt.Accept(p.Denom, p.Amount, p.Incident)
-	case controls.OpRejectRefund:
-		err = rt.RejectRefund(p.Key, p.Incident)
-	case controls.OpPayEntitlement:
-		var pay controls.RefundPayment
-		if rec, ok := rt.Send(p.Key); ok {
-			pay, err = rt.PayEntitlement(p.Key, p.Amount, p.Incident, l.lockOf(rt, rec.Denom))
-		} else {
-			err = errors.New("no send record for " + p.Key)
-		}
-		if err == nil {
-			l.payOut(0, rlm, rt, pay.Denom, pay.To, pay.Amount)
+	case controls.OpSettle:
+		var ps []controls.RefundPayment
+		ps, err = rt.SettleRecords(p.Client, p.Items, p.Incident, func(denom string) int64 { return l.lockOf(rt, denom) })
+		for _, x := range ps {
+			l.payOut(0, rlm, rt, x.Denom, x.To, x.Amount)
 		}
 	case controls.OpReplace:
 		if !isEthereum(p.Client) || core.IsClientRetired(p.Client) {

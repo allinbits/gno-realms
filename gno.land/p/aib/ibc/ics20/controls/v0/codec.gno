@@ -11,22 +11,21 @@ import (
 // of gno.land/r/aib/ibc/ibcgov (through the transfer proxy's GovApply). Their
 // parameters travel as Params in the wire format.
 const (
-	OpEnroll         = "enroll"          // Route, To (fee collector)
-	OpDenom          = "denom"           // Route, Denom, Config
-	OpCollector      = "collector"       // Route, To
-	OpRefuse         = "refuse"          // Route, Keys (Ethereum addresses)
-	OpUnrefuse       = "unrefuse"        // Route, Keys (Ethereum addresses)
-	OpVoid           = "void"            // Route, Keys, Forged, Incident
-	OpRestore        = "restore"         // Route, Keys
-	OpCredit         = "credit"          // Route, Key, Denom, To, Amount
-	OpSweep          = "sweep"           // Route, Keys, To
-	OpLoss           = "loss"            // Route, Key, Denom, Amount, Chain, Incident, Cause
-	OpRecapitalize   = "recapitalize"    // Route, Denom, Amount, Incident
-	OpReduce         = "reduce"          // Route, Key, Amount, Incident
-	OpAccept         = "accept"          // Route, Denom, Amount, Incident
-	OpRejectRefund   = "reject refund"   // Route, Key, Incident
-	OpPayEntitlement = "pay entitlement" // Route, Key, Amount, Incident
-	OpReplace        = "replace"         // Route, Client (the new client)
+	OpEnroll       = "enroll"       // Route, To (fee collector)
+	OpDenom        = "denom"        // Route, Denom, Config
+	OpCollector    = "collector"    // Route, To
+	OpRefuse       = "refuse"       // Route, Keys (Ethereum addresses)
+	OpUnrefuse     = "unrefuse"     // Route, Keys (Ethereum addresses)
+	OpVoid         = "void"         // Route, Keys, Forged, Incident
+	OpRestore      = "restore"      // Route, Keys
+	OpCredit       = "credit"       // Route, Key, Denom, To, Amount
+	OpSweep        = "sweep"        // Route, Keys, To
+	OpLoss         = "loss"         // Route, Key, Denom, Amount, Chain, Incident, Cause
+	OpRecapitalize = "recapitalize" // Route, Denom, Amount, Incident
+	OpReduce       = "reduce"       // Route, Key, Amount, Incident
+	OpAccept       = "accept"       // Route, Denom, Amount, Incident
+	OpSettle       = "settle"       // Route, Client (the retired client), Items, Incident
+	OpReplace      = "replace"      // Route, Client (the new client)
 )
 
 // Params are the parameters of a governance operation; each operation reads
@@ -44,6 +43,7 @@ type Params struct {
 	Forged   bool
 	Amount   int64
 	Config   DenomConfig
+	Items    []SettleItem
 }
 
 // Encode writes p in the wire format, every field in a fixed order.
@@ -57,6 +57,10 @@ func (p Params) Encode() []byte {
 	w.Bool(p.Forged).Int(p.Amount)
 	c := p.Config
 	w.Str(c.Kind).Int(c.CapFloor).Int(c.SupplyCap).Int(c.Fee).Int(c.FeeFloor).Int(c.SendMax).Int(c.SendMin).Int(c.RefundCap)
+	w.Uvarint(uint64(len(p.Items)))
+	for _, it := range p.Items {
+		w.Uvarint(it.Seq).Uvarint(uint64(it.Action)).Int(it.Amount)
+	}
 	return w.Bytes()
 }
 
@@ -78,6 +82,17 @@ func DecodeParams(bz []byte) (Params, error) {
 	p.Config.Kind = r.Str()
 	p.Config.CapFloor, p.Config.SupplyCap, p.Config.Fee, p.Config.FeeFloor = r.Int(), r.Int(), r.Int(), r.Int()
 	p.Config.SendMax, p.Config.SendMin, p.Config.RefundCap = r.Int(), r.Int(), r.Int()
+	n = r.Uvarint()
+	if r.Err() == nil && n > MaxKeys {
+		return Params{}, ufmt.Errorf("controls: more than %d items", MaxKeys)
+	}
+	for i := uint64(0); i < n && r.Err() == nil; i++ {
+		seq, action, amount := r.Uvarint(), r.Uvarint(), r.Int()
+		if action > 255 {
+			return Params{}, errors.New("controls: params: action out of range")
+		}
+		p.Items = append(p.Items, SettleItem{Seq: seq, Action: uint8(action), Amount: amount})
+	}
 	if err := r.Err(); err != nil {
 		return Params{}, ufmt.Errorf("controls: params: %v", err)
 	}

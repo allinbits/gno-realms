@@ -18,7 +18,7 @@ import (
 // and refuses (the decision is spent) rather than panics. Delays: enrolling a
 // route, a new denom, raising a limit, a new fee collector, unrefusing
 // recipients, credits, sweep payments, losses, recapitalizations, reductions,
-// accepted deficits, reconciliation payments and route replacements wait 7
+// accepted deficits, reconciliation settlements and route replacements wait 7
 // days; lowering a limit, refusing recipients, a void of packets a guardian
 // named and a restore of withheld claims apply at once.
 
@@ -373,28 +373,46 @@ func NewAcceptDeficitRequest(cur realm, route, denom string, amount int64, incid
 		controls.Params{Route: route, Denom: denom, Amount: amount, Incident: incident}, true)
 }
 
-// NewRejectRefundRequest rejects a queued refund a reconciliation found was
-// for a delivered packet, after 7 days.
-func NewRejectRefundRequest(cur realm, route, sendKey, incident string) Request {
+// NewSettleRequest applies a reconciliation's outcomes to the sends of
+// client, a client a replacement retired from route, after 7 days (ADR pr6375
+// §7.12, the gno analogue of Ethereum's kind 12): items is a comma-separated
+// list of "sequence:action:amount", action 1 pay a refund of amount (at most
+// what the send carried minus what was refunded), 2 reject a queued refund
+// (amount 0), 3 settled as delivered (amount 0), 4 record a loss of amount
+// (a refund paid for a delivered packet); at most 64 items. Each send is
+// settled exactly once; a queued refund leaves the queue under any action.
+func NewSettleRequest(cur realm, route, client, items, incident string) Request {
 	mustRoute(route)
 	mustIncident(incident)
-	if _, _, ok := controls.ParsePacketKey(sendKey); !ok {
-		panic("ibcgov: not a packet key: " + sendKey)
+	if view().RetiredRouteOf(client) != route {
+		panic("ibcgov: " + client + " is no client a replacement retired from route " + route)
 	}
-	return routeRequest(cur, controls.OpRejectRefund, "reject refund", "reject the queued refund of "+sendKey+" on route "+route+" (incident "+incident+")",
-		controls.Params{Route: route, Key: sendKey, Incident: incident}, true)
-}
-
-// NewPayEntitlementRequest pays a sender what a reconciliation found it is
-// owed on a send (its amount minus what was refunded), after 7 days.
-func NewPayEntitlementRequest(cur realm, route, sendKey string, amount int64, incident string) Request {
-	mustRoute(route)
-	mustIncident(incident)
-	if _, _, ok := controls.ParsePacketKey(sendKey); !ok || amount <= 0 {
-		panic("ibcgov: a payment names a packet key and a positive amount")
+	list := splitList(items)
+	if len(list) == 0 || len(list) > controls.MaxKeys {
+		panic("ibcgov: name 1 to " + strconv.Itoa(controls.MaxKeys) + " settlement items")
 	}
-	return routeRequest(cur, controls.OpPayEntitlement, "pay entitlement", "pay "+itoa(amount)+" for send "+sendKey+" on route "+route+" (incident "+incident+")",
-		controls.Params{Route: route, Key: sendKey, Amount: amount, Incident: incident}, true)
+	var parsed []controls.SettleItem
+	seen := map[uint64]bool{}
+	for _, it := range list {
+		parts := strings.Split(it, ":")
+		if len(parts) != 3 {
+			panic("ibcgov: a settlement item is sequence:action:amount, not " + it)
+		}
+		seq, err1 := strconv.ParseUint(parts[0], 10, 64)
+		action, err2 := strconv.ParseUint(parts[1], 10, 8)
+		amount, err3 := strconv.ParseInt(parts[2], 10, 64)
+		if err1 != nil || err2 != nil || err3 != nil || seq == 0 || seen[seq] || action < 1 || action > 4 || amount < 0 {
+			panic("ibcgov: not a settlement item, or a sequence named twice: " + it)
+		}
+		if (action == 1 || action == 4) != (amount > 0) {
+			panic("ibcgov: a payment or a loss names a positive amount, a rejection or a delivery none: " + it)
+		}
+		seen[seq] = true
+		parsed = append(parsed, controls.SettleItem{Seq: seq, Action: uint8(action), Amount: amount})
+	}
+	text := "settle sends of " + client + " on route " + route + " (incident " + incident + "): " + strings.Join(list, ",")
+	return routeRequest(cur, controls.OpSettle, "settle", text,
+		controls.Params{Route: route, Client: client, Items: parsed, Incident: incident}, true)
 }
 
 // NewReplaceRouteRequest replaces route's Ethereum client by newClientID after

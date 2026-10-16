@@ -6,6 +6,10 @@ import (
 	"gno.land/p/nt/ufmt/v0"
 )
 
+// CauseRefundForDelivered is the cause of a settlement's loss: a refund paid
+// for a packet the destination delivered.
+const CauseRefundForDelivered = "refund-for-delivered"
+
 // Loss chains: where a recognized loss happened (ADR pr6375 §7.9).
 const (
 	ChainGno      = "gno"

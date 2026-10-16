@@ -374,6 +374,7 @@ func TestCodecRoundTrip(t *testing.T) {
 	p := Params{
 		Route: "ethereum-1", Denom: "ugnot", Key: pk(3), Client: "ethereum-2", Chain: ChainGno, Incident: "inc", Cause: "c",
 		To: alice, Keys: []string{pk(1), pk(2)}, Forged: true, Amount: 42, Config: gnot(),
+		Items: []SettleItem{{Seq: 7, Action: SettlePay, Amount: 5}, {Seq: 9, Action: SettleDelivered}},
 	}
 	got, err := DecodeParams(p.Encode())
 	if err != nil {
@@ -381,7 +382,7 @@ func TestCodecRoundTrip(t *testing.T) {
 	}
 	if got.Route != p.Route || got.Denom != p.Denom || got.Key != p.Key || got.Client != p.Client || got.Chain != p.Chain ||
 		got.Incident != p.Incident || got.Cause != p.Cause || got.To != p.To || len(got.Keys) != 2 || got.Keys[1] != pk(2) ||
-		!got.Forged || got.Amount != 42 || got.Config != p.Config {
+		!got.Forged || got.Amount != 42 || got.Config != p.Config || len(got.Items) != 2 || got.Items[0] != p.Items[0] || got.Items[1] != p.Items[1] {
 		t.Fatalf("%+v", got)
 	}
 	if _, err := DecodeParams(append(p.Encode(), 0)); err == nil {
@@ -394,6 +395,10 @@ func TestCodecRoundTrip(t *testing.T) {
 	many := Params{Keys: make([]string, MaxKeys+1)}
 	if _, err := DecodeParams(many.Encode()); err == nil {
 		t.Fatalf("too many keys")
+	}
+	manyItems := Params{Items: make([]SettleItem, MaxKeys+1)}
+	if _, err := DecodeParams(manyItems.Encode()); err == nil {
+		t.Fatalf("too many items")
 	}
 	if _, err := DecodeParams(Params{}.Encode()); err != nil {
 		t.Fatalf("empty params: %v", err)
