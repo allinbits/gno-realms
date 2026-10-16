@@ -61,6 +61,7 @@ func assertGovernance(_ int, rlm realm, op string) {
 // AddAuthorityMember adds a member to the authority. Governance only.
 func AddAuthorityMember(cur realm, addr address) {
 	assertGovernance(0, cur, "add_authority_member")
+	addr = mustCanonicalAddress(addr)
 	auth.AddMember(0, cur, addr)
 	chain.Emit(EventTypeAuthorityMemberAdded, "address", string(addr))
 }
@@ -69,6 +70,7 @@ func AddAuthorityMember(cur realm, addr address) {
 // Governance only.
 func RemoveAuthorityMember(cur realm, addr address) {
 	assertGovernance(0, cur, "remove_authority_member")
+	addr = mustCanonicalAddress(addr)
 	if addr == chain.PackageAddress(IBCGovPath) {
 		// ibcgov changes membership as a member: removing it would freeze
 		// the membership and its tightening powers for good.
@@ -85,6 +87,9 @@ func AuthorityMembers() []address {
 
 // IsAuthorityMember reports whether addr may block addresses.
 func IsAuthorityMember(addr address) bool {
+	if canonical, ok := CanonicalAddress(string(addr)); ok {
+		addr = canonical
+	}
 	return auth.IsMember(addr)
 }
 

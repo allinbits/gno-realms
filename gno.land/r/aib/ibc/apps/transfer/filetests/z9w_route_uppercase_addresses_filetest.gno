@@ -21,6 +21,7 @@ import (
 	"gno.land/r/aib/ibc/core"
 	_ "gno.land/r/aib/ibc/core/impl/v0"
 	"gno.land/r/aib/ibc/ibcgov"
+	"gno.land/r/nt/grc20reg/v0"
 )
 
 // bridge is the route's Ethereum router, ICS20 transfer and IBCAdmin: its
@@ -152,6 +153,19 @@ func main(cur realm) {
 	e, _ := controlsView().Sweep(route, controls.PacketKey(route, 1))
 	println("sweep paid to carol:", e.PaidTo == string(carol), "| carol's vouchers:", transfer.VoucherBalanceOf(voucher, carol))
 
+	// The public voucher helpers too (Codex round 8 #4): an uppercase
+	// recipient is credited under its canonical spelling, which can spend it,
+	// and an uppercase spender's allowance is its canonical one's.
+	testing.SetRealm(testing.NewUserRealm(carol))
+	transfer.VoucherSend(cross(cur), voucher, address(strings.ToUpper(string(bob))), 40)
+	transfer.VoucherApprove(cross(cur), voucher, address(strings.ToUpper(string(bob))), 10)
+	testing.SetRealm(testing.NewUserRealm(bob))
+	transfer.VoucherSend(cross(cur), voucher, carol, 15)
+	testing.SetRealm(testing.NewCodeRealm("gno.land/r/aib/main"))
+	token := grc20reg.Get(transfer.PkgPath + "." + transfer.VoucherSymbol(voucher))
+	println("bob's vouchers:", transfer.VoucherBalanceOf(voucher, bob), "| bob's allowance from carol:", token.Allowance(carol, bob),
+		"| left under the uppercase spelling:", transfer.VoucherBalanceOf(voucher, address(strings.ToUpper(string(bob)))))
+
 	execute(cur, govern(cur, ibcgov.NewSetFeeCollectorRequest(cross(cur), route, strings.ToUpper(string(alice)))))
 	println("fee collector is alice:", strings.Contains(transfer.Render("routes/"+route), `"fee_collector":"`+string(alice)+`"`))
 
@@ -185,6 +199,7 @@ func main(cur realm) {
 
 // Output:
 // sweep paid to carol: true | carol's vouchers: 300
+// bob's vouchers: 25 | bob's allowance from carol: 10 | left under the uppercase spelling: 0
 // fee collector is alice: true
 // seat 0: true
 // flagged by its holder: true
