@@ -1,6 +1,7 @@
 package ibcgov
 
 import (
+	"chain"
 	"encoding/hex"
 	"strings"
 
@@ -134,20 +135,27 @@ func NewCoreAddRelayerRequest(cur realm, addr string) Request {
 
 // NewCoreRemoveRelayerRequest removes a relayer from the core's whitelist: at
 // once while others remain listed, after 7 days when it is the last one (an
-// empty whitelist lets anyone relay).
+// empty whitelist lets anyone relay). The whitelist is read when the decision
+// is recorded, not when the request is built.
 func NewCoreRemoveRelayerRequest(cur realm, addr string) Request {
 	a := mustAddr(addr)
-	listed := false
-	rs := core.Relayers()
-	for _, r := range rs {
-		if r == a {
-			listed = true
-		}
-	}
-	if !listed {
+	if !isRelayer(a) {
 		panic("ibcgov: " + addr + " is not a listed relayer")
 	}
-	return adminRequest(cur, "core remove relayer", "core: remove relayer "+string(a), len(rs) == 1, string(a))
+	op, text := "core remove relayer", "core: remove relayer "+string(a)
+	p := &adminParams{op: op, args: []string{string(a)}}
+	return propose(cur, op, text, func(cur realm, made, t int64) {
+		decide(cur, op, text, p, made, t, !isRelayer(a) || len(core.Relayers()) <= 1)
+	})
+}
+
+func isRelayer(a address) bool {
+	for _, r := range core.Relayers() {
+		if r == a {
+			return true
+		}
+	}
+	return false
 }
 
 // NewRecoverClientRequest recovers a frozen or expired core client from a
@@ -222,6 +230,9 @@ func NewCoreAddMemberRequest(cur realm, addr string) Request {
 // NewCoreRemoveMemberRequest removes a member of the core's authority at once.
 func NewCoreRemoveMemberRequest(cur realm, addr string) Request {
 	a := mustAddr(addr)
+	if a == chain.PackageAddress(PkgPath) {
+		panic("ibcgov: this realm stays a member of the core's authority")
+	}
 	if !core.IsAuthorityMember(a) {
 		panic("ibcgov: " + addr + " is not a member")
 	}
@@ -303,6 +314,9 @@ func NewTransferAddMemberRequest(cur realm, addr string) Request {
 // authority at once.
 func NewTransferRemoveMemberRequest(cur realm, addr string) Request {
 	a := mustAddr(addr)
+	if a == chain.PackageAddress(PkgPath) {
+		panic("ibcgov: this realm stays a member of the transfer app's authority")
+	}
 	if !transfer.IsAuthorityMember(a) {
 		panic("ibcgov: " + addr + " is not a member")
 	}

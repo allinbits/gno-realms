@@ -58,7 +58,9 @@ func (p *routeParams) apply(cur realm, t int64) (string, string) {
 		routes.Set(p.p.Route, &routeRec{epochAt: t})
 	}
 	if p.replace != "" {
-		core.RetireClient(cross(cur), p.replace)
+		if !core.IsClientRetired(p.replace) {
+			core.RetireClient(cross(cur), p.replace)
+		}
 		note += ": client " + p.replace + " retired"
 		if EpochClient() == p.replace {
 			nextEpoch(p.p.Client)
@@ -167,17 +169,23 @@ func NewSetDenomRequest(cur realm, route, denom, kind string, capFloor, supplyCa
 	if err := c.Validate(); err != nil {
 		panic("ibcgov: " + err.Error())
 	}
-	queued := true
-	if old, ok := view().DenomConfig(route, denom); ok {
-		if old.Kind != kind {
-			panic("ibcgov: a denom never changes accounting")
-		}
-		queued = controls.Loosens(old, c)
+	if old, ok := view().DenomConfig(route, denom); ok && old.Kind != kind {
+		panic("ibcgov: a denom never changes accounting")
+	}
+	// At once or queued is decided against the configuration when the
+	// decision is recorded: another decision may have changed it since the
+	// request was built.
+	loosens := func() bool {
+		old, ok := view().DenomConfig(route, denom)
+		return !ok || controls.Loosens(old, c)
 	}
 	text := "denom " + denom + " on route " + route + ": kind=" + kind + " capFloor=" + itoa(capFloor) + " supplyCap=" + itoa(supplyCap) +
 		" fee=" + itoa(fee) + " feeFloor=" + itoa(feeFloor) + " sendMax=" + itoa(sendMax) + " sendMin=" + itoa(sendMin) +
 		" refundCap=" + itoa(refundCap)
-	return routeRequest(cur, controls.OpDenom, "set denom", text, controls.Params{Route: route, Denom: denom, Config: c}, queued)
+	rp := &routeParams{op: controls.OpDenom, p: controls.Params{Route: route, Denom: denom, Config: c}}
+	return propose(cur, "set denom", text, func(cur realm, made, t int64) {
+		decide(cur, "set denom", text, rp, made, t, loosens())
+	})
 }
 
 // NewSetFeeCollectorRequest replaces a route's fee collector after 7 days.
@@ -232,21 +240,30 @@ func NewVoidRequest(cur realm, route, keys string, forged bool, incident string)
 	mustIncident(incident)
 	list := mustKeys(keys)
 	rd := view()
-	named := true
 	for _, k := range list {
 		if !rd.Voidable(route, k, forged) {
 			panic("ibcgov: " + k + " cannot be voided that way as it stands")
 		}
-		if !NamedSuspect(route, k) {
-			named = false
+	}
+	// Whether a guardian named every packet is read when the decision is
+	// recorded.
+	named := func() bool {
+		for _, k := range list {
+			if !NamedSuspect(route, k) {
+				return false
+			}
 		}
+		return true
 	}
 	how := "withheld"
 	if forged {
 		how = "forged"
 	}
 	text := "void as " + how + " on route " + route + " (incident " + incident + "): " + strings.Join(list, ",")
-	return routeRequest(cur, controls.OpVoid, "void", text, controls.Params{Route: route, Keys: list, Forged: forged, Incident: incident}, !named)
+	rp := &routeParams{op: controls.OpVoid, p: controls.Params{Route: route, Keys: list, Forged: forged, Incident: incident}}
+	return propose(cur, "void", text, func(cur realm, made, t int64) {
+		decide(cur, "void", text, rp, made, t, !named())
+	})
 }
 
 // NewRestoreRequest restores voided claims or sweep entries: at once when
@@ -255,20 +272,29 @@ func NewRestoreRequest(cur realm, route, keys string) Request {
 	mustRoute(route)
 	list := mustKeys(keys)
 	rd := view()
-	withheldOnly := true
 	for _, k := range list {
 		c, ok := rd.Claim(route, k)
-		if ok && c.State == controls.Withheld {
-			continue
-		}
-		withheldOnly = false
 		e, eok := rd.Sweep(route, k)
-		if !(ok && c.State == controls.Forged) && !(eok && e.Voided) {
+		if !(ok && (c.State == controls.Withheld || c.State == controls.Forged)) && !(eok && e.Voided) {
 			panic("ibcgov: " + k + " is not voided")
 		}
 	}
-	return routeRequest(cur, controls.OpRestore, "restore", "restore on route "+route+": "+strings.Join(list, ","),
-		controls.Params{Route: route, Keys: list}, !withheldOnly)
+	// At once only if every key is a withheld claim when the decision is
+	// recorded: a forged void may have landed since the request was built.
+	withheldOnly := func() bool {
+		rd := view()
+		for _, k := range list {
+			if c, ok := rd.Claim(route, k); !ok || c.State != controls.Withheld {
+				return false
+			}
+		}
+		return true
+	}
+	text := "restore on route " + route + ": " + strings.Join(list, ",")
+	rp := &routeParams{op: controls.OpRestore, p: controls.Params{Route: route, Keys: list}}
+	return propose(cur, "restore", text, func(cur realm, made, t int64) {
+		decide(cur, "restore", text, rp, made, t, !withheldOnly())
+	})
 }
 
 // NewCreditRequest credits a packet by vote after 7 days (ADR pr6375 §7.9):

@@ -463,9 +463,13 @@ func statusWord(s uint8) string {
 type ethParams struct {
 	kind   uint8
 	params []byte
+	epoch  uint32 // a cancel: the epoch whose numbers it names (0: any)
 }
 
 func (p *ethParams) apply(cur realm, t int64) (string, string) {
+	if p.epoch != 0 && p.epoch != epoch {
+		return "", "the cancel names numbers of epoch " + strconv.FormatUint(uint64(p.epoch), 10) + ", which is past"
+	}
 	seq, refusal := bind(cur, ledger.Last(), p.kind, p.params)
 	if refusal != "" {
 		return "", refusal
@@ -474,13 +478,17 @@ func (p *ethParams) apply(cur realm, t int64) (string, string) {
 }
 
 func ethRequest(cur realm, name string, kind uint8, text string, params []byte) Request {
+	return ethRequestIn(cur, name, kind, text, params, 0)
+}
+
+func ethRequestIn(cur realm, name string, kind uint8, text string, params []byte, bound uint32) Request {
 	if epochRecOf(epoch) == nil {
 		panic("ibcgov: the governance channel is not bound")
 	}
 	if envelopeHeader+len(params) > MaxEnvelope {
 		panic("ibcgov: the envelope would be " + strconv.Itoa(envelopeHeader+len(params)) + " bytes, above " + strconv.Itoa(MaxEnvelope))
 	}
-	p := &ethParams{kind: kind, params: params}
+	p := &ethParams{kind: kind, params: params, epoch: bound}
 	text = "ethereum kind " + strconv.Itoa(int(kind)) + " (" + name + "): " + text
 	return propose(cur, "eth "+name, text, func(cur realm, made, t int64) {
 		decide(cur, "eth "+name, text, p, made, t, false)
@@ -545,7 +553,8 @@ func ethAddrText(a [20]byte) string { return ethaddr.Address(a).String() }
 // NewEthCancelRequest (kind 1) cancels Ethereum-bound decisions of the
 // current epoch: ranges is a comma-separated list of "from-to" (inclusive,
 // at most 16), each within the numbers already dispatched. IBCAdmin applies
-// it at recording, whatever its own seq.
+// it at recording, whatever its own seq. It is spent if a route replacement
+// opens another epoch before it is recorded.
 func NewEthCancelRequest(cur realm, ranges string) Request {
 	items := splitList(ranges)
 	if len(items) == 0 || len(items) > maxCancelRanges {
@@ -566,8 +575,8 @@ func NewEthCancelRequest(cur realm, ranges string) Request {
 		}
 		vals = append(vals, abi.Tuple(abi.Uint64(f), abi.Uint64(g)))
 	}
-	return ethRequest(cur, "cancel", KindCancel, "cancel "+strings.Join(items, ",")+" of epoch "+strconv.FormatUint(uint64(epoch), 10),
-		abi.Encode(abi.Array(vals...)))
+	return ethRequestIn(cur, "cancel", KindCancel, "cancel "+strings.Join(items, ",")+" of epoch "+strconv.FormatUint(uint64(epoch), 10),
+		abi.Encode(abi.Array(vals...)), epoch)
 }
 
 // NewEthUnpauseRequest (kind 2) unpauses an object on Ethereum after 24 hours

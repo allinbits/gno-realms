@@ -10,7 +10,9 @@ import (
 	_ "gno.land/r/aib/ibc/core/impl/v0"
 )
 
-// The last member of the authority cannot be removed.
+// The governance realm cannot be removed from the authority: it changes the
+// membership as a member, so removing it would freeze the membership and its
+// tightening powers for good.
 func main(cur realm) {
 	ibcgov := chain.PackageAddress(core.IBCGovPath)
 	testing.SetRealm(testing.NewCodeRealm(core.IBCGovPath))
@@ -23,4 +25,4 @@ func main(cur realm) {
 // members left: govdao false ibcgov true
 
 // Error:
-// authority: cannot remove the last member
+// remove_authority_member: the governance realm stays a member

@@ -77,6 +77,11 @@ func AddAuthorityMember(cur realm, addr address) {
 // Governance only.
 func RemoveAuthorityMember(cur realm, addr address) {
 	assertGovernance(0, cur, "remove_authority_member")
+	if addr == chain.PackageAddress(IBCGovPath) {
+		// ibcgov changes membership as a member: removing it would freeze
+		// the membership and its tightening powers for good.
+		panic("remove_authority_member: the governance realm stays a member")
+	}
 	auth.RemoveMember(0, cur, addr)
 	chain.Emit(EventTypeAuthorityMemberRemoved, "address", string(addr))
 }
