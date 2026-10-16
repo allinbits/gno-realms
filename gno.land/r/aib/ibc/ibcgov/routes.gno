@@ -144,6 +144,19 @@ func NewEnrollRouteRequest(cur realm, clientID, feeCollector string) Request {
 	})
 }
 
+// denomText spells out every field of a denom's configuration: the
+// parameters are the record (ADR pr6375 §7.5), in the proposal's description
+// and the decision's text alike.
+func denomText(denom string, c controls.DenomConfig) string {
+	remote := c.Remote
+	if remote == "" {
+		remote = "-"
+	}
+	return denom + " kind=" + c.Kind + " capFloor=" + itoa(c.CapFloor) + " supplyCap=" + itoa(c.SupplyCap) +
+		" fee=" + itoa(c.Fee) + " feeFloor=" + itoa(c.FeeFloor) + " sendMax=" + itoa(c.SendMax) + " sendMin=" + itoa(c.SendMin) +
+		" refundCap=" + itoa(c.RefundCap) + " remoteToken=" + remote
+}
+
 // denomConfig checks a denom's configuration as NewSetDenomRequest takes it
 // and returns the accounting denom (a minted denom named by its token's
 // Ethereum address becomes its voucher's IBC denom on route) and the
@@ -203,10 +216,7 @@ func NewSetDenomRequest(cur realm, route, denom, kind string, capFloor, supplyCa
 		old, ok := view().DenomConfig(route, denom)
 		return !ok || controls.Loosens(old, c)
 	}
-	remote := c.Remote
-	text := "denom " + denom + " on route " + route + ": kind=" + kind + " capFloor=" + itoa(capFloor) + " supplyCap=" + itoa(supplyCap) +
-		" fee=" + itoa(fee) + " feeFloor=" + itoa(feeFloor) + " sendMax=" + itoa(sendMax) + " sendMin=" + itoa(sendMin) +
-		" refundCap=" + itoa(refundCap) + " remoteToken=" + remote
+	text := "denom on route " + route + ": " + denomText(denom, c)
 	rp := &routeParams{op: controls.OpDenom, p: controls.Params{Route: route, Denom: denom, Config: c}}
 	return propose(cur, "set denom", text, func(cur realm, made, t int64) {
 		decide(cur, "set denom", text, rp, made, t, loosens())
@@ -628,12 +638,12 @@ func NewTransferActivateControlsRequest(cur realm, path, clientID, feeCollector,
 		}
 		seen[denom] = true
 		p.denoms = append(p.denoms, controls.Params{Route: clientID, Denom: denom, Config: c})
-		names = append(names, denom+"("+c.Kind+")")
+		names = append(names, denomText(denom, c))
 	}
 	if len(p.denoms) == 0 || len(p.denoms) > maxActivationDenoms {
 		panic("ibcgov: stage 1 to " + strconv.Itoa(maxActivationDenoms) + " denoms")
 	}
-	text := "transfer: activate " + path + " with route " + clientID + " (fee collector " + string(fc) + ") and denoms " + strings.Join(names, ", ")
+	text := "transfer: activate " + path + " with route " + clientID + " (fee collector " + string(fc) + ") and denoms " + strings.Join(names, "; ")
 	return propose(cur, "transfer activate controls", text, func(cur realm, made, t int64) {
 		decide(cur, "transfer activate controls", text, p, made, t, true)
 	})
