@@ -159,6 +159,9 @@ func (l *logic) ProveOutcome(_ int, rlm realm, packet types.Packet, proofHeight 
 		panic("client " + packet.SourceClient + " is no client a replacement retired")
 	}
 	rt := reg.Route(k)
+	// The trust generation the proof is read under: the outcome is void once
+	// the verifier is recovered, frozen, upgraded, migrated or substituted.
+	gen := core.ClientTrustGeneration(rt.Client)
 	// CounterpartyValue refuses a verifier that is not Active or retired.
 	receipt, err := core.CounterpartyValue(rt.Client, proofHeight, receiptProof, host.PacketReceiptKey(packet.DestinationClient, packet.Sequence))
 	if err != nil {
@@ -196,17 +199,20 @@ func (l *logic) ProveOutcome(_ int, rlm realm, packet types.Packet, proofHeight 
 		outcome = controls.ProvenCollision
 	}
 	key := controls.PacketKey(packet.SourceClient, packet.Sequence)
-	if err := rt.ProveOutcome(key, packet, outcome, proofHeight.RevisionHeight, rt.Client, verifierActive); err != nil {
+	if err := rt.ProveOutcome(key, packet, outcome, proofHeight.RevisionHeight, rt.Client, gen, verifierTrusted); err != nil {
 		panic(err)
 	}
 	transfer.EmitRoute(0, rlm, "proven", "route", rt.Key, "packet", key, "outcome", strconv.Itoa(int(outcome)),
 		"height", proofHeight.String())
 }
 
-// verifierActive reports whether a client can still vouch for an outcome it
-// proved: Active (not frozen or expired) and not retired.
-func verifierActive(client string) bool {
-	return client != "" && core.ClientStatus(client) == "Active" && !core.IsClientRetired(client)
+// verifierTrusted reports whether a client can still vouch for an outcome it
+// proved under trust generation gen: Active (not frozen or expired), not
+// retired, and gen still its current generation (no recovery, freeze,
+// upgrade, migration or substitution since).
+func verifierTrusted(client string, gen uint64) bool {
+	return client != "" && core.ClientStatus(client) == "Active" && !core.IsClientRetired(client) &&
+		core.ClientTrustGeneration(client) == gen
 }
 
 func isZero(b []byte) bool {
@@ -454,7 +460,7 @@ func (l *logic) GovApply(_ int, rlm realm, op string, params []byte) string {
 		err = rt.Accept(p.Denom, p.Amount, p.Incident)
 	case controls.OpSettle:
 		var ps []controls.RefundPayment
-		ps, err = rt.SettleRecords(p.Client, p.Items, p.Incident, func(denom string) int64 { return l.lockOf(rt, denom) }, verifierActive)
+		ps, err = rt.SettleRecords(p.Client, p.Items, p.Incident, func(denom string) int64 { return l.lockOf(rt, denom) }, verifierTrusted)
 		for _, x := range ps {
 			l.payOut(0, rlm, rt, x.Denom, x.To, x.Amount)
 		}

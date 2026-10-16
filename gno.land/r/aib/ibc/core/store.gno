@@ -63,6 +63,9 @@ type Client interface {
 	// migration to a new light-client version. As for AddClient, convert must
 	// be a /p/-declared function so the new verifier is allocated here.
 	SetLightClient(_ int, rlm realm, convert func(current lightclient.Interface) lightclient.Interface)
+	// TrustGeneration counts the verifier's recoveries, freezes, upgrades,
+	// migrations and substitutions: the core starts a new generation on each.
+	TrustGeneration() uint64
 	// AllocateSendSequence allocates and returns the next send sequence.
 	AllocateSendSequence(_ int, rlm realm) uint64
 	// NextSequenceSend returns the sequence AllocateSendSequence would return
@@ -163,6 +166,11 @@ type client struct {
 	// on a client is accounted for (ADR pr6375 §7.13).
 	commitmentPorts   *bptree.BPTree // sequence:source port
 	outstandingByPort *bptree.BPTree // port:int64
+	// trustGen counts the changes of whom the verifier trusts: a recovery,
+	// a freeze, an upgrade, a migration or a substitution of the verifier
+	// each start a new generation, and an outcome proven under an older one
+	// is never settled on (ADR pr6375 §5.4 "Proven outcomes").
+	trustGen uint64
 }
 
 var _ Client = (*client)(nil)
@@ -296,7 +304,11 @@ func (c *client) SetLightClient(_ int, rlm realm, convert func(lightclient.Inter
 		panic("SetLightClient: nil light client")
 	}
 	c.lightClient = lc
+	c.trustGen++
 }
+
+// TrustGeneration is the verifier's trust generation (see client.trustGen).
+func (c *client) TrustGeneration() uint64 { return c.trustGen }
 
 func (c *client) AllocateSendSequence(_ int, rlm realm) uint64 {
 	assertProxyRealm(0, rlm)

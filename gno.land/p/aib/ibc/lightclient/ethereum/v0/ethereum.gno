@@ -31,7 +31,10 @@ import (
 type EthLightClient struct {
 	ClientState            *ClientState
 	ConsensusStateByHeight *bptree.BPTree // height:*ConsensusState
-
+	// TrustedFromSlot is the slot of the consensus state a recovery copied:
+	// the states below it were trusted by the verifier the recovery replaced,
+	// so no proof, timestamp or update is ever read from them again.
+	TrustedFromSlot uint64
 }
 
 var (
@@ -678,6 +681,7 @@ func (c *EthLightClient) RecoverClient(substitute lightclient.Interface) error {
 	updated.MinSyncCommitteeParticipants = b.MinSyncCommitteeParticipants
 	updated.IsFrozen = false
 	c.ClientState = &updated
+	c.TrustedFromSlot = copied.Slot
 	return nil
 }
 
@@ -718,8 +722,12 @@ func (c *EthLightClient) setConsensusState(cons *ConsensusState) {
 	c.ConsensusStateByHeight.Set(heightAtSlot(cons.Slot).StringNatSort(), cons)
 }
 
-// GetConsensusState returns the consensus state at height, if any.
+// GetConsensusState returns the consensus state at height, if any and still
+// trusted: one below TrustedFromSlot, from before a recovery, is not.
 func (c *EthLightClient) GetConsensusState(height types.Height) (*ConsensusState, bool) {
+	if height.RevisionHeight < c.TrustedFromSlot {
+		return nil, false
+	}
 	v := c.ConsensusStateByHeight.Get(height.StringNatSort())
 	if v == nil {
 		return nil, false

@@ -569,7 +569,7 @@ func TestZeroSettlementIgnoresCapacity(t *testing.T) {
 	r, rt := newRoute(t)
 	rt.RecordSend(sendRec(1, "ugnot", KindUnescrow, 1_000))
 	rt.Settle(t0+Day, 1, pk(1), OutcomeTimeout, false, big) // refunded in full
-	mustCredit(t, rt, t0, 5, "ugnot", alice, 1_000, big)     // a claim owes 1000
+	mustCredit(t, rt, t0, 5, "ugnot", alice, 1_000, big)    // a claim owes 1000
 	rt.RecordLoss(pk(9), "ugnot", 1_000, ChainGno, "inc", "collision")
 	rt.Accept("ugnot", 1_000, "inc")
 	r.Replace("ethereum-1", "ethereum-2", 0, 1000)
@@ -584,7 +584,7 @@ func TestZeroSettlementIgnoresCapacity(t *testing.T) {
 
 // settleProven proves for each item the outcome its action needs (a test of
 // the actions; TestProvenOutcomes covers the proofs' gate), then settles.
-func activeAll(string) bool { return true }
+func activeAll(string, uint64) bool { return true }
 
 func settleProven(rt *Route, client string, items []SettleItem, incident string, lock func(string) int64) ([]RefundPayment, error) {
 	for _, it := range items {
@@ -609,21 +609,21 @@ func TestProvenOutcomes(t *testing.T) {
 	r, rt := newRoute(t)
 	rt.RecordSend(sendRec(1, "ugnot", KindUnescrow, 1_000))
 	rec, _ := rt.Send(pk(1))
-	if err := rt.ProveOutcome(pk(1), rec.Packet, ProvenDelivered, 10, "ethereum-2", activeAll); err == nil {
+	if err := rt.ProveOutcome(pk(1), rec.Packet, ProvenDelivered, 10, "ethereum-2", 0, activeAll); err == nil {
 		t.Fatalf("proved the outcome of a live client's send")
 	}
 	r.Replace("ethereum-1", "ethereum-2", 0, 1000)
 	other := rec.Packet
 	other.TimeoutTimestamp++
-	if err := rt.ProveOutcome(pk(1), other, ProvenDelivered, 10, "ethereum-2", activeAll); err == nil {
+	if err := rt.ProveOutcome(pk(1), other, ProvenDelivered, 10, "ethereum-2", 0, activeAll); err == nil {
 		t.Fatalf("proved with another packet")
 	}
-	if err := rt.ProveOutcome(pk(1), rec.Packet, ProvenDelivered, 10, "ethereum-2", activeAll); err != nil {
+	if err := rt.ProveOutcome(pk(1), rec.Packet, ProvenDelivered, 10, "ethereum-2", 0, activeAll); err != nil {
 		t.Fatal(err)
 	}
 	// A proven outcome is final while its verifier is Active (Codex round 5
 	// #1): no later proof replaces it.
-	if err := rt.ProveOutcome(pk(1), rec.Packet, ProvenRefundable, 11, "ethereum-2", activeAll); err == nil {
+	if err := rt.ProveOutcome(pk(1), rec.Packet, ProvenRefundable, 11, "ethereum-2", 0, activeAll); err == nil {
 		t.Fatalf("a proof replaced a final outcome")
 	}
 	if _, err := rt.SettleRecords("ethereum-1", []SettleItem{{Seq: 1, Action: SettlePay, Amount: 1_000}}, "inc", lockOf(big), activeAll); err == nil {
@@ -632,14 +632,37 @@ func TestProvenOutcomes(t *testing.T) {
 	// The verifier froze or expired between the proof and the settlement:
 	// the outcome is void and must be proven again through a healthy client
 	// (Codex round 5 #5).
-	frozen := func(c string) bool { return c != "ethereum-2" }
+	frozen := func(c string, _ uint64) bool { return c != "ethereum-2" }
 	if _, err := rt.SettleRecords("ethereum-1", []SettleItem{{Seq: 1, Action: SettleDelivered}}, "inc", lockOf(big), frozen); err == nil {
 		t.Fatalf("settled on an outcome its frozen verifier proved")
 	}
-	if err := rt.ProveOutcome(pk(1), rec.Packet, ProvenDelivered, 12, "ethereum-3", frozen); err != nil {
+	if err := rt.ProveOutcome(pk(1), rec.Packet, ProvenDelivered, 12, "ethereum-3", 0, frozen); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := rt.SettleRecords("ethereum-1", []SettleItem{{Seq: 1, Action: SettleDelivered}}, "inc", lockOf(big), frozen); err != nil {
+		t.Fatal(err)
+	}
+
+	// The verifier was recovered between the proof and the settlement (Codex
+	// round 6 #2): Active again, but under a new trust generation, so what it
+	// proved before is void.
+	reg3, rt3 := newRoute(t)
+	rt3.RecordSend(sendRec(1, "ugnot", KindUnescrow, 1_000))
+	rec3, _ := rt3.Send(pk(1))
+	reg3.Replace("ethereum-1", "ethereum-2", 0, 1000)
+	gen := uint64(4)
+	current := func(_ string, g uint64) bool { return g == gen }
+	if err := rt3.ProveOutcome(pk(1), rec3.Packet, ProvenDelivered, 10, "ethereum-2", gen, current); err != nil {
+		t.Fatal(err)
+	}
+	gen++ // recovered
+	if _, err := rt3.SettleRecords("ethereum-1", []SettleItem{{Seq: 1, Action: SettleDelivered}}, "inc", lockOf(big), current); err == nil {
+		t.Fatalf("settled on an outcome proven before its verifier's recovery")
+	}
+	if err := rt3.ProveOutcome(pk(1), rec3.Packet, ProvenDelivered, 20, "ethereum-2", gen, current); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := rt3.SettleRecords("ethereum-1", []SettleItem{{Seq: 1, Action: SettleDelivered}}, "inc", lockOf(big), current); err != nil {
 		t.Fatal(err)
 	}
 

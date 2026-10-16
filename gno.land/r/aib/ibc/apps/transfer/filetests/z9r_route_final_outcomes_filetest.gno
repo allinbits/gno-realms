@@ -208,5 +208,5 @@ func main(cur realm) {
 // send 1 proven 1 by ethereum-2
 // proven again: controls: send ethereum-1/00000000000000000001's outcome is proven already
 // verifier: Expired
-// settle: spent - spent: controls: item 0: send ethereum-1/00000000000000000001's outcome was proven through ethereum-2, no longer Active: prove it again
+// settle: spent - spent: controls: item 0: send ethereum-1/00000000000000000001's outcome was proven through ethereum-2 under trust generation 0, no longer Active or current: prove it again
 // prove through it: client ethereum-2 is Expired, not Active

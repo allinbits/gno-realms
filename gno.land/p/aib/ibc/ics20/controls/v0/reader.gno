@@ -305,7 +305,7 @@ func SendJSON(r SendRecord) string {
 		",\"kind\":" + q(r.Kind) + ",\"amount\":" + itoa(r.Amount) + ",\"fee\":" + itoa(r.Fee) +
 		",\"sent_height\":" + itoa(r.SentHeight) + ",\"sent_at\":" + itoa(r.SentAt) + ",\"backfilled\":" + strconv.FormatBool(r.Backfilled) + ",\"outcome\":" + q(r.Outcome) +
 		",\"processed_height\":" + itoa(r.ProcessedHeight) + ",\"processed_at\":" + itoa(r.ProcessedAt) +
-		",\"payment\":" + q(r.Payment) + ",\"refunded\":" + itoa(r.Refunded) + ",\"settlement\":" + itoa(int64(r.Settlement)) + ",\"reservation\":" + itoa(r.Reservation) + ",\"proven\":" + itoa(int64(r.Proven)) + ",\"proven_at\":" + strconv.FormatUint(r.ProvenAt, 10) + ",\"incident\":" + q(r.Incident) + "}"
+		",\"payment\":" + q(r.Payment) + ",\"refunded\":" + itoa(r.Refunded) + ",\"settlement\":" + itoa(int64(r.Settlement)) + ",\"reservation\":" + itoa(r.Reservation) + ",\"proven\":" + itoa(int64(r.Proven)) + ",\"proven_at\":" + strconv.FormatUint(r.ProvenAt, 10) + ",\"proven_by\":" + q(r.ProvenBy) + ",\"proven_gen\":" + strconv.FormatUint(r.ProvenGen, 10) + ",\"incident\":" + q(r.Incident) + "}"
 }
 
 func packetJSON(p types.Packet) string {

@@ -52,12 +52,13 @@ type SendRecord struct {
 	ProcessedHeight int64
 	ProcessedAt     int64
 	Payment         string
-	Refunded        int64 // what was refunded so far, at once, by claims or by decision
-	Settlement      uint8 // the reconciliation's action (SettlePay...), 0 while unsettled
-	Reservation     int64 // KindMint: the supply this send still holds against the cap, released or consumed once
-	Proven          uint8 // the destination's outcome, proven through the replacement client (ProvenDelivered...)
+	Refunded        int64  // what was refunded so far, at once, by claims or by decision
+	Settlement      uint8  // the reconciliation's action (SettlePay...), 0 while unsettled
+	Reservation     int64  // KindMint: the supply this send still holds against the cap, released or consumed once
+	Proven          uint8  // the destination's outcome, proven through the replacement client (ProvenDelivered...)
 	ProvenBy        string // the client that verified it: the outcome is void once it is no longer Active
 	ProvenAt        uint64 // the proof's height on the replacement client
+	ProvenGen       uint64 // ProvenBy's trust generation then: void once a recovery, freeze, upgrade, migration or substitution starts another
 	Incident        string
 }
 
@@ -467,10 +468,10 @@ func (rt *Route) QueuedRefundCount(denom string) int {
 // Settlement actions of a reconciliation (ADR pr6375 §5.4 kind 12, §7.12),
 // one per send record, the same numbers as on Ethereum.
 const (
-	SettlePay       = uint8(1) // a genuine refund: pay its whole remainder, Amount = what the packet carried minus what was refunded (0 if paid in full)
-	SettleReject    = uint8(2) // reject a queued refund, none of it paid: the packet was delivered
-	SettleDelivered = uint8(3) // the packet was delivered, no refund paid: settled, nothing owed (a queued refund is rejected)
-	SettleLoss      = uint8(4) // a forged refund: the unpaid remainder rejected, what was paid (Amount) recorded as a loss
+	SettlePay           = uint8(1) // a genuine refund: pay its whole remainder, Amount = what the packet carried minus what was refunded (0 if paid in full)
+	SettleReject        = uint8(2) // reject a queued refund, none of it paid: the packet was delivered
+	SettleDelivered     = uint8(3) // the packet was delivered, no refund paid: settled, nothing owed (a queued refund is rejected)
+	SettleLoss          = uint8(4) // a forged refund: the unpaid remainder rejected, what was paid (Amount) recorded as a loss
 	SettleForgedReceive = uint8(5) // a forged receive: Seq is an inbound sequence; its claim is forged (remainder dropped), what it paid out (Amount) a loss, once
 )
 
@@ -501,8 +502,10 @@ type SettleItem struct {
 // timeout or decision moves it again. A queued refund leaves the queue under
 // any action, paid only by SettlePay. lock is the escrow of an unescrowed
 // denom: payments never take what open claims reserve. Every item is checked
-// before anything changes. It returns the refunds to pay.
-func (rt *Route) SettleRecords(client string, items []SettleItem, incident string, lock func(denom string) int64, active func(client string) bool) ([]RefundPayment, error) {
+// before anything changes. It returns the refunds to pay. trusted reports
+// whether a verifier still vouches for what it proved under a trust
+// generation: Active, not retired, and that generation still current.
+func (rt *Route) SettleRecords(client string, items []SettleItem, incident string, lock func(denom string) int64, trusted func(client string, gen uint64) bool) ([]RefundPayment, error) {
 	retired := false
 	for _, c := range rt.Replaced {
 		if c == client {
@@ -556,8 +559,8 @@ func (rt *Route) SettleRecords(client string, items []SettleItem, incident strin
 		// The action must match the outcome proven through the replacement
 		// client (ADR pr6375 §7.12): governance chooses, the proof decides.
 		switch {
-		case r.Proven != ProvenNone && !active(r.ProvenBy):
-			return nil, ufmt.Errorf("controls: item %d: send %s's outcome was proven through %s, no longer Active: prove it again", i, key, r.ProvenBy)
+		case r.Proven != ProvenNone && !trusted(r.ProvenBy, r.ProvenGen):
+			return nil, ufmt.Errorf("controls: item %d: send %s's outcome was proven through %s under trust generation %d, no longer Active or current: prove it again", i, key, r.ProvenBy, r.ProvenGen)
 		case (it.Action == SettlePay) && r.Proven != ProvenRefundable && r.Proven != ProvenCollision,
 			(it.Action == SettleReject || it.Action == SettleDelivered || it.Action == SettleLoss) && r.Proven != ProvenDelivered:
 			return nil, ufmt.Errorf("controls: item %d: action %d does not match send %s's proven outcome (%d)", i, it.Action, key, r.Proven)
@@ -710,8 +713,9 @@ func (rt *Route) forgedReceive(key string) (string, int64, error) {
 // §7.12): packet must be the record's (its commitment), its client one a
 // replacement retired, the record unsettled, and height not below an earlier
 // proof's (a later state of the destination supersedes an earlier one, never
-// the other way round).
-func (rt *Route) ProveOutcome(key string, packet types.Packet, outcome uint8, height uint64, verifier string, active func(client string) bool) error {
+// the other way round). gen is verifier's trust generation: the outcome holds
+// only while trusted(verifier, gen) (see SettleRecords).
+func (rt *Route) ProveOutcome(key string, packet types.Packet, outcome uint8, height uint64, verifier string, gen uint64, trusted func(client string, gen uint64) bool) error {
 	r := rt.send(key)
 	if r == nil {
 		return errors.New("controls: no send record for " + key)
@@ -735,12 +739,12 @@ func (rt *Route) ProveOutcome(key string, packet types.Packet, outcome uint8, he
 		return errors.New("controls: unknown outcome")
 	}
 	// A proven outcome is final (an acknowledgement, a receipt, an absence
-	// past the timeout): it is proven again only once its verifier is no
-	// longer Active, which voids it.
-	if r.Proven != ProvenNone && active(r.ProvenBy) {
+	// past the timeout): it is proven again only once its verifier no longer
+	// vouches for it (not Active, or a new trust generation), which voids it.
+	if r.Proven != ProvenNone && trusted(r.ProvenBy, r.ProvenGen) {
 		return ufmt.Errorf("controls: send %s's outcome is proven already", key)
 	}
-	r.Proven, r.ProvenAt, r.ProvenBy = outcome, height, verifier
+	r.Proven, r.ProvenAt, r.ProvenBy, r.ProvenGen = outcome, height, verifier, gen
 	return nil
 }
 

@@ -63,7 +63,13 @@ func RegisterCounterparty(cur realm, clientID string, counterpartyMerklePrefix [
 func UpdateClient(cur realm, clientID string, clientMessage lightclient.ClientMessage) {
 	ensureNotRetired(clientID)
 	ensureRelayerFor(clientID)
+	c := store.getClient(clientID)
+	frozen := c != nil && c.lightClient.Status() == lightclient.Frozen
 	mustImpl().UpdateClient(0, cur, clientID, clientMessage)
+	// A misbehaviour that froze the client ends its trust generation.
+	if c != nil && !frozen && c.lightClient.Status() == lightclient.Frozen {
+		c.trustGen++
+	}
 }
 
 // UpgradeClient upgrades the client to a new client and consensus state,
@@ -74,6 +80,7 @@ func UpgradeClient(cur realm, clientID string, clientState, consensusState, proo
 	ensureNotRetired(clientID)
 	ensureAuthorizedRelayer()
 	mustImpl().UpgradeClient(0, cur, clientID, clientState, consensusState, proofUpgradeClient, proofUpgradeConsensusState)
+	newTrustGeneration(clientID)
 }
 
 // RecoverClient recovers a frozen or expired subject client using a healthy
@@ -85,6 +92,28 @@ func RecoverClient(cur realm, subjectClientID, substituteClientID string) {
 	ensureNotRetired(subjectClientID)
 	ensureNotRetired(substituteClientID)
 	mustImpl().RecoverClient(0, cur, subjectClientID, substituteClientID)
+	newTrustGeneration(subjectClientID)
+}
+
+// newTrustGeneration starts a new trust generation of clientID's verifier,
+// after a call that changed whom it trusts. The core does it itself rather
+// than leave it to the implementation, which an upgrade replaces.
+func newTrustGeneration(clientID string) {
+	if c := store.getClient(clientID); c != nil {
+		c.trustGen++
+	}
+}
+
+// ClientTrustGeneration is clientID's trust generation (0 if unknown): it
+// grows on each recovery, freeze, upgrade, migration and substitution of the
+// verifier, so an outcome proven through the client is settled on only while
+// the generation it was proven under is current (ADR pr6375 §5.4).
+func ClientTrustGeneration(clientID string) uint64 {
+	c := store.getClient(clientID)
+	if c == nil {
+		return 0
+	}
+	return c.trustGen
 }
 
 // recoveryChecker is implemented by a light client that tells, without a
@@ -169,6 +198,7 @@ func MigrateClient(cur realm, clientID, migration string, params []byte) {
 		panic("core: the active implementation " + implVersion + " cannot migrate clients")
 	}
 	m.MigrateClient(0, cur, clientID, migration, params)
+	newTrustGeneration(clientID)
 }
 
 // ClientType returns the type of clientID ("07-tendermint", "ethereum", ...),
