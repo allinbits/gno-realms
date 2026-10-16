@@ -389,3 +389,39 @@ func TestBackfill(t *testing.T) {
 		t.Fatalf("backfilled a denom not enabled")
 	}
 }
+
+// A send's supply reservation is released or consumed exactly once: a
+// success releases it, and a later reconciliation of the same send (as
+// delivered, or paying a refund after a forged success) releases nothing
+// more, so the supply cap still holds (Codex round 2 #1).
+func TestReservationReleasedOnce(t *testing.T) {
+	r, rt := newRoute(t)
+	d := rt.Denom("ibc/WETH")
+	supplyCap := d.Config.SupplyCap
+	d.Totals.Outstanding = supplyCap
+	rt.RecordSend(sendRec(1, "ibc/WETH", KindMint, 400))
+	rt.RecordSend(sendRec(2, "ibc/WETH", KindMint, 300))
+	rt.Settle(t0, 1, pk(1), OutcomeSuccess, false, 0)
+	rt.Settle(t0, 1, pk(2), OutcomeSuccess, false, 0)
+	// The freed supply is taken by credits.
+	mustCredit(t, rt, t0, 10, "ibc/WETH", alice, 700, 0)
+	if err := rt.CheckCredit("ibc/WETH", 1); err == nil {
+		t.Fatalf("over the cap")
+	}
+	r.Replace("ethereum-1", "ethereum-2")
+	// Send 1 delivered; send 2's success was forged: its refund is paid.
+	ps, err := rt.SettleRecords("ethereum-1", []SettleItem{{Seq: 1, Action: SettleDelivered}, {Seq: 2, Action: SettlePay, Amount: 300}}, "inc", lockOf(0))
+	if err != nil || len(ps) != 1 {
+		t.Fatalf("%+v %v", ps, err)
+	}
+	if d.Totals.Returning != 0 {
+		t.Fatalf("released twice: returning %d", d.Totals.Returning)
+	}
+	if err := rt.CheckCredit("ibc/WETH", 1); err == nil {
+		t.Fatalf("a reconciliation freed supply that was taken: %+v", d.Totals)
+	}
+	r1, _ := rt.Send(pk(1))
+	if r1.Reservation != 0 {
+		t.Fatalf("%+v", r1)
+	}
+}
