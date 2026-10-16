@@ -30,10 +30,10 @@ func newRoute(t *testing.T) (*Registry, *Route) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := rt.SetDenom("ugnot", gnot(), t0, 0); err != nil {
+	if err := rt.SetDenom("ugnot", gnot(), t0, 0, 0); err != nil {
 		t.Fatal(err)
 	}
-	if err := rt.SetDenom("ibc/WETH", mintCfg(), t0, 0); err != nil {
+	if err := rt.SetDenom("ibc/WETH", mintCfg(), t0, 0, 0); err != nil {
 		t.Fatal(err)
 	}
 	return r, rt
@@ -126,16 +126,16 @@ func TestEnrollAndDenoms(t *testing.T) {
 	c := gnot()
 	c.Kind = KindMint
 	c.SupplyCap, c.SendMax, c.SendMin = 1, 0, 0
-	if err := rt.SetDenom("ugnot", c, t0, 0); err == nil {
+	if err := rt.SetDenom("ugnot", c, t0, 0, 0); err == nil {
 		t.Fatalf("accounting changed")
 	}
 	c = gnot()
 	c.CapFloor = 9_999
-	if err := rt.SetDenom("ugnot", c, t0, 0); err == nil || !strings.Contains(err.Error(), "launch value") {
+	if err := rt.SetDenom("ugnot", c, t0, 0, 0); err == nil || !strings.Contains(err.Error(), "launch value") {
 		t.Fatalf("below launch: %v", err)
 	}
 	c.CapFloor = 20_000
-	if err := rt.SetDenom("ugnot", c, t0, 0); err != nil {
+	if err := rt.SetDenom("ugnot", c, t0, 0, 0); err != nil {
 		t.Fatal(err)
 	}
 	if rt.Denom("ugnot").Config.CapFloor != 20_000 || rt.Denom("ugnot").LaunchCapFloor != 10_000 {
@@ -571,5 +571,34 @@ func TestClaimsRandomized(t *testing.T) {
 		if paidTotal > (days+1)*20_000 {
 			t.Fatalf("paid %d in %d days", paidTotal, days)
 		}
+	}
+}
+
+// A minted denom enabled over vouchers already in circulation counts them
+// against its supply cap from the start (Codex review #8).
+func TestMintStartsAtExistingSupply(t *testing.T) {
+	r := NewRegistry()
+	rt, _ := r.Enroll("ethereum-1", collector, t0)
+	if err := rt.SetDenom("ibc/WETH", mintCfg(), t0, 0, -1); err == nil {
+		t.Fatalf("negative supply")
+	}
+	supplyCap := mintCfg().SupplyCap
+	if err := rt.SetDenom("ibc/WETH", mintCfg(), t0, 0, supplyCap-100); err != nil {
+		t.Fatal(err)
+	}
+	if err := rt.CheckCredit("ibc/WETH", 101); err == nil {
+		t.Fatalf("admitted past the cap over the existing supply")
+	}
+	if err := rt.CheckCredit("ibc/WETH", 100); err != nil {
+		t.Fatal(err)
+	}
+	// A configuration change keeps the accounting.
+	if err := rt.SetDenom("ibc/WETH", mintCfg(), t0, 0, 0); err != nil || rt.Denom("ibc/WETH").Totals.Outstanding != supplyCap-100 {
+		t.Fatalf("%v", err)
+	}
+	// An unescrowed denom has no supply.
+	rt.SetDenom("ugnot", gnot(), t0, 0, 5)
+	if rt.Denom("ugnot").Totals.Outstanding != 0 {
+		t.Fatalf("outstanding on an unescrowed denom")
 	}
 }

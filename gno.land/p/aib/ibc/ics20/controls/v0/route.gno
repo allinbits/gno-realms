@@ -202,15 +202,15 @@ type Route struct {
 	Enrolled     int64
 	FeeCollector address
 
-	refused avl.Tree // lower-case Ethereum address -> true: refused send recipients
-	denoms  avl.Tree // denom -> *Denom
-	claims  avl.Tree // packet key -> *Claim
-	sweeps  avl.Tree // packet key -> *SweepEntry
-	sends   avl.Tree // packet key -> *SendRecord
+	refused   avl.Tree // lower-case Ethereum address -> true: refused send recipients
+	denoms    avl.Tree // denom -> *Denom
+	claims    avl.Tree // packet key -> *Claim
+	sweeps    avl.Tree // packet key -> *SweepEntry
+	sends     avl.Tree // packet key -> *SendRecord
 	losses    avl.Tree // loss key -> *Loss
 	incidents avl.Tree // denom|incident -> *IncidentTotals
 	recaps    avl.Tree // seqKey(id) -> *Recap
-	nRecaps int64
+	nRecaps   int64
 }
 
 // SetFeeCollector replaces the fee collector.
@@ -333,12 +333,17 @@ type queue struct {
 }
 
 // SetDenom enables a denom on the route or replaces its configuration. A new
-// denom's meters start empty as of now in epoch. The cap floor never goes
-// below the one the denom was enabled with, and a denom never changes
-// accounting.
-func (rt *Route) SetDenom(name string, c DenomConfig, now, epoch int64) error {
+// denom's meters start empty as of now in epoch. A new minted denom starts
+// with outstanding, the vouchers of it already in circulation (minted before
+// the route was controlled), counted against its supply cap from the start;
+// outstanding is ignored otherwise. The cap floor never goes below the one the
+// denom was enabled with, and a denom never changes accounting.
+func (rt *Route) SetDenom(name string, c DenomConfig, now, epoch, outstanding int64) error {
 	if name == "" {
 		return errors.New("controls: empty denom")
+	}
+	if outstanding < 0 {
+		return errors.New("controls: negative outstanding supply")
 	}
 	if err := c.Validate(); err != nil {
 		return err
@@ -354,6 +359,9 @@ func (rt *Route) SetDenom(name string, c DenomConfig, now, epoch int64) error {
 		return nil
 	}
 	d := &Denom{Name: name, Config: c, LaunchCapFloor: c.CapFloor}
+	if c.Kind == KindMint {
+		d.Totals.Outstanding = outstanding
+	}
 	d.meter = NewMeter(now, epoch)
 	d.refundMeter = NewMeter(now, 0)
 	rt.denoms.Set(name, d)

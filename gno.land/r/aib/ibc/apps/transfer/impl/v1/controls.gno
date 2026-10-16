@@ -162,7 +162,13 @@ func (l *logic) GovApply(_ int, rlm realm, op string, params []byte) string {
 		if minted != (p.Config.Kind == controls.KindMint) {
 			return "a minted denom is a voucher's ibc/ denom, an unescrowed one is not"
 		}
-		err = rt.SetDenom(p.Denom, p.Config, t, epoch)
+		// A minted denom's vouchers already in circulation (minted by
+		// impl/v0) count against its supply cap from the start.
+		var outstanding int64
+		if tok := l.store.VoucherToken(p.Denom); minted && tok != nil {
+			outstanding = tok.TotalSupply()
+		}
+		err = rt.SetDenom(p.Denom, p.Config, t, epoch, outstanding)
 	case controls.OpCollector:
 		err = rt.SetFeeCollector(p.To)
 	case controls.OpRefuse:
