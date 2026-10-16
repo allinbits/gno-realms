@@ -315,7 +315,7 @@ e2e/
 ├── tx_test.go              # signAndBroadcastAtomOneTx, signAndBroadcastGnoCall (suite methods)
 ├── suite_test.go           # Testify suite: SetupSuite, waitForIBCClients, gnokey helpers
 ├── ibc_transfer_test.go    # TestIBCTransferAtomOneToGno, TestIBCTransferGnoToAtomOne
-└── upgrade_test.go         # TestGovDAOUpdateImpl (UpdateImpl through r/gov/dao), TestUpgradeRehearsal (deploy v99, switch, relay, roll back)
+└── upgrade_test.go         # TestGovernorUpdateImpl (UpdateImpl through an ibcgov decision, premature execution refused), TestUpgradeRehearsal (deploy v99, switch, relay, roll back)
 ```
 
 ### Ports

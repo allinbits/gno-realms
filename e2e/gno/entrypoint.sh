@@ -21,7 +21,7 @@ cd /aibgno
 # gnodev's lazy loader reloads the node when a transaction references a
 # package it has not loaded yet, which resets the chain under the relayer and
 # invalidates the light client AtomOne keeps of it. r/gov/dao/init/v0 is what
-# the upgrade tests use to seed the GovDAO.
+# the GovDAO seeding used; gno.land/r/aib/ibc/ibcgov decides every upgrade.
 exec gnodev local \
     -node-rpc-listener 0.0.0.0:26657 \
     -web-listener 0.0.0.0:8888 \
@@ -30,4 +30,4 @@ exec gnodev local \
     -no-watch \
     -add-account "${TEST_ADDR}=10000000000ugnot" \
     -add-account "${RELAYER_ADDR}=10000000000ugnot" \
-    -paths "gno.land/r/aib/ibc/core,gno.land/r/aib/ibc/core/impl/v0,gno.land/r/aib/ibc/apps/transfer,gno.land/r/aib/ibc/apps/transfer/impl/v0,gno.land/r/aib/ibc/apps/testing/grc20test,gno.land/r/gov/dao/init/v0"
+    -paths "gno.land/r/aib/ibc/core,gno.land/r/aib/ibc/core/impl/v0,gno.land/r/aib/ibc/apps/transfer,gno.land/r/aib/ibc/apps/transfer/impl/v0,gno.land/r/aib/ibc/ibcgov,gno.land/r/aib/ibc/apps/testing/grc20test,gno.land/r/gov/dao/init/v0"
