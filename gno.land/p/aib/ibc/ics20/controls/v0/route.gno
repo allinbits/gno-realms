@@ -1,0 +1,740 @@
+// Package controls is the state of the safety controls an ICS-20 transfer
+// app keeps for its Ethereum routes (ADR pr6375 §7.1, §7.8, §7.9, §7.12,
+// §7.13): per route and denom, the outflow meters and the claim queue that
+// pays credits from Ethereum, the sweep queue, the send limits, the immutable
+// per-packet send records with the refund meter and the queued refunds, the
+// voids and restores, and the loss ledger with its recapitalizations,
+// reductions and accepted deficits.
+//
+// It holds no coins and makes no call: the transfer implementation moves
+// value as the Payment values returned here say, through the transfer proxy's
+// services, and decides what a refusal means (an error acknowledgement before
+// any state change, or a spent decision). Every function validates first and
+// mutates only once nothing can fail, so an error leaves the state untouched.
+// Clocks are unix seconds and block heights, passed in.
+//
+// A Registry lives in the transfer proxy's storage, allocated there through
+// NewRegistryAny; only the proxy's gated accessor hands out the pointer, to
+// the active implementation. Other realms read it through a Reader, which
+// exposes no mutator.
+//
+// The meter, claim, installment and void algorithms are ported from
+// gnolang/bridges (branch ethereum-draft, commit a58efe81c9eb):
+// solana/realm/p/hlroute/v0/hlroute.gno (Meter, Credit, Claim, void,
+// restore) and ethereum/realm/hlgnot/installments.gno (no slivers),
+// Copyright (C) 2026 NewTendermint, LLC, under the GNO Network General Public
+// License. They are adapted to IBC: claims are keyed by packet, a route holds
+// several denoms with two accountings (unescrow and mint), and refunds have
+// their own meter.
+package controls
+
+import (
+	"errors"
+	"strconv"
+	"strings"
+
+	"gno.land/p/nt/avl/v0"
+	"gno.land/p/nt/ufmt/v0"
+)
+
+const (
+	// Day is a day of block time, in seconds.
+	Day = int64(86400)
+	// MaxClaims is the most claims one Claim call pays (ADR pr6375 §7.1).
+	MaxClaims = 20
+	// MaxKeys is the most packet keys one decision names.
+	MaxKeys = 64
+	// PageLines is how many entries a page lists.
+	PageLines = 100
+
+	maxInt64 = int64(1<<63 - 1)
+)
+
+// Claim states.
+const (
+	Open     = "open"     // credited, unpaid or paying
+	Withheld = "withheld" // voided as withheld: the remainder stays booked, restorable
+	Forged   = "forged"   // voided as forged: the remainder dropped, the paid part lost
+	Done     = "done"     // paid in full
+)
+
+// Who credited a claim.
+const (
+	ByPacket = "packet" // a received packet
+	ByVote   = "vote"   // a credit-by-vote decision
+)
+
+// PacketKey is the key of a packet on a client: the client id, "/", and the
+// sequence in 20 decimal digits, so keys sort by sequence.
+func PacketKey(clientID string, sequence uint64) string {
+	s := strconv.FormatUint(sequence, 10)
+	return clientID + "/" + strings.Repeat("0", 20-len(s)) + s
+}
+
+// ParsePacketKey splits a packet key; ok is false for anything else.
+func ParsePacketKey(key string) (clientID string, sequence uint64, ok bool) {
+	i := strings.LastIndex(key, "/")
+	if i <= 0 || len(key)-i-1 != 20 {
+		return "", 0, false
+	}
+	seq, err := strconv.ParseUint(key[i+1:], 10, 64)
+	if err != nil || seq == 0 {
+		return "", 0, false
+	}
+	return key[:i], seq, true
+}
+
+func seqKey(n int64) string {
+	s := strconv.FormatInt(n, 10)
+	return strings.Repeat("0", 19-len(s)) + s
+}
+
+func itoa(n int64) string { return strconv.FormatInt(n, 10) }
+
+// ---------------------------------------------------------------- registry
+
+// Registry holds the controlled routes and the client aliases: a route is
+// keyed by a stable route key (its first client id), and its current client
+// id is an alias, so a route replacement re-points the alias in constant work
+// (ADR pr6375 §7.12, R18).
+type Registry struct {
+	routes  avl.Tree // route key -> *Route
+	aliases avl.Tree // current client id -> route key
+	retired avl.Tree // retired client id -> route key
+}
+
+// NewRegistry is an empty registry.
+func NewRegistry() *Registry { return &Registry{} }
+
+// NewRegistryAny is NewRegistry for a constructor slot typed func() any.
+func NewRegistryAny() any { return NewRegistry() }
+
+// Enroll creates the route key, whose current client is key itself.
+func (r *Registry) Enroll(key string, collector address, now int64) (*Route, error) {
+	if key == "" {
+		return nil, errors.New("controls: empty route key")
+	}
+	if r.routes.Has(key) || r.aliases.Has(key) || r.retired.Has(key) {
+		return nil, errors.New("controls: client " + key + " is a route or a route's client already")
+	}
+	if !collector.IsValid() {
+		return nil, errors.New("controls: invalid fee collector " + string(collector))
+	}
+	rt := &Route{Key: key, Client: key, Enrolled: now, FeeCollector: collector}
+	r.routes.Set(key, rt)
+	r.aliases.Set(key, key)
+	return rt, nil
+}
+
+// Route is the route with this key, or nil.
+func (r *Registry) Route(key string) *Route {
+	v := r.routes.Get(key)
+	if v == nil {
+		return nil
+	}
+	return v.(*Route)
+}
+
+// RouteOf is the route whose current client is clientID, or nil.
+func (r *Registry) RouteOf(clientID string) *Route {
+	v := r.aliases.Get(clientID)
+	if v == nil {
+		return nil
+	}
+	return r.Route(v.(string))
+}
+
+// RetiredRouteOf is the key of the route a replacement retired clientID from,
+// or "".
+func (r *Registry) RetiredRouteOf(clientID string) string {
+	v := r.retired.Get(clientID)
+	if v == nil {
+		return ""
+	}
+	return v.(string)
+}
+
+// Replace re-points the route key to newClient (ADR pr6375 §7.12): newClient
+// becomes the route's current client and the old one is retired. Nothing per
+// denom moves: escrow, vouchers and controls stay keyed by the route key.
+func (r *Registry) Replace(key, newClient string) error {
+	rt := r.Route(key)
+	if rt == nil {
+		return errors.New("controls: no route " + key)
+	}
+	if newClient == "" || r.aliases.Has(newClient) || r.retired.Has(newClient) || r.routes.Has(newClient) {
+		return errors.New("controls: client " + newClient + " is a route's client already")
+	}
+	old := rt.Client
+	r.aliases.Remove(old)
+	r.retired.Set(old, key)
+	r.aliases.Set(newClient, key)
+	rt.Client = newClient
+	rt.Replaced = append(rt.Replaced, old)
+	return nil
+}
+
+// Keys lists the route keys.
+func (r *Registry) Keys() []string {
+	var out []string
+	r.routes.Iterate("", "", func(k string, _ any) bool {
+		out = append(out, k)
+		return false
+	})
+	return out
+}
+
+// ReadOnly is the registry's read-only view (see Reader).
+func (r *Registry) ReadOnly() any { return Reader{r: r} }
+
+// ------------------------------------------------------------------- route
+
+// Route is the controls state of one route.
+type Route struct {
+	Key          string
+	Client       string   // the current client id
+	Replaced     []string // the client ids replacements retired, oldest first
+	Enrolled     int64
+	FeeCollector address
+
+	refused avl.Tree // lower-case Ethereum address -> true: refused send recipients
+	denoms  avl.Tree // denom -> *Denom
+	claims  avl.Tree // packet key -> *Claim
+	sweeps  avl.Tree // packet key -> *SweepEntry
+	sends   avl.Tree // packet key -> *SendRecord
+	losses  avl.Tree // loss key -> *Loss
+	recaps  avl.Tree // seqKey(id) -> *Recap
+	nRecaps int64
+}
+
+// SetFeeCollector replaces the fee collector.
+func (rt *Route) SetFeeCollector(a address) error {
+	if !a.IsValid() {
+		return errors.New("controls: invalid fee collector " + string(a))
+	}
+	rt.FeeCollector = a
+	return nil
+}
+
+// Refuse adds lower-case Ethereum addresses to the refused send recipients
+// (the route's bridge contracts, ADR pr6375 §7.8).
+func (rt *Route) Refuse(addrs []string) {
+	for _, a := range addrs {
+		rt.refused.Set(strings.ToLower(a), true)
+	}
+}
+
+// Unrefuse removes addresses from the refused send recipients.
+func (rt *Route) Unrefuse(addrs []string) {
+	for _, a := range addrs {
+		rt.refused.Remove(strings.ToLower(a))
+	}
+}
+
+// IsRefused reports whether addr (any case) is a refused send recipient.
+func (rt *Route) IsRefused(addr string) bool {
+	return rt.refused.Has(strings.ToLower(addr))
+}
+
+// Refused lists the refused send recipients.
+func (rt *Route) Refused() []string {
+	var out []string
+	rt.refused.Iterate("", "", func(k string, _ any) bool {
+		out = append(out, k)
+		return false
+	})
+	return out
+}
+
+// ------------------------------------------------------------------- denom
+
+// Denom is one denom of a route: its configuration, its meters and queues,
+// and its accounting.
+type Denom struct {
+	Name           string // the escrow denom (KindUnescrow) or the voucher's IBC denom (KindMint)
+	Config         DenomConfig
+	LaunchCapFloor int64 // the cap floor it was enabled with: lowering never goes below it
+
+	meter       Meter
+	queues      avl.Tree // recipient -> *queue
+	waiting     avl.Tree // recipient -> true while its queue holds an open claim
+	cursor      string   // the last recipient served
+	refundMeter Meter
+	refundQueue avl.Tree // seqKey(n) -> send key, oldest first
+	refundSeq   int64
+
+	Totals Totals
+}
+
+// Totals is a denom's accounting (ADR pr6375 §7.11's claim, refund and loss
+// terms, kept on chain so monitors read them at a pinned height).
+type Totals struct {
+	Credited      int64 // booked as claims, by packets and votes
+	Owed          int64 // open claims' remainders
+	Withheld      int64 // withheld claims' remainders
+	Swept         int64 // live sweep entries
+	Paid          int64 // claim installments paid to recipients
+	Fees          int64 // claim fee installments paid to the collector
+	SweepPaid     int64 // sweep entries paid by decision
+	Outstanding   int64 // KindMint: vouchers this route has in circulation
+	Sent          int64 // escrowed (KindUnescrow) or burned (KindMint) by recorded sends
+	SendFees      int64 // fees charged on sends
+	Refunded      int64 // refunds paid
+	QueuedRefunds int64 // refunds owed and not paid yet
+	Lost          int64 // the loss ledger's total
+	Recapitalized int64
+	Reduced       int64
+	Accepted      int64
+}
+
+// Unrecovered is the loss ledger's open total: losses not yet recapitalized,
+// reduced or accepted (ADR pr6375 §7.9).
+func (t Totals) Unrecovered() int64 {
+	u := t.Lost - t.Recapitalized - t.Reduced - t.Accepted
+	if u < 0 {
+		return 0
+	}
+	return u
+}
+
+// queue is one recipient's open claims, oldest first, and its meter.
+type queue struct {
+	items avl.Tree // seqKey(seq) -> packet key
+	meter Meter
+	next  int64
+}
+
+// SetDenom enables a denom on the route or replaces its configuration. A new
+// denom's meters start empty as of now in epoch. The cap floor never goes
+// below the one the denom was enabled with, and a denom never changes
+// accounting.
+func (rt *Route) SetDenom(name string, c DenomConfig, now, epoch int64) error {
+	if name == "" {
+		return errors.New("controls: empty denom")
+	}
+	if err := c.Validate(); err != nil {
+		return err
+	}
+	if d := rt.Denom(name); d != nil {
+		if c.Kind != d.Config.Kind {
+			return errors.New("controls: a denom never changes accounting")
+		}
+		if c.CapFloor < d.LaunchCapFloor {
+			return ufmt.Errorf("controls: the cap floor (%d) cannot go below its launch value (%d)", c.CapFloor, d.LaunchCapFloor)
+		}
+		d.Config = c
+		return nil
+	}
+	d := &Denom{Name: name, Config: c, LaunchCapFloor: c.CapFloor}
+	d.meter = NewMeter(now, epoch)
+	d.refundMeter = NewMeter(now, 0)
+	rt.denoms.Set(name, d)
+	return nil
+}
+
+// Denom is the denom's state, or nil.
+func (rt *Route) Denom(name string) *Denom {
+	v := rt.denoms.Get(name)
+	if v == nil {
+		return nil
+	}
+	return v.(*Denom)
+}
+
+// Denoms lists the route's denoms.
+func (rt *Route) Denoms() []string {
+	var out []string
+	rt.denoms.Iterate("", "", func(k string, _ any) bool {
+		out = append(out, k)
+		return false
+	})
+	return out
+}
+
+// Unrecovered is the open loss total over the route's denoms.
+func (rt *Route) Unrecovered() int64 {
+	var u int64
+	rt.denoms.Iterate("", "", func(_ string, v any) bool {
+		u += v.(*Denom).Totals.Unrecovered()
+		return false
+	})
+	return u
+}
+
+// DayCap is the denom's day cap: max(CapFloor, lock/10) for an unescrowed
+// denom, CapFloor for a minted one.
+func (d *Denom) DayCap(lock int64) int64 {
+	if d.Config.Kind == KindMint {
+		return d.Config.CapFloor
+	}
+	c := lock / 10
+	if c < d.Config.CapFloor {
+		c = d.Config.CapFloor
+	}
+	return c
+}
+
+// Reserved is the escrow the denom's claims hold: open and withheld
+// remainders, so voids and payouts never spend it twice (ADR pr6375 §7.9).
+func (d *Denom) Reserved() int64 { return d.Totals.Owed + d.Totals.Withheld }
+
+// CheckSend is what a send of a gno-native token must satisfy (ADR pr6375
+// §7.8): between the minimum and the maximum. A minted denom's sends are
+// voucher returns and are never limited.
+func (d *Denom) CheckSend(amount int64) error {
+	if d.Config.Kind != KindUnescrow {
+		return nil
+	}
+	if amount <= 0 {
+		return errors.New("controls: the amount must be positive")
+	}
+	if amount < d.Config.SendMin {
+		return ufmt.Errorf("controls: %d is below the minimum send of %d", amount, d.Config.SendMin)
+	}
+	if amount > d.Config.SendMax {
+		return ufmt.Errorf("controls: %d is above the maximum send of %d", amount, d.Config.SendMax)
+	}
+	return nil
+}
+
+// ------------------------------------------------------------------ claims
+
+// Claim is one credit the route owes a recipient, keyed by its packet.
+type Claim struct {
+	Key     string // the packet key (receiving client / sequence)
+	Denom   string
+	To      address
+	Amount  int64 // what it owes in all, after any reduction
+	Paid    int64 // fee included
+	Reduced int64 // cut by liability reductions
+	At      int64 // credited at, unix time
+	Height  int64 // credited at, block height
+	By      string
+	State   string
+	Seq     int64 // its place in the recipient's queue
+}
+
+// Remaining is what the claim still owes.
+func (c *Claim) Remaining() int64 { return c.Amount - c.Paid }
+
+// SweepEntry is a credit that pays nobody until a decision directs it (ADR
+// pr6375 §7.1): an amount below the fee, above the free lock, or to a bridge
+// realm.
+type SweepEntry struct {
+	Key    string
+	Denom  string
+	To     string // the receiver the packet named
+	Amount int64
+	Reason string
+	Height int64
+	Voided bool   // voided as forged
+	Paid   bool   // paid by a sweep decision, or replaced by a credit by vote
+	PaidTo string // where a sweep decision paid it
+}
+
+// Payment is what a claim payout or a sweep payment moves: Amount to To and
+// Fee to the route's fee collector, out of the denom's escrow (KindUnescrow)
+// or as newly minted vouchers (KindMint).
+type Payment struct {
+	Key    string
+	Denom  string
+	To     address
+	Amount int64
+	Fee    int64
+}
+
+// Claim is the claim of a packet key, by value, and whether it exists.
+func (rt *Route) Claim(key string) (Claim, bool) {
+	c := rt.claim(key)
+	if c == nil {
+		return Claim{}, false
+	}
+	return *c, true
+}
+
+func (rt *Route) claim(key string) *Claim {
+	v := rt.claims.Get(key)
+	if v == nil {
+		return nil
+	}
+	return v.(*Claim)
+}
+
+// Sweep is the sweep entry of a packet key, by value, and whether it exists.
+func (rt *Route) Sweep(key string) (SweepEntry, bool) {
+	e := rt.sweep(key)
+	if e == nil {
+		return SweepEntry{}, false
+	}
+	return *e, true
+}
+
+func (rt *Route) sweep(key string) *SweepEntry {
+	v := rt.sweeps.Get(key)
+	if v == nil {
+		return nil
+	}
+	return v.(*SweepEntry)
+}
+
+// CheckCredit is the refusal test of a receive, run before any state change
+// (ADR pr6375 §7.3): the denom must be enabled on the route, the amount
+// positive and, for a minted denom, within its supply cap (§6.8). A refusal is
+// answered with an error acknowledgement, so the sender is refunded at the
+// source.
+func (rt *Route) CheckCredit(denom string, amount int64) error {
+	d := rt.Denom(denom)
+	if d == nil {
+		return errors.New("controls: denom " + denom + " is not enabled on route " + rt.Key)
+	}
+	if amount <= 0 {
+		return errors.New("controls: the amount must be positive")
+	}
+	if d.Config.Kind == KindMint {
+		booked := d.Totals.Outstanding + d.Totals.Owed + d.Totals.Withheld + d.Totals.Swept
+		if amount > d.Config.SupplyCap-booked {
+			return ufmt.Errorf("controls: %d would take %s past its supply cap of %d (%d outstanding or booked)", amount, denom, d.Config.SupplyCap, booked)
+		}
+	}
+	return nil
+}
+
+// Credit books a received transfer under its packet key, in the same
+// transaction as the packet's receipt: a claim in the recipient's queue, or an
+// entry of the sweep queue. sweepReason, when not empty, sweeps it whatever
+// the amount (a bridge realm receiver); otherwise an amount below the fee, or
+// for an unescrowed denom above the free lock (lock minus what claims reserve),
+// is swept. It returns whether it was swept. Run CheckCredit first.
+func (rt *Route) Credit(now, height, epoch int64, key, denom string, to address, amount int64, by, sweepReason string, lock int64) (bool, error) {
+	if err := rt.CheckCredit(denom, amount); err != nil {
+		return false, err
+	}
+	if rt.claims.Has(key) || rt.sweeps.Has(key) {
+		return false, errors.New("controls: packet " + key + " is credited already")
+	}
+	d := rt.Denom(denom)
+	if amount > maxInt64-d.Totals.Owed-d.Totals.Swept {
+		return false, errors.New("controls: the amount would overflow what is owed")
+	}
+	reason := sweepReason
+	if reason == "" {
+		switch {
+		case amount < d.Config.Fee:
+			reason = "below the fee"
+		case d.Config.Kind == KindUnescrow && amount > lock-d.Reserved():
+			reason = "above the free lock"
+		}
+	}
+	if reason != "" {
+		rt.sweeps.Set(key, &SweepEntry{Key: key, Denom: denom, To: string(to), Amount: amount, Reason: reason, Height: height})
+		d.Totals.Swept += amount
+		return true, nil
+	}
+	if !to.IsValid() {
+		return false, errors.New("controls: invalid recipient " + string(to))
+	}
+	rt.enqueue(d, now, height, epoch, key, to, amount, by)
+	return false, nil
+}
+
+func (rt *Route) enqueue(d *Denom, now, height, epoch int64, key string, to address, amount int64, by string) *Claim {
+	q := d.queue(to, now, epoch)
+	q.next++
+	c := &Claim{Key: key, Denom: d.Name, To: to, Amount: amount, At: now, Height: height, By: by, State: Open, Seq: q.next}
+	rt.claims.Set(key, c)
+	q.items.Set(seqKey(c.Seq), key)
+	d.waiting.Set(string(to), true)
+	d.Totals.Owed += amount
+	d.Totals.Credited += amount
+	return c
+}
+
+// queue is a recipient's queue, made on first use with its meter empty as of
+// now in epoch: a queue made after an epoch's reset starts empty at its first
+// credit, as every meter does.
+func (d *Denom) queue(to address, now, epoch int64) *queue {
+	if v := d.queues.Get(string(to)); v != nil {
+		return v.(*queue)
+	}
+	q := &queue{meter: NewMeter(now, epoch)}
+	d.queues.Set(string(to), q)
+	return q
+}
+
+// oldestOpen is the first open claim of a queue, or nil.
+func (rt *Route) oldestOpen(q *queue) *Claim {
+	var found *Claim
+	q.items.Iterate("", "", func(_ string, v any) bool {
+		c := rt.claim(v.(string))
+		if c != nil && c.State == Open {
+			found = c
+			return true
+		}
+		return false
+	})
+	return found
+}
+
+// nextRecipient is the waiting recipient after the cursor, wrapping.
+func (d *Denom) nextRecipient() string {
+	next := ""
+	d.waiting.Iterate(d.cursor+"\x00", "", func(k string, _ any) bool {
+		next = k
+		return true
+	})
+	if next == "" {
+		d.waiting.Iterate("", "", func(k string, _ any) bool {
+			next = k
+			return true
+		})
+	}
+	return next
+}
+
+// MeterLevels refills and reads the bridge meter and a recipient's meter of
+// a denom under the payouts epoch (a recipient without a queue reads 0).
+func (rt *Route) MeterLevels(now, epoch, epochAt int64, denom string, to address, lock int64) (bridge, recipient int64) {
+	d := rt.Denom(denom)
+	if d == nil {
+		return 0, 0
+	}
+	c := d.DayCap(lock)
+	d.meter.Refill(now, c, c, epoch, epochAt)
+	if v := d.queues.Get(string(to)); v != nil {
+		q := v.(*queue)
+		q.meter.Refill(now, c/4, c/4, epoch, epochAt)
+		recipient = q.meter.Level
+	}
+	return d.meter.Level, recipient
+}
+
+// PayClaims pays up to n claims of a denom (n ≤ MaxClaims), taking recipients
+// round-robin and each recipient's oldest open claim (ADR pr6375 §7.1):
+//
+//   - a turn pays at most min(bridge meter, recipient meter), and for an
+//     unescrowed denom never more than the lock still holds;
+//   - a claim's first installment is the fee, whole, to the fee collector;
+//   - a later installment is paid only when both meters hold at least
+//     min(what the claim still owes, the fee): no slivers;
+//   - a recipient whose meters hold less is passed over, its meter refilling
+//     for a later turn.
+//
+// The bridge meter refills at the day cap a day, the recipient's at a quarter
+// of it; both empty when the payouts epoch changes. It books every payment
+// and returns them for the caller to make; at most n claims are paid and at
+// most 4n recipients looked at.
+func (rt *Route) PayClaims(now, epoch, epochAt int64, denom string, n int, lock int64) ([]Payment, error) {
+	d := rt.Denom(denom)
+	if d == nil {
+		return nil, errors.New("controls: denom " + denom + " is not enabled on route " + rt.Key)
+	}
+	if n < 1 {
+		return nil, errors.New("controls: n must be positive")
+	}
+	if n > MaxClaims {
+		n = MaxClaims
+	}
+	var out []Payment
+	for visits := 0; len(out) < n && visits < 4*n && d.waiting.Size() > 0; visits++ {
+		addr := d.nextRecipient()
+		d.cursor = addr
+		q := d.queues.Get(addr).(*queue)
+		c := rt.oldestOpen(q)
+		if c == nil {
+			d.waiting.Remove(addr)
+			continue
+		}
+		dayCap := d.DayCap(lock)
+		d.meter.Refill(now, dayCap, dayCap, epoch, epochAt)
+		q.meter.Refill(now, dayCap/4, dayCap/4, epoch, epochAt)
+		avail := d.meter.Level
+		if q.meter.Level < avail {
+			avail = q.meter.Level
+		}
+		if d.Config.Kind == KindUnescrow && avail > lock {
+			avail = lock
+		}
+		rem := c.Remaining()
+		fee := int64(0)
+		if c.Paid == 0 {
+			fee = d.Config.Fee
+			if fee > rem {
+				fee = rem
+			}
+			if avail <= 0 || avail < fee {
+				continue // dry: the fee is the first installment, whole
+			}
+		} else {
+			need := d.Config.Fee
+			if need > rem {
+				need = rem
+			}
+			if avail <= 0 || avail < need {
+				continue // no slivers
+			}
+		}
+		pay := rem - fee
+		if pay > avail-fee {
+			pay = avail - fee
+		}
+		total := fee + pay
+		c.Paid += total
+		d.meter.Take(total)
+		q.meter.Take(total)
+		d.Totals.Owed -= total
+		d.Totals.Paid += pay
+		d.Totals.Fees += fee
+		if d.Config.Kind == KindMint {
+			d.Totals.Outstanding += total
+		} else {
+			lock -= total
+		}
+		if c.Remaining() == 0 {
+			c.State = Done
+			rt.dequeue(d, c, q)
+		}
+		out = append(out, Payment{Key: c.Key, Denom: denom, To: c.To, Amount: pay, Fee: fee})
+	}
+	return out, nil
+}
+
+// dequeue takes a claim out of its queue; a queue left with no open claim
+// leaves the ring.
+func (rt *Route) dequeue(d *Denom, c *Claim, q *queue) {
+	q.items.Remove(seqKey(c.Seq))
+	if q.items.Size() == 0 {
+		d.waiting.Remove(string(c.To))
+	}
+}
+
+// Waiting is how many recipients of a denom have an open claim.
+func (rt *Route) Waiting(denom string) int {
+	d := rt.Denom(denom)
+	if d == nil {
+		return 0
+	}
+	return d.waiting.Size()
+}
+
+// Send records and refunds are in refunds.gno; voids, credits by vote,
+// sweeps and the loss ledger in voids.gno.
+
+func parseKeys(keys []string) error {
+	if len(keys) == 0 {
+		return errors.New("controls: no packet key")
+	}
+	if len(keys) > MaxKeys {
+		return ufmt.Errorf("controls: more than %d packet keys", MaxKeys)
+	}
+	seen := map[string]bool{}
+	for _, k := range keys {
+		if _, _, ok := ParsePacketKey(k); !ok {
+			return errors.New("controls: not a packet key: " + k)
+		}
+		if seen[k] {
+			return errors.New("controls: packet key named twice: " + k)
+		}
+		seen[k] = true
+	}
+	return nil
+}
