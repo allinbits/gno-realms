@@ -18,18 +18,13 @@ import (
 // queue it under the refund meter or a refunds hold. Pauses and limits never
 // block them (ADR pr6375 §7.3).
 
-// OnAcknowledgementPacket is impl/v0's for clients the controls do not cover,
-// and for a route's send that has no record (sent before the route was
-// controlled). Otherwise a success settles the record; an error refunds the
-// sender under the refund meter.
+// OnAcknowledgementPacket is impl/v0's for clients the controls do not cover.
+// On a route, a success settles the send record; an error refunds the sender
+// under the refund meter. A send without a record is refunded at once.
 func (l *logic) OnAcknowledgementPacket(_ int, rlm realm, sourceClient, destinationClient string, sequence uint64, acknowledgement []byte, payload types.Payload) error {
 	rt, covered := l.routeOf(0, rlm, sourceClient)
 	key := controls.PacketKey(sourceClient, sequence)
 	if !covered || rt == nil {
-		return l.Logic.OnAcknowledgementPacket(0, rlm, sourceClient, destinationClient, sequence, acknowledgement, payload)
-	}
-	rec, ok := rt.Send(key)
-	if !ok {
 		return l.Logic.OnAcknowledgementPacket(0, rlm, sourceClient, destinationClient, sequence, acknowledgement, payload)
 	}
 	var ack types.AppAcknowledgement
@@ -42,6 +37,19 @@ func (l *logic) OnAcknowledgementPacket(_ int, rlm realm, sourceClient, destinat
 		if !ack.Success() {
 			return ufmt.Errorf("cannot pass in a custom error acknowledgement with IBC v2")
 		}
+	}
+	rec, ok := rt.Send(key)
+	if !ok {
+		// A send without a record (before the route was controlled, or a
+		// voucher of a denom the route does not account): refunded at once
+		// on an error, through the route key.
+		if !ack.Success() {
+			if err := l.refundUnrecorded(0, rlm, rt, sourceClient, payload); err != nil {
+				return err
+			}
+		}
+		transfer.EmitPacket(0, rlm, transfer.AttributeKeyAck, string(acknowledgement))
+		return nil
 	}
 	outcome := controls.OutcomeSuccess
 	if !ack.Success() {
@@ -64,8 +72,9 @@ func (l *logic) OnAcknowledgementPacket(_ int, rlm realm, sourceClient, destinat
 	return nil
 }
 
-// OnTimeoutPacket is impl/v0's for clients the controls do not cover and for
-// unrecorded sends; otherwise it refunds the sender under the refund meter.
+// OnTimeoutPacket is impl/v0's for clients the controls do not cover; on a
+// route it refunds the sender under the refund meter (at once for a send
+// without a record).
 func (l *logic) OnTimeoutPacket(_ int, rlm realm, sourceClient, destinationClient string, sequence uint64, payload types.Payload) error {
 	rt, covered := l.routeOf(0, rlm, sourceClient)
 	if !covered || rt == nil {
@@ -73,7 +82,11 @@ func (l *logic) OnTimeoutPacket(_ int, rlm realm, sourceClient, destinationClien
 	}
 	rec, ok := rt.Send(controls.PacketKey(sourceClient, sequence))
 	if !ok {
-		return l.Logic.OnTimeoutPacket(0, rlm, sourceClient, destinationClient, sequence, payload)
+		if err := l.refundUnrecorded(0, rlm, rt, sourceClient, payload); err != nil {
+			return err
+		}
+		transfer.EmitRoute(0, rlm, "settle", "route", rt.Key, "packet", controls.PacketKey(sourceClient, sequence), "outcome", controls.OutcomeTimeout, "payment", "unrecorded")
+		return nil
 	}
 	l.settle(0, rlm, rt, rec, controls.OutcomeTimeout)
 	transfer.EmitTimeout(0, rlm, string(rec.Sender), rec.Denom, strconv.FormatInt(rec.Amount, 10), "")
@@ -94,6 +107,31 @@ func (l *logic) settle(_ int, rlm realm, rt *controls.Route, rec controls.SendRe
 	after, _ := rt.Send(rec.Key)
 	transfer.EmitRoute(0, rlm, "settle", "route", rt.Key, "packet", rec.Key, "outcome", outcome,
 		"payment", after.Payment, "refunded", strconv.FormatInt(pay, 10))
+}
+
+// refundUnrecorded refunds a send that has no record: it mints back a
+// returning voucher under its internal denom (keyed by the route key), or
+// releases a gno-native token from the route's escrow.
+func (l *logic) refundUnrecorded(_ int, rlm realm, rt *controls.Route, sourceClient string, payload types.Payload) error {
+	data, token, err := unmarshalPayload(payload)
+	if err != nil {
+		return err
+	}
+	coin, err := token.ToCoin()
+	if err != nil {
+		return ufmt.Errorf("token to coin error: %v", err)
+	}
+	if token.Denom.HasPrefix(payload.SourcePort, sourceClient) {
+		internal := toInternal(token.Denom, rt).IBCDenom()
+		if err := l.store.MintVoucher(0, rlm, internal, address(data.Sender), coin.Amount); err != nil {
+			return ufmt.Errorf("re-mint voucher error: %v", err)
+		}
+		return nil
+	}
+	if transfer.IsGRC20Alias(coin.Denom) {
+		return l.store.UnescrowGRC20(0, rlm, rt.Key, data.Sender, coin)
+	}
+	return l.store.UnescrowNative(0, rlm, rt.Key, data.Sender, coin)
 }
 
 // payOut moves amount of denom to `to`: out of the route's escrow for a
