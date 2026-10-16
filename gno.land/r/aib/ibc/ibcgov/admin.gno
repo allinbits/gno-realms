@@ -23,7 +23,116 @@ type adminParams struct {
 	args []string
 }
 
+// check is why the administrative call cannot apply on the live state, or "":
+// every failure the call itself would raise and that a later state could
+// clear, so the decision is spent deterministically instead of aborting and
+// staying pending, to run later under its old approval when the state
+// changes back (Codex review #15).
+func (p *adminParams) check() string {
+	a := p.args
+	switch p.op {
+	case "core update impl":
+		if !contains(core.RegisteredImplPaths(), a[0]) {
+			return "no core implementation is registered at " + a[0]
+		}
+	case "core add relayer":
+		if isRelayer(address(a[0])) {
+			return a[0] + " is a listed relayer already"
+		}
+	case "core remove relayer":
+		if !isRelayer(address(a[0])) {
+			return a[0] + " is not a listed relayer"
+		}
+	case "core recover client":
+		subject, substitute := a[0], a[1]
+		switch {
+		case subject == substitute:
+			return "the subject and the substitute are one client"
+		case core.ClientType(subject) == "" || core.ClientType(substitute) == "":
+			return "unknown client"
+		case core.ClientType(subject) != core.ClientType(substitute):
+			return "the subject and the substitute are of different types"
+		case core.IsClientRetired(subject) || core.IsClientRetired(substitute):
+			return "a retired client is never recovered or used to recover"
+		case core.ClientStatus(subject) != "Frozen" && core.ClientStatus(subject) != "Expired":
+			return "client " + subject + " is " + core.ClientStatus(subject) + ", not frozen or expired"
+		case core.ClientStatus(substitute) != "Active":
+			return "substitute " + substitute + " is " + core.ClientStatus(substitute) + ", not Active"
+		}
+	case "core approve app":
+		if !core.IsAppPending(a[0], a[1]) {
+			return "no pending registration of " + a[1] + " for port " + a[0]
+		}
+		if core.AppPkgPath(a[0]) != "" {
+			return "port " + a[0] + " is registered already"
+		}
+	case "core reject app":
+		if !core.IsAppPending(a[0], a[1]) {
+			return "no pending registration of " + a[1] + " for port " + a[0]
+		}
+	case "core pause":
+		if core.Paused() {
+			return "the core is paused already"
+		}
+	case "core pause app":
+		if core.AppPkgPath(a[0]) == "" {
+			return "no app on port " + a[0]
+		}
+		if core.IsAppPaused(a[0]) {
+			return "app " + a[0] + " is paused already"
+		}
+	case "core add member":
+		if core.IsAuthorityMember(address(a[0])) {
+			return a[0] + " is a member already"
+		}
+	case "core remove member":
+		if !core.IsAuthorityMember(address(a[0])) {
+			return a[0] + " is not a member"
+		}
+	case "core migrate client":
+		switch {
+		case core.ClientType(a[0]) != ethereum.ClientType:
+			return a[0] + " is no Ethereum client"
+		case core.IsClientRetired(a[0]):
+			return a[0] + " is retired"
+		}
+	case "transfer update impl":
+		if !contains(transfer.RegisteredImplPaths(), a[0]) {
+			return "no transfer implementation is registered at " + a[0]
+		}
+	case "transfer block":
+		if transfer.IsBlocked(address(a[0])) {
+			return a[0] + " is blocked already"
+		}
+	case "transfer unblock":
+		if !transfer.IsBlocked(address(a[0])) {
+			return a[0] + " is not blocked"
+		}
+	case "transfer add member":
+		if transfer.IsAuthorityMember(address(a[0])) {
+			return a[0] + " is a member already"
+		}
+	case "transfer remove member":
+		if !transfer.IsAuthorityMember(address(a[0])) {
+			return a[0] + " is not a member"
+		}
+	}
+	return ""
+}
+
+func contains(list []string, s string) bool {
+	for _, x := range list {
+		if x == s {
+			return true
+		}
+	}
+	return false
+}
+
 func (p *adminParams) apply(cur realm, t int64) (string, string) {
+	if refusal := p.check(); refusal != "" {
+		return "", refusal
+	}
 	a := p.args
 	switch p.op {
 	case "core update impl":
