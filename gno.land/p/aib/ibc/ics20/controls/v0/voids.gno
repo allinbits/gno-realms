@@ -250,8 +250,9 @@ func (rt *Route) restoreClaim(c *Claim, now, epoch int64) {
 // controls booked, a live sweep entry recorded at its receipt after the
 // route's activation, is credited, which replaces the entry. A receive from
 // before the activation was paid at once by impl/v0 and is never credited
-// again. The amount is at least the fee, at most what the packet carried,
-// and for an unescrowed denom never above the free lock.
+// again. The amount is the sweep entry's whole amount (any haircut goes
+// through Reduce), at least the fee, and for an unescrowed denom never above
+// the free lock.
 func (rt *Route) CreditByVote(now, height, epoch int64, key, denom string, to address, amount, lock int64) error {
 	if _, _, ok := ParsePacketKey(key); !ok {
 		return errors.New("controls: not a packet key: " + key)
@@ -273,8 +274,10 @@ func (rt *Route) CreditByVote(now, height, epoch int64, key, denom string, to ad
 	if e.Voided || e.Paid || e.Denom != denom {
 		return errors.New("controls: packet " + key + "'s sweep entry is voided, paid or of another denom")
 	}
-	if amount < d.Config.Fee || amount > e.Amount {
-		return ufmt.Errorf("controls: %d is not between the fee (%d) and what the packet carried (%d)", amount, d.Config.Fee, e.Amount)
+	// The full payable amount: a credit never drops part of an entitlement
+	// (a haircut goes through Reduce, against an incident).
+	if amount != e.Amount || amount < d.Config.Fee {
+		return ufmt.Errorf("controls: a credit by vote is the sweep entry's whole amount (%d), at least the fee (%d), not %d", e.Amount, d.Config.Fee, amount)
 	}
 	if d.Config.Kind == KindUnescrow && amount > lock-d.Reserved() {
 		return ufmt.Errorf("controls: %d is above the free lock of %d", amount, lock-d.Reserved())
@@ -293,9 +296,10 @@ func (rt *Route) CreditByVote(now, height, epoch int64, key, denom string, to ad
 // caller checked that the core received it after the route's activation and
 // writes its success acknowledgement in the same transaction, so the packet
 // can never be refunded at its source. Nothing was booked at its receipt, so
-// it has no claim or sweep entry; carried is what the packet carried. The
-// amount is at least the fee and at most carried; for an unescrowed denom it
-// is never above the free lock, for a minted one never past the supply cap.
+// it has no claim or sweep entry; carried is what the packet carried, which
+// the amount must be (a haircut goes through Reduce), at least the fee; for
+// an unescrowed denom it is never above the free lock, for a minted one never
+// past the supply cap.
 func (rt *Route) CreditPending(now, height, epoch int64, key, denom string, to address, amount, carried, lock int64) error {
 	if _, _, ok := ParsePacketKey(key); !ok {
 		return errors.New("controls: not a packet key: " + key)
@@ -310,8 +314,10 @@ func (rt *Route) CreditPending(now, height, epoch int64, key, denom string, to a
 	if !to.IsValid() {
 		return errors.New("controls: invalid recipient " + string(to))
 	}
-	if amount < d.Config.Fee || amount > carried {
-		return ufmt.Errorf("controls: %d is not between the fee (%d) and what the packet carried (%d)", amount, d.Config.Fee, carried)
+	// The full payable amount: the success acknowledgement written with it
+	// ends the packet's entitlement at the source.
+	if amount != carried || amount < d.Config.Fee {
+		return ufmt.Errorf("controls: a credit by vote is what the packet carried (%d), at least the fee (%d), not %d", carried, d.Config.Fee, amount)
 	}
 	if d.Config.Kind == KindUnescrow && amount > lock-d.Reserved() {
 		return ufmt.Errorf("controls: %d is above the free lock of %d", amount, lock-d.Reserved())

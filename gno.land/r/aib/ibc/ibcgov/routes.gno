@@ -295,7 +295,8 @@ func NewRestoreRequest(cur realm, route, keys string) Request {
 }
 
 // NewCreditRequest credits a packet by vote after 7 days (ADR pr6375 §7.9):
-// only a packet received on the route with a success acknowledgement, never
+// only a packet received on the route with a success acknowledgement, for
+// its whole payable amount (a haircut goes through NewReduceRequest), never
 // above the free lock, deduplicated against every claim of the packet.
 func NewCreditRequest(cur realm, route, key, denom, to string, amount int64) Request {
 	mustRoute(route)

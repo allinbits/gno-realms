@@ -162,6 +162,11 @@ func TestCreditByVote(t *testing.T) {
 	if err := rt.CreditByVote(t0, 20, 0, pk(4), "ugnot", carol, lock+1, 3*lock); err == nil {
 		t.Fatalf("credited more than the packet carried")
 	}
+	// Never less either: the rest would vanish from the accounting (Codex
+	// round 3 #2).
+	if err := rt.CreditByVote(t0, 20, 0, pk(4), "ugnot", carol, lock-100, 3*lock); err == nil {
+		t.Fatalf("credited part of the sweep entry")
+	}
 	if err := rt.CreditByVote(t0, 20, 0, pk(4), "ugnot", carol, lock, lock); err == nil {
 		t.Fatalf("credited above the free lock")
 	}
@@ -611,7 +616,10 @@ func TestCreditPending(t *testing.T) {
 	if err := rt.CreditPending(t0, 20, 0, pk(61), "ibc/WETH", alice, 51, 51, 0); err == nil {
 		t.Fatalf("credited past the supply cap")
 	}
-	if err := rt.CreditPending(t0, 20, 0, pk(61), "ibc/WETH", alice, 50, 51, 0); err != nil {
+	if err := rt.CreditPending(t0, 20, 0, pk(61), "ibc/WETH", alice, 50, 51, 0); err == nil {
+		t.Fatalf("credited part of what the packet carried")
+	}
+	if err := rt.CreditPending(t0, 20, 0, pk(61), "ibc/WETH", alice, 50, 50, 0); err != nil {
 		t.Fatal(err)
 	}
 	checkClaimTotals(t, rt, "ugnot")
