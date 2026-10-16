@@ -1,6 +1,6 @@
 // Package ethrelay is the MsgCall entry point for relaying between gno.land
 // and Ethereum. Each function takes its message as a []byte argument in the
-// wire format (gno.land/p/clockwork/wire), which the VM base64-decodes
+// wire format (gno.land/p/aib/encoding/wire), which the VM base64-decodes
 // natively, decodes it and forwards it to the IBC core. Relaying through
 // MsgRun instead would charge preprocessing gas for every byte of the
 // message rendered as Gno source.
@@ -26,7 +26,7 @@ import (
 	"gno.land/p/aib/ibc/lightclient/ethereum/v0"
 	"gno.land/p/aib/ibc/lightclient/extproof/v0"
 	"gno.land/p/aib/ibc/types/v0"
-	"gno.land/p/clockwork/wire/v0"
+	"gno.land/p/aib/encoding/wire/v0"
 	"gno.land/r/aib/ibc/core"
 )
 

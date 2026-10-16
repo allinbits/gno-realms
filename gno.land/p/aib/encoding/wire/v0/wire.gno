@@ -16,7 +16,7 @@
 // [Writer] wrote them. That shared, out-of-band schema is the whole trick: no
 // field tags, no type bytes, no delimiters, no quoting. To pin that order from
 // a declaration and generate the reader and writer — in Gno or another language
-// — see gno.land/p/clockwork/wire/schema/v0.
+// — see gno.land/p/clockwork/wire/schema/v0 in github.com/clockworkgr/gno-upgradeable.
 //
 //	// encode (off chain, or in a calling realm)
 //	payload := wire.NewWriter().Addr(to).Int(amount).Str(memo).Bytes()

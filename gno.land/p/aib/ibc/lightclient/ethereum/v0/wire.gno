@@ -3,11 +3,11 @@ package ethereum
 import (
 	"errors"
 
-	"gno.land/p/clockwork/wire/v0"
+	"gno.land/p/aib/encoding/wire/v0"
 )
 
 // Binary encodings of the client messages and proofs, in the positional wire
-// format of gno.land/p/clockwork/wire: relayers pass them as []byte MsgCall
+// format of gno.land/p/aib/encoding/wire: relayers pass them as []byte MsgCall
 // arguments, which the VM base64-decodes natively, so a message costs neither
 // MsgRun preprocessing nor interpreted parsing beyond slicing its fields.
 //

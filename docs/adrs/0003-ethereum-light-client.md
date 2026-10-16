@@ -65,7 +65,7 @@ of solidity-ibc-eureka (client type `ethereum`):
 
 **Transport.** Relayers send client messages and packets as `[]byte`
 `MsgCall` arguments to `r/aib/ibc/ethrelay`, in the positional wire format of
-`gno.land/p/clockwork/wire` (vendored until it is deployed), which decodes
+`gno.land/p/aib/encoding/wire/v0` (from clockworkgr/gno-upgradeable), which decodes
 them and forwards them to the core. `MsgRun` scripts paid 1,250 gas per byte
 of preprocessing on update literals; a `[]byte` argument is base64-decoded
 natively. Together with the non-signer scheme this took a live Sepolia
