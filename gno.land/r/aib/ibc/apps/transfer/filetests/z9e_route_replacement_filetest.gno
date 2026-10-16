@@ -179,7 +179,13 @@ func main(cur realm) {
 	println("governance epoch", ibcgov.Epoch(), "over", ibcgov.EpochClient(), "last seq", ibcgov.LastSeq(1))
 
 	// The new client: an Active Ethereum client with its counterparty.
-	newClient := core.CreateClient(cross(cur), ethtesting.ClientState(), ethtesting.ConsensusState())
+	// The Ethereum router received the old client's send 1 and acknowledged
+	// it as a success: the replacement client's state proves it.
+	sent1, _ := controlsView().Send(route, controls.PacketKey(route, 1))
+	router := ethtesting.NewRouter()
+	router.CommitReceipt(sent1.Packet)
+	router.CommitAcknowledgement(sent1.Packet, types.Acknowledgement{AppAcknowledgements: [][]byte{[]byte(`{"result":"AQ=="}`)}})
+	newClient := core.CreateClient(cross(cur), ethtesting.ClientState(), ethtesting.ConsensusStateWithRoot(router.StateRoot()))
 	println("not registered yet:", revive(func() { govern(cur, ibcgov.NewReplaceRouteRequest(cross(cur), route, newClient, 1)) }))
 	core.RegisterCounterparty(cross(cur), newClient, [][]byte{{}}, "client-1")
 	replace := govern(cur, ibcgov.NewReplaceRouteRequest(cross(cur), route, newClient, 1))
@@ -219,6 +225,12 @@ func main(cur realm) {
 
 	// The reconciliation: the old client's send was delivered; a collision
 	// is a loss; carol's claim is genuine and restored.
+	unproven := govern(cur, ibcgov.NewSettleRequest(cross(cur), route, route, "1:3:0", "inc-1"))
+	execute(cur, unproven)
+	println("settle before the proof:", decided(unproven))
+	transfer.ProveOutcome(cross(cur), sent1.Packet, types.NewHeight(0, 72), router.Proof(), router.Proof())
+	proven, _ := controlsView().Send(route, controls.PacketKey(route, 1))
+	println("proven outcome:", proven.Proven, "at", proven.ProvenAt)
 	settle := govern(cur, ibcgov.NewSettleRequest(cross(cur), route, route, "1:3:0", "inc-1"))
 	execute(cur, settle)
 	println("settle:", decided(settle))
@@ -273,13 +285,15 @@ func main(cur realm) {
 // receive over the new client: (2 gno.land/p/aib/ibc/types/v0.PacketStatus)
 // claims paid: 0
 // reopen with a send open: spent - spent: controls: 1 send records of retired client ethereum-1 are still open: settle them first
+// settle before the proof: spent - spent: controls: item 0: action 3 does not match send ethereum-1/00000000000000000001's proven outcome (0)
+// proven outcome: 1 at 72
 // settle: applied - settle
 // send 1 settled as 3
 // settle again: spent - spent: controls: item 0: send ethereum-1/00000000000000000001 is settled already
 // restore: applied - restore
 // unresolved: 20
 // reopen: applied - reopen | closed: false | accepted 20 unrecovered 20
-// send back after the reopening: send back](/r/aib/main$help&func=Transfer&amount=&clientID=ethereum-2&denom=ibc%2F2495500BDD01666856D26EE034DB2F940FD4DA91239F4D5C7AE1E9D07538CFFE&memo=&receiver=&timeoutTimestamp=1241850702) via `ethereum-2`
+// send back after the reopening: send back](/r/aib/main$help&func=Transfer&amount=&clientID=ethereum-2&denom=ibc%2F2495500BDD01666856D26EE034DB2F940FD4DA91239F4D5C7AE1E9D07538CFFE&memo=&receiver=&timeoutTimestamp=1242455503) via `ethereum-2`
 // {"denom":"ugnot","amount":2000,"clients":[{"client":"ethereum-1","amount":2000}]}
 // voucher back: wire denom transfer/ethereum-2/0x457df1a9866af7b6a78eeba9291fc3e58b4d864b | bob's vouchers: 390
 // ugnot send on the wire: ugnot

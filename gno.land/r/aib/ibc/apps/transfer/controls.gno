@@ -35,6 +35,18 @@ func Backfill(cur realm, packet types.Packet) {
 	mustControls().Backfill(0, cur, packet)
 }
 
+// ProveOutcome proves, through a replaced route's replacement Ethereum
+// client, what the destination did with a send of a retired client (ADR
+// pr6375 §7.12 "Proven outcomes"): packet is the send (checked against its
+// record's commitment), proofHeight a height of the replacement client,
+// receiptProof the destination router's receipt at the packet's sequence
+// (membership or absence) and ackProof its acknowledgement when the receipt
+// is the packet's. The record keeps the outcome (delivered, refundable,
+// collision); a settlement's action must match it. Anyone may call it.
+func ProveOutcome(cur realm, packet types.Packet, proofHeight types.Height, receiptProof, ackProof any) {
+	mustControls().ProveOutcome(0, cur, packet, proofHeight, receiptProof, ackProof)
+}
+
 // ContinueReopen runs the next bounded batch of route's reopening, which an
 // ibcgov reopen decision started when it had more losses to record as
 // accepted deficits, or authorizations to revoke, than one batch takes (ADR

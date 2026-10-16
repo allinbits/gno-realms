@@ -55,6 +55,8 @@ type SendRecord struct {
 	Refunded        int64 // what was refunded so far, at once, by claims or by decision
 	Settlement      uint8 // the reconciliation's action (SettlePay...), 0 while unsettled
 	Reservation     int64 // KindMint: the supply this send still holds against the cap, released or consumed once
+	Proven          uint8 // the destination's outcome, proven through the replacement client (ProvenDelivered...)
+	ProvenAt        uint64 // the proof's height on the replacement client
 	Incident        string
 }
 
@@ -468,7 +470,21 @@ const (
 	SettleReject    = uint8(2) // reject a queued refund, none of it paid: the packet was delivered
 	SettleDelivered = uint8(3) // the packet was delivered, no refund paid: settled, nothing owed (a queued refund is rejected)
 	SettleLoss      = uint8(4) // a forged refund: the unpaid remainder rejected, what was paid (Amount) recorded as a loss
+	SettleForgedReceive = uint8(5) // a forged receive: Seq is an inbound sequence; what its receive paid out (Amount) is a loss, once
 )
+
+// Proven outcomes of a send, read from its destination through the route's
+// replacement client (ADR pr6375 §7.12 "Proven outcomes"): a settlement's
+// action must match.
+const (
+	ProvenNone       = uint8(0)
+	ProvenDelivered  = uint8(1) // the receipt is the packet's and its acknowledgement a success
+	ProvenRefundable = uint8(2) // no receipt, or the packet's receipt with an error acknowledgement
+	ProvenCollision  = uint8(3) // another packet's receipt occupies the sequence: the packet is refundable
+)
+
+// CauseForgedReceive is the cause of a forged receive's loss.
+const CauseForgedReceive = "forged-receive"
 
 // SettleItem is one reconciliation outcome: the send at Seq of the settled
 // client.
@@ -502,11 +518,30 @@ func (rt *Route) SettleRecords(client string, items []SettleItem, incident strin
 		return nil, errors.New("controls: a settlement names its incident")
 	}
 	seen := map[uint64]bool{}
+	seenIn := map[uint64]bool{}
 	pays := map[string]int64{}
 	queued := map[string]int64{} // the queued remainders the payments settle: their own reserve
 	lossTotals := map[string]int64{}
 	for i, it := range items {
 		key := PacketKey(client, it.Seq)
+		if it.Action == SettleForgedReceive {
+			if it.Seq == 0 || seenIn[it.Seq] {
+				return nil, ufmt.Errorf("controls: item %d: no sequence, or named twice", i)
+			}
+			seenIn[it.Seq] = true
+			denom, paid, err := rt.forgedReceive(key)
+			if err != nil {
+				return nil, ufmt.Errorf("controls: item %d: %v", i, err)
+			}
+			if it.Amount <= 0 || it.Amount != paid {
+				return nil, ufmt.Errorf("controls: item %d: the receive %s paid out %d, not %d", i, key, paid, it.Amount)
+			}
+			var ok bool
+			if lossTotals[denom], ok = checkedAdd(lossTotals[denom], it.Amount); !ok {
+				return nil, ufmt.Errorf("controls: item %d: the settlement's losses overflow", i)
+			}
+			continue
+		}
 		r := rt.send(key)
 		switch {
 		case it.Seq == 0 || seen[it.Seq]:
@@ -517,6 +552,13 @@ func (rt *Route) SettleRecords(client string, items []SettleItem, incident strin
 			return nil, ufmt.Errorf("controls: item %d: send %s is settled already", i, key)
 		}
 		seen[it.Seq] = true
+		// The action must match the outcome proven through the replacement
+		// client (ADR pr6375 §7.12): governance chooses, the proof decides.
+		switch {
+		case (it.Action == SettlePay) && r.Proven != ProvenRefundable && r.Proven != ProvenCollision,
+			(it.Action == SettleReject || it.Action == SettleDelivered || it.Action == SettleLoss) && r.Proven != ProvenDelivered:
+			return nil, ufmt.Errorf("controls: item %d: action %d does not match send %s's proven outcome (%d)", i, it.Action, key, r.Proven)
+		}
 		switch it.Action {
 		case SettlePay:
 			// A genuine refund: its whole remainder, never cut short (ADR
@@ -588,6 +630,11 @@ func (rt *Route) SettleRecords(client string, items []SettleItem, incident strin
 	var out []RefundPayment
 	for _, it := range items {
 		key := PacketKey(client, it.Seq)
+		if it.Action == SettleForgedReceive {
+			denom, _, _ := rt.forgedReceive(key)
+			rt.addLoss(rt.Denom(denom), Loss{Key: key, Denom: denom, Amount: it.Amount, Chain: ChainGno, Incident: incident, Cause: CauseForgedReceive})
+			continue
+		}
 		r := rt.send(key)
 		d := rt.Denom(r.Denom)
 		was := isOpen(r)
@@ -612,6 +659,65 @@ func (rt *Route) SettleRecords(client string, items []SettleItem, incident strin
 		rt.track(r, was)
 	}
 	return out, nil
+}
+
+// forgedReceive is the denom and what the receive of key (an inbound
+// sequence of a retired client) paid out: its claim's installments (fee
+// included), or the sweep entry a decision paid. A receive whose forged void
+// booked its loss already, or whose loss is booked, is refused: once.
+func (rt *Route) forgedReceive(key string) (string, int64, error) {
+	if rt.losses.Has(lossKey(key, CauseForgedReceive)) {
+		return "", 0, errors.New("the loss of receive " + key + " is booked already")
+	}
+	if c := rt.claim(key); c != nil {
+		if c.State == Forged {
+			return "", 0, errors.New("receive " + key + " was voided as forged: its loss is booked")
+		}
+		if c.Paid == 0 {
+			return "", 0, errors.New("receive " + key + " paid nothing out: void it instead")
+		}
+		return c.Denom, c.Paid, nil
+	}
+	if e := rt.sweep(key); e != nil && e.Paid && e.PaidTo != "credit by vote" && !e.Voided {
+		return e.Denom, e.Amount, nil
+	}
+	return "", 0, errors.New("no receive of " + key + " paid anything out")
+}
+
+// ProveOutcome stores the destination's outcome of the send of key, proven by
+// the caller through the route's replacement client at height (ADR pr6375
+// §7.12): packet must be the record's (its commitment), its client one a
+// replacement retired, the record unsettled, and height not below an earlier
+// proof's (a later state of the destination supersedes an earlier one, never
+// the other way round).
+func (rt *Route) ProveOutcome(key string, packet types.Packet, outcome uint8, height uint64) error {
+	r := rt.send(key)
+	if r == nil {
+		return errors.New("controls: no send record for " + key)
+	}
+	if string(types.CommitPacket(packet)) != string(r.Commitment) || key != PacketKey(packet.SourceClient, packet.Sequence) {
+		return errors.New("controls: the packet is not send " + key + "'s")
+	}
+	retired := false
+	for _, c := range rt.Replaced {
+		if c == packet.SourceClient {
+			retired = true
+		}
+	}
+	if !retired {
+		return errors.New("controls: " + packet.SourceClient + " is no client a replacement retired from route " + rt.Key)
+	}
+	if r.Settlement != 0 {
+		return errors.New("controls: send " + key + " is settled already")
+	}
+	if outcome < ProvenDelivered || outcome > ProvenCollision {
+		return errors.New("controls: unknown outcome")
+	}
+	if height < r.ProvenAt {
+		return ufmt.Errorf("controls: send %s's outcome was proven at height %d already", key, r.ProvenAt)
+	}
+	r.Proven, r.ProvenAt = outcome, height
+	return nil
 }
 
 // unqueue takes a record's queued refund out of the queue, unpaid.

@@ -45,6 +45,12 @@ func (r *Router) CommitAcknowledgement(p types.Packet, ack types.Acknowledgement
 	r.Commit(host.PacketAcknowledgementKey(p.DestinationClient, p.Sequence), types.CommitAcknowledgement(ack))
 }
 
+// CommitReceipt stores the receipt the router writes when it receives a
+// packet: keccak256(abi.encode(packet)) at its ICS24 receipt path.
+func (r *Router) CommitReceipt(p types.Packet) {
+	r.Commit(host.PacketReceiptKey(p.DestinationClient, p.Sequence), ethereum.PacketReceiptCommitment(p))
+}
+
 // StateRoot is the state root committing to every value stored so far.
 func (r *Router) StateRoot() []byte {
 	root, _ := r.tries()

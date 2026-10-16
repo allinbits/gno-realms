@@ -6,8 +6,10 @@ import (
 	"strconv"
 	"strings"
 
+	"gno.land/p/aib/ibc/host/v0"
 	"gno.land/p/aib/ibc/ics20/controls/v0"
 	"gno.land/p/aib/ibc/ics20/v0"
+	"gno.land/p/aib/ibc/lightclient/ethereum/v0"
 	"gno.land/p/aib/ibc/types/v0"
 	"gno.land/p/nt/ufmt/v0"
 	"gno.land/r/aib/ibc/apps/transfer"
@@ -142,6 +144,61 @@ func (l *logic) Backfill(_ int, rlm realm, packet types.Packet) {
 	}
 	transfer.EmitRoute(0, rlm, "backfill", "route", rt.Key, "packet", key, "denom", accDenom,
 		"amount", strconv.FormatInt(amount, 10))
+}
+
+// ProveOutcome reads the destination router's receipt and acknowledgement of
+// a retired client's send through the route's replacement client and stores
+// the outcome on the record (ADR pr6375 §7.12): no receipt, or the packet's
+// receipt with an error acknowledgement, is refundable; the packet's receipt
+// with a success acknowledgement is delivered; another packet's receipt is a
+// collision. The router's receipt is keccak256(abi.encode(packet)).
+func (l *logic) ProveOutcome(_ int, rlm realm, packet types.Packet, proofHeight types.Height, receiptProof, ackProof any) {
+	reg := l.registry(0, rlm)
+	k := reg.RetiredRouteOf(packet.SourceClient)
+	if k == "" {
+		panic("client " + packet.SourceClient + " is no client a replacement retired")
+	}
+	rt := reg.Route(k)
+	receipt, err := core.CounterpartyValue(rt.Client, proofHeight, receiptProof, host.PacketReceiptKey(packet.DestinationClient, packet.Sequence))
+	if err != nil {
+		panic(err)
+	}
+	var outcome uint8
+	switch {
+	case isZero(receipt):
+		outcome = controls.ProvenRefundable
+	case bytes.Equal(receipt, ethereum.PacketReceiptCommitment(packet)):
+		ack, err := core.CounterpartyValue(rt.Client, proofHeight, ackProof, host.PacketAcknowledgementKey(packet.DestinationClient, packet.Sequence))
+		if err != nil {
+			panic(err)
+		}
+		errAck := types.CommitAcknowledgement(types.Acknowledgement{AppAcknowledgements: [][]byte{types.UniversalErrorAcknowledgement()}})
+		switch {
+		case bytes.Equal(ack, successAckCommitment()):
+			outcome = controls.ProvenDelivered
+		case bytes.Equal(ack, errAck):
+			outcome = controls.ProvenRefundable
+		default:
+			panic("the destination wrote no final acknowledgement of the packet")
+		}
+	default:
+		outcome = controls.ProvenCollision
+	}
+	key := controls.PacketKey(packet.SourceClient, packet.Sequence)
+	if err := rt.ProveOutcome(key, packet, outcome, proofHeight.RevisionHeight); err != nil {
+		panic(err)
+	}
+	transfer.EmitRoute(0, rlm, "proven", "route", rt.Key, "packet", key, "outcome", strconv.Itoa(int(outcome)),
+		"height", proofHeight.String())
+}
+
+func isZero(b []byte) bool {
+	for _, c := range b {
+		if c != 0 {
+			return false
+		}
+	}
+	return true
 }
 
 // ContinueReopen runs the next bounded batch of a route's reopening (ADR

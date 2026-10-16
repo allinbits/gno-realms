@@ -792,7 +792,10 @@ func NewEthRouteSettingsRequest(cur realm, clientID string, quarantineSeconds ui
 //   - 3 settled as delivered, no refund paid, amount 0;
 //   - 4 a forged refund: the unpaid remainder is rejected and what was
 //     already paid is recorded as a loss, atomically; amount is exactly what
-//     was paid.
+//     was paid;
+//   - 5 a forged receive: sequence is an inbound sequence on the retired
+//     client, amount what its receive released or minted, booked as a loss
+//     once.
 //
 // IBCAdmin applies it after 7 days; each send record is settled at most once.
 func NewEthSettleRequest(cur realm, clientID, items string) Request {
@@ -810,13 +813,13 @@ func NewEthSettleRequest(cur realm, clientID, items string) Request {
 		}
 		seq, err1 := strconv.ParseUint(parts[0], 10, 64)
 		action, err2 := strconv.ParseUint(parts[1], 10, 8)
-		if err1 != nil || err2 != nil || seq == 0 || seen[seq] || action < 1 || action > 4 {
+		if err1 != nil || err2 != nil || seq == 0 || seen[seq] || action < 1 || action > 5 {
 			panic("ibcgov: not a settlement item, or a sequence named twice: " + it)
 		}
 		amount := mustUint256("amount", parts[2])
 		zero := strings.TrimLeft(parts[2], "0") == ""
-		if (action == 4 && zero) || ((action == 2 || action == 3) && !zero) {
-			panic("ibcgov: a forged refund names its positive amount, a rejection or a delivery 0: " + it)
+		if ((action == 4 || action == 5) && zero) || ((action == 2 || action == 3) && !zero) {
+			panic("ibcgov: a forged refund or receive names its positive amount, a rejection or a delivery 0: " + it)
 		}
 		seen[seq] = true
 		vals = append(vals, abi.Tuple(abi.Uint64(seq), abi.Uint64(action), amount))

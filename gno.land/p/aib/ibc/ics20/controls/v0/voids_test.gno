@@ -658,7 +658,7 @@ func TestReplaceClosesUntilReopened(t *testing.T) {
 	if _, _, err := rt.Reopen(); err == nil || !strings.Contains(err.Error(), "still open") {
 		t.Fatalf("reopened with an open send record: %v", err)
 	}
-	if _, err := rt.SettleRecords("ethereum-1", []SettleItem{{Seq: 1, Action: SettleDelivered}}, "inc", lockOf(big)); err != nil {
+	if _, err := settleProven(rt, "ethereum-1", []SettleItem{{Seq: 1, Action: SettleDelivered}}, "inc", lockOf(big)); err != nil {
 		t.Fatal(err)
 	}
 	rt.RecordLoss(pk(9), "ugnot", 100, ChainGno, "inc", "collision")
@@ -761,7 +761,7 @@ func TestBatchLossesNeverWrap(t *testing.T) {
 	for i := uint64(1); i <= 4; i++ {
 		items = append(items, SettleItem{Seq: i, Action: SettleLoss, Amount: 1 << 62})
 	}
-	if _, err := rt.SettleRecords("ethereum-1", items, "inc", lockOf(0)); err == nil {
+	if _, err := settleProven(rt, "ethereum-1", items, "inc", lockOf(0)); err == nil {
 		t.Fatalf("a wrapped settlement loss was booked")
 	}
 }

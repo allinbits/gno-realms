@@ -432,7 +432,10 @@ func NewAcceptDeficitRequest(cur realm, route, denom string, amount int64, incid
 // record), 2 reject a queued refund none of which was paid (amount 0), 3
 // settled as delivered, no refund paid (amount 0), 4 a forged refund: the
 // unpaid remainder rejected and what was paid (amount, equal to it) recorded
-// as a loss; at most 64 items. Each send is settled exactly once; a queued refund leaves the queue
+// as a loss, 5 a forged receive (sequence an inbound sequence of the retired
+// client; amount, what its receive paid out, recorded as a loss once); at
+// most 64 items. Actions 1 to 4 must match the outcome proven through the
+// replacement client (transfer.ProveOutcome). Each send is settled exactly once; a queued refund leaves the queue
 // under any action.
 func NewSettleRequest(cur realm, route, client, items, incident string) Request {
 	mustRoute(route)
@@ -454,11 +457,11 @@ func NewSettleRequest(cur realm, route, client, items, incident string) Request 
 		seq, err1 := strconv.ParseUint(parts[0], 10, 64)
 		action, err2 := strconv.ParseUint(parts[1], 10, 8)
 		amount, err3 := strconv.ParseInt(parts[2], 10, 64)
-		if err1 != nil || err2 != nil || err3 != nil || seq == 0 || seen[seq] || action < 1 || action > 4 || amount < 0 {
+		if err1 != nil || err2 != nil || err3 != nil || seq == 0 || seen[seq] || action < 1 || action > 5 || amount < 0 {
 			panic("ibcgov: not a settlement item, or a sequence named twice: " + it)
 		}
-		if (action == 4 && amount == 0) || ((action == 2 || action == 3) && amount != 0) {
-			panic("ibcgov: a forged refund names a positive amount, a rejection or a delivery none: " + it)
+		if ((action == 4 || action == 5) && amount == 0) || ((action == 2 || action == 3) && amount != 0) {
+			panic("ibcgov: a forged refund or receive names a positive amount, a rejection or a delivery none: " + it)
 		}
 		seen[seq] = true
 		parsed = append(parsed, controls.SettleItem{Seq: seq, Action: uint8(action), Amount: amount})

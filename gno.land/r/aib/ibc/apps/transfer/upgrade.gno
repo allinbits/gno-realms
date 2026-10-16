@@ -84,6 +84,9 @@ type ControlsLogic interface {
 	// Backfill records a send made over an Ethereum route before its
 	// controls, authenticated against the core's stored commitment.
 	Backfill(_ int, rlm realm, packet types.Packet)
+	// ProveOutcome stores the destination's outcome of a retired client's
+	// send, proven through the route's replacement client.
+	ProveOutcome(_ int, rlm realm, packet types.Packet, proofHeight types.Height, receiptProof, ackProof any)
 	// ContinueReopen runs the next batch of a route's reopening and
 	// reports whether the route is open.
 	ContinueReopen(_ int, rlm realm, route string) bool

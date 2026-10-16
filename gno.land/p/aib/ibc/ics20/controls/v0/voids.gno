@@ -87,6 +87,9 @@ func (rt *Route) resolvable(denom, incident string, skip int64) int64 {
 // claim or sweep entry of key as it stands: an open claim either way, a
 // withheld or paid claim as forged only, a live sweep entry as forged only.
 func (rt *Route) Voidable(key string, forged bool) bool {
+	if rt.losses.Has(lossKey(key, CauseForgedReceive)) {
+		return false // settled as a forged receive: its loss is booked
+	}
 	if c := rt.claim(key); c != nil {
 		switch c.State {
 		case Open:

@@ -64,7 +64,8 @@ func main(cur realm) {
 		"1:4:0",       // a forged refund paid nothing
 		"1:2:5",       // a rejection with an amount
 		"1:3:1",       // a delivery with an amount
-		"1:5:0",       // no such action
+		"1:5:0", // a forged receive of nothing
+		"1:6:0", // no such action
 		"0:3:0",       // no sequence
 		"1:3:0,1:2:0", // a sequence twice
 		"1:1:x",       // not a number
@@ -106,10 +107,11 @@ func main(cur realm) {
 // Output:
 // seq 1 matches: true
 // seq 2 matches: true
-// 1:4:0: ibcgov: a forged refund names its positive amount, a rejection or a delivery 0: 1:4:0
-// 1:2:5: ibcgov: a forged refund names its positive amount, a rejection or a delivery 0: 1:2:5
-// 1:3:1: ibcgov: a forged refund names its positive amount, a rejection or a delivery 0: 1:3:1
-// 1:5:0: ibcgov: not a settlement item, or a sequence named twice: 1:5:0
+// 1:4:0: ibcgov: a forged refund or receive names its positive amount, a rejection or a delivery 0: 1:4:0
+// 1:2:5: ibcgov: a forged refund or receive names its positive amount, a rejection or a delivery 0: 1:2:5
+// 1:3:1: ibcgov: a forged refund or receive names its positive amount, a rejection or a delivery 0: 1:3:1
+// 1:5:0: ibcgov: a forged refund or receive names its positive amount, a rejection or a delivery 0: 1:5:0
+// 1:6:0: ibcgov: not a settlement item, or a sequence named twice: 1:6:0
 // 0:3:0: ibcgov: not a settlement item, or a sequence named twice: 0:3:0
 // 1:3:0,1:2:0: ibcgov: not a settlement item, or a sequence named twice: 1:2:0
 // 1:1:x: ibcgov: amount: abi: not a decimal number

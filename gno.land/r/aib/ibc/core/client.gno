@@ -3,6 +3,7 @@ package core
 import (
 	"gno.land/p/aib/ibc/lightclient/v0"
 	"gno.land/p/aib/ibc/types/v0"
+	"gno.land/p/nt/ufmt/v0"
 )
 
 // The client entry points below are thin dispatchers to the active
@@ -235,6 +236,29 @@ func ClientLatestTimestamp(clientID string) (uint64, bool) {
 		return 0, false
 	}
 	return t, true
+}
+
+// valueProver is implemented by a light client that reads a counterparty
+// commitment's value from a proof (the Ethereum client).
+type valueProver interface {
+	ProvenValue(height types.Height, proof any, path types.MerklePath) ([]byte, error)
+}
+
+// CounterpartyValue is the value proof establishes for key in clientID's
+// counterparty store at height (zero bytes when none is stored), the key
+// prefixed with the counterparty's merkle prefix as registered: what a
+// reconciliation reads of the destination's receipt and acknowledgement
+// (ADR pr6375 §7.12). It changes nothing.
+func CounterpartyValue(clientID string, height types.Height, proof any, key []byte) ([]byte, error) {
+	c := store.getClient(clientID)
+	if c == nil {
+		return nil, ufmt.Errorf("client %s not found", clientID)
+	}
+	vp, ok := c.LightClient().(valueProver)
+	if !ok {
+		return nil, ufmt.Errorf("client %s cannot read a counterparty value", clientID)
+	}
+	return vp.ProvenValue(height, proof, types.BuildMerklePath(c.CounterpartyMerklePrefix(), key))
 }
 
 // OutstandingSends is how many packets an app on port sent over clientID
