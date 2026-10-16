@@ -76,22 +76,36 @@ The `admin` page of the realm shows the same.
 
 ## 4. Activate it
 
-`UpdateImpl` is reserved to the realm's authority: the AIB multisig and the
-GovDAO proxy.
+`UpdateImpl` is a decision of the governance realm `gno.land/r/aib/ibc/ibcgov`
+(ADR pr6375 R14): the proxies accept it from that realm only, and the decision
+waits 7 days after it is recorded, during which a cancel decision can withdraw
+it and a guardian hold defers it. Before the governor yields, the governor
+records it with `MsgRun` (the request is a struct, so `MsgCall` cannot build
+it):
 
-Through GovDAO, a member submits the proposal with `MsgRun` (the request is a
-struct, so `MsgCall` cannot build it), members vote, anyone executes:
+```gno
+package main
+
+import "gno.land/r/aib/ibc/ibcgov"
+
+func main(cur realm) {
+	ibcgov.Govern(cross(cur), ibcgov.NewCoreUpdateImplRequest(cross(cur), "gno.land/r/aib/ibc/core/impl/vN"))
+}
+```
+
+After the yield, a GovDAO member proposes the same request, members vote and
+anyone executes the proposal, which records the decision:
 
 ```gno
 package main
 
 import (
-	"gno.land/r/aib/ibc/core"
+	"gno.land/r/aib/ibc/ibcgov"
 	"gno.land/r/gov/dao"
 )
 
 func main(cur realm) {
-	pid := dao.MustCreateProposal(cross(cur), core.NewUpdateImplProposalRequest(cross(cur), "gno.land/r/aib/ibc/core/impl/vN"))
+	pid := dao.MustCreateProposal(cross(cur), ibcgov.NewCoreUpdateImplRequest(cross(cur), "gno.land/r/aib/ibc/core/impl/vN").Proposal())
 	println("proposal:", int64(pid))
 }
 ```
@@ -102,20 +116,20 @@ gnokey maketx call -pkgpath gno.land/r/gov/dao -func MustVoteOnProposalSimple -a
 gnokey maketx call -pkgpath gno.land/r/gov/dao -func ExecuteProposal -args <pid> ... <any-key>
 ```
 
-Through the multisig, one `MsgCall`:
+Seven days later anyone applies it, with the decision number the ledger
+assigned (`gno.land/r/aib/ibc/ibcgov:decisions`):
 
 ```
-gnokey maketx call -pkgpath gno.land/r/aib/ibc/core -func UpdateImpl \
-  -args gno.land/r/aib/ibc/core/impl/vN -broadcast=false ... <multisig-address>
+gnokey maketx call -pkgpath gno.land/r/aib/ibc/ibcgov -func Execute -args <decision> ... <any-key>
 ```
 
-then the usual multisign and broadcast.
+The transfer app is the same with `NewTransferUpdateImplRequest`.
 
-Either way the proxy builds the candidate against its store, runs
-`OnInstall`, switches, and emits `impl_updated{old_path,new_path,version}`.
-If the proposal is executed before the candidate is live, the proxy panics,
-the execution transaction aborts and the proposal stays executable: run step
-3 again later and execute again.
+The proxy then builds the candidate against its store, runs `OnInstall`,
+switches, and emits `impl_updated{old_path,new_path,version}`. The builder
+refuses a path that is not registered yet; if the candidate went away before
+`Execute`, the proxy panics, the transaction aborts and the decision stays
+pending.
 
 ### When a migration fails
 
@@ -139,6 +153,7 @@ the execution transaction aborts and the proposal stays executable: run step
 
 ## 6. Rollback
 
-`UpdateImpl` with the previous path, through the same authority. The old
+`UpdateImpl` with the previous path, through the same governance decision
+(7 days). The old
 implementation is still registered, so nothing needs redeploying; its
 `OnInstall` runs again.
