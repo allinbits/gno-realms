@@ -192,8 +192,8 @@ against gno-eth-ibc 6f94541's vectors.
 | §7.3 refusals before state change | `transfer/impl/v1/recv.gno` (`refuse`) |
 | §7.11 on-chain records | `controls.Reader` JSON: route totals, claims, sweeps, sends, losses; `route_*` events |
 | §7.12 gno side | route replacement above, naming its suspect height; settlements of a retired client's sends (`Route.SettleRecords`, `NewSettleRequest`: whole remainders, zero for a genuine refund paid in full, forged refunds, each record once); a reopening waits for every open record and every record processed in the suspect interval, and runs its deficit acceptance in batches (`ContinueReopen`); `NewRecordLossRequest`; owed refunds reserved; retired client ids final; a retired client takes the authorized app's pending asynchronous acknowledgements |
-| R17, §6.7 activation | `NewTransferActivateControlsRequest`: the switch to impl/v1, the first route's enrolment and its denoms in one decision; the legacy path (`Registry.Legacy`, `Route.LegacyDenom`) records and meters the returns of every other client and denom impl/v0 used until a decision enrols or enables them; the import gate (`core.OutstandingSends`, `Route.Unimported`) keeps a route's credits off until its outstanding impl/v0 sends are backfilled |
-| §7.12 proven outcomes | `transfer.ProveOutcome` reads the destination router's receipt (`ethereum.PacketReceiptCommitment`) and acknowledgement through the replacement client (`core.CounterpartyValue`); settlement actions must match the record's proven outcome; action 5 books a forged receive once |
+| R17, §6.7 activation | `NewTransferActivateControlsRequest`: the switch to impl/v1, the first route's enrolment and its denoms, and a positive legacy refund cap, in one decision; the legacy path (`Registry.Legacy`, `Route.LegacyDenom`) records and meters the returns of every other client and denom impl/v0 used until a decision enrols or enables them; the import gate (`core.OutstandingSends`, `Route.Unimported`) keeps a route's credits off until its outstanding impl/v0 sends are backfilled |
+| §7.12 proven outcomes | `transfer.ProveOutcome` reads the destination router's receipt (`ethereum.PacketReceiptCommitment`) and acknowledgement through the replacement client (`core.CounterpartyValue`, which refuses a verifier not Active or retired); an absence counts only at a destination time at or past the packet's timeout; an outcome is final while its verifier stays healthy, and void (to be proven again) once it froze or expired, checked again when the settlement consumes it; settlement actions must match; action 5 makes a forged receive's claim forged and books what it paid once; a refund paid for a delivered packet is booked only by action 4 |
 | §7.13 refund meter, refunds hold, send records for every send, backfill of older ones | `controls/refunds.gno`, `transfer/impl/v1/ack.gno`, `send.gno`, `controls.gno` (`ClaimRefunds`, `Backfill`) |
 
 ### Checked arithmetic
@@ -229,7 +229,7 @@ before crossing, or a refusal returned by the callee):
 
 | Decision | Failure conditions refused |
 |---|---|
-| core/transfer update impl | not registered; the candidate refuses the active implementation as its predecessor (`CheckUpdateImpl`, `InstallChecker`) |
+| core/transfer update impl | not registered; the candidate refuses the active implementation as its predecessor (`CheckUpdateImpl`, `InstallChecker`); a transfer implementation without the route controls once a route has them (the controls are never rolled back) |
 | transfer activate controls | as above; the candidate keeps no controls; the route is a route or unusable; a staged denom accounted otherwise |
 | core add/remove relayer | listed already / not listed |
 | core recover client | unknown, retired, mismatched or wrong-status clients; the light client's own check (`CheckRecoverClient`) |
@@ -238,7 +238,7 @@ before crossing, or a refusal returned by the callee):
 | core pause / pause app / unpause / unpause app | paused already / no app / not paused |
 | core/transfer add/remove member | member already / not a member / ibcgov itself |
 | transfer block/unblock | blocked already / not blocked |
-| route operations (`GovApply`) | every refusal returned, including no controls installed |
+| route operations (`GovApply`) | every refusal returned, including no controls installed; a sweep payment under a payouts flag, or a settlement paying refunds under a refunds hold, is deferred (stays pending) rather than spent |
 | route replacement | as `GovApply`; the new client unusable; the route's client moved; still closed from the previous replacement |
 | bind governance | bound already; unusable client |
 | seats | an address in two seats; nothing to change |
@@ -328,8 +328,9 @@ vouchers in circulation when it is enabled.
   be exercised end to end: the transfer app never answers asynchronously, so
   no transfer packet waits for one. The core side (retired clients taking the
   app's acknowledgement) and the controls side are tested separately.
-- **A legacy denom's refunds wait** in the refund queue (no refund cap) until a
-  decision enables the denom; the return itself is never refused.
+- **A legacy denom's refunds are metered** at the activation's legacy refund
+  cap until a decision enables the denom with its own; the return itself is
+  never refused.
 - **The e2e suite** (`e2e/`) needs the Docker devnet; its build makes the test
   key ibcgov's launch governor and divides the delays by 60480. The guardians'
   holds need an Ethereum route and are covered by filetests only.
