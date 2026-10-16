@@ -14,6 +14,10 @@ import (
 	"gno.land/r/aib/ibc/ibcgov"
 )
 
+// bridge is the route's Ethereum router, ICS20 transfer and IBCAdmin: its
+// protected recipients.
+const bridge = "0x00000000000000000000000000000000000b0001 0x00000000000000000000000000000000000b0002 0x00000000000000000000000000000000000b0003"
+
 const self = "gno.land/r/aib/ibc/apps/transfer/impl/v99"
 
 // logic is a rehearsal implementation: v0's logic under version v99, which
@@ -56,7 +60,7 @@ func main(cur realm) {
 	core.RegisterCounterparty(cross(cur), client, [][]byte{{}}, "client-0")
 	activate := func() ibcgov.Request {
 		return ibcgov.NewTransferActivateControlsRequest(cross(cur), "gno.land/r/aib/ibc/apps/transfer/impl/v1", client,
-			string(testutils.TestAddress("collector")), "", 10_000)
+			string(testutils.TestAddress("collector")), bridge, "", 10_000)
 	}
 	toV1 := govern(cur, activate())
 	toV99 := govern(cur, ibcgov.NewTransferUpdateImplRequest(cross(cur), self))

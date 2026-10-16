@@ -144,11 +144,37 @@ func checkNewRouteClient(client string) string {
 	return ""
 }
 
+// mustBridge reads the bridge contracts of a route: "router ics20 ibcAdmin",
+// three distinct non-zero Ethereum addresses, space-separated. They are the
+// route's protected recipients from its enrolment on (ADR pr6375 R12, §7.8).
+func mustBridge(bridge string) []string {
+	f := strings.Fields(bridge)
+	if len(f) != 3 {
+		panic("ibcgov: the bridge contracts are \"router ics20 ibcAdmin\", three Ethereum addresses, not " + bridge)
+	}
+	for i, s := range f {
+		a, err := ethaddr.Parse(s)
+		if err != nil {
+			panic("ibcgov: " + err.Error())
+		}
+		f[i] = a.Lower()
+	}
+	if err := controls.CheckBridge(f[0], f[1], f[2]); err != nil {
+		panic("ibcgov: " + err.Error())
+	}
+	return f
+}
+
+func bridgeText(f []string) string {
+	return "router " + f[0] + ", ICS20 transfer " + f[1] + ", IBCAdmin " + f[2]
+}
+
 // NewEnrollRouteRequest makes the Ethereum client clientID a controlled route
 // of the transfer app after 7 days (enrolling a route loosens): its key is
-// clientID, its fee collector feeCollector. Until a denom is enabled on it
-// (NewSetDenomRequest), the route refuses every send and receive.
-func NewEnrollRouteRequest(cur realm, clientID, feeCollector string) Request {
+// clientID, its fee collector feeCollector, its protected bridge contracts
+// bridge ("router ics20 ibcAdmin", see mustBridge). Until a denom is enabled
+// on it (NewSetDenomRequest), the route refuses every send and receive.
+func NewEnrollRouteRequest(cur realm, clientID, feeCollector, bridge string) Request {
 	if refusal := checkNewRouteClient(clientID); refusal != "" {
 		panic("ibcgov: " + refusal)
 	}
@@ -156,8 +182,9 @@ func NewEnrollRouteRequest(cur realm, clientID, feeCollector string) Request {
 		panic("ibcgov: " + clientID + " is a route already")
 	}
 	fc := mustAddr(feeCollector)
-	text := "enroll route " + clientID + " with fee collector " + string(fc)
-	rp := &routeParams{op: controls.OpEnroll, p: controls.Params{Route: clientID, To: fc}, enroll: true}
+	b := mustBridge(bridge)
+	text := "enroll route " + clientID + " with fee collector " + string(fc) + " and bridge contracts " + bridgeText(b)
+	rp := &routeParams{op: controls.OpEnroll, p: controls.Params{Route: clientID, To: fc, Keys: b}, enroll: true}
 	return propose(cur, "enroll route", text, func(cur realm, made, t int64) {
 		decide(cur, "enroll route", text, rp, made, t, true)
 	})
@@ -266,9 +293,10 @@ func mustEthAddrs(list string) []string {
 	return out
 }
 
-// NewRefuseRecipientsRequest adds Ethereum addresses (the route's bridge
-// contracts: router, ICS20, escrow, IBCAdmin, vouchers) to the route's refused
-// send recipients, at once.
+// NewRefuseRecipientsRequest adds Ethereum addresses to the route's refused
+// send recipients, at once: contracts beyond the protected ones its
+// enrolment named (the router, ICS20 transfer and IBCAdmin) and its voucher
+// tokens, which are refused already.
 func NewRefuseRecipientsRequest(cur realm, route, addrs string) Request {
 	mustRoute(route)
 	list := mustEthAddrs(addrs)
@@ -277,6 +305,9 @@ func NewRefuseRecipientsRequest(cur realm, route, addrs string) Request {
 }
 
 // NewUnrefuseRecipientsRequest removes refused send recipients after 7 days.
+// The route's protected bridge contracts (its enrolment's router, ICS20
+// transfer and IBCAdmin, and its voucher tokens) stay refused whatever it
+// names.
 func NewUnrefuseRecipientsRequest(cur realm, route, addrs string) Request {
 	mustRoute(route)
 	list := mustEthAddrs(addrs)
@@ -636,16 +667,18 @@ func denomsText(names []string) string {
 // NewTransferActivateControlsRequest switches the transfer app to the
 // implementation at path (impl/v1: the route controls) after 7 days, staged
 // with its first route: the Ethereum client clientID, enrolled with fee
-// collector feeCollector, and the denoms it carries, enabled in the same
+// collector feeCollector and the protected bridge contracts bridge ("router
+// ics20 ibcAdmin"), and the denoms it carries, enabled in the same
 // transaction (ADR pr6375 R17). Vouchers impl/v0 minted go back at once after
 // the switch, recorded and metered, with no later decision. denoms is a
 // ";"-separated list of "denom kind capFloor supplyCap fee feeFloor sendMax
 // sendMin refundCap remoteToken" (space-separated, as NewSetDenomRequest
-// takes them; remoteToken "-" for none), at most 16, or "" for none yet. legacyRefundCap, positive,
-// is the refund meter's day cap of every legacy denom: impl/v0's returns over
-// clients and denoms no decision enabled yet go back through the legacy path,
-// and their genuine refunds are paid as that meter refills.
-func NewTransferActivateControlsRequest(cur realm, path, clientID, feeCollector, denoms string, legacyRefundCap int64) Request {
+// takes them; remoteToken "-" for none), at most 16, or "" for none yet.
+// legacyRefundCap, positive, is the refund meter's day cap of every legacy
+// denom: impl/v0's returns over clients and denoms no decision enabled yet go
+// back through the legacy path, and their genuine refunds are paid as that
+// meter refills.
+func NewTransferActivateControlsRequest(cur realm, path, clientID, feeCollector, bridge, denoms string, legacyRefundCap int64) Request {
 	mustImplPath(TransferPath, path)
 	if refusal := checkNewRouteClient(clientID); refusal != "" {
 		panic("ibcgov: " + refusal)
@@ -654,10 +687,11 @@ func NewTransferActivateControlsRequest(cur realm, path, clientID, feeCollector,
 		panic("ibcgov: " + clientID + " is a route already")
 	}
 	fc := mustAddr(feeCollector)
+	b := mustBridge(bridge)
 	if legacyRefundCap <= 0 {
 		panic("ibcgov: the legacy refund cap is positive")
 	}
-	p := &activateParams{path: path, legacyRefundCap: legacyRefundCap, enroll: controls.Params{Route: clientID, To: fc}}
+	p := &activateParams{path: path, legacyRefundCap: legacyRefundCap, enroll: controls.Params{Route: clientID, To: fc, Keys: b}}
 	var names []string
 	seen := map[string]bool{}
 	for _, spec := range strings.Split(denoms, ";") {
@@ -691,7 +725,7 @@ func NewTransferActivateControlsRequest(cur realm, path, clientID, feeCollector,
 	if len(p.denoms) > maxActivationDenoms {
 		panic("ibcgov: stage at most " + strconv.Itoa(maxActivationDenoms) + " denoms")
 	}
-	text := "transfer: activate " + path + " with route " + clientID + " (fee collector " + string(fc) + "), legacy refund cap " +
+	text := "transfer: activate " + path + " with route " + clientID + " (fee collector " + string(fc) + "; " + bridgeText(b) + "), legacy refund cap " +
 		itoa(legacyRefundCap) + " a day, and denoms " + denomsText(names)
 	return propose(cur, "transfer activate controls", text, func(cur realm, made, t int64) {
 		decide(cur, "transfer activate controls", text, p, made, t, true)

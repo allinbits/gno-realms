@@ -418,6 +418,45 @@ func TestRefusedRecipients(t *testing.T) {
 	}
 }
 
+// The bridge contracts are protected once, never unrefused, and each voucher
+// token a denom names joins them (Codex round 6 #5).
+func TestProtectedRecipients(t *testing.T) {
+	_, rt := newRoute(t)
+	const router, ics20, admin = "0x00000000000000000000000000000000000b0001", "0x00000000000000000000000000000000000b0002", "0x00000000000000000000000000000000000b0003"
+	if rt.Bridged() {
+		t.Fatalf("bridged before Protect")
+	}
+	if rt.Protect(router, router, admin) == nil || rt.Protect(router, ics20, "0x0000000000000000000000000000000000000000") == nil ||
+		rt.Protect(router, ics20, "nope") == nil {
+		t.Fatalf("accepted a bad bridge")
+	}
+	if err := rt.Protect(router, ics20, admin); err != nil {
+		t.Fatal(err)
+	}
+	if !rt.Bridged() || rt.Protect(router, ics20, admin) == nil {
+		t.Fatalf("Protect is once")
+	}
+	rt.Unrefuse([]string{router})
+	if !rt.IsRefused(router) || !rt.IsRefused("0x00000000000000000000000000000000000B0003") {
+		t.Fatalf("a protected contract was lifted")
+	}
+	c := gnot()
+	c.Remote = "0x0000000000000000000000000000000000c0ffef"
+	if err := rt.SetDenom("ufoo", c, t0, 0, 0); err != nil {
+		t.Fatal(err)
+	}
+	if !rt.IsRefused(c.Remote) || len(rt.Protected()) != 3+boolInt(gnot().Remote != "")+1 {
+		t.Fatalf("voucher token not protected: %v", rt.Protected())
+	}
+}
+
+func boolInt(b bool) int {
+	if b {
+		return 1
+	}
+	return 0
+}
+
 func TestCodecRoundTrip(t *testing.T) {
 	p := Params{
 		Route: "ethereum-1", Denom: "ugnot", Key: pk(3), Client: "ethereum-2", Chain: ChainGno, Incident: "inc", Cause: "c",

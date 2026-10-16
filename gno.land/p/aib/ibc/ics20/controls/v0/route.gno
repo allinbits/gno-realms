@@ -33,6 +33,8 @@ import (
 	"strconv"
 	"strings"
 
+	"gno.land/p/aib/encoding/ethaddr/v0"
+
 	"gno.land/p/aib/ibc/host/v0"
 	"gno.land/p/nt/avl/v0"
 	"gno.land/p/nt/ufmt/v0"
@@ -273,6 +275,8 @@ type Route struct {
 	ReplacedAt   int64 // the block height of the last replacement
 
 	refused   avl.Tree // lower-case Ethereum address -> true: refused send recipients
+	protected avl.Tree // lower-case Ethereum address -> its role: the bridge's own contracts, never a recipient
+	bridged   bool     // the router, ICS20 transfer and IBCAdmin are protected (Protect)
 	denoms    avl.Tree // denom -> *Denom
 	claims    avl.Tree // packet key -> *Claim
 	sweeps    avl.Tree // packet key -> *SweepEntry
@@ -467,9 +471,76 @@ func (rt *Route) Unrefuse(addrs []string) {
 	}
 }
 
-// IsRefused reports whether addr (any case) is a refused send recipient.
+// IsRefused reports whether addr (any case) is a refused send recipient: one
+// a decision refused, or a protected bridge contract.
 func (rt *Route) IsRefused(addr string) bool {
-	return rt.refused.Has(strings.ToLower(addr))
+	a := strings.ToLower(addr)
+	return rt.refused.Has(a) || rt.protected.Has(a)
+}
+
+// Bridge roles of the protected recipients.
+const (
+	RoleRouter       = "router"
+	RoleICS20        = "ics20"
+	RoleIBCAdmin     = "ibc admin"
+	RoleVoucherToken = "voucher token"
+)
+
+// Protect sets the route's mandatory protected recipients, once, at its
+// enrolment (ADR pr6375 R12, §7.8): its Ethereum router, ICS20 transfer
+// contract and IBCAdmin, three distinct addresses (lower-case hex). They
+// are never removed (Unrefuse touches only the decided refusals) and stay
+// through every replacement; a route takes no gno-native send until they
+// are set. Each voucher token a denom names (DenomConfig.Remote) is
+// protected as it is configured.
+func (rt *Route) Protect(router, ics20, ibcAdmin string) error {
+	if rt.bridged {
+		return errors.New("controls: the bridge contracts of route " + rt.Key + " are set already")
+	}
+	if err := CheckBridge(router, ics20, ibcAdmin); err != nil {
+		return err
+	}
+	rt.protected.Set(strings.ToLower(router), RoleRouter)
+	rt.protected.Set(strings.ToLower(ics20), RoleICS20)
+	rt.protected.Set(strings.ToLower(ibcAdmin), RoleIBCAdmin)
+	rt.bridged = true
+	return nil
+}
+
+// CheckBridge is why Protect would refuse the three bridge contracts, or nil.
+func CheckBridge(router, ics20, ibcAdmin string) error {
+	as := []string{strings.ToLower(router), strings.ToLower(ics20), strings.ToLower(ibcAdmin)}
+	for i, a := range as {
+		if e, err := ethaddr.Parse(a); err != nil || e.IsZero() {
+			return errors.New("controls: a bridge contract is a non-zero Ethereum address, not " + a)
+		}
+		for _, b := range as[:i] {
+			if a == b {
+				return errors.New("controls: the router, ICS20 transfer and IBCAdmin are three contracts")
+			}
+		}
+	}
+	return nil
+}
+
+// Bridged reports whether the route's bridge contracts are protected.
+func (rt *Route) Bridged() bool { return rt.bridged }
+
+// Protected lists the protected recipients as "address role".
+func (rt *Route) Protected() []string {
+	var out []string
+	rt.protected.Iterate("", "", func(k string, v any) bool {
+		out = append(out, k+" "+v.(string))
+		return false
+	})
+	return out
+}
+
+// protectToken protects a denom's voucher token on Ethereum.
+func (rt *Route) protectToken(remote string) {
+	if remote != "" && !rt.protected.Has(strings.ToLower(remote)) {
+		rt.protected.Set(strings.ToLower(remote), RoleVoucherToken)
+	}
 }
 
 // Refused lists the refused send recipients.
@@ -608,12 +679,14 @@ func (rt *Route) SetDenom(name string, c DenomConfig, now, epoch, outstanding in
 			// A legacy denom is enabled with its records and totals.
 			d.Config, d.LaunchCapFloor, d.Legacy = c, c.CapFloor, false
 			d.meter = NewMeter(now, epoch)
+			rt.protectToken(c.Remote)
 			return nil
 		}
 		if c.CapFloor < d.LaunchCapFloor {
 			return ufmt.Errorf("controls: the cap floor (%d) cannot go below its launch value (%d)", c.CapFloor, d.LaunchCapFloor)
 		}
 		d.Config = c
+		rt.protectToken(c.Remote)
 		return nil
 	}
 	d := &Denom{Name: name, Config: c, LaunchCapFloor: c.CapFloor}
@@ -623,6 +696,7 @@ func (rt *Route) SetDenom(name string, c DenomConfig, now, epoch, outstanding in
 	d.meter = NewMeter(now, epoch)
 	d.refundMeter = NewMeter(now, 0)
 	rt.denoms.Set(name, d)
+	rt.protectToken(c.Remote)
 	return nil
 }
 

@@ -14,6 +14,10 @@ import (
 	"gno.land/r/aib/ibc/ibcgov"
 )
 
+// bridge is the route's Ethereum router, ICS20 transfer and IBCAdmin: its
+// protected recipients.
+const bridge = "0x00000000000000000000000000000000000b0001 0x00000000000000000000000000000000000b0002 0x00000000000000000000000000000000000b0003"
+
 var (
 	collector = testutils.TestAddress("collector")
 	g0        = testutils.TestAddress("guardian-0")
@@ -51,7 +55,7 @@ func execute(cur realm, id int64) {
 func setupRoute(cur realm) string {
 	clientID := core.CreateClient(cross(cur), ethtesting.ClientState(), ethtesting.ConsensusState())
 	core.RegisterCounterparty(cross(cur), clientID, [][]byte{{}}, "client-0")
-	execute(cur, govern(cur, ibcgov.NewTransferActivateControlsRequest(cross(cur), "gno.land/r/aib/ibc/apps/transfer/impl/v1", clientID, string(collector), "", 10_000)))
+	execute(cur, govern(cur, ibcgov.NewTransferActivateControlsRequest(cross(cur), "gno.land/r/aib/ibc/apps/transfer/impl/v1", clientID, string(collector), bridge, "", 10_000)))
 	advance(7*24*time.Hour + time.Second) // the separate enrollment's delay, kept so the timeline stays
 	return clientID
 }
@@ -223,4 +227,4 @@ func main(cur realm) {
 // pending: none
 //
 // executed:
-// - #1 applied: transfer: activate gno.land/r/aib/ibc/apps/transfer/impl/v1 with route ethereum-1 (fee collector g1vdhkcmr9vd6x7ujlta047h6lta047h6lsp3m50), legacy refund cap 10000 a day, and denoms none yet (recorded 1234567890, applied 1235172691) — transfer gno.land/r/aib/ibc/apps/transfer/impl/v1 active with route ethereum-1 and 0 denoms
+// - #1 applied: transfer: activate gno.land/r/aib/ibc/apps/transfer/impl/v1 with route ethereum-1 (fee collector g1vdhkcmr9vd6x7ujlta047h6lta047h6lsp3m50; router 0x00000000000000000000000000000000000b0001, ICS20 transfer 0x00000000000000000000000000000000000b0002, IBCAdmin 0x00000000000000000000000000000000000b0003), legacy refund cap 10000 a day, and denoms none yet (recorded 1234567890, applied 1235172691) — transfer gno.land/r/aib/ibc/apps/transfer/impl/v1 active with route ethereum-1 and 0 denoms

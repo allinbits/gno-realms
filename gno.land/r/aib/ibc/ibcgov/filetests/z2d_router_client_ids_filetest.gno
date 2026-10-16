@@ -18,6 +18,10 @@ import (
 	"gno.land/r/aib/ibc/ibcgov"
 )
 
+// bridge is the route's Ethereum router, ICS20 transfer and IBCAdmin: its
+// protected recipients.
+const bridge = "0x00000000000000000000000000000000000b0001 0x00000000000000000000000000000000000b0002 0x00000000000000000000000000000000000b0003"
+
 // advance moves the block time on by d.
 func advance(d time.Duration) {
 	ctx := testing.GetContext()
@@ -71,7 +75,7 @@ func main(cur realm) {
 	println("settings client-01:", revive(func() { govern(cur, ibcgov.NewEthRouteSettingsRequest(cross(cur), "client-01", 1)) }))
 
 	// The transfer app carries a packet from the router client "gnoland".
-	execute(cur, govern(cur, ibcgov.NewTransferActivateControlsRequest(cross(cur), "gno.land/r/aib/ibc/apps/transfer/impl/v1", client, string(collector), "", 10_000)))
+	execute(cur, govern(cur, ibcgov.NewTransferActivateControlsRequest(cross(cur), "gno.land/r/aib/ibc/apps/transfer/impl/v1", client, string(collector), bridge, "", 10_000)))
 	advance(7*24*time.Hour + time.Second) // the separate enrollment's delay, kept so the timeline stays
 	execute(cur, govern(cur, ibcgov.NewSetDenomRequest(cross(cur), client, weth, "mint", 4_000, 10_000, 10, 1, 0, 0, 4_000, "")))
 	data := ics20.NewFungibleTokenPacketData(weth, "100", "0x5f67a5398d91087d1b37a8a43436196a7830867f", bob.String(), "")

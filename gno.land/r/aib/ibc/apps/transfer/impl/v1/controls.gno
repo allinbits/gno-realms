@@ -366,9 +366,21 @@ func (l *logic) GovApply(_ int, rlm realm, op string, params []byte) string {
 		if !isEthereum(p.Route) || core.IsClientRetired(p.Route) {
 			return p.Route + " is no usable Ethereum client"
 		}
+		// The bridge's own contracts are protected recipients from the
+		// enrolment on (ADR pr6375 R12, §7.8): Keys names the router, the
+		// ICS20 transfer and IBCAdmin.
+		if len(p.Keys) != 3 {
+			return "an enrolment names the route's router, ICS20 transfer and IBCAdmin"
+		}
+		if err := controls.CheckBridge(p.Keys[0], p.Keys[1], p.Keys[2]); err != nil {
+			return err.Error()
+		}
 		rt, err := reg.Enroll(p.Route, p.To, t, chainHeight())
 		if err != nil {
 			return err.Error()
+		}
+		if err := rt.Protect(p.Keys[0], p.Keys[1], p.Keys[2]); err != nil {
+			panic(err) // checked above, on a route just enrolled
 		}
 		rt.StartImport(core.OutstandingSends(p.Route, transfer.PortID))
 		transfer.EmitRoute(0, rlm, "gov", "op", op, "route", p.Route)

@@ -77,10 +77,10 @@ func checkRecipient(rt *controls.Route, receiver, token string) {
 		panic("the receiver is the zero address")
 	case a.Reserved():
 		panic("the receiver is a reserved address (at or below 0xffff)")
-	case rt.IsRefused(a.Lower()):
-		panic("the receiver is a contract of the bridge")
 	case strings.EqualFold(a.Lower(), token):
 		panic("the receiver is the token itself")
+	case rt.IsRefused(a.Lower()):
+		panic("the receiver is a contract of the bridge")
 	}
 }
 
@@ -221,6 +221,9 @@ func (l *logic) mustSendable(rt *controls.Route, denom string, amount int64) *co
 	}
 	if rt.ExposureClosed() {
 		panic(ufmt.Sprintf("route %s has a loss without a restoring decision: it takes no gno-native send", rt.Key))
+	}
+	if !rt.Bridged() {
+		panic(ufmt.Sprintf("route %s has no protected bridge contracts set: it takes no gno-native send", rt.Key))
 	}
 	if ibcgov.Flagged(rt.Key, ibcgov.FnSends) {
 		panic(ufmt.Sprintf("sends are paused on route %s", rt.Key))

@@ -22,6 +22,10 @@ import (
 	"gno.land/r/aib/ibc/ibcgov"
 )
 
+// bridge is the route's Ethereum router, ICS20 transfer and IBCAdmin: its
+// protected recipients.
+const bridge = "0x00000000000000000000000000000000000b0001 0x00000000000000000000000000000000000b0002 0x00000000000000000000000000000000000b0003"
+
 var (
 	collector = testutils.TestAddress("collector")
 	sender    = testutils.TestAddress("sender")
@@ -59,7 +63,7 @@ func execute(cur realm, id int64) {
 func setupRoute(cur realm) string {
 	clientID := core.CreateClient(cross(cur), ethtesting.ClientState(), ethtesting.ConsensusState())
 	core.RegisterCounterparty(cross(cur), clientID, [][]byte{{}}, "client-0")
-	execute(cur, govern(cur, ibcgov.NewTransferActivateControlsRequest(cross(cur), "gno.land/r/aib/ibc/apps/transfer/impl/v1", clientID, string(collector), "", 10_000)))
+	execute(cur, govern(cur, ibcgov.NewTransferActivateControlsRequest(cross(cur), "gno.land/r/aib/ibc/apps/transfer/impl/v1", clientID, string(collector), bridge, "", 10_000)))
 	advance(7*24*time.Hour + time.Second) // the separate enrollment's delay, kept so the timeline stays
 	return clientID
 }
@@ -113,7 +117,7 @@ func main(cur realm) {
 	println("impl:", transfer.ImplVersion(), "| bob's vouchers:", transfer.VoucherBalanceOf(voucher, bob),
 		"| receipt:", len(core.PacketReceipt(client, 1)) > 0, "| ack:", len(core.PacketAcknowledgement(client, 1)) > 0)
 
-	execute(cur, govern(cur, ibcgov.NewTransferActivateControlsRequest(cross(cur), "gno.land/r/aib/ibc/apps/transfer/impl/v1", client, string(collector), "", 10_000)))
+	execute(cur, govern(cur, ibcgov.NewTransferActivateControlsRequest(cross(cur), "gno.land/r/aib/ibc/apps/transfer/impl/v1", client, string(collector), bridge, "", 10_000)))
 	advance(7*24*time.Hour + time.Second) // the separate enrollment's delay, kept so the timeline stays
 	execute(cur, govern(cur, ibcgov.NewSetDenomRequest(cross(cur), client, weth, "mint", 4_000, 10_000, 10, 1, 0, 0, 4_000, "")))
 	relay(cur, router, p2)
