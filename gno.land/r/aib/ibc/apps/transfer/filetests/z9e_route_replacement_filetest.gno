@@ -198,8 +198,14 @@ func main(cur realm) {
 	println("send over the old client:", revive(func() { send(cur, route, 100, 120, ethReceiver) }))
 	println("receive over the old client:", recvOn(cur, "client-0", route, 3, weth, bob.String(), 1).Status)
 
-	// Rendered returns no longer name the retired client (Codex review #18).
+	// Rendered returns no longer name the retired client (Codex review #18),
+	// nor does any other send choice (round 2 #7).
 	println("send back while closed:", sendBack())
+	for _, line := range strings.Split(transfer.Render(""), "\n") {
+		if strings.HasPrefix(line, "- `"+route+"` — ") || strings.HasPrefix(line, "- [send via `"+route+"`]") {
+			println("client choice:", line[:strings.Index(line, ", trusted")])
+		}
+	}
 
 	// Closed: the new client carries nothing either until the reopening.
 	println("send over the new client:", revive(func() { send(cur, newClient, 1_000, 1_020, ethReceiver) }))
@@ -262,6 +268,7 @@ func main(cur realm) {
 // send over the old client: client ethereum-1 is an Ethereum client of no enrolled route: it carries no transfer
 // receive over the old client: (2 gno.land/p/aib/ibc/types/v0.PacketStatus)
 // send back while closed: send back closed (route `ethereum-1` awaits its reopening)
+// client choice: - `ethereum-1` — retired
 // send over the new client: route ethereum-1 is closed until a governed reopening: it carries no send
 // receive over the new client: (2 gno.land/p/aib/ibc/types/v0.PacketStatus)
 // claims paid: 0

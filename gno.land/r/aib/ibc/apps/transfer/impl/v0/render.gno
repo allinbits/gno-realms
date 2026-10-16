@@ -319,7 +319,14 @@ func RenderTransferLinks() string {
 	for _, clientID := range clientIDs {
 		status := core.ClientStatus(clientID)
 		height := core.ClientLatestHeight(clientID)
-		if status == lightclient.Active {
+		if core.IsClientRetired(clientID) {
+			// A retired client (ADR pr6375 §7.12) carries nothing more: its
+			// status stays as it was, so it is checked first.
+			out.WriteString(ufmt.Sprintf(
+				"- `%s` — retired, trusted height `%s` ([client details](/r/aib/ibc/core:clients/%s))\n",
+				clientID, height, clientID,
+			))
+		} else if status == lightclient.Active {
 			out.WriteString(ufmt.Sprintf(
 				"- [send via `%s`](%s) — %s, trusted height `%s` ([client details](/r/aib/ibc/core:clients/%s))\n",
 				clientID, NewTransferLink(clientID, "", "").URL(), status, height, clientID,
