@@ -154,6 +154,30 @@ func (rd Reader) Unresolved(route string) int64 {
 	return 0
 }
 
+// Meters is what the bridge meter and a recipient's meter of a denom hold at
+// now under the payouts epoch (epoch, as of epochAt) and lock, as PayClaims
+// would find them, computed on copies: the state does not change. A
+// recipient without a queue reads 0.
+func (rd Reader) Meters(route, denom string, to address, now, epoch, epochAt, lock int64) (bridge, recipient int64) {
+	rt := rd.route(route)
+	if rt == nil {
+		return 0, 0
+	}
+	d := rt.Denom(denom)
+	if d == nil {
+		return 0, 0
+	}
+	c := d.DayCap(lock)
+	m := d.meter
+	m.Refill(now, c, c, epoch, epochAt)
+	if v := d.queues.Get(string(to)); v != nil {
+		q := v.(*queue).meter
+		q.Refill(now, c/4, c/4, epoch, epochAt)
+		recipient = q.Level
+	}
+	return m.Level, recipient
+}
+
 // IsRefused reports whether addr is a refused send recipient of the route.
 func (rd Reader) IsRefused(route, addr string) bool {
 	if rt := rd.route(route); rt != nil {

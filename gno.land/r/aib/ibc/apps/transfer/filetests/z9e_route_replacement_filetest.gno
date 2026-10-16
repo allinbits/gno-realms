@@ -122,6 +122,13 @@ func wireDenom(route, client string, seq uint64) string {
 	return data.Denom
 }
 
+// meters reads the route's bridge meter and bob's meter of denom now.
+func meters(route, denom string) string {
+	epoch, at := ibcgov.PayoutsEpoch(route)
+	b, r := controlsView().Meters(route, denom, bob, time.Now().Unix(), epoch, at, 0)
+	return "bridge " + strconv.FormatInt(b, 10) + ", bob " + strconv.FormatInt(r, 10)
+}
+
 func decided(id int64) string {
 	d, _ := ibcgov.Decision(id)
 	return d.State() + " - " + d.Note
@@ -162,8 +169,15 @@ func main(cur realm) {
 	newClient := core.CreateClient(cross(cur), ethtesting.ClientState(), ethtesting.ConsensusState())
 	println("not registered yet:", revive(func() { govern(cur, ibcgov.NewReplaceRouteRequest(cross(cur), route, newClient)) }))
 	core.RegisterCounterparty(cross(cur), newClient, [][]byte{{}}, "client-1")
-	execute(cur, govern(cur, ibcgov.NewReplaceRouteRequest(cross(cur), route, newClient)))
+	replace := govern(cur, ibcgov.NewReplaceRouteRequest(cross(cur), route, newClient))
+	advance(7*24*time.Hour + time.Second)
+	println("meters before the migration:", meters(route, voucher))
+	ibcgov.Execute(cross(cur), replace)
 	println("route client:", controlsView().Client(route), "| old retired:", core.IsClientRetired(route), "| closed:", controlsView().Closed(route))
+	// Every meter starts empty after a migration, then refills (Codex review #10).
+	println("meters after the migration:", meters(route, voucher))
+	advance(6 * time.Hour)
+	println("six hours later:", meters(route, voucher))
 	println("governance epoch", ibcgov.Epoch(), "over", ibcgov.EpochClient(), "| epoch 1's seq 1 again:",
 		revive(func() { ibcgov.Redispatch(cross(cur), 1, 1) }))
 
@@ -216,7 +230,10 @@ func main(cur realm) {
 // bob's vouchers: 490 | carol: withheld paid 0
 // governance epoch 1 over ethereum-1 last seq 1
 // not registered yet: ibcgov: ethereum-2 has no counterparty registered
+// meters before the migration: bridge 4000, bob 1000
 // route client: ethereum-2 | old retired: true | closed: true
+// meters after the migration: bridge 0, bob 0
+// six hours later: bridge 1000, bob 250
 // governance epoch 2 over ethereum-2 | epoch 1's seq 1 again: ibcgov: epoch 1 is past: its decisions are never sent again
 // send over the old client: client ethereum-1 is an Ethereum client of no enrolled route: it carries no transfer
 // receive over the old client: (2 gno.land/p/aib/ibc/types/v0.PacketStatus)

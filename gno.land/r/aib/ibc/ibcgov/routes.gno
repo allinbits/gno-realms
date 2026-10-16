@@ -61,7 +61,10 @@ func (p *routeParams) apply(cur realm, t int64) (string, string) {
 		if !core.IsClientRetired(p.replace) {
 			core.RetireClient(cross(cur), p.replace)
 		}
-		note += ": client " + p.replace + " retired"
+		// After a migration every meter starts empty (ADR pr6375 §7.1): a
+		// new payouts epoch, reset lazily in constant work.
+		bumpPayoutsEpoch(p.p.Route, t)
+		note += ": client " + p.replace + " retired, meters emptied"
 		if EpochClient() == p.replace {
 			nextEpoch(p.p.Client)
 			note += ", governance epoch " + strconv.FormatUint(uint64(epoch), 10) + " opened over " + p.p.Client
