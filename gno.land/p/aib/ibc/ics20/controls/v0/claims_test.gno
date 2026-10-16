@@ -101,7 +101,7 @@ func TestPacketKey(t *testing.T) {
 	if !ok || c != "ethereum-12" || s != 7 {
 		t.Fatalf("parse %s %d %v", c, s, ok)
 	}
-	for _, bad := range []string{"", "x", "ethereum-1/7", "/00000000000000000007", "ethereum-1/00000000000000000000", "ethereum-1/0000000000000000000x"} {
+	for _, bad := range []string{"", "x", "ethereum-1/7", "/00000000000000000007", "ethereum-1/00000000000000000000", "ethereum-1/0000000000000000000x", "x](y)/00000000000000000007", "a b/00000000000000000007"} {
 		if _, _, ok := ParsePacketKey(bad); ok {
 			t.Errorf("parsed %q", bad)
 		}

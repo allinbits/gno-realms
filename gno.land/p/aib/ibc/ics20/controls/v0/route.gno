@@ -33,6 +33,7 @@ import (
 	"strconv"
 	"strings"
 
+	"gno.land/p/aib/ibc/host/v0"
 	"gno.land/p/nt/avl/v0"
 	"gno.land/p/nt/ufmt/v0"
 )
@@ -71,10 +72,14 @@ func PacketKey(clientID string, sequence uint64) string {
 	return clientID + "/" + strings.Repeat("0", 20-len(s)) + s
 }
 
-// ParsePacketKey splits a packet key; ok is false for anything else.
+// ParsePacketKey splits a packet key; ok is false for anything else,
+// including a client part that is not a valid client identifier.
 func ParsePacketKey(key string) (clientID string, sequence uint64, ok bool) {
 	i := strings.LastIndex(key, "/")
 	if i <= 0 || len(key)-i-1 != 20 {
+		return "", 0, false
+	}
+	if host.ClientIdentifierValidator(key[:i]) != nil {
 		return "", 0, false
 	}
 	seq, err := strconv.ParseUint(key[i+1:], 10, 64)
