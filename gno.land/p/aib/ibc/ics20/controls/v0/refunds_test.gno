@@ -480,7 +480,7 @@ func TestSuspectIntervalBlocksReopen(t *testing.T) {
 	if n := rt.SuspectUnsettled("ethereum-1"); n != 3 {
 		t.Fatalf("suspect %d", n)
 	}
-	if _, err := rt.Reopen(); err == nil || !strings.Contains(err.Error(), "suspect interval") {
+	if _, _, err := rt.Reopen(); err == nil || !strings.Contains(err.Error(), "suspect interval") {
 		t.Fatalf("reopened with suspect records unsettled: %v", err)
 	}
 	rt.SettleRecords("ethereum-1", []SettleItem{{Seq: 2, Action: SettleDelivered}, {Seq: 3, Action: SettleDelivered}}, "inc", lockOf(big))
@@ -488,7 +488,7 @@ func TestSuspectIntervalBlocksReopen(t *testing.T) {
 		t.Fatalf("suspect %d", n)
 	}
 	rt.SettleRecords("ethereum-1", []SettleItem{{Seq: 4, Action: SettleDelivered}}, "inc", lockOf(big))
-	if _, err := rt.Reopen(); err != nil {
+	if _, _, err := rt.Reopen(); err != nil {
 		t.Fatal(err)
 	}
 }

@@ -132,6 +132,21 @@ func (l *logic) Backfill(_ int, rlm realm, packet types.Packet) {
 		"amount", strconv.FormatInt(amount, 10))
 }
 
+// ContinueReopen runs the next bounded batch of a route's reopening (ADR
+// pr6375 §5.4 kind 13); anyone may.
+func (l *logic) ContinueReopen(_ int, rlm realm, route string) bool {
+	rt := l.registry(0, rlm).Route(route)
+	if rt == nil {
+		panic("no route " + route)
+	}
+	accepted, done, err := rt.ContinueReopen()
+	if err != nil {
+		panic(err)
+	}
+	transfer.EmitRoute(0, rlm, "reopen", "route", rt.Key, "accepted", strconv.FormatInt(accepted, 10), "open", strconv.FormatBool(done))
+	return done
+}
+
 // Recapitalize pays an authorized recapitalization into the route's escrow
 // (ADR pr6375 §7.9): exactly its amount, credited to the accounted backing
 // and debited from the unrecovered losses. A plain transfer to the escrow
@@ -335,8 +350,12 @@ func (l *logic) GovApply(_ int, rlm realm, op string, params []byte) string {
 		}
 	case controls.OpReopen:
 		var accepted int64
-		accepted, err = rt.Reopen()
+		var done bool
+		accepted, done, err = rt.Reopen()
 		note = "accepted deficit " + strconv.FormatInt(accepted, 10)
+		if !done {
+			note += "; continue with transfer.ContinueReopen"
+		}
 	case controls.OpReplace:
 		if !isEthereum(p.Client) || core.IsClientRetired(p.Client) {
 			return p.Client + " is no usable Ethereum client"

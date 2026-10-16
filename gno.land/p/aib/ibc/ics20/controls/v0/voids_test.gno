@@ -634,7 +634,7 @@ func TestReplaceClosesUntilReopened(t *testing.T) {
 	if rt.IsClosed() {
 		t.Fatalf("closed at enrolment")
 	}
-	if _, err := rt.Reopen(); err == nil {
+	if _, _, err := rt.Reopen(); err == nil {
 		t.Fatalf("reopened an open route")
 	}
 	rt.RecordSend(sendRec(1, "ugnot", KindUnescrow, 1_000)) // in flight
@@ -646,7 +646,7 @@ func TestReplaceClosesUntilReopened(t *testing.T) {
 	if !rt.IsClosed() || !(Reader{r: r}).Closed("ethereum-1") || rt.OpenSends("ethereum-1") != 1 {
 		t.Fatalf("a replacement left the route open, or miscounted: %d", rt.OpenSends("ethereum-1"))
 	}
-	if _, err := rt.Reopen(); err == nil || !strings.Contains(err.Error(), "still open") {
+	if _, _, err := rt.Reopen(); err == nil || !strings.Contains(err.Error(), "still open") {
 		t.Fatalf("reopened with an open send record: %v", err)
 	}
 	if _, err := rt.SettleRecords("ethereum-1", []SettleItem{{Seq: 1, Action: SettleDelivered}}, "inc", lockOf(big)); err != nil {
@@ -656,8 +656,8 @@ func TestReplaceClosesUntilReopened(t *testing.T) {
 	rt.RecordLoss(pk(10), "ugnot", 50, ChainGno, "inc-2", "collision")
 	id, _ := rt.AuthorizeRecap("ugnot", 30, "inc")
 	rt.Recapitalize(id, "ugnot", 30, alice)
-	accepted, err := rt.Reopen()
-	if err != nil || rt.IsClosed() || accepted != 120 {
+	accepted, done, err := rt.Reopen()
+	if err != nil || !done || rt.IsClosed() || accepted != 120 {
 		t.Fatalf("%d %v", accepted, err)
 	}
 	d := rt.Denom("ugnot")
@@ -753,5 +753,37 @@ func TestBatchLossesNeverWrap(t *testing.T) {
 	}
 	if _, err := rt.SettleRecords("ethereum-1", items, "inc", lockOf(0)); err == nil {
 		t.Fatalf("a wrapped settlement loss was booked")
+	}
+}
+
+// A reopening over many incidents runs in bounded batches, continued by
+// anyone; the route opens with the last (ADR pr6375 §5.4 kind 13).
+func TestReopenInBatches(t *testing.T) {
+	r, rt := newRoute(t)
+	r.Replace("ethereum-1", "ethereum-2", 0)
+	n := ReopenBatch*2 + 5
+	for i := 0; i < n; i++ {
+		rt.RecordLoss(pk(uint64(1000+i)), "ugnot", 1, ChainGno, "inc-"+itoa(int64(i)), "collision")
+	}
+	if _, _, err := rt.ContinueReopen(); err == nil {
+		t.Fatalf("continued a reopening never started")
+	}
+	total, done, err := rt.Reopen()
+	if err != nil || done || !rt.IsClosed() {
+		t.Fatalf("one batch opened %d incidents: %v %v", n, done, err)
+	}
+	if _, _, err := rt.Reopen(); err == nil {
+		t.Fatalf("started twice")
+	}
+	for !done {
+		var a int64
+		a, done, err = rt.ContinueReopen()
+		if err != nil {
+			t.Fatal(err)
+		}
+		total += a
+	}
+	if total != int64(n) || rt.IsClosed() || rt.Denom("ugnot").Totals.Unresolved() != 0 {
+		t.Fatalf("accepted %d of %d", total, n)
 	}
 }

@@ -84,6 +84,9 @@ type ControlsLogic interface {
 	// Backfill records a send made over an Ethereum route before its
 	// controls, authenticated against the core's stored commitment.
 	Backfill(_ int, rlm realm, packet types.Packet)
+	// ContinueReopen runs the next batch of a route's reopening and
+	// reports whether the route is open.
+	ContinueReopen(_ int, rlm realm, route string) bool
 	// Recapitalize pays an authorized recapitalization into the escrow of
 	// route: sent is the send envelope of a direct user call (a native
 	// denom), empty otherwise (a GRC20, taken from the caller's allowance).

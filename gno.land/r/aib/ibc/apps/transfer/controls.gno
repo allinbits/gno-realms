@@ -35,6 +35,15 @@ func Backfill(cur realm, packet types.Packet) {
 	mustControls().Backfill(0, cur, packet)
 }
 
+// ContinueReopen runs the next bounded batch of route's reopening, which an
+// ibcgov reopen decision started when it had more losses to record as
+// accepted deficits, or authorizations to revoke, than one batch takes (ADR
+// pr6375 §5.4 kind 13). It reports whether the route is open. Anyone may call
+// it.
+func ContinueReopen(cur realm, route string) bool {
+	return mustControls().ContinueReopen(0, cur, route)
+}
+
 // Recapitalize pays recapitalization id of route, which an ibcgov decision
 // authorized, into the route's escrow (ADR pr6375 §7.9). For a native denom
 // it must be a direct user call sending exactly the amount; for a GRC20, the

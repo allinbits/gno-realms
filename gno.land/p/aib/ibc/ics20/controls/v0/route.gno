@@ -43,6 +43,9 @@ const (
 	Day = int64(86400)
 	// MaxClaims is the most claims one Claim call pays (ADR pr6375 §7.1).
 	MaxClaims = 20
+	// ReopenBatch is how many incidents, then authorizations, one batch of
+	// a reopening looks at.
+	ReopenBatch = 64
 	// MaxKeys is the most packet keys one decision names.
 	MaxKeys = 64
 	// PageLines is how many entries a page lists.
@@ -213,6 +216,7 @@ type Route struct {
 	Activated    int64    // block height of the enrolment: the controls' cutoff
 	FeeCollector address
 	Closed       bool // closed by a replacement until a governed reopening
+	Reopening bool // a reopening decision runs in batches (ContinueReopen)
 
 	refused   avl.Tree // lower-case Ethereum address -> true: refused send recipients
 	denoms    avl.Tree // denom -> *Denom
@@ -222,6 +226,8 @@ type Route struct {
 	openSends avl.Tree // client id -> int64: its open send records
 	processed avl.Tree // client id -> *processedSet: its processed, unsettled send records by height
 	suspect   avl.Tree // retired client id -> int64: the height its suspect interval starts at
+
+	reopenIncident, reopenRecap string // where a batched reopening stopped
 	losses    avl.Tree // loss key -> *Loss
 	incidents avl.Tree // denom|incident -> *IncidentTotals
 	recaps    avl.Tree // seqKey(id) -> *Recap
@@ -271,40 +277,93 @@ func saturatingAdd(a, b int64) int64 {
 // acknowledgement or a timeout) at or after the replacement's suspect height
 // and is not settled. Every loss not
 // recapitalized or reduced is recorded as an accepted deficit by the reopening
-// itself (§7.9); a recapitalization authorized and not paid yet then finds
-// nothing left to recapitalize. It returns the deficit it accepted.
-func (rt *Route) Reopen() (int64, error) {
+// itself (§7.9) and every unpaid recapitalization authorization is revoked,
+// in bounded batches: the route opens when the last completes (see
+// ContinueReopen). It returns the deficit this batch accepted and whether the
+// route is open.
+func (rt *Route) Reopen() (int64, bool, error) {
 	if !rt.Closed {
-		return 0, errors.New("controls: route " + rt.Key + " is not closed")
+		return 0, false, errors.New("controls: route " + rt.Key + " is not closed")
+	}
+	if rt.Reopening {
+		return 0, false, errors.New("controls: route " + rt.Key + " is reopening already: continue it")
 	}
 	for _, c := range rt.Replaced {
 		if n := rt.OpenSends(c); n > 0 {
-			return 0, ufmt.Errorf("controls: %d send records of retired client %s are still open: settle them first", n, c)
+			return 0, false, ufmt.Errorf("controls: %d send records of retired client %s are still open: settle them first", n, c)
 		}
 		if n := rt.SuspectUnsettled(c); n > 0 {
-			return 0, ufmt.Errorf("controls: %d send records retired client %s processed in its suspect interval are not settled: settle them first", n, c)
+			return 0, false, ufmt.Errorf("controls: %d send records retired client %s processed in its suspect interval are not settled: settle them first", n, c)
 		}
 	}
+	rt.Reopening = true
+	rt.reopenIncident, rt.reopenRecap = "", ""
+	accepted, done := rt.reopenBatch()
+	return accepted, done, nil
+}
+
+// ContinueReopen runs the next bounded batch of a reopening a decision
+// started (ADR pr6375 §5.4 kind 13: a permissionless continuation); the route
+// opens when the last batch completes. It returns the deficit it accepted and
+// whether the route is open.
+func (rt *Route) ContinueReopen() (int64, bool, error) {
+	if !rt.Reopening {
+		return 0, false, errors.New("controls: route " + rt.Key + " is not reopening")
+	}
+	accepted, done := rt.reopenBatch()
+	return accepted, done, nil
+}
+
+// reopenBatch records as accepted deficits the losses of at most
+// ReopenBatch incidents, then revokes at most ReopenBatch unpaid
+// recapitalization authorizations, from where the last batch stopped; when
+// none is left the route opens.
+func (rt *Route) reopenBatch() (int64, bool) {
 	var accepted int64
-	rt.incidents.Iterate("", "", func(k string, v any) bool {
+	n := 0
+	more := rt.incidents.Iterate(after(rt.reopenIncident), "", func(k string, v any) bool {
+		if n == ReopenBatch {
+			return true
+		}
 		it := v.(*IncidentTotals)
-		rest := it.Lost - it.Recapitalized - it.Reduced - it.Accepted
-		if rest > 0 {
+		if rest := it.Lost - it.Recapitalized - it.Reduced - it.Accepted; rest > 0 {
 			it.Accepted += rest
 			rt.Denom(k[:strings.Index(k, "|")]).Totals.Accepted += rest
 			accepted += rest
 		}
+		rt.reopenIncident = k
+		n++
 		return false
 	})
-	// Everything is resolved now: no unpaid authorization is left to pay.
-	rt.recaps.Iterate("", "", func(_ string, v any) bool {
+	if more {
+		return accepted, false
+	}
+	n = 0
+	more = rt.recaps.Iterate(after(rt.reopenRecap), "", func(k string, v any) bool {
+		if n == ReopenBatch {
+			return true
+		}
 		if r := v.(*Recap); !r.Paid {
 			r.Revoked = true
 		}
+		rt.reopenRecap = k
+		n++
 		return false
 	})
-	rt.Closed = false
-	return accepted, nil
+	if more {
+		return accepted, false
+	}
+	rt.Reopening, rt.Closed = false, false
+	return accepted, true
+}
+
+// after is the first key an iteration resumes at, past cursor ("" from the
+// start).
+func after(cursor string) string {
+	if cursor == "" {
+		return ""
+	}
+	return cursor + "\x00"
 }
 
 // SetFeeCollector replaces the fee collector.
