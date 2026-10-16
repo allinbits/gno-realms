@@ -44,21 +44,8 @@ func (p *adminParams) check() string {
 			return a[0] + " is not a listed relayer"
 		}
 	case "core recover client":
-		subject, substitute := a[0], a[1]
-		switch {
-		case subject == substitute:
-			return "the subject and the substitute are one client"
-		case core.ClientType(subject) == "" || core.ClientType(substitute) == "":
-			return "unknown client"
-		case core.ClientType(subject) != core.ClientType(substitute):
-			return "the subject and the substitute are of different types"
-		case core.IsClientRetired(subject) || core.IsClientRetired(substitute):
-			return "a retired client is never recovered or used to recover"
-		case core.ClientStatus(subject) != "Frozen" && core.ClientStatus(subject) != "Expired":
-			return "client " + subject + " is " + core.ClientStatus(subject) + ", not frozen or expired"
-		case core.ClientStatus(substitute) != "Active":
-			return "substitute " + substitute + " is " + core.ClientStatus(substitute) + ", not Active"
-		}
+		// The core's checks and the light client's, with no change.
+		return core.CheckRecoverClient(a[0], a[1])
 	case "core approve app":
 		if !core.IsAppPending(a[0], a[1]) {
 			return "no pending registration of " + a[1] + " for port " + a[0]
@@ -90,12 +77,14 @@ func (p *adminParams) check() string {
 			return a[0] + " is not a member"
 		}
 	case "core migrate client":
-		switch {
-		case core.ClientType(a[0]) != ethereum.ClientType:
-			return a[0] + " is no Ethereum client"
-		case core.IsClientRetired(a[0]):
-			return a[0] + " is retired"
+		bz, err := hex.DecodeString(a[2])
+		if err != nil {
+			return "params are not hex"
 		}
+		if core.ClientType(a[0]) != ethereum.ClientType {
+			return a[0] + " is no Ethereum client"
+		}
+		return core.CheckMigrateClient(a[0], a[1], bz)
 	case "transfer update impl":
 		if !contains(transfer.RegisteredImplPaths(), a[0]) {
 			return "no transfer implementation is registered at " + a[0]

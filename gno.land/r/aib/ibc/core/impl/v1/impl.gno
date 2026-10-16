@@ -29,7 +29,8 @@ type logic struct {
 
 var (
 	_ core.Logic          = (*logic)(nil)
-	_ core.ClientMigrator = (*logic)(nil)
+	_ core.ClientMigrator         = (*logic)(nil)
+	_ core.ClientMigrationChecker = (*logic)(nil)
 )
 
 // New builds the implementation against the proxy's store.
@@ -58,27 +59,45 @@ func (l *logic) OnInstall(_ int, rlm realm, prevPath, prevVersion string) {
 
 // MigrateClient implements core.ClientMigrator. The proxy has checked that
 // ibcgov decided it and that the client is not retired.
-func (l *logic) MigrateClient(_ int, rlm realm, clientID, migration string, params []byte) {
+// migration resolves a migration's subject and parameters, or why it cannot
+// apply.
+func (l *logic) migration(clientID, migration string, params []byte) (*ethereum.EthLightClient, ethereum.ForkParameters, error) {
 	c := l.store.Client(clientID)
 	if c == nil {
-		panic(ufmt.Sprintf("client %s not found", clientID))
+		return nil, ethereum.ForkParameters{}, ufmt.Errorf("client %s not found", clientID)
 	}
-	switch migration {
-	case MigrationEthereumForkSchedule:
-		lc, ok := c.LightClient().(*ethereum.EthLightClient)
-		if !ok || c.Type() != ethereum.ClientType {
-			panic(ufmt.Sprintf("client %s is not an Ethereum client", clientID))
-		}
-		fp, err := ethereum.DecodeForkParameters(params)
-		if err != nil {
-			panic(err)
-		}
-		// lc is the proxy's verifier: the /p/ method writes under the proxy.
-		if err := lc.MigrateForkParameters(fp); err != nil {
-			panic(err)
-		}
-	default:
-		panic(ufmt.Sprintf("unknown client migration %q", migration))
+	if migration != MigrationEthereumForkSchedule {
+		return nil, ethereum.ForkParameters{}, ufmt.Errorf("unknown client migration %q", migration)
 	}
-	core.EmitMigrateClient(0, rlm, clientID, c.Type(), migration)
+	lc, ok := c.LightClient().(*ethereum.EthLightClient)
+	if !ok || c.Type() != ethereum.ClientType {
+		return nil, ethereum.ForkParameters{}, ufmt.Errorf("client %s is not an Ethereum client", clientID)
+	}
+	fp, err := ethereum.DecodeForkParameters(params)
+	if err != nil {
+		return nil, ethereum.ForkParameters{}, err
+	}
+	return lc, fp, nil
+}
+
+// CheckMigrateClient is why MigrateClient would fail now, or nil, with no
+// change (core.ClientMigrationChecker).
+func (l *logic) CheckMigrateClient(clientID, migration string, params []byte) error {
+	lc, fp, err := l.migration(clientID, migration, params)
+	if err != nil {
+		return err
+	}
+	return lc.CheckForkParameters(fp)
+}
+
+func (l *logic) MigrateClient(_ int, rlm realm, clientID, migration string, params []byte) {
+	lc, fp, err := l.migration(clientID, migration, params)
+	if err != nil {
+		panic(err)
+	}
+	// lc is the proxy's verifier: the /p/ method writes under the proxy.
+	if err := lc.MigrateForkParameters(fp); err != nil {
+		panic(err)
+	}
+	core.EmitMigrateClient(0, rlm, clientID, ethereum.ClientType, migration)
 }

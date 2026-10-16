@@ -86,6 +86,68 @@ func RecoverClient(cur realm, subjectClientID, substituteClientID string) {
 	mustImpl().RecoverClient(0, cur, subjectClientID, substituteClientID)
 }
 
+// recoveryChecker is implemented by a light client that tells, without a
+// change, why it would refuse a recovery from substitute.
+type recoveryChecker interface {
+	CheckRecovery(substitute lightclient.Interface) error
+}
+
+// CheckRecoverClient is why RecoverClient(subjectClientID, substituteClientID)
+// would fail now, or "": every check of the core and of the subject's light
+// client, with no change. A governed recovery that would fail is refused (and
+// its decision spent) instead of aborting and staying pending.
+func CheckRecoverClient(subjectClientID, substituteClientID string) string {
+	subject, substitute := store.getClient(subjectClientID), store.getClient(substituteClientID)
+	switch {
+	case subjectClientID == substituteClientID:
+		return "the subject and the substitute are one client"
+	case subject == nil || substitute == nil:
+		return "unknown client"
+	case store.isRetired(subjectClientID) || store.isRetired(substituteClientID):
+		return "a retired client is never recovered or used to recover"
+	case subject.Type() != substitute.Type():
+		return "the subject and the substitute are of different types"
+	}
+	if status := subject.LightClient().Status(); status != lightclient.Frozen && status != lightclient.Expired {
+		return "client " + subjectClientID + " is " + string(status) + ", not frozen or expired"
+	}
+	if status := substitute.LightClient().Status(); status != lightclient.Active {
+		return "substitute " + substituteClientID + " is " + string(status) + ", not Active"
+	}
+	if rc, ok := subject.LightClient().(recoveryChecker); ok {
+		if err := rc.CheckRecovery(substitute.LightClient()); err != nil {
+			return err.Error()
+		}
+	}
+	return ""
+}
+
+// ClientMigrationChecker is implemented by a ClientMigrator that tells,
+// without a change, why a migration would fail.
+type ClientMigrationChecker interface {
+	CheckMigrateClient(clientID, migration string, params []byte) error
+}
+
+// CheckMigrateClient is why MigrateClient(clientID, migration, params) would
+// fail now, or "", with no change: a governed migration that would fail is
+// refused (and its decision spent) instead of aborting and staying pending.
+func CheckMigrateClient(clientID, migration string, params []byte) string {
+	if store.getClient(clientID) == nil {
+		return "unknown client " + clientID
+	}
+	if store.isRetired(clientID) {
+		return "client " + clientID + " is retired"
+	}
+	m, ok := mustImpl().(ClientMigrationChecker)
+	if !ok {
+		return "the active implementation " + implVersion + " cannot migrate clients"
+	}
+	if err := m.CheckMigrateClient(clientID, migration, params); err != nil {
+		return err.Error()
+	}
+	return ""
+}
+
 // ClientMigrator is implemented by an implementation that can replace the
 // verifier of a live client while keeping its id, its consensus states and
 // its packet state (ADR pr6375 R16): for an Ethereum client, a new fork

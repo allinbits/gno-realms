@@ -26,6 +26,19 @@ import (
 // Call it on the stored client (the core's verifier): it writes the new state
 // under the receiver's storage realm.
 func (c *EthLightClient) MigrateForkParameters(fp ForkParameters) error {
+	if err := c.CheckForkParameters(fp); err != nil {
+		return err
+	}
+	updated := *c.ClientState
+	updated.ForkParameters = fp
+	c.ClientState = &updated
+	return nil
+}
+
+// CheckForkParameters is why MigrateForkParameters would refuse fp, or nil;
+// it changes nothing, so a governed migration is refused deterministically
+// before it runs.
+func (c *EthLightClient) CheckForkParameters(fp ForkParameters) error {
 	if status := c.Status(); status != lightclient.Active {
 		return ufmt.Errorf("cannot migrate a client with status %s", status)
 	}
@@ -58,9 +71,6 @@ func (c *EthLightClient) MigrateForkParameters(fp ForkParameters) error {
 			return ufmt.Errorf("fork %s at epoch %d precedes fork %s at epoch %d", forkNames[i], n.Epoch, forkNames[i-1], news[i-1].Epoch)
 		}
 	}
-	updated := *cs
-	updated.ForkParameters = fp
-	c.ClientState = &updated
 	return nil
 }
 

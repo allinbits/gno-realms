@@ -664,6 +664,27 @@ func (c *EthLightClient) TimestampAtHeight(height types.Height) (uint64, error) 
 // Implements lightclient.Interface. The substitute must track the same chain
 // and router; its latest consensus state is copied and the subject unfrozen.
 func (c *EthLightClient) RecoverClient(substitute lightclient.Interface) error {
+	if err := c.CheckRecovery(substitute); err != nil {
+		return err
+	}
+	sub := substitute.(*EthLightClient)
+	a, b := c.ClientState, sub.ClientState
+	cons, _ := sub.GetConsensusState(sub.LatestHeight())
+	copied := copyConsensusState(*cons)
+	c.setConsensusState(&copied)
+	updated := *a
+	updated.LatestSlot = b.LatestSlot
+	updated.LatestExecutionBlockNumber = b.LatestExecutionBlockNumber
+	updated.MinSyncCommitteeParticipants = b.MinSyncCommitteeParticipants
+	updated.IsFrozen = false
+	c.ClientState = &updated
+	return nil
+}
+
+// CheckRecovery is why RecoverClient would refuse substitute, or nil; it
+// changes nothing, so a governed recovery is refused deterministically
+// before it runs.
+func (c *EthLightClient) CheckRecovery(substitute lightclient.Interface) error {
 	sub, ok := substitute.(*EthLightClient)
 	if !ok {
 		return ufmt.Errorf("substitute must be an ethereum client, got %T", substitute)
@@ -681,18 +702,9 @@ func (c *EthLightClient) RecoverClient(substitute lightclient.Interface) error {
 	if b.LatestSlot <= a.LatestSlot {
 		return errors.New("substitute must be ahead of the subject")
 	}
-	cons, ok := sub.GetConsensusState(sub.LatestHeight())
-	if !ok {
+	if _, ok := sub.GetConsensusState(sub.LatestHeight()); !ok {
 		return errors.New("substitute has no latest consensus state")
 	}
-	copied := copyConsensusState(*cons)
-	c.setConsensusState(&copied)
-	updated := *a
-	updated.LatestSlot = b.LatestSlot
-	updated.LatestExecutionBlockNumber = b.LatestExecutionBlockNumber
-	updated.MinSyncCommitteeParticipants = b.MinSyncCommitteeParticipants
-	updated.IsFrozen = false
-	c.ClientState = &updated
 	return nil
 }
 

@@ -297,21 +297,12 @@ func (tm *TMLightClient) TimestampAtHeight(height types.Height) (uint64, error) 
 // resetting FrozenHeight. The substitute and subject client states must match
 // in TrustLevel, UnbondingPeriod, MaxClockDrift, ProofSpecs and UpgradePath.
 func (tm *TMLightClient) RecoverClient(substitute lightclient.Interface) error {
-	if substitute == nil {
-		return errors.New("substitute must not be nil")
+	if err := tm.CheckRecovery(substitute); err != nil {
+		return err
 	}
-	sub, ok := substitute.(*TMLightClient)
-	if !ok {
-		return ufmt.Errorf("substitute client type mismatch: expected *TMLightClient, got %T", substitute)
-	}
-	if field := mismatchingClientStateField(tm.ClientState, sub.ClientState); field != "" {
-		return ufmt.Errorf("subject and substitute client states differ on %s", field)
-	}
+	sub := substitute.(*TMLightClient)
 	subLatest := sub.ClientState.LatestHeight
-	subConsState, found := sub.GetConsensusState(subLatest)
-	if !found {
-		return ufmt.Errorf("substitute consensus state not found at height %s", subLatest)
-	}
+	subConsState, _ := sub.GetConsensusState(subLatest)
 
 	// Whole-slot replace, single allocation. See UpdateStateOnMisbehaviour
 	// for the v2 borrow-rule rationale on why per-field writes don't work.
@@ -327,6 +318,27 @@ func (tm *TMLightClient) RecoverClient(substitute lightclient.Interface) error {
 		UpgradePath:     tm.ClientState.UpgradePath,
 	}
 	tm.SetConsensusState(subLatest, subConsState)
+	return nil
+}
+
+// CheckRecovery is why RecoverClient would refuse substitute, or nil; it
+// changes nothing, so a governed recovery is refused deterministically
+// before it runs.
+func (tm *TMLightClient) CheckRecovery(substitute lightclient.Interface) error {
+	if substitute == nil {
+		return errors.New("substitute must not be nil")
+	}
+	sub, ok := substitute.(*TMLightClient)
+	if !ok {
+		return ufmt.Errorf("substitute client type mismatch: expected *TMLightClient, got %T", substitute)
+	}
+	if field := mismatchingClientStateField(tm.ClientState, sub.ClientState); field != "" {
+		return ufmt.Errorf("subject and substitute client states differ on %s", field)
+	}
+	subLatest := sub.ClientState.LatestHeight
+	if _, found := sub.GetConsensusState(subLatest); !found {
+		return ufmt.Errorf("substitute consensus state not found at height %s", subLatest)
+	}
 	return nil
 }
 
