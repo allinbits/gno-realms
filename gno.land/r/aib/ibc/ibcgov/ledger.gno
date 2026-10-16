@@ -19,6 +19,10 @@ import (
 // guardian hold spends.
 type unpauser interface{ unpause() }
 
+// deferrer is implemented by a decision whose execution a standing flag
+// defers (it stays pending): deferredBy is the reason, "" if none.
+type deferrer interface{ deferredBy() string }
+
 // applier is implemented by every gno-side decision's parameters: apply makes
 // the change and returns a note, or the reason it cannot apply now.
 type applier interface {
@@ -68,6 +72,13 @@ func Execute(cur realm, id int64) {
 	if heldAt(t) {
 		if _, ok := d.Params.(*seatsParams); !ok || t < holdSince+holdReplacementWait {
 			panic("ibcgov: decision " + itoa(id) + " is deferred: a guardian hold stands since " + itoa(holdSince))
+		}
+	}
+	// One flag stops a route's payouts, governed ones included: a decision
+	// paying out on a flagged function waits (ADR pr6375 R10, §7.4).
+	if df, ok := d.Params.(deferrer); ok {
+		if reason := df.deferredBy(); reason != "" {
+			panic("ibcgov: decision " + itoa(id) + " is deferred: " + reason)
 		}
 	}
 	applyDecision(cur, d, t)

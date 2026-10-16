@@ -40,6 +40,25 @@ type routeParams struct {
 	replace string // the old client a replacement retires
 }
 
+// deferredBy defers a decision paying out of a route while the matching
+// function is flagged: a sweep payment under a payouts flag, a settlement
+// paying refunds under a refunds hold.
+func (p *routeParams) deferredBy() string {
+	switch p.op {
+	case controls.OpSweep:
+		if Flagged(p.p.Route, FnPayouts) {
+			return "the payouts of route " + p.p.Route + " are flagged"
+		}
+	case controls.OpSettle:
+		for _, it := range p.p.Items {
+			if it.Action == controls.SettlePay && it.Amount > 0 && Flagged(p.p.Route, FnRefunds) {
+				return "the refunds of route " + p.p.Route + " are held"
+			}
+		}
+	}
+	return ""
+}
+
 func (p *routeParams) apply(cur realm, t int64) (string, string) {
 	if p.replace != "" {
 		// Re-check the new client before retiring the old one.
