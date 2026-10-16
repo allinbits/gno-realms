@@ -2,6 +2,7 @@
 package main
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -74,6 +75,16 @@ func main(cur realm) {
 	}
 	println("settings client-01:", revive(func() { govern(cur, ibcgov.NewEthRouteSettingsRequest(cross(cur), "client-01", 1)) }))
 
+	// Valid router ids that Markdown would act on are shown as written on the
+	// governance page (Codex round 8 #6).
+	govern(cur, ibcgov.NewEthRouteSettingsRequest(cross(cur), "_eth_", 3600))
+	govern(cur, ibcgov.NewEthRouteSettingsRequest(cross(cur), "<bridge>", 3600))
+	for _, l := range strings.Split(ibcgov.Render(""), "\n") {
+		if strings.Contains(l, "eth") && strings.Contains(l, "3600") || strings.Contains(l, "bridge") && strings.Contains(l, "3600") {
+			println(l)
+		}
+	}
+
 	// The transfer app carries a packet from the router client "gnoland".
 	execute(cur, govern(cur, ibcgov.NewTransferActivateControlsRequest(cross(cur), "gno.land/r/aib/ibc/apps/transfer/impl/v1", client, string(collector), bridge, "", "", 10_000)))
 	advance(7*24*time.Hour + time.Second) // the separate enrollment's delay, kept so the timeline stays
@@ -96,4 +107,6 @@ func main(cur realm) {
 // add abc: ibcgov: a router client id added by governance is a custom id: 4 to 128 characters of a-z A-Z 0-9 . _ + - # [ ] < >, not starting with client- or channel-: abc
 // add gno/land: ibcgov: a router client id added by governance is a custom id: 4 to 128 characters of a-z A-Z 0-9 . _ + - # [ ] < >, not starting with client- or channel-: gno/land
 // settings client-01: ibcgov: not an Ethereum router client id: client-01
+// - #6 applied: ethereum kind 11 \(route settings\): quarantine of \<bridge\>: 3600 s (recorded 1235172691, applied 1235172691) — dispatched as epoch 1 seq 5
+// - #5 applied: ethereum kind 11 \(route settings\): quarantine of \_eth\_: 3600 s (recorded 1235172691, applied 1235172691) — dispatched as epoch 1 seq 4
 // receive from gnoland: true

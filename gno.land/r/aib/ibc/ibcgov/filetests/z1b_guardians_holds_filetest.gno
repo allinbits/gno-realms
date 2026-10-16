@@ -212,8 +212,8 @@ func main(cur realm) {
 // pending: none
 //
 // executed:
-// - #6 applied: unpause credits,refunds on route ethereum-1 (recorded 1237678295, applied 1237678295) — cleared 2 flags
-// - #5 spent: unpause sends on route ethereum-1 (recorded 1237591895) — spent: a guardian hold stands, which spends every unpause
+// - #6 applied: unpause credits,refunds on route ethereum\-1 (recorded 1237678295, applied 1237678295) — cleared 2 flags
+// - #5 spent: unpause sends on route ethereum\-1 (recorded 1237591895) — spent: a guardian hold stands, which spends every unpause
 //
 // ### core add relayer
 //
@@ -227,4 +227,4 @@ func main(cur realm) {
 // pending: none
 //
 // executed:
-// - #1 applied: transfer: activate gno.land/r/aib/ibc/apps/transfer/impl/v1 with route ethereum-1 (fee collector g1vdhkcmr9vd6x7ujlta047h6lta047h6lsp3m50; router 0x00000000000000000000000000000000000b0001, ICS20 transfer 0x00000000000000000000000000000000000b0002, IBCAdmin 0x00000000000000000000000000000000000b0003; other Ethereum clients' bridge contracts none), legacy refund cap 10000 a day, and denoms none yet (recorded 1234567890, applied 1235172691) — transfer gno.land/r/aib/ibc/apps/transfer/impl/v1 active with route ethereum-1 and 0 denoms
+// - #1 applied: transfer: activate gno\.land/r/aib/ibc/apps/transfer/impl/v1 with route ethereum\-1 \(fee collector g1vdhkcmr9vd6x7ujlta047h6lta047h6lsp3m50; router 0x00000000000000000000000000000000000b0001, ICS20 transfer 0x00000000000000000000000000000000000b0002, IBCAdmin 0x00000000000000000000000000000000000b0003; other Ethereum clients' bridge contracts none\), legacy refund cap 10000 a day, and denoms none yet (recorded 1234567890, applied 1235172691) — transfer gno\.land/r/aib/ibc/apps/transfer/impl/v1 active with route ethereum\-1 and 0 denoms

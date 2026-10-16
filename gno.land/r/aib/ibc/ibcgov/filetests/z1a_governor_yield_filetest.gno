@@ -152,7 +152,7 @@ func main(cur realm) {
 // pending: none
 //
 // executed:
-// - #4 applied: cancel decision 3 (core add relayer) (recorded 1235172690, applied 1235172690) — cancelled decision 3
+// - #4 applied: cancel decision 3 \(core add relayer\) (recorded 1235172690, applied 1235172690) — cancelled decision 3
 //
 // ### core add relayer
 //

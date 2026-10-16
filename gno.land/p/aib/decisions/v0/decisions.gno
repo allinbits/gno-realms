@@ -16,6 +16,8 @@ import (
 	"strconv"
 	"strings"
 
+	"gno.land/p/nt/markdown/sanitize/v0"
+
 	"gno.land/p/nt/avl/v0"
 )
 
@@ -254,7 +256,7 @@ func (l *Ledger) Page() string {
 	})
 	var b strings.Builder
 	for _, k := range kinds {
-		b.WriteString("### " + k + "\n\n")
+		b.WriteString("### " + sanitize.InlineText(k) + "\n\n")
 		if len(pending[k]) == 0 {
 			b.WriteString("pending: none\n")
 		} else {
@@ -274,8 +276,12 @@ func (l *Ledger) Page() string {
 	return b.String()
 }
 
+// line is a decision's line on the page. Its text and note carry the
+// parameters a builder took (client ids such as a router's "_eth_" or
+// "<bridge>", denoms, refusal reasons), so both are escaped as inline
+// Markdown text: the page shows them as written.
 func line(d *Decision) string {
-	s := "#" + itoa(d.ID) + " " + d.State() + ": " + d.Text + " (recorded " + itoa(d.Recorded)
+	s := "#" + itoa(d.ID) + " " + d.State() + ": " + sanitize.InlineText(d.Text) + " (recorded " + itoa(d.Recorded)
 	if d.Queued() {
 		s += ", due " + itoa(d.Due)
 	}
@@ -287,7 +293,7 @@ func line(d *Decision) string {
 	}
 	s += ")"
 	if d.Note != "" {
-		s += " — " + d.Note
+		s += " — " + sanitize.InlineText(d.Note)
 	}
 	return s
 }

@@ -131,10 +131,7 @@ func (rd *Renderer) Home(w *mux.ResponseWriter, r *mux.Request) {
 				return false
 			}
 			seen[c.Denom] = true
-			out.WriteString(ufmt.Sprintf(
-				"| [`%s`](/r/aib/ibc/apps/transfer:total_escrow/%s) | %d |\n",
-				c.Denom, c.Denom, escrowsPerDenom[c.Denom],
-			))
+			out.WriteString(ufmt.Sprintf("| %s | %d |\n", escrowDenomCell(c.Denom), escrowsPerDenom[c.Denom]))
 			return false
 		})
 		out.WriteString("\n")
@@ -150,6 +147,19 @@ func (rd *Renderer) Home(w *mux.ResponseWriter, r *mux.Request) {
 	out.WriteString("- `voucher/ibc/{hash}`: get voucher token metadata\n")
 	out.WriteString("- `voucher/ibc/{hash}/balance/{addr}`: get a voucher balance for an address\n\n")
 	w.Write(out.String())
+}
+
+// escrowDenomCell is an escrow table's denom cell: a link to its total when
+// the denom is spelled in the bank's alphabet, else the denom escaped as
+// table text (a GRC20 alias carries a token's chosen symbol).
+func escrowDenomCell(denom string) string {
+	for i := 0; i < len(denom); i++ {
+		c := denom[i]
+		if !(c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '/' || c == ':' || c == '.' || c == '_' || c == '-') {
+			return sanitize.TableCell(denom)
+		}
+	}
+	return "[`" + denom + "`](/r/aib/ibc/apps/transfer:total_escrow/" + denom + ")"
 }
 
 func (rd *Renderer) Admin(w *mux.ResponseWriter, r *mux.Request) {
