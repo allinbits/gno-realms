@@ -144,20 +144,11 @@ func NewEnrollRouteRequest(cur realm, clientID, feeCollector string) Request {
 	})
 }
 
-// NewSetDenomRequest enables a denom on route or changes its limits (ADR
-// pr6375 §7.1, §7.8, §9): kind "unescrow" (a gno-native token: denom is its
-// escrow denom, "ugnot" or a GRC20 alias) or "mint" (an Ethereum token: denom
-// is its voucher's IBC denom); capFloor the day cap floor (unescrow) or day
-// cap (mint); supplyCap the voucher supply cap (mint, else 0); fee and its
-// floor; sendMax and sendMin (unescrow, else 0); refundCap the refund meter's
-// day cap; remoteToken (unescrow, else "") the token's GnoVoucher on Ethereum,
-// which sends may never name as their receiver. For a minted denom, denom may be the token's Ethereum address
-// (0x…): the voucher denom is then computed, ibc/<sha256("transfer/<route>/
-// <lower-case address>")>, the denom this chain keys the token's vouchers by.
-// A change that only tightens applies at once; a new denom or any loosening
-// waits 7 days.
-func NewSetDenomRequest(cur realm, route, denom, kind string, capFloor, supplyCap, fee, feeFloor, sendMax, sendMin, refundCap int64, remoteToken string) Request {
-	mustRoute(route)
+// denomConfig checks a denom's configuration as NewSetDenomRequest takes it
+// and returns the accounting denom (a minted denom named by its token's
+// Ethereum address becomes its voucher's IBC denom on route) and the
+// configuration.
+func denomConfig(route, denom, kind string, capFloor, supplyCap, fee, feeFloor, sendMax, sendMin, refundCap int64, remoteToken string) (string, controls.DenomConfig) {
 	if !isDenom(denom) {
 		panic("ibcgov: not a denom: " + denom)
 	}
@@ -167,6 +158,9 @@ func NewSetDenomRequest(cur realm, route, denom, kind string, capFloor, supplyCa
 			panic("ibcgov: " + err.Error())
 		}
 		denom = ics20.NewDenom(a.Lower(), ics20.NewHop("transfer", route)).IBCDenom()
+	}
+	if (kind == controls.KindMint) != strings.HasPrefix(denom, "ibc/") {
+		panic("ibcgov: a minted denom is a voucher's ibc/ denom (or its token's address), an unescrowed one is not")
 	}
 	remote := ""
 	if remoteToken != "" {
@@ -181,6 +175,25 @@ func NewSetDenomRequest(cur realm, route, denom, kind string, capFloor, supplyCa
 	if err := c.Validate(); err != nil {
 		panic("ibcgov: " + err.Error())
 	}
+	return denom, c
+}
+
+// NewSetDenomRequest enables a denom on route or changes its limits (ADR
+// pr6375 §7.1, §7.8, §9): kind "unescrow" (a gno-native token: denom is its
+// escrow denom, "ugnot" or a GRC20 alias) or "mint" (an Ethereum token: denom
+// is its voucher's IBC denom); capFloor the day cap floor (unescrow) or day
+// cap (mint); supplyCap the voucher supply cap (mint, else 0); fee and its
+// floor; sendMax and sendMin (unescrow, else 0); refundCap the refund meter's
+// day cap; remoteToken (unescrow, else "") the token's GnoVoucher on Ethereum,
+// which sends may never name as their receiver. For a minted denom, denom may be the token's Ethereum address
+// (0x…): the voucher denom is then computed, ibc/<sha256("transfer/<route>/
+// <lower-case address>")>, the denom this chain keys the token's vouchers by.
+// A change that only tightens applies at once; a new denom or any loosening
+// waits 7 days.
+func NewSetDenomRequest(cur realm, route, denom, kind string, capFloor, supplyCap, fee, feeFloor, sendMax, sendMin, refundCap int64, remoteToken string) Request {
+	mustRoute(route)
+	denom, c := denomConfig(route, denom, kind, capFloor, supplyCap, fee, feeFloor, sendMax, sendMin, refundCap, remoteToken)
+	remote := c.Remote
 	if old, ok := view().DenomConfig(route, denom); ok && old.Kind != kind {
 		panic("ibcgov: a denom never changes accounting")
 	}
@@ -520,5 +533,102 @@ func NewBindGovernanceRequest(cur realm, clientID string) Request {
 	p := &bindParams{client: clientID}
 	return propose(cur, "bind governance", text, func(cur realm, made, t int64) {
 		decide(cur, "bind governance", text, p, made, t, true)
+	})
+}
+
+// maxActivationDenoms bounds the denoms an activation enables.
+const maxActivationDenoms = 16
+
+// activateParams is the switch of the transfer app to an implementation with
+// the route controls, staged with its first route and that route's denoms
+// so they take effect in the same transaction (ADR pr6375 R17, §6.7, §7.3):
+// no moment exists in which an Ethereum client is under the controls but its
+// vouchers cannot go back.
+type activateParams struct {
+	path   string
+	enroll controls.Params
+	denoms []controls.Params
+}
+
+func (p *activateParams) apply(cur realm, t int64) (string, string) {
+	// Every refusal the staged steps could meet is checked first, so the
+	// switch never lands without its route (it would abort instead).
+	if !contains(transfer.RegisteredImplPaths(), p.path) {
+		return "", "no transfer implementation is registered at " + p.path
+	}
+	if routes.Has(p.enroll.Route) {
+		return "", p.enroll.Route + " is a route already"
+	}
+	if refusal := checkNewRouteClient(p.enroll.Route); refusal != "" {
+		return "", refusal
+	}
+	transfer.UpdateImpl(cross(cur), p.path)
+	if refusal := transfer.GovApply(cross(cur), controls.OpEnroll, p.enroll.Encode()); refusal != "" {
+		panic("ibcgov: the staged route could not be enrolled: " + refusal)
+	}
+	routes.Set(p.enroll.Route, &routeRec{epochAt: t})
+	for _, d := range p.denoms {
+		if refusal := transfer.GovApply(cross(cur), controls.OpDenom, d.Encode()); refusal != "" {
+			panic("ibcgov: the staged denom " + d.Denom + " could not be enabled: " + refusal)
+		}
+	}
+	return "transfer " + p.path + " active with route " + p.enroll.Route + " and " + strconv.Itoa(len(p.denoms)) + " denoms", ""
+}
+
+// NewTransferActivateControlsRequest switches the transfer app to the
+// implementation at path (impl/v1: the route controls) after 7 days, staged
+// with its first route: the Ethereum client clientID, enrolled with fee
+// collector feeCollector, and the denoms it carries, enabled in the same
+// transaction (ADR pr6375 R17). Vouchers impl/v0 minted go back at once after
+// the switch, recorded and metered, with no later decision. denoms is a
+// ";"-separated list of "denom kind capFloor supplyCap fee feeFloor sendMax
+// sendMin refundCap remoteToken" (space-separated, as NewSetDenomRequest
+// takes them; remoteToken "-" for none), at most 16.
+func NewTransferActivateControlsRequest(cur realm, path, clientID, feeCollector, denoms string) Request {
+	mustImplPath(TransferPath, path)
+	if refusal := checkNewRouteClient(clientID); refusal != "" {
+		panic("ibcgov: " + refusal)
+	}
+	if routes.Has(clientID) {
+		panic("ibcgov: " + clientID + " is a route already")
+	}
+	fc := mustAddr(feeCollector)
+	p := &activateParams{path: path, enroll: controls.Params{Route: clientID, To: fc}}
+	var names []string
+	seen := map[string]bool{}
+	for _, spec := range strings.Split(denoms, ";") {
+		f := strings.Fields(spec)
+		if len(f) == 0 {
+			continue
+		}
+		if len(f) != 10 {
+			panic("ibcgov: a staged denom is \"denom kind capFloor supplyCap fee feeFloor sendMax sendMin refundCap remoteToken\", not " + spec)
+		}
+		var n [7]int64
+		for i := range n {
+			v, err := strconv.ParseInt(f[2+i], 10, 64)
+			if err != nil {
+				panic("ibcgov: not a number: " + f[2+i])
+			}
+			n[i] = v
+		}
+		remote := f[9]
+		if remote == "-" {
+			remote = ""
+		}
+		denom, c := denomConfig(clientID, f[0], f[1], n[0], n[1], n[2], n[3], n[4], n[5], n[6], remote)
+		if seen[denom] {
+			panic("ibcgov: denom " + denom + " named twice")
+		}
+		seen[denom] = true
+		p.denoms = append(p.denoms, controls.Params{Route: clientID, Denom: denom, Config: c})
+		names = append(names, denom+"("+c.Kind+")")
+	}
+	if len(p.denoms) == 0 || len(p.denoms) > maxActivationDenoms {
+		panic("ibcgov: stage 1 to " + strconv.Itoa(maxActivationDenoms) + " denoms")
+	}
+	text := "transfer: activate " + path + " with route " + clientID + " (fee collector " + string(fc) + ") and denoms " + strings.Join(names, ", ")
+	return propose(cur, "transfer activate controls", text, func(cur realm, made, t int64) {
+		decide(cur, "transfer activate controls", text, p, made, t, true)
 	})
 }
