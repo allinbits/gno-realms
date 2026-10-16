@@ -14,6 +14,7 @@ PACKAGES=(
   "gno.land/p/aib/encoding/proto/v0:gno.land/p/aib/encoding/proto/v0"
   "gno.land/p/aib/merkle/v0:gno.land/p/aib/merkle/v0"
   "gno.land/p/aib/jsonpage/v0:gno.land/p/aib/jsonpage/v0"
+  "gno.land/p/aib/jsonmd/v0:gno.land/p/aib/jsonmd/v0"
   "gno.land/p/aib/ibc/host/v0:gno.land/p/aib/ibc/host/v0"
   "gno.land/p/aib/authority/v0:gno.land/p/aib/authority/v0"
   "gno.land/p/aib/encoding/wire/v0:gno.land/p/aib/encoding/wire/v0"
