@@ -68,9 +68,7 @@ still change; once deployed they freeze (ADR 0001, 0002).
   is allocated in the proxy's storage and survives implementation switches.
   `ExtView` hands out its `controls.Reader` (values only, no mutator).
   - `Registry`: routes by route key; aliases current client → route key;
-    retired client → route key; every Ethereum client's bridge contracts
-    (router, ICS20 transfer, IBCAdmin) the activation or an enrolment
-    named, and the union of them.
+    retired client → route key.
   - `Route`: current client, replaced clients, activation height, closed
     flag, fee collector, refused recipients, protected recipients (the
     router, ICS20 transfer and IBCAdmin its enrolment named, and every
@@ -110,7 +108,7 @@ still change; once deployed they freeze (ADR 0001, 0002).
 | `core.Unpause`, `UnpauseApp`, `ApproveApp`, `AddRelayer`, `RemoveRelayer`, `RecoverClient`, `UpdateImpl`, `MigrateClient`, `RetireClient`, membership; `transfer.UnblockAddress`, `UpdateImpl`, membership, `GovApply` | ibcgov only (`cur.Previous().PkgPath() == IBCGovPath`) |
 | ibcgov decisions | the governor (`Govern`, MsgRun) until `Yield()`, then GovDAO proposals only (`req.Proposal()`) |
 | ibcgov `Execute`, `Redispatch`; transfer `Claim`, `ClaimRefunds`, `Backfill`, `Recapitalize` | anyone |
-| ibcgov `SetFlag`, `ClearFlag` | the seat's key, on a route ibcgov enrolled or any Ethereum client (the key of a legacy fallback route); a client of a route, current or retired, names its route (flags are kept under the route key) |
+| ibcgov `SetFlag`, `ClearFlag` | the seat's key, on a route ibcgov enrolled or any Ethereum client (one about to become a route's); a client of a route, current or retired, names its route (flags are kept under the route key) |
 | `UpdateClient`, `RecvPacket`, `Acknowledgement`, `Timeout` on an Ethereum client | anyone (R17); other clients keep the relayer whitelist |
 
 ### Delays (§7.5, §9)
@@ -146,9 +144,10 @@ except a seat change from day 21 of the hold.
   `NewSettleRequest`,
   `NewReplaceRouteRequest` (with its gno.land suspect height),
   `NewReopenRouteRequest`, `NewTransferActivateControlsRequest` (impl/v1
-  with its first route, its bridge contracts and 0 to 16 denoms, in one
-  transaction, with the bridge contracts of every other Ethereum client the
-  core holds; the only way to install the first implementation with the
+  with a route for every Ethereum client that holds transfer state, each
+  with its bridge contracts and every denom it holds assets of, at most 8
+  routes of 16 denoms, in one transaction, re-scanned when it executes; the
+  only way to install the first implementation with the
   controls: `NewTransferUpdateImplRequest` refuses that, and reinstalls one
   over an active controls implementation),
   `NewBindGovernanceRequest`) and Ethereum-bound builders `NewEth*Request`
@@ -202,20 +201,21 @@ against gno-eth-ibc 6f94541's vectors.
 | R8, §7.1 meters, claims, fee first, no slivers, round-robin, two accountings, sweeps, meters start empty | `controls/route.gno` (`Credit`, `PayClaims`, `Meter`), `transfer/impl/v1/recv.gno`, `controls.gno` (`Claim`), ibcgov `PayoutsEpoch` |
 | R8 reachable `Claim` | `transfer/controls.gno`, `ControlsLogic` |
 | R9, §7.5, §7.7 ledger, delays, deadline, governor, yield | `decisions/v0`, `ibcgov/governor.gno`, `ledger.gno` |
-| R10, §7.4 seats, flags, holds, day 21, naming suspects; every effective Ethereum route flaggable, legacy fallback routes included; every flag operation and check resolves a client to its route's stable key (`routeKeyOf`), and a replacement moves the flags standing under the new client's id to the route (`foldFlags`) | `ibcgov/guardians.gno` (`flaggable`, `routeKeyOf`, `foldFlags`), `routes.gno` (`mustRoute`) |
+| R10, §7.4 seats, flags, holds, day 21, naming suspects; every Ethereum client flaggable, so a client about to become a route's is held beforehand; every flag operation and check resolves a client to its route's stable key (`routeKeyOf`), and a replacement moves the flags standing under the new client's id to the route (`foldFlags`) | `ibcgov/guardians.gno` (`flaggable`, `routeKeyOf`, `foldFlags`), `routes.gno` (`mustRoute`) |
 | R11, §5.4 gov sender | `ibcgov/ethereum.gno` |
-| R12, §7.8 send limits, fee, recipient filters (the token itself, a gno-native denom's Ethereum token included); the router, ICS20 transfer, IBCAdmin and every voucher token protected from the enrolment on, no gno-native send before they are set; the staged activation names every Ethereum client's bridge contracts, so a legacy fallback route protects its client's from its creation, and one whose client was never named (created after the activation) refuses every known bridge contract | `controls.DenomConfig`, `Route.Protect`, `Registry.SetBridge`, `transfer/impl/v1/send.gno` (`checkRecipient`), ibcgov `mustBridge`, `mustOtherBridges` |
+| R12, §7.8 send limits, fee, recipient filters (the token itself, a gno-native denom's Ethereum token included); the router, ICS20 transfer, IBCAdmin and every voucher token protected from the enrolment on, no gno-native send before they are set; every route, the staged ones included, has its own from its enrolment | `controls.DenomConfig`, `Route.Protect`, `transfer/impl/v1/send.gno` (`checkRecipient`), ibcgov `mustBridge` |
 | R13, §7.9 voids, restores of withheld claims, credit by vote (receives booked after the activation; pending asynchronous acknowledgements completed), loss ledger by incident with checked totals, recapitalize (authorizations revocable, superseded by a later reduction or accepted deficit), reduce claims and owed sweep entries, accept; a route with a loss of any denom unresolved takes no new exposure, whatever the flags | `controls/voids.gno`, `route.gno` (`ExposureClosed`), `transfer/impl/v1/controls.gno` (`GovApply`), ibcgov route builders |
-| R9, R10, §7.1, §7.9 governed addresses | every gno address a builder takes (payees, fee collectors, seats, relayers, members, blocked addresses) is canonicalized (`transfer.CanonicalAddress`) before it is stored or compared, and the transfer implementation canonicalizes a decision's payee again; Ethereum addresses are lowercased |
+| §7.5 visible parameter record | the ledger page escapes each decision's kind, text and note as inline Markdown (`sanitize.InlineText`), so ids such as `_eth_` or `<bridge>` show as written |
+| R9, R10, §7.1, §7.9 governed addresses | the transfer proxy's `VoucherSend` and `VoucherApprove` canonicalize their recipient and spender, as do its membership calls; every gno address a builder takes (payees, fee collectors, seats, relayers, members, blocked addresses) is canonicalized (`transfer.CanonicalAddress`) before it is stored or compared, and the transfer implementation canonicalizes a decision's payee again; Ethereum addresses are lowercased |
 | R14 authorities | `core/admin.gno`, `app.gno`, `upgrade.gno`, `proposals.gno`; `transfer/admin.gno`, `upgrade.gno`, `proposals.gno`; `authority.NewWithMembers` |
 | R16 fork migration | `ethereum/v0/migrate.gno`, `core/client.gno` (`MigrateClient`), `core/impl/v1` |
 | R17 flags keep returns open; public Ethereum relaying | `transfer/impl/v1` (flags never touch burns, acks, timeouts), `core/admin.gno` `ensureRelayerFor` |
-| R18 route replacement: closed until a governed reopening (which also waits for every impl/v0 send left outstanding at the enrolment to be backfilled and settled, and re-checks everything when its last batch would open the route), meters emptied | `controls.Registry.Replace`, `Route.Reopen`, transfer `toWire`/`toInternal`, `core.RetireClient`, ibcgov `NewReplaceRouteRequest` (+ `nextEpoch`, payouts epoch), `NewReopenRouteRequest` |
+| R18 route replacement (the new client holds no transfer state of its own; the old one may be frozen or expired): closed until a governed reopening (which also waits for every impl/v0 send left outstanding at the enrolment to be backfilled and settled, and re-checks everything when its last batch would open the route, its loss scan starting over if a loss was booked meanwhile), meters emptied | `controls.Registry.Replace`, `Route.Reopen`, transfer `toWire`/`toInternal`, `core.RetireClient`, ibcgov `NewReplaceRouteRequest` (+ `nextEpoch`, payouts epoch), `NewReopenRouteRequest` |
 | R19 identifying receipts | `types.CommitPacketReceipt`, `core/store.gno`, `core/impl/v0/packet.gno` |
 | §7.3 refusals before state change | `transfer/impl/v1/recv.gno` (`refuse`) |
 | §7.11 on-chain records | `controls.Reader` JSON: route totals, claims, sweeps, sends, losses; `route_*` events. Every Render page is safe Markdown: JSON pages of transfer, core and ibcgov pass through `jsonmd.Inert` (the controls quote with `jsonmd.Quote`), so a raw receiver kept on an owed sweep entry or a path segment echoed in an error is inert text; tables escape counterparty base denoms, paths, counterparty ids and ports, and the route list its denoms (`sanitize.TableCell`, `InlineText`) |
 | §7.12 gno side | route replacement above, naming its suspect height; settlements of a retired client's sends (`Route.SettleRecords`, `NewSettleRequest`: whole remainders, zero for a genuine refund paid in full, forged refunds, each record once); a reopening waits for every open record and every record processed in the suspect interval, and runs its deficit acceptance in batches (`ContinueReopen`); `NewRecordLossRequest`; owed refunds reserved; retired client ids final; a retired client takes the authorized app's pending asynchronous acknowledgements |
-| R17, §6.7 activation | `NewTransferActivateControlsRequest`: the switch to impl/v1, the first route's enrolment and its denoms, and a positive legacy refund cap, in one decision; the legacy path (`Registry.Legacy`, `Route.LegacyDenom`) records and meters the returns of every other client and denom impl/v0 used until a decision enrols or enables them; the import gate (`core.OutstandingSends`, `Route.Unimported`) keeps a route's credits off until its outstanding impl/v0 sends are backfilled |
+| R17, §6.7 activation | `NewTransferActivateControlsRequest`: the switch to impl/v1 with a route for every Ethereum client that holds transfer state (escrow, vouchers in circulation, outstanding transfer commitments; `transfer.ClientAssets`, `core.OutstandingSends`) and every denom it holds assets of, in one decision; `stagingGap` refuses the builder, and spends the decision when it executes, if any is missing (a client or denom that gained assets during the delay); staged clients need not be Active; after the switch an Ethereum client without a route carries nothing, so there is no fallback path; a replacement candidate holds no transfer state of its own (`checkReplacementClient`, at build and execution); the import gate (`core.OutstandingSends`, `Route.Unimported`) keeps a route's credits off until its outstanding impl/v0 sends are backfilled |
 | §7.12 proven outcomes | `transfer.ProveOutcome` reads the destination router's receipt (`ethereum.PacketReceiptCommitment`) and acknowledgement through the replacement client (`core.CounterpartyValue`, which refuses a verifier not Active or retired); an absence counts only at a destination time at or past the packet's timeout; an outcome is final while its verifier stays healthy under the trust generation it was proven in, and void (to be proven again) once the verifier froze, expired, or was recovered, upgraded, migrated or substituted, checked again when the settlement consumes it; a recovered Ethereum client proves nothing from its pre-recovery consensus states; settlement actions must match; action 5 makes a forged receive's claim forged and books what it paid once; a refund paid for a delivered packet is booked only by action 4 |
 | §7.13 refund meter, refunds hold, send records for every send, backfill of older ones | `controls/refunds.gno`, `transfer/impl/v1/ack.gno`, `send.gno`, `controls.gno` (`ClaimRefunds`, `Backfill`) |
 
@@ -319,12 +319,16 @@ vouchers in circulation when it is enabled.
     - a voucher return waits until its denom is enabled on the route, so every
       send has a record; the staged activation enables the route's denoms
       with the upgrade, so no return waits on a live route;
-    - the staged activation may stage no denom (the route then carries only
-      voucher returns until a denom is enabled); the ordinary transfer
-      switch never installs the first controls implementation, so the
-      legacy refund cap is always set with the controls;
+    - the staged activation may stage a route with no denom (a client with
+      only outstanding commitments, whose denoms a later decision enables
+      before their backfill); the ordinary transfer switch never installs the
+      first controls implementation;
     - a flag may stand on any Ethereum client id, enrolled or not, so a
-      legacy fallback route can be held from its first voucher return;
+      client about to become a route's can be held beforehand;
+    - the staged activation is one transaction, bounded at 8 routes of 16
+      denoms, not batches with a staging state: the scan it re-runs walks
+      the voucher denoms, and a chain with more needs a staged
+      implementation of its own;
     - settlements apply only to the sends of a client a replacement retired,
       as on Ethereum, and a settlement whose payments exceed the free escrow
       is refused whole (Ethereum parks the payment instead).
@@ -364,18 +368,19 @@ does not list before it.
   be exercised end to end: the transfer app never answers asynchronously, so
   no transfer packet waits for one. The core side (retired clients taking the
   app's acknowledgement) and the controls side are tested separately.
-- **A legacy denom's refunds are metered** at the activation's legacy refund
-  cap until a decision enables the denom with its own; the return itself is
-  never refused.
+- **A denom of an outstanding impl/v0 send with no assets left** (every
+  voucher of it burnt in flight) is not staged: its send's backfill waits
+  until a decision enables the denom on the route.
 - **Pre-recovery consensus states of a Tendermint client** stay usable, as in
   ibc-go: only the Ethereum light client marks them untrusted, and only
   Ethereum clients prove outcomes for settlement. The trust generation is
   kept for every client all the same.
-- **A legacy route for a client created after the activation** (never named
-  by it, never enrolled) does not know its own bridge contracts: it refuses
-  every bridge contract any other client's route named, which covers a
-  client sharing the same Ethereum deployment, not one of another
-  deployment.
+- **The legacy fallback is gone** (round 8): `Registry.Legacy`,
+  `Route.Legacy`, `Denom.Legacy`, `Route.LegacyDenom`, the legacy refund cap
+  (`OpLegacyRefundCap`, `SetLegacyRefundCap`), the per-client bridge sets
+  and their union (`OpBridge`, `SetBridge`, `Bridge`, `IsBridgeContract`),
+  `Enroll`'s adoption of a legacy route, the activation's `otherBridges` and
+  `legacyRefundCap` arguments and the reader's legacy view were deleted.
 - **The e2e suite** (`e2e/`) needs the Docker devnet; its build makes the test
   key ibcgov's launch governor and divides the delays by 60480. The guardians'
   holds need an Ethereum route and are covered by filetests only.
