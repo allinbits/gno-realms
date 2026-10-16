@@ -53,7 +53,14 @@ func Recapitalize(cur realm, route string, id int64) {
 // reason otherwise.
 func GovApply(cur realm, op string, params []byte) string {
 	assertGovernance(0, cur, "gov_apply")
-	return mustControls().GovApply(0, cur, op, params)
+	// An implementation without the controls (a rollback to impl/v0) refuses
+	// deterministically, so the decision is spent rather than left pending
+	// until the controls come back.
+	c, ok := mustImpl().(ControlsLogic)
+	if !ok {
+		return "the active implementation " + implVersion + " keeps no route controls"
+	}
+	return c.GovApply(0, cur, op, params)
 }
 
 // ExtView returns the read-only view of an implementation's extension state
