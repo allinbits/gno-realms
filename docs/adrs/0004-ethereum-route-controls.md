@@ -68,7 +68,9 @@ still change; once deployed they freeze (ADR 0001, 0002).
   is allocated in the proxy's storage and survives implementation switches.
   `ExtView` hands out its `controls.Reader` (values only, no mutator).
   - `Registry`: routes by route key; aliases current client → route key;
-    retired client → route key.
+    retired client → route key; every Ethereum client's bridge contracts
+    (router, ICS20 transfer, IBCAdmin) the activation or an enrolment
+    named, and the union of them.
   - `Route`: current client, replaced clients, activation height, closed
     flag, fee collector, refused recipients, protected recipients (the
     router, ICS20 transfer and IBCAdmin its enrolment named, and every
@@ -108,7 +110,7 @@ still change; once deployed they freeze (ADR 0001, 0002).
 | `core.Unpause`, `UnpauseApp`, `ApproveApp`, `AddRelayer`, `RemoveRelayer`, `RecoverClient`, `UpdateImpl`, `MigrateClient`, `RetireClient`, membership; `transfer.UnblockAddress`, `UpdateImpl`, membership, `GovApply` | ibcgov only (`cur.Previous().PkgPath() == IBCGovPath`) |
 | ibcgov decisions | the governor (`Govern`, MsgRun) until `Yield()`, then GovDAO proposals only (`req.Proposal()`) |
 | ibcgov `Execute`, `Redispatch`; transfer `Claim`, `ClaimRefunds`, `Backfill`, `Recapitalize` | anyone |
-| ibcgov `SetFlag`, `ClearFlag` | the seat's key, on a route ibcgov enrolled or any Ethereum client (the key of a legacy fallback route) |
+| ibcgov `SetFlag`, `ClearFlag` | the seat's key, on a route ibcgov enrolled or any Ethereum client (the key of a legacy fallback route); a client of a route, current or retired, names its route (flags are kept under the route key) |
 | `UpdateClient`, `RecvPacket`, `Acknowledgement`, `Timeout` on an Ethereum client | anyone (R17); other clients keep the relayer whitelist |
 
 ### Delays (§7.5, §9)
@@ -145,7 +147,8 @@ except a seat change from day 21 of the hold.
   `NewReplaceRouteRequest` (with its gno.land suspect height),
   `NewReopenRouteRequest`, `NewTransferActivateControlsRequest` (impl/v1
   with its first route, its bridge contracts and 0 to 16 denoms, in one
-  transaction; the only way to install the first implementation with the
+  transaction, with the bridge contracts of every other Ethereum client the
+  core holds; the only way to install the first implementation with the
   controls: `NewTransferUpdateImplRequest` refuses that, and reinstalls one
   over an active controls implementation),
   `NewBindGovernanceRequest`) and Ethereum-bound builders `NewEth*Request`
@@ -199,14 +202,15 @@ against gno-eth-ibc 6f94541's vectors.
 | R8, §7.1 meters, claims, fee first, no slivers, round-robin, two accountings, sweeps, meters start empty | `controls/route.gno` (`Credit`, `PayClaims`, `Meter`), `transfer/impl/v1/recv.gno`, `controls.gno` (`Claim`), ibcgov `PayoutsEpoch` |
 | R8 reachable `Claim` | `transfer/controls.gno`, `ControlsLogic` |
 | R9, §7.5, §7.7 ledger, delays, deadline, governor, yield | `decisions/v0`, `ibcgov/governor.gno`, `ledger.gno` |
-| R10, §7.4 seats, flags, holds, day 21, naming suspects; every effective Ethereum route flaggable, legacy fallback routes included | `ibcgov/guardians.gno` (`flaggable`) |
+| R10, §7.4 seats, flags, holds, day 21, naming suspects; every effective Ethereum route flaggable, legacy fallback routes included; every flag operation and check resolves a client to its route's stable key (`routeKeyOf`), and a replacement moves the flags standing under the new client's id to the route (`foldFlags`) | `ibcgov/guardians.gno` (`flaggable`, `routeKeyOf`, `foldFlags`), `routes.gno` (`mustRoute`) |
 | R11, §5.4 gov sender | `ibcgov/ethereum.gno` |
-| R12, §7.8 send limits, fee, recipient filters (the token itself, a gno-native denom's Ethereum token included); the router, ICS20 transfer, IBCAdmin and every voucher token protected from the enrolment on, no gno-native send before they are set | `controls.DenomConfig`, `Route.Protect`, `transfer/impl/v1/send.gno`, ibcgov `mustBridge` |
+| R12, §7.8 send limits, fee, recipient filters (the token itself, a gno-native denom's Ethereum token included); the router, ICS20 transfer, IBCAdmin and every voucher token protected from the enrolment on, no gno-native send before they are set; the staged activation names every Ethereum client's bridge contracts, so a legacy fallback route protects its client's from its creation, and one whose client was never named (created after the activation) refuses every known bridge contract | `controls.DenomConfig`, `Route.Protect`, `Registry.SetBridge`, `transfer/impl/v1/send.gno` (`checkRecipient`), ibcgov `mustBridge`, `mustOtherBridges` |
 | R13, §7.9 voids, restores of withheld claims, credit by vote (receives booked after the activation; pending asynchronous acknowledgements completed), loss ledger by incident with checked totals, recapitalize (authorizations revocable, superseded by a later reduction or accepted deficit), reduce claims and owed sweep entries, accept; a route with a loss of any denom unresolved takes no new exposure, whatever the flags | `controls/voids.gno`, `route.gno` (`ExposureClosed`), `transfer/impl/v1/controls.gno` (`GovApply`), ibcgov route builders |
+| R9, R10, §7.1, §7.9 governed addresses | every gno address a builder takes (payees, fee collectors, seats, relayers, members, blocked addresses) is canonicalized (`transfer.CanonicalAddress`) before it is stored or compared, and the transfer implementation canonicalizes a decision's payee again; Ethereum addresses are lowercased |
 | R14 authorities | `core/admin.gno`, `app.gno`, `upgrade.gno`, `proposals.gno`; `transfer/admin.gno`, `upgrade.gno`, `proposals.gno`; `authority.NewWithMembers` |
 | R16 fork migration | `ethereum/v0/migrate.gno`, `core/client.gno` (`MigrateClient`), `core/impl/v1` |
 | R17 flags keep returns open; public Ethereum relaying | `transfer/impl/v1` (flags never touch burns, acks, timeouts), `core/admin.gno` `ensureRelayerFor` |
-| R18 route replacement: closed until a governed reopening, meters emptied | `controls.Registry.Replace`, `Route.Reopen`, transfer `toWire`/`toInternal`, `core.RetireClient`, ibcgov `NewReplaceRouteRequest` (+ `nextEpoch`, payouts epoch), `NewReopenRouteRequest` |
+| R18 route replacement: closed until a governed reopening (which also waits for every impl/v0 send left outstanding at the enrolment to be backfilled and settled, and re-checks everything when its last batch would open the route), meters emptied | `controls.Registry.Replace`, `Route.Reopen`, transfer `toWire`/`toInternal`, `core.RetireClient`, ibcgov `NewReplaceRouteRequest` (+ `nextEpoch`, payouts epoch), `NewReopenRouteRequest` |
 | R19 identifying receipts | `types.CommitPacketReceipt`, `core/store.gno`, `core/impl/v0/packet.gno` |
 | §7.3 refusals before state change | `transfer/impl/v1/recv.gno` (`refuse`) |
 | §7.11 on-chain records | `controls.Reader` JSON: route totals, claims, sweeps, sends, losses; `route_*` events. Every Render page is safe Markdown: JSON pages of transfer, core and ibcgov pass through `jsonmd.Inert` (the controls quote with `jsonmd.Quote`), so a raw receiver kept on an owed sweep entry or a path segment echoed in an error is inert text; tables escape counterparty base denoms, paths, counterparty ids and ports, and the route list its denoms (`sanitize.TableCell`, `InlineText`) |
@@ -325,6 +329,13 @@ vouchers in circulation when it is enabled.
       as on Ethereum, and a settlement whose payments exceed the free escrow
       is refused whole (Ethereum parks the payment instead).
 
+### Deployment manifest
+
+`scripts/packages.sh` lists every package in deploy order;
+`scripts/check-packages.sh` (run by `make test`) fails when a listed
+package's deployed code imports a `gno.land/[pr]/aib` package the manifest
+does not list before it.
+
 ## Consequences
 
 - Every loosening power waits 7 days and passes through one ledger, visible on
@@ -360,9 +371,11 @@ vouchers in circulation when it is enabled.
   ibc-go: only the Ethereum light client marks them untrusted, and only
   Ethereum clients prove outcomes for settlement. The trust generation is
   kept for every client all the same.
-- **Legacy fallback routes have no protected recipients**: they carry only
-  voucher returns (burns), whose recipient check still refuses the token
-  itself; protection starts when a decision enrols the route.
+- **A legacy route for a client created after the activation** (never named
+  by it, never enrolled) does not know its own bridge contracts: it refuses
+  every bridge contract any other client's route named, which covers a
+  client sharing the same Ethereum deployment, not one of another
+  deployment.
 - **The e2e suite** (`e2e/`) needs the Docker devnet; its build makes the test
   key ibcgov's launch governor and divides the delays by 60480. The guardians'
   holds need an Ethereum route and are covered by filetests only.

@@ -163,10 +163,12 @@ Switching the transfer app to `impl/v1` puts every Ethereum client under the
 route controls (ADR 0004). Before relaying resumes on an Ethereum client:
 
 1. Activate with `NewTransferActivateControlsRequest(path, client,
-   feeCollector, bridge, denoms, legacyRefundCap)`, where `bridge` names the
-   route's Ethereum router, ICS20 transfer and IBCAdmin ("router ics20
-   ibcAdmin", protected recipients from then on) and `legacyRefundCap` the
-   day cap of the legacy denoms' refunds. It is the only way to the first
+   feeCollector, bridge, otherBridges, denoms, legacyRefundCap)`, where
+   `bridge` names the route's Ethereum router, ICS20 transfer and IBCAdmin
+   ("router ics20 ibcAdmin", protected recipients from then on),
+   `otherBridges` those of every other Ethereum client the core holds
+   (";"-separated "clientID router ics20 ibcAdmin"; the builder refuses one
+   missing) and `legacyRefundCap` the day cap of the legacy denoms' refunds. It is the only way to the first
    controls implementation: `NewTransferUpdateImplRequest` refuses it (and
    later reinstalls one over an active controls implementation). The one
    decision switches to impl/v1, enrolls the route and enables every denom
