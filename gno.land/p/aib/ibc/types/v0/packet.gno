@@ -78,10 +78,10 @@ func (p Packet) ValidateBasic() error {
 		return ufmt.Errorf("packet data bytes cannot exceed %d bytes", MaximumPayloadsSize)
 	}
 
-	if err := host.ClientIdentifierValidator(p.SourceClient); err != nil {
+	if err := packetClientID(p.SourceClient); err != nil {
 		return ufmt.Errorf("invalid source ID: %v", err)
 	}
-	if err := host.ClientIdentifierValidator(p.DestinationClient); err != nil {
+	if err := packetClientID(p.DestinationClient); err != nil {
 		return ufmt.Errorf("invalid destination ID: %v", err)
 	}
 
@@ -258,4 +258,17 @@ func (ack Acknowledgement) ProtoMarshal() (buf []byte) {
 		buf = append(buf, proto.AppendLengthDelimited(nil, 1, appAck)...)
 	}
 	return
+}
+
+// packetClientID checks a client id a packet names: an ICS24 identifier (4 to
+// 64 characters), as every local client id and every SDK counterparty's is,
+// or an Ethereum ICS26 router's client id (IsValidRouterClientID: "client-N",
+// or a custom id of up to 128 characters). The core matches the side that is
+// not local against the counterparty registered for the local client, which
+// was checked by that client's own rule.
+func packetClientID(id string) error {
+	if IsValidRouterClientID(id) {
+		return nil
+	}
+	return host.ClientIdentifierValidator(id)
 }
