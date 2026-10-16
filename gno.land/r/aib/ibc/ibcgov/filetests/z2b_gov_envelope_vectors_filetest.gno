@@ -139,7 +139,7 @@ func main(cur realm) {
 // full gno prefix: 558 bytes
 // too long: ibcgov: the envelope would be 1102 bytes, above 1024
 // cancel beyond the last seq: ibcgov: not a range of dispatched numbers (1-12): 13
-// a router id of the router's own: ibcgov: a router client id added by governance does not start with client- (the router keeps those for its own counter): client-9
+// a router id of the router's own: ibcgov: a router client id added by governance is a custom id: 4 to 128 characters of a-z A-Z 0-9 . _ + - # [ ] < >, not starting with client- or channel-: client-9
 // ADMIN_ROLE: ibcgov: kind 8 never names ADMIN_ROLE or PUBLIC_ROLE
 // three guardian seats: ibcgov: a decision changes at most two guardian seats
 // unpause object 2 with a client: ibcgov: object 2 (IBCAdmin) names no client

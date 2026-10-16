@@ -503,21 +503,23 @@ func mustEthAddr(s string) [20]byte {
 	return [20]byte(a)
 }
 
+// mustEthClientID is a client id of the Ethereum router: one it generated
+// ("client-N") or a custom id (types.IsValidRouterClientID), not an SDK id.
 func mustEthClientID(s string) string {
-	if !types.IsValidClientID(s) {
-		panic("ibcgov: not a client id: " + s)
+	if !types.IsValidRouterClientID(s) {
+		panic("ibcgov: not an Ethereum router client id: " + s)
 	}
 	return s
 }
 
 // mustCustomEthClientID is a router client id that governance adds (kind 6
-// op 1, and kind 10's new client): eureka v3.0.2's router refuses a custom id
-// starting with "client-" or shorter than four characters, so such a decision
-// would only be spent on Ethereum.
+// op 1, and kind 10's new client): eureka's router takes only a valid custom
+// id there (IBCIdentifiers.validateCustomIBCIdentifier: 4 to 128 characters
+// of its alphabet, not starting with "client-" or "channel-"), so any other
+// decision would only be spent on Ethereum.
 func mustCustomEthClientID(s string) string {
-	mustEthClientID(s)
-	if strings.HasPrefix(s, "client-") || len(s) < 4 {
-		panic("ibcgov: a router client id added by governance does not start with client- (the router keeps those for its own counter): " + s)
+	if !types.IsValidCustomClientID(s) {
+		panic("ibcgov: a router client id added by governance is a custom id: 4 to 128 characters of a-z A-Z 0-9 . _ + - # [ ] < >, not starting with client- or channel-: " + s)
 	}
 	return s
 }

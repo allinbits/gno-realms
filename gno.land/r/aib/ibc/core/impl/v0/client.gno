@@ -63,10 +63,20 @@ func (l *logic) CreateClient(_ int, rlm realm, relayer address, clientState ligh
 // RegisterCounterparty registers the IBC v2 counterparty info for the given
 // clientID. It must be called by the same relayer that called CreateClient.
 func (l *logic) RegisterCounterparty(_ int, rlm realm, clientID string, counterpartyMerklePrefix [][]byte, counterpartyClientID string) {
-	if !types.IsValidClientID(counterpartyClientID) {
+	// An Ethereum client's counterparty is a client of the ICS26 router,
+	// whose ids follow its own grammar ("client-N", or a custom id such as
+	// "gnoland"); every other counterparty is an SDK chain's {type}-{N}.
+	if !types.IsValidClientID(counterpartyClientID) && !types.IsValidRouterClientID(counterpartyClientID) {
 		panic("invalid counterparty client id")
 	}
 	c := l.mustClient(clientID)
+	valid := types.IsValidClientID(counterpartyClientID)
+	if c.Type() == ethereum.ClientType {
+		valid = types.IsValidRouterClientID(counterpartyClientID)
+	}
+	if !valid {
+		panic("invalid counterparty client id")
+	}
 	caller := unsafe.OriginCaller()
 	if c.Creator() != caller {
 		panic(ufmt.Sprintf("expected same signer as CreateClient submitter %s, got %s", c.Creator(), caller))

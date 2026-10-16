@@ -10,16 +10,22 @@ import (
 	"gno.land/r/aib/ibc/apps/transfer"
 )
 
-// The helpers below are impl/v0's (unexported there), unchanged.
+// The helpers below are impl/v0's (unexported there); validatePayload checks
+// a route's two kinds of client ids.
 
-// validatePayload enforces the transfer port on both sides, client ids in the
-// {string}-{number} format, the ICS20 version and a known encoding.
-func validatePayload(sourceClient, destinationClient string, payload types.Payload) error {
+// validatePayload enforces the transfer port on both sides, the local client
+// id in the {string}-{number} format and the Ethereum router's client id in
+// its own grammar (types.IsValidRouterClientID: "client-N" or a custom id
+// such as "gnoland"), the ICS20 version and a known encoding.
+func validatePayload(localClient, routerClient string, payload types.Payload) error {
 	if payload.SourcePort != transfer.PortID || payload.DestinationPort != transfer.PortID {
 		return ufmt.Errorf("payload port ID is invalid: expected %s, got sourcePort: %s destPort: %s", transfer.PortID, payload.SourcePort, payload.DestinationPort)
 	}
-	if !types.IsValidClientID(sourceClient) || !types.IsValidClientID(destinationClient) {
-		return ufmt.Errorf("client IDs must be in valid format: {string}-{number}")
+	if !types.IsValidClientID(localClient) {
+		return ufmt.Errorf("client ID %s must be in valid format: {string}-{number}", localClient)
+	}
+	if !types.IsValidRouterClientID(routerClient) {
+		return ufmt.Errorf("client ID %s is no Ethereum router client id", routerClient)
 	}
 	if payload.Version != transfer.V1 {
 		return ufmt.Errorf("invalid ICS20 version: expected %s, got %s", transfer.V1, payload.Version)

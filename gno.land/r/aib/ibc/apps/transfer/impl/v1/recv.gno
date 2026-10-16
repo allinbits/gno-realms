@@ -86,7 +86,7 @@ func (l *logic) OnRecvPacket(_ int, rlm realm, sourceClient, destinationClient s
 	if rt.IsClosed() {
 		return refuse(ufmt.Errorf("route %s is closed until a governed reopening", rt.Key))
 	}
-	if err := validatePayload(sourceClient, destinationClient, payload); err != nil {
+	if err := validatePayload(destinationClient, sourceClient, payload); err != nil {
 		return refuse(err)
 	}
 	var err error
