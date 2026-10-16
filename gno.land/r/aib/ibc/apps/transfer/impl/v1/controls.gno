@@ -38,10 +38,10 @@ func (l *logic) lockOf(rt *controls.Route, denom string) int64 {
 }
 
 // Claim pays up to n claims of denom on the route (ADR pr6375 §7.1). Under a
-// payouts flag it pays nothing.
+// payouts flag, or on a closed route, it pays nothing.
 func (l *logic) Claim(_ int, rlm realm, clientID, denom string, n int) int {
 	rt := l.routeFor(0, rlm, clientID)
-	if ibcgov.Flagged(rt.Key, ibcgov.FnPayouts) {
+	if ibcgov.Flagged(rt.Key, ibcgov.FnPayouts) || rt.IsClosed() {
 		return 0
 	}
 	epoch, epochAt := ibcgov.PayoutsEpoch(rt.Key)
@@ -59,10 +59,10 @@ func (l *logic) Claim(_ int, rlm realm, clientID, denom string, n int) int {
 }
 
 // ClaimRefunds pays up to n queued refunds of denom on the route (ADR pr6375
-// §7.13). Under a refunds hold it pays nothing.
+// §7.13). Under a refunds hold, or on a closed route, it pays nothing.
 func (l *logic) ClaimRefunds(_ int, rlm realm, clientID, denom string, n int) int {
 	rt := l.routeFor(0, rlm, clientID)
-	hold := ibcgov.Flagged(rt.Key, ibcgov.FnRefunds)
+	hold := ibcgov.Flagged(rt.Key, ibcgov.FnRefunds) || rt.IsClosed()
 	ps, err := rt.PayRefunds(now(), denom, n, hold, l.lockOf(rt, denom))
 	if err != nil {
 		panic(err)
@@ -278,6 +278,8 @@ func (l *logic) GovApply(_ int, rlm realm, op string, params []byte) string {
 	case controls.OpCredit:
 		client, seq, _ := controls.ParsePacketKey(p.Key)
 		switch {
+		case rt.IsClosed():
+			return "route " + rt.Key + " is closed until a governed reopening: it credits nothing"
 		case !clientOfRoute(rt, client):
 			return "packet " + p.Key + " was not received on route " + rt.Key
 		case len(core.PacketReceipt(client, seq)) == 0:
@@ -296,6 +298,9 @@ func (l *logic) GovApply(_ int, rlm realm, op string, params []byte) string {
 		}
 		err = rt.CreditByVote(t, chainHeight(), epoch, p.Key, p.Denom, p.To, p.Amount, l.lockOf(rt, p.Denom))
 	case controls.OpSweep:
+		if rt.IsClosed() {
+			return "route " + rt.Key + " is closed until a governed reopening: it pays nothing out"
+		}
 		if len(p.Keys) == 0 {
 			return "no sweep entry named"
 		}
@@ -324,6 +329,8 @@ func (l *logic) GovApply(_ int, rlm realm, op string, params []byte) string {
 		for _, x := range ps {
 			l.payOut(0, rlm, rt, x.Denom, x.To, x.Amount)
 		}
+	case controls.OpReopen:
+		err = rt.Reopen()
 	case controls.OpReplace:
 		if !isEthereum(p.Client) || core.IsClientRetired(p.Client) {
 			return p.Client + " is no usable Ethereum client"

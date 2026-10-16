@@ -94,6 +94,9 @@ func (l *logic) Transfer(_ int, rlm realm, sent []chain.Coin, clientID, receiver
 		return l.Logic.Transfer(0, rlm, sent, clientID, receiver, denom, amount, timeoutTimestamp, memo)
 	}
 	rt = mustRoute(rt, clientID)
+	if rt.IsClosed() {
+		panic(ufmt.Sprintf("route %s is closed until a governed reopening: it carries no send", rt.Key))
+	}
 	sender := unsafe.OriginCaller()
 	var (
 		wireDenom string // the denom path in the packet

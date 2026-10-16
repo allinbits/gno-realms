@@ -83,6 +83,9 @@ func (l *logic) OnRecvPacket(_ int, rlm realm, sourceClient, destinationClient s
 	if rt == nil {
 		return refuse(ufmt.Errorf("client %s is an Ethereum client of no enrolled route", destinationClient))
 	}
+	if rt.IsClosed() {
+		return refuse(ufmt.Errorf("route %s is closed until a governed reopening", rt.Key))
+	}
 	if err := validatePayload(sourceClient, destinationClient, payload); err != nil {
 		return refuse(err)
 	}

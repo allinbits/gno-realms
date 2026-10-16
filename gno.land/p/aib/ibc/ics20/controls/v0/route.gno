@@ -163,7 +163,10 @@ func (r *Registry) RetiredRouteOf(clientID string) string {
 
 // Replace re-points the route key to newClient (ADR pr6375 §7.12): newClient
 // becomes the route's current client and the old one is retired. Nothing per
-// denom moves: escrow, vouchers and controls stay keyed by the route key.
+// denom moves: escrow, vouchers and controls stay keyed by the route key. The
+// route closes in the same step (no send, credit, claim payout or refund
+// payout) until a governed reopening, once the reconciliation's losses all
+// have a restoring decision (Reopen).
 func (r *Registry) Replace(key, newClient string) error {
 	rt := r.Route(key)
 	if rt == nil {
@@ -178,6 +181,7 @@ func (r *Registry) Replace(key, newClient string) error {
 	r.aliases.Set(newClient, key)
 	rt.Client = newClient
 	rt.Replaced = append(rt.Replaced, old)
+	rt.Closed = true
 	return nil
 }
 
@@ -204,6 +208,7 @@ type Route struct {
 	Enrolled     int64    // block time of the enrolment
 	Activated    int64    // block height of the enrolment: the controls' cutoff
 	FeeCollector address
+	Closed       bool // closed by a replacement until a governed reopening
 
 	refused   avl.Tree // lower-case Ethereum address -> true: refused send recipients
 	denoms    avl.Tree // denom -> *Denom
@@ -214,6 +219,26 @@ type Route struct {
 	incidents avl.Tree // denom|incident -> *IncidentTotals
 	recaps    avl.Tree // seqKey(id) -> *Recap
 	nRecaps   int64
+}
+
+// IsClosed reports whether the route is closed: no send, credit, claim
+// payout or refund payout moves on it (ADR pr6375 §7.12). Acknowledgements
+// and timeouts still settle its sends, their refunds queued.
+func (rt *Route) IsClosed() bool { return rt.Closed }
+
+// Reopen reopens a route a replacement closed, by decision (the gno
+// analogue of Ethereum's kind 13): only once every loss the route recorded
+// has a restoring decision, recapitalized, reduced or accepted (ADR pr6375
+// §7.9).
+func (rt *Route) Reopen() error {
+	if !rt.Closed {
+		return errors.New("controls: route " + rt.Key + " is not closed")
+	}
+	if u := rt.Unresolved(); u > 0 {
+		return ufmt.Errorf("controls: route %s has %d of losses without a restoring decision (recapitalization, reduction or accepted deficit)", rt.Key, u)
+	}
+	rt.Closed = false
+	return nil
 }
 
 // SetFeeCollector replaces the fee collector.

@@ -26,6 +26,7 @@ const (
 	OpAccept       = "accept"       // Route, Denom, Amount, Incident
 	OpSettle       = "settle"       // Route, Client (the retired client), Items, Incident
 	OpReplace      = "replace"      // Route, Client (the new client)
+	OpReopen       = "reopen"       // Route
 )
 
 // Params are the parameters of a governance operation; each operation reads

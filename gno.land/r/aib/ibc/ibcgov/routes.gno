@@ -422,6 +422,9 @@ func NewSettleRequest(cur realm, route, client, items, incident string) Request 
 // the core retires the old client, and if the governance channel ran over the
 // old client its next epoch opens over the new one. newClientID is an Active
 // Ethereum client with its counterparty (the new router client) registered.
+// The route closes with the replacement: the reconciliation's settlements
+// (NewSettleRequest) and restoring decisions follow, then
+// NewReopenRouteRequest reopens it.
 func NewReplaceRouteRequest(cur realm, route, newClientID string) Request {
 	mustRoute(route)
 	if refusal := checkNewRouteClient(newClientID); refusal != "" {
@@ -433,6 +436,18 @@ func NewReplaceRouteRequest(cur realm, route, newClientID string) Request {
 	return propose(cur, "replace route", text, func(cur realm, made, t int64) {
 		decide(cur, "replace route", text, rp, made, t, true)
 	})
+}
+
+// NewReopenRouteRequest reopens a route a replacement closed, after 7 days
+// (ADR pr6375 §7.12, the gno analogue of Ethereum's kind 13): transfer
+// refuses it while any loss the route recorded has no restoring decision
+// (recapitalized, reduced or accepted).
+func NewReopenRouteRequest(cur realm, route string) Request {
+	mustRoute(route)
+	if !view().Closed(route) {
+		panic("ibcgov: route " + route + " is not closed")
+	}
+	return routeRequest(cur, controls.OpReopen, "reopen route", "reopen route "+route, controls.Params{Route: route}, true)
 }
 
 // bindParams opens governance epoch 1 over a client.

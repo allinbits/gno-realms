@@ -563,3 +563,31 @@ func TestCreditPending(t *testing.T) {
 	}
 	checkClaimTotals(t, rt, "ugnot")
 }
+
+// A replacement closes the route; it reopens by decision only once every
+// recorded loss has a restoring decision (Codex review #3).
+func TestReplaceClosesUntilReopened(t *testing.T) {
+	r, rt := newRoute(t)
+	if rt.IsClosed() {
+		t.Fatalf("closed at enrolment")
+	}
+	if err := rt.Reopen(); err == nil {
+		t.Fatalf("reopened an open route")
+	}
+	if err := r.Replace("ethereum-1", "ethereum-2"); err != nil {
+		t.Fatal(err)
+	}
+	if !rt.IsClosed() || !(Reader{r: r}).Closed("ethereum-1") {
+		t.Fatalf("a replacement left the route open")
+	}
+	rt.RecordLoss(pk(1), "ugnot", 100, ChainGno, "inc", "collision")
+	if err := rt.Reopen(); err == nil {
+		t.Fatalf("reopened with an unresolved loss")
+	}
+	if err := rt.Accept("ugnot", 100, "inc"); err != nil {
+		t.Fatal(err)
+	}
+	if err := rt.Reopen(); err != nil || rt.IsClosed() {
+		t.Fatalf("%v", err)
+	}
+}
