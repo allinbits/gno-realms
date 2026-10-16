@@ -168,10 +168,10 @@ op 1, kind 10's new client) must be valid custom ids (4 to 128 characters of eur
 `client-` or `channel-`). `Redispatch` re-sends identical bytes. Envelopes are
 checked byte for byte against gno-eth-ibc's
 `contracts/test/fixtures/gov-vectors.json` and against viem
-(`ibcgov/filetests/z2b`, `z2c` at gno-eth-ibc 8dad3f9, kinds 12 and 13
+(`ibcgov/filetests/z2b`, `z2c` at gno-eth-ibc 6f94541, kinds 12 and 13
 included; `z2e` adds viem vectors and the builders' bounds). Kind 10 carries
-`suspectFrom` (an Ethereum block); 8dad3f9's kind 10 vector predates it, so
-z2b checks the new tuple against viem until the fixture is regenerated.
+`suspectFrom` (an Ethereum block); z2c checks it, and the zero-amount kind 12,
+against gno-eth-ibc 6f94541's vectors.
 
 ### ADR pr6375 rule → code
 
