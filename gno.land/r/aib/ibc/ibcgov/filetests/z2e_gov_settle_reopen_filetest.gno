@@ -90,6 +90,13 @@ func main(cur realm) {
 		_, _, kind, _, _ := ibcgov.ParseEnvelope(ibcgov.DispatchBody(1, seq))
 		println("seq", seq, "kind", kind)
 	}
+
+	// A packet the core would refuse to send spends its decision, binding no
+	// number (Codex round 2 #3).
+	govern(cur, ibcgov.NewCorePauseRequest(cross(cur)))
+	paused := govern(cur, ibcgov.NewEthReopenRequest(cross(cur), "gnoland-2"))
+	d, _ := ibcgov.Decision(paused)
+	println("while the core is paused:", d.State(), "-", d.Note, "| last seq", ibcgov.LastSeq(1))
 }
 
 // Output:
@@ -110,3 +117,4 @@ func main(cur realm) {
 // seq 4 kind 10
 // seq 5 kind 12
 // seq 6 kind 13
+// while the core is paused: spent - spent: the core is paused: no governance packet can be sent | last seq 6

@@ -259,6 +259,18 @@ func bind(cur realm, decision int64, kind uint8, params []byte) (uint64, string)
 	if rec == nil {
 		return 0, "the governance channel is not bound"
 	}
+	// Every failure the core's send would raise is refused here, so the
+	// decision is spent rather than aborted and left pending.
+	switch {
+	case core.Paused():
+		return 0, "the core is paused: no governance packet can be sent"
+	case core.IsAppPaused(GovPort):
+		return 0, "the gov app is paused on the core"
+	case core.IsClientRetired(rec.client):
+		return 0, "the epoch's client " + rec.client + " is retired"
+	case core.ClientStatus(rec.client) != "Active":
+		return 0, "the epoch's client " + rec.client + " is " + core.ClientStatus(rec.client) + ", not Active"
+	}
 	seq := rec.last + 1
 	body := Envelope(epoch, seq, kind, params)
 	if len(body) > MaxEnvelope {
