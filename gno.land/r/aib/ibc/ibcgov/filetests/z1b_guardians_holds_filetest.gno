@@ -155,7 +155,7 @@ func main(cur realm) {
 // stranger: ibcgov: not a guardian or a watch key: g1vdhkcmr9vd6x7ujlta047h6lta047h6lsp3m50
 // watch key naming: ibcgov: only a guardian's payouts flag names packets
 // bad function: ibcgov: the function is sends, credits, payouts or refunds, not everything
-// unknown route: ibcgov: no route ethereum-9
+// unknown route: ibcgov: no route or Ethereum client ethereum-9
 // payouts: true credits: true sends: false held: false
 // named: true false
 // held: true

@@ -7,7 +7,9 @@ import (
 
 	"gno.land/p/aib/decisions/v0"
 	"gno.land/p/aib/ibc/ics20/controls/v0"
+	"gno.land/p/aib/ibc/lightclient/ethereum/v0"
 	"gno.land/p/nt/avl/v0"
+	"gno.land/r/aib/ibc/core"
 )
 
 // The guardians on gno.land (ADR pr6375 §7.4, R10): six seats, 0–3 the
@@ -102,6 +104,15 @@ func IsGuardianSeat(n int) bool { return n >= 0 && n < GuardianSeats }
 
 // IsRoute reports whether ibcgov enrolled route.
 func IsRoute(route string) bool { return routes.Has(route) }
+
+// flaggable reports whether a flag may stand on route: a route ibcgov
+// enrolled, or any Ethereum client, whose key a legacy fallback route of the
+// transfer app takes from the moment a voucher return makes it (ADR pr6375
+// R17). Every effective Ethereum route is thus flaggable before its first
+// refund, and its flags stay when a decision later enrolls it.
+func flaggable(route string) bool {
+	return routes.Has(route) || core.ClientType(route) == ethereum.ClientType
+}
 
 // Flagged reports whether any seat's flag for fn stands on route: what the
 // transfer implementation asks before sending, crediting, paying out or
@@ -221,8 +232,8 @@ func SetFlag(cur realm, route, fn, keys string) {
 	if seat < 0 {
 		panic("ibcgov: not a guardian or a watch key: " + who(0, cur.Previous()))
 	}
-	if !routes.Has(route) {
-		panic("ibcgov: no route " + route)
+	if !flaggable(route) {
+		panic("ibcgov: no route or Ethereum client " + route)
 	}
 	if !isFn(fn) {
 		panic("ibcgov: the function is sends, credits, payouts or refunds, not " + fn)
@@ -449,8 +460,8 @@ func (p *unpauseRouteParams) apply(cur realm, t int64) (string, string) {
 // with losses that have no restoring decision stays closed in the transfer
 // app all the same.
 func NewUnpauseRouteRequest(cur realm, route, fns string) Request {
-	if !routes.Has(route) {
-		panic("ibcgov: no route " + route)
+	if !flaggable(route) {
+		panic("ibcgov: no route or Ethereum client " + route)
 	}
 	list := splitList(fns)
 	if len(list) == 0 {

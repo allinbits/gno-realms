@@ -27,6 +27,7 @@ var (
 	collector = testutils.TestAddress("collector")
 	sender    = testutils.TestAddress("sender")
 	bob       = testutils.TestAddress("bob")
+	guardian  = testutils.TestAddress("guardian-0")
 )
 
 const (
@@ -196,6 +197,32 @@ func main(cur realm) {
 	println("enabled denom's refund:", refundState(a, legacySeq), "| legacy denom's:", refundState(a, seqs[0]))
 	// The legacy denom's refund is paid by its meter, at the activation's
 	// legacy refund cap, with no further decision (Codex round 5 #6).
+
+	// A guardian holds the refunds of the second client's legacy route, which
+	// no decision enrolled (Codex round 6 #3): its vouchers still go back,
+	// but the refunds of their timeouts queue, through the callback and
+	// through ClaimRefunds alike, until the flag is cleared.
+	execute(cur, govern(cur, ibcgov.NewSetSeatsRequest(cross(cur), "0:"+string(guardian))))
+	testing.SetRealm(testing.NewUserRealm(guardian))
+	ibcgov.SetFlag(cross(cur), b, ibcgov.FnRefunds, "")
+	testing.SetRealm(testing.NewCodeRealm("gno.land/r/aib/main"))
+	println("flags on", b, ":", ibcgov.Flags(b)[0])
+	_, seqB2 := returnVoucher(cur, b, onB, 10)
+	println("burn while held: recorded", refundState(b, seqB2) != "no record")
+	for _, seq := range []uint64{seqB, seqB2} {
+		rec, _ := controlsView().Send(b, controls.PacketKey(b, seq))
+		if err := timeoutAsCore(cur, b, seq, rec.Packet.Payloads[0]); err != nil {
+			panic(err)
+		}
+	}
+	advance(24 * time.Hour)
+	transfer.ClaimRefunds(cross(cur), b, onB, 20)
+	println("held:", refundState(b, seqB), "|", refundState(b, seqB2))
+	testing.SetRealm(testing.NewUserRealm(guardian))
+	ibcgov.ClearFlag(cross(cur), b, ibcgov.FnRefunds)
+	testing.SetRealm(testing.NewCodeRealm("gno.land/r/aib/main"))
+	transfer.ClaimRefunds(cross(cur), b, onB, 20)
+	println("cleared:", refundState(b, seqB), "|", refundState(b, seqB2))
 }
 
 // Output:
@@ -204,3 +231,7 @@ func main(cur realm) {
 // credit before the backfill: (2 gno.land/p/aib/ibc/types/v0.PacketStatus)
 // credit after it: (1 gno.land/p/aib/ibc/types/v0.PacketStatus)
 // enabled denom's refund: outcome timeout, payment claimed, refunded 40, backfilled true | legacy denom's: outcome timeout, payment claimed, refunded 10, backfilled false
+// flags on ethereum-2 : refunds seat 0 at 1235863892
+// burn while held: recorded true
+// held: outcome timeout, payment queued, refunded 0, backfilled false | outcome timeout, payment queued, refunded 0, backfilled false
+// cleared: outcome timeout, payment claimed, refunded 10, backfilled false | outcome timeout, payment claimed, refunded 10, backfilled false
