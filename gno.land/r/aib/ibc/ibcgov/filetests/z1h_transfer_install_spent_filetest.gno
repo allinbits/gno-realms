@@ -59,8 +59,8 @@ func main(cur realm) {
 	client := core.CreateClient(cross(cur), ethtesting.ClientState(), ethtesting.ConsensusState())
 	core.RegisterCounterparty(cross(cur), client, [][]byte{{}}, "client-0")
 	activate := func() ibcgov.Request {
-		return ibcgov.NewTransferActivateControlsRequest(cross(cur), "gno.land/r/aib/ibc/apps/transfer/impl/v1", client,
-			string(testutils.TestAddress("collector")), bridge, "", "", 10_000)
+		return ibcgov.NewTransferActivateControlsRequest(cross(cur), "gno.land/r/aib/ibc/apps/transfer/impl/v1", client+" "+
+			string(testutils.TestAddress("collector"))+" "+bridge)
 	}
 	toV1 := govern(cur, activate())
 	toV99 := govern(cur, ibcgov.NewTransferUpdateImplRequest(cross(cur), self))
@@ -95,6 +95,6 @@ func main(cur realm) {
 // active: v0
 // retry: ibcgov: decision 1 is spent, not pending
 // active: v0
-// the ordinary switch to v1: ibcgov: the route controls are first activated by a staged activation (NewTransferActivateControlsRequest), with their first route and legacy refund cap
-// staged: applied - transfer gno.land/r/aib/ibc/apps/transfer/impl/v1 active with route ethereum-1 and 0 denoms
+// the ordinary switch to v1: ibcgov: the route controls are first activated by a staged activation (NewTransferActivateControlsRequest), with a route for every Ethereum client that holds transfer state
+// staged: applied - transfer gno.land/r/aib/ibc/apps/transfer/impl/v1 active with 1 routes and 0 denoms
 // reinstalled by the ordinary switch: applied - transfer update impl | active: v1

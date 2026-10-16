@@ -109,8 +109,7 @@ func IsRoute(route string) bool { return routes.Has(route) }
 // routeKeyOf is the stable key flags and route records are kept under for
 // id: the route's key when id is a route key or one of a route's clients,
 // current or retired (a replacement keeps the first client's id as the key),
-// and id itself otherwise (an Ethereum client no route uses yet, which a
-// legacy fallback route takes as its key). Every flag operation and check
+// and id itself otherwise (an Ethereum client no route uses yet). Every flag operation and check
 // resolves its route through it, so a flag on a client and the transfer app's
 // check on its route meet.
 func routeKeyOf(id string) string {
@@ -167,10 +166,9 @@ func foldFlags(from, to string, t int64) int {
 }
 
 // flaggable reports whether a flag may stand on route: a route ibcgov
-// enrolled, or any Ethereum client, whose key a legacy fallback route of the
-// transfer app takes from the moment a voucher return makes it (ADR pr6375
-// R17). Every effective Ethereum route is thus flaggable before its first
-// refund, and its flags stay when a decision later enrolls it.
+// enrolled, or any Ethereum client, so a client about to become a route's
+// (by an enrolment, or as a replacement candidate) can be held beforehand:
+// its flags stay with its route.
 func flaggable(route string) bool {
 	return routes.Has(route) || core.ClientType(route) == ethereum.ClientType
 }

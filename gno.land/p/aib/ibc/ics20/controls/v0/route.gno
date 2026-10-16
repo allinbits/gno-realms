@@ -111,11 +111,6 @@ type Registry struct {
 	routes  avl.Tree // route key -> *Route
 	aliases avl.Tree // current client id -> route key
 	retired avl.Tree // retired client id -> route key
-
-	legacyRefundCap int64 // the refund cap of the legacy denoms, set by the activation
-
-	bridges     avl.Tree // client id -> [3]string: its router, ICS20 transfer and IBCAdmin
-	bridgeAddrs avl.Tree // lower-case address -> true: every known bridge contract
 }
 
 // NewRegistry is an empty registry.
@@ -134,13 +129,6 @@ func (r *Registry) Enroll(key string, collector address, now, height int64) (*Ro
 	if !collector.IsValid() {
 		return nil, errors.New("controls: invalid fee collector " + string(collector))
 	}
-	// A legacy route (voucher returns impl/v0's vouchers made before the
-	// client was enrolled) is adopted with its records.
-	if rt := r.Route(key); rt != nil && rt.Legacy {
-		rt.Legacy = false
-		rt.Enrolled, rt.Activated, rt.FeeCollector = now, height, collector
-		return rt, nil
-	}
 	if r.routes.Has(key) || r.aliases.Has(key) || r.retired.Has(key) {
 		return nil, errors.New("controls: client " + key + " is a route or a route's client already")
 	}
@@ -148,84 +136,6 @@ func (r *Registry) Enroll(key string, collector address, now, height int64) (*Ro
 	r.routes.Set(key, rt)
 	r.aliases.Set(key, key)
 	return rt, nil
-}
-
-// SetLegacyRefundCap sets the refund meter's day cap of every legacy denom
-// the legacy path makes from now on: the activation decision's approved
-// budget, so the genuine refunds of legacy returns are paid as the meter
-// refills, with no further decision (ADR pr6375 R17, §7.13).
-func (r *Registry) SetLegacyRefundCap(n int64) error {
-	if n <= 0 {
-		return errors.New("controls: the legacy refund cap must be positive")
-	}
-	r.legacyRefundCap = n
-	return nil
-}
-
-// LegacyRefundCap is the refund cap of the legacy denoms (0 before an
-// activation approved one).
-func (r *Registry) LegacyRefundCap() int64 { return r.legacyRefundCap }
-
-// SetBridge records the bridge contracts of an Ethereum client (its router,
-// ICS20 transfer and IBCAdmin): the staged activation names them for every
-// Ethereum client, so the legacy route a voucher return makes for a client no
-// decision enrolled protects them from its creation (ADR pr6375 R12, §7.8),
-// and an enrolment records its own. A client's set is recorded once; the
-// same set again is accepted.
-func (r *Registry) SetBridge(clientID, router, ics20, ibcAdmin string) error {
-	if err := CheckBridge(router, ics20, ibcAdmin); err != nil {
-		return err
-	}
-	set := [3]string{strings.ToLower(router), strings.ToLower(ics20), strings.ToLower(ibcAdmin)}
-	if v := r.bridges.Get(clientID); v != nil {
-		if v.([3]string) != set {
-			return errors.New("controls: client " + clientID + " has other bridge contracts already")
-		}
-		return nil
-	}
-	r.bridges.Set(clientID, set)
-	for _, a := range set {
-		r.bridgeAddrs.Set(a, true)
-	}
-	if rt := r.RouteOf(clientID); rt != nil && !rt.bridged {
-		rt.Protect(set[0], set[1], set[2])
-	}
-	return nil
-}
-
-// Bridge is the bridge contracts recorded for clientID, if any.
-func (r *Registry) Bridge(clientID string) ([3]string, bool) {
-	v := r.bridges.Get(clientID)
-	if v == nil {
-		return [3]string{}, false
-	}
-	return v.([3]string), true
-}
-
-// IsBridgeContract reports whether addr (any case) is a bridge contract of
-// any client the registry knows: what a legacy route whose own contracts are
-// unknown (a client created after the activation and never enrolled) refuses
-// as a recipient.
-func (r *Registry) IsBridgeContract(addr string) bool {
-	return r.bridgeAddrs.Has(strings.ToLower(addr))
-}
-
-// Legacy is the route of an Ethereum client no decision enrolled, made on
-// first use: the legacy path that keeps impl/v0's vouchers going back after
-// the switch to the controls (ADR pr6375 R17). It records and meters their
-// returns (Route.LegacyDenom) and takes no other transfer: no gno-native
-// send, no credit, until a decision enrolls it (Enroll adopts it).
-func (r *Registry) Legacy(clientID string) *Route {
-	if rt := r.RouteOf(clientID); rt != nil {
-		return rt
-	}
-	rt := &Route{Key: clientID, Client: clientID, Legacy: true}
-	if set, ok := r.Bridge(clientID); ok {
-		rt.Protect(set[0], set[1], set[2])
-	}
-	r.routes.Set(clientID, rt)
-	r.aliases.Set(clientID, clientID)
-	return rt
 }
 
 // Route is the route with this key, or nil.
@@ -319,7 +229,6 @@ type Route struct {
 	Activated    int64    // block height of the enrolment: the controls' cutoff
 	FeeCollector address
 	Closed       bool  // closed by a replacement until a governed reopening
-	Legacy       bool  // made by the legacy path; no decision enrolled it yet
 	Unimported   int64 // sends of its client impl/v0 made, outstanding at the enrolment and not backfilled yet: credits wait for 0
 	Reopening    bool  // a reopening decision runs in batches (ContinueReopen)
 	ReplacedAt   int64 // the block height of the last replacement
@@ -600,10 +509,7 @@ func (rt *Route) Protect(router, ics20, ibcAdmin string) error {
 		return err
 	}
 	if rt.bridged {
-		if rt.protectedAs(router, RoleRouter) && rt.protectedAs(ics20, RoleICS20) && rt.protectedAs(ibcAdmin, RoleIBCAdmin) {
-			return nil // the same set again: a legacy route the activation protected, now enrolled
-		}
-		return errors.New("controls: the bridge contracts of route " + rt.Key + " are set already, to others")
+		return errors.New("controls: the bridge contracts of route " + rt.Key + " are set already")
 	}
 	rt.protected.Set(strings.ToLower(router), RoleRouter)
 	rt.protected.Set(strings.ToLower(ics20), RoleICS20)
@@ -626,11 +532,6 @@ func CheckBridge(router, ics20, ibcAdmin string) error {
 		}
 	}
 	return nil
-}
-
-func (rt *Route) protectedAs(addr, role string) bool {
-	v := rt.protected.Get(strings.ToLower(addr))
-	return v != nil && v.(string) == role
 }
 
 // Bridged reports whether the route's bridge contracts are protected.
@@ -671,7 +572,6 @@ type Denom struct {
 	Name           string // the escrow denom (KindUnescrow) or the voucher's IBC denom (KindMint)
 	Config         DenomConfig
 	LaunchCapFloor int64 // the cap floor it was enabled with: lowering never goes below it
-	Legacy         bool  // made by the legacy path, not enabled by a decision: takes no credit, refunds wait
 
 	meter       Meter
 	queues      avl.Tree // recipient -> *queue
@@ -745,26 +645,6 @@ type queue struct {
 	next  int64
 }
 
-// LegacyDenom is a denom the legacy path made: a voucher (KindMint) of
-// impl/v0 going back, or a gno-native token whose send impl/v0 made, before a
-// decision enabled the denom. It starts with outstanding (the voucher supply
-// impl/v0 left) and refundCap, the activation's legacy refund cap: its
-// refunds are paid as its refund meter refills (none while the cap is 0). A
-// decision enabling the denom keeps its records. It takes no credit.
-func (rt *Route) LegacyDenom(name, kind string, outstanding, now, refundCap int64) *Denom {
-	if d := rt.Denom(name); d != nil {
-		return d
-	}
-	d := &Denom{Name: name, Config: DenomConfig{Kind: kind, RefundCap: refundCap}, Legacy: true}
-	if kind == KindMint && outstanding > 0 {
-		d.Totals.Outstanding = outstanding
-	}
-	d.meter = NewMeter(now, 0)
-	d.refundMeter = NewMeter(now, 0)
-	rt.denoms.Set(name, d)
-	return d
-}
-
 // SetDenom enables a denom on the route or replaces its configuration. A new
 // denom's meters start empty as of now in epoch. A new minted denom starts
 // with outstanding, the vouchers of it already in circulation (minted before
@@ -784,13 +664,6 @@ func (rt *Route) SetDenom(name string, c DenomConfig, now, epoch, outstanding in
 	if d := rt.Denom(name); d != nil {
 		if c.Kind != d.Config.Kind {
 			return errors.New("controls: a denom never changes accounting")
-		}
-		if d.Legacy {
-			// A legacy denom is enabled with its records and totals.
-			d.Config, d.LaunchCapFloor, d.Legacy = c, c.CapFloor, false
-			d.meter = NewMeter(now, epoch)
-			rt.protectToken(c.Remote)
-			return nil
 		}
 		if c.CapFloor < d.LaunchCapFloor {
 			return ufmt.Errorf("controls: the cap floor (%d) cannot go below its launch value (%d)", c.CapFloor, d.LaunchCapFloor)
@@ -982,7 +855,7 @@ func (rt *Route) sweep(key string) *SweepEntry {
 // source.
 func (rt *Route) CheckCredit(denom string, amount int64) error {
 	d := rt.Denom(denom)
-	if d == nil || d.Legacy || rt.Legacy {
+	if d == nil {
 		return errors.New("controls: denom " + denom + " is not enabled on route " + rt.Key)
 	}
 	if amount <= 0 {

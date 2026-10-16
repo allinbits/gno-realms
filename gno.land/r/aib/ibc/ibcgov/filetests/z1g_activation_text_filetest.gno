@@ -28,8 +28,8 @@ func main(cur realm) {
 	core.RegisterCounterparty(cross(cur), client, [][]byte{{}}, "client-0")
 	base := []string{"ugnot", "unescrow", "10000", "0", "20", "2", "25000", "40", "10000", "0x0000000000000000000000000000000000c0ffee"}
 	describe := func(fields []string) string {
-		return ibcgov.NewTransferActivateControlsRequest(cross(cur), "gno.land/r/aib/ibc/apps/transfer/impl/v1", client, string(collector), bridge, "",
-			strings.Join(fields, " "), 4000).Description()
+		return ibcgov.NewTransferActivateControlsRequest(cross(cur), "gno.land/r/aib/ibc/apps/transfer/impl/v1",
+			client+" "+string(collector)+" "+bridge+": "+strings.Join(fields, " ")).Description()
 	}
 	ref := describe(base)
 	println(ref)
@@ -47,18 +47,15 @@ func main(cur realm) {
 	m := describe(mint)
 	mint[3] = "10001"
 	println("supplyCap changes the description:", describe(mint) != m)
-	other := ibcgov.NewTransferActivateControlsRequest(cross(cur), "gno.land/r/aib/ibc/apps/transfer/impl/v1", client, string(collector), bridge, "",
-		strings.Join(base, " "), 4001).Description()
-	println("legacyRefundCap changes the description:", other != ref)
 	testing.SetRealm(testing.NewUserRealm(ibcgov.Governor()))
-	ibcgov.Govern(cross(cur), ibcgov.NewTransferActivateControlsRequest(cross(cur), "gno.land/r/aib/ibc/apps/transfer/impl/v1", client, string(collector), bridge, "",
-		strings.Join(base, " "), 4000))
+	ibcgov.Govern(cross(cur), ibcgov.NewTransferActivateControlsRequest(cross(cur), "gno.land/r/aib/ibc/apps/transfer/impl/v1",
+		client+" "+string(collector)+" "+bridge+": "+strings.Join(base, " ")))
 	d, _ := ibcgov.Decision(ibcgov.LastDecision())
 	println("the decision's text is the description:", d.Text == ref)
 }
 
 // Output:
-// transfer: activate gno.land/r/aib/ibc/apps/transfer/impl/v1 with route ethereum-1 (fee collector g1vdhkcmr9vd6x7ujlta047h6lta047h6lsp3m50; router 0x00000000000000000000000000000000000b0001, ICS20 transfer 0x00000000000000000000000000000000000b0002, IBCAdmin 0x00000000000000000000000000000000000b0003; other Ethereum clients' bridge contracts none), legacy refund cap 4000 a day, and denoms ugnot kind=unescrow capFloor=10000 supplyCap=0 fee=20 feeFloor=2 sendMax=25000 sendMin=40 refundCap=10000 remoteToken=0x0000000000000000000000000000000000c0ffee
+// transfer: activate gno.land/r/aib/ibc/apps/transfer/impl/v1 with routes ethereum-1 (fee collector g1vdhkcmr9vd6x7ujlta047h6lta047h6lsp3m50; router 0x00000000000000000000000000000000000b0001, ICS20 transfer 0x00000000000000000000000000000000000b0002, IBCAdmin 0x00000000000000000000000000000000000b0003; denoms ugnot kind=unescrow capFloor=10000 supplyCap=0 fee=20 feeFloor=2 sendMax=25000 sendMin=40 refundCap=10000 remoteToken=0x0000000000000000000000000000000000c0ffee)
 // capFloor changes the description: true
 // fee changes the description: true
 // feeFloor changes the description: true
@@ -67,5 +64,4 @@ func main(cur realm) {
 // refundCap changes the description: true
 // remoteToken changes the description: true
 // supplyCap changes the description: true
-// legacyRefundCap changes the description: true
 // the decision's text is the description: true

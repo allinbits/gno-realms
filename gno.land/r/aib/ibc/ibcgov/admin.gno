@@ -389,8 +389,8 @@ func forkScheduleText(p ethereum.ForkParameters) string {
 
 // NewTransferUpdateImplRequest activates a registered transfer implementation
 // after 7 days. The first implementation with the route controls is refused:
-// it is activated only by NewTransferActivateControlsRequest, which stages
-// its first route and the legacy refund cap with it. Once an implementation
+// it is activated only by NewTransferActivateControlsRequest, which stages a
+// route for every Ethereum client that holds transfer state with it. Once an implementation
 // with the controls is active, another one with them installs here.
 func NewTransferUpdateImplRequest(cur realm, path string) Request {
 	mustImplPath(TransferPath, path)
@@ -402,11 +402,11 @@ func NewTransferUpdateImplRequest(cur realm, path string) Request {
 
 // firstControls refuses installing path if it would be the first active
 // implementation with the route controls (ADR pr6375 R17, §7.3): without the
-// staged activation, the controls would start with no legacy refund cap, and
-// the refunds of impl/v0's returning vouchers could never be paid.
+// staged activation, an Ethereum client's impl/v0 assets would be under the
+// controls with no route to carry their returns and refunds.
 func firstControls(path string) string {
 	if transfer.KeepsControls(path) && !transfer.KeepsControls(transfer.ImplPath()) {
-		return "the route controls are first activated by a staged activation (NewTransferActivateControlsRequest), with their first route and legacy refund cap"
+		return "the route controls are first activated by a staged activation (NewTransferActivateControlsRequest), with a route for every Ethereum client that holds transfer state"
 	}
 	return ""
 }

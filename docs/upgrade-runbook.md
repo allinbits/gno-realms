@@ -162,24 +162,24 @@ implementation is still registered, so nothing needs redeploying; its
 Switching the transfer app to `impl/v1` puts every Ethereum client under the
 route controls (ADR 0004). Before relaying resumes on an Ethereum client:
 
-1. Activate with `NewTransferActivateControlsRequest(path, client,
-   feeCollector, bridge, otherBridges, denoms, legacyRefundCap)`, where
-   `bridge` names the route's Ethereum router, ICS20 transfer and IBCAdmin
-   ("router ics20 ibcAdmin", protected recipients from then on),
-   `otherBridges` those of every other Ethereum client the core holds
-   (";"-separated "clientID router ics20 ibcAdmin"; the builder refuses one
-   missing) and `legacyRefundCap` the day cap of the legacy denoms' refunds. It is the only way to the first
-   controls implementation: `NewTransferUpdateImplRequest` refuses it (and
-   later reinstalls one over an active controls implementation). The one
-   decision switches to impl/v1, enrolls the route and enables every denom
-   it carries (none is allowed), the Ethereum tokens whose
-   vouchers impl/v0 minted included (their outstanding supply is read from
-   the voucher at that moment), in one transaction, so voucher returns work
-   at once. Every other Ethereum client and denom impl/v0 used keeps its
-   voucher returns through the legacy path (recorded, refunds queued) until
-   later decisions enrol and enable them (`NewEnrollRouteRequest`, with
-   the route's bridge contracts,
-   `NewSetDenomRequest`, which adopt the records).
+1. Activate with `NewTransferActivateControlsRequest(path, routes)`.
+   `routes` stages a route for every Ethereum client that holds transfer
+   state (escrow, vouchers in circulation, outstanding transfer
+   commitments): "|"-separated entries "clientID feeCollector router ics20
+   ibcAdmin: denom kind capFloor supplyCap fee feeFloor sendMax sendMin
+   refundCap remoteToken; ...", with every denom the client holds assets of
+   (at most 8 routes of 16 denoms). The builder refuses a gap, and the
+   decision is refused and spent when it executes if a client or denom
+   gained assets during the delay: propose it again. The old clients need
+   not be Active. It is the only way to the first controls implementation:
+   `NewTransferUpdateImplRequest` refuses it (and later reinstalls one over
+   an active controls implementation). The one decision switches to
+   impl/v1, enrolls every staged route with its bridge contracts protected
+   and enables its denoms (a minted denom's outstanding supply is read from
+   the voucher at that moment), so voucher returns work at once. After the
+   switch, an Ethereum client without a route carries nothing; a later one
+   is enrolled with `NewEnrollRouteRequest` and its denoms enabled with
+   `NewSetDenomRequest`.
 2. Backfill every send impl/v0 made over the client that is still
    outstanding: for each commitment the core holds
    (`core.PacketCommitment`), anyone calls `transfer.Backfill(packet)`. An

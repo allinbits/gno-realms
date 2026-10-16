@@ -65,7 +65,7 @@ func execute(cur realm, id int64) {
 func setupRoute(cur realm) string {
 	clientID := core.CreateClient(cross(cur), ethtesting.ClientState(), ethtesting.ConsensusState())
 	core.RegisterCounterparty(cross(cur), clientID, [][]byte{{}}, "client-0")
-	execute(cur, govern(cur, ibcgov.NewTransferActivateControlsRequest(cross(cur), "gno.land/r/aib/ibc/apps/transfer/impl/v1", clientID, string(collector), bridge, "", "", 10_000)))
+	execute(cur, govern(cur, ibcgov.NewTransferActivateControlsRequest(cross(cur), "gno.land/r/aib/ibc/apps/transfer/impl/v1", clientID+" "+string(collector)+" "+bridge)))
 	advance(7*24*time.Hour + time.Second) // the separate enrollment's delay, kept so the timeline stays
 	return clientID
 }
@@ -142,7 +142,7 @@ func main(cur realm) {
 		core.RegisterCounterparty(cross(cur), client, [][]byte{{}}, remote)
 		if i == 0 {
 			execute(cur, govern(cur, ibcgov.NewTransferActivateControlsRequest(cross(cur), "gno.land/r/aib/ibc/apps/transfer/impl/v1",
-				client, string(collector), bridge, "", denoms, 4000)))
+				client+" "+string(collector)+" "+bridge+": "+denoms)))
 		} else {
 			execute(cur, govern(cur, ibcgov.NewEnrollRouteRequest(cross(cur), client, string(collector), bridge)))
 			for _, spec := range strings.Split(denoms, ";") {

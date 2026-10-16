@@ -63,7 +63,7 @@ func execute(cur realm, id int64) {
 func setupRoute(cur realm) string {
 	clientID := core.CreateClient(cross(cur), ethtesting.ClientState(), ethtesting.ConsensusState())
 	core.RegisterCounterparty(cross(cur), clientID, [][]byte{{}}, "client-0")
-	execute(cur, govern(cur, ibcgov.NewTransferActivateControlsRequest(cross(cur), "gno.land/r/aib/ibc/apps/transfer/impl/v1", clientID, string(collector), bridge, "", "", 10_000)))
+	execute(cur, govern(cur, ibcgov.NewTransferActivateControlsRequest(cross(cur), "gno.land/r/aib/ibc/apps/transfer/impl/v1", clientID+" "+string(collector)+" "+bridge)))
 	advance(7*24*time.Hour + time.Second) // the separate enrollment's delay, kept so the timeline stays
 	return clientID
 }
@@ -146,7 +146,7 @@ func main(cur realm) {
 	// One decision switches to impl/v1 with the route and its denom staged
 	// (Codex round 3 #6): the controls and the route take effect together.
 	execute(cur, govern(cur, ibcgov.NewTransferActivateControlsRequest(cross(cur), "gno.land/r/aib/ibc/apps/transfer/impl/v1",
-		client, string(collector), bridge, "", weth+" mint 4000 10000 10 1 0 0 4000 -", 4000)))
+		client+" "+string(collector)+" "+bridge+": "+weth+" mint 4000 10000 10 1 0 0 4000 -")))
 	t, _ := controlsView().Totals(client, voucher)
 	println("impl:", transfer.ImplVersion(), "| denoms on the route:", len(controlsView().Denoms(client)), "| outstanding at enable:", t.Outstanding)
 

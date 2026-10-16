@@ -616,44 +616,6 @@ func TestMintStartsAtExistingSupply(t *testing.T) {
 	}
 }
 
-// The legacy path: an Ethereum client no decision enrolled gets a legacy
-// route on first use, whose legacy denoms record and queue their returns'
-// refunds and take no credit; enrolment and enabling adopt them with their
-// records (Codex round 4 #3, #4).
-func TestLegacyRouteAdopted(t *testing.T) {
-	r := NewRegistry()
-	rt := r.Legacy("ethereum-7")
-	if r.Legacy("ethereum-7") != rt || !rt.Legacy {
-		t.Fatalf("legacy route")
-	}
-	d := rt.LegacyDenom("ibc/WETH", KindMint, 900, t0, 0)
-	if err := rt.RecordSend(sendRec7(1, 400)); err != nil {
-		t.Fatal(err)
-	}
-	if rt.PendingSends("ethereum-7") != 1 || d.Totals.Outstanding != 500 || d.Totals.Returning != 400 {
-		t.Fatalf("%+v", d.Totals)
-	}
-	if err := rt.CheckCredit("ibc/WETH", 1); err == nil {
-		t.Fatalf("a legacy route took a credit")
-	}
-	// Its refund waits: no refund cap until a decision enables the denom.
-	if pay, _ := rt.Settle(t0+Day, 1, PacketKey("ethereum-7", 1), OutcomeTimeout, false, 0); pay != 0 || rt.QueuedRefundCount("ibc/WETH") != 1 {
-		t.Fatalf("paid %d", pay)
-	}
-	if rt.PendingSends("ethereum-7") != 0 {
-		t.Fatalf("pending after the outcome")
-	}
-	if _, err := r.Enroll("ethereum-7", collector, t0, 5); err != nil || rt.Legacy {
-		t.Fatalf("adoption: %v", err)
-	}
-	if err := rt.SetDenom("ibc/WETH", mintCfg(), t0, 0, 0); err != nil || d.Legacy || d.Totals.Outstanding != 500 {
-		t.Fatalf("enabling: %v %+v", err, d.Totals)
-	}
-	if ps, _ := rt.PayRefunds(t0+2*Day, "ibc/WETH", 20, false, 0); len(ps) != 1 {
-		t.Fatalf("the queued refund was not paid once enabled: %+v", ps)
-	}
-}
-
 func sendRec7(seq uint64, amount int64) SendRecord {
 	rec := sendRec(seq, "ibc/WETH", KindMint, amount)
 	rec.Key = PacketKey("ethereum-7", seq)

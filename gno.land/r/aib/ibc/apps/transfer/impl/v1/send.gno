@@ -66,9 +66,8 @@ func toInternal(d ics20.Denom, rt *controls.Route) ics20.Denom {
 // checkRecipient applies the send-side recipient filters (ADR pr6375 §7.8):
 // the receiver is an Ethereum address, not the zero address, not one reserved
 // at or below 0xffff, not one of the route's refused bridge contracts and not
-// the token itself; a route whose own contracts are unknown refuses every
-// bridge contract the registry knows.
-func checkRecipient(reg *controls.Registry, rt *controls.Route, receiver, token string) {
+// the token itself.
+func checkRecipient(rt *controls.Route, receiver, token string) {
 	a, err := ethaddr.Parse(receiver)
 	if err != nil {
 		panic("the receiver is " + err.Error())
@@ -82,10 +81,6 @@ func checkRecipient(reg *controls.Registry, rt *controls.Route, receiver, token 
 		panic("the receiver is the token itself")
 	case rt.IsRefused(a.Lower()):
 		panic("the receiver is a contract of the bridge")
-	case !rt.Bridged() && reg.IsBridgeContract(a.Lower()):
-		// A legacy route whose own contracts no decision named (a client
-		// created after the activation): every known bridge contract.
-		panic("the receiver is a contract of the bridge")
 	}
 }
 
@@ -98,12 +93,6 @@ func (l *logic) Transfer(_ int, rlm realm, sent []chain.Coin, clientID, receiver
 	rt, covered := l.routeOf(0, rlm, clientID)
 	if !covered {
 		return l.Logic.Transfer(0, rlm, sent, clientID, receiver, denom, amount, timeoutTimestamp, memo)
-	}
-	if rt == nil && strings.HasPrefix(denom, "ibc/") {
-		// impl/v0's vouchers go back over a client no decision enrolled
-		// yet: the legacy path records and meters the return (ADR pr6375
-		// R17).
-		rt = l.registry(0, rlm).Legacy(clientID)
 	}
 	rt = mustRoute(rt, clientID)
 	if rt.IsClosed() {
@@ -134,17 +123,16 @@ func (l *logic) Transfer(_ int, rlm realm, sent []chain.Coin, clientID, receiver
 			panic(ufmt.Sprintf("voucher %s did not come over route %s", denom, rt.Key))
 		}
 		// Every send on a route is recorded, a return too, so its refund is
-		// metered and held like any other (ADR pr6375 §7.13). A voucher of a
-		// denom no decision enabled yet goes back through the legacy path:
-		// recorded, its refund queued until the denom is enabled.
+		// metered and held like any other (ADR pr6375 §7.13). The staged
+		// activation enabled every denom with vouchers in circulation.
 		acc := rt.Denom(denom)
 		if acc == nil {
-			acc = rt.LegacyDenom(denom, controls.KindMint, l.store.VoucherToken(denom).TotalSupply(), now(), l.registry(0, rlm).LegacyRefundCap())
+			panic(ufmt.Sprintf("denom %s is not enabled on route %s", denom, rt.Key))
 		}
 		if acc.Config.Kind != controls.KindMint {
 			panic(ufmt.Sprintf("denom %s is accounted as %s on route %s", denom, acc.Config.Kind, rt.Key))
 		}
-		checkRecipient(l.registry(0, rlm), rt, receiver, strings.ToLower(d.Base))
+		checkRecipient(rt, receiver, strings.ToLower(d.Base))
 		wireDenom = toWire(d, rt).Path()
 		l.store.SetPendingVoucherSend(0, rlm, sender.String(), clientID, wireDenom, amount)
 		accDenom, kind = denom, controls.KindMint
@@ -154,7 +142,7 @@ func (l *logic) Transfer(_ int, rlm realm, sent []chain.Coin, clientID, receiver
 		}
 		alias := transfer.GRC20Alias(denom)
 		acc := l.mustSendable(rt, alias, amount)
-		checkRecipient(l.registry(0, rlm), rt, receiver, acc.Config.Remote)
+		checkRecipient(rt, receiver, acc.Config.Remote)
 		fee = acc.Config.Fee
 		if fee > 0 {
 			c := chain.NewCoin(alias, fee)
@@ -171,7 +159,7 @@ func (l *logic) Transfer(_ int, rlm realm, sent []chain.Coin, clientID, receiver
 		panic(ufmt.Sprintf("GRC20 token %s not found in grc20reg", denom))
 	default:
 		acc := l.mustSendable(rt, denom, amount)
-		checkRecipient(l.registry(0, rlm), rt, receiver, acc.Config.Remote)
+		checkRecipient(rt, receiver, acc.Config.Remote)
 		fee = acc.Config.Fee
 		if amount > math.MaxInt64-fee {
 			panic("the amount plus the route fee overflows")
@@ -221,7 +209,7 @@ func (l *logic) Transfer(_ int, rlm realm, sent []chain.Coin, clientID, receiver
 // rt: enabled, not paused by a sends flag, within the send limits.
 func (l *logic) mustSendable(rt *controls.Route, denom string, amount int64) *controls.Denom {
 	acc := rt.Denom(denom)
-	if rt.Legacy || acc == nil || acc.Legacy || acc.Config.Kind != controls.KindUnescrow {
+	if acc == nil || acc.Config.Kind != controls.KindUnescrow {
 		panic(ufmt.Sprintf("denom %s is not enabled for sends on route %s", denom, rt.Key))
 	}
 	if rt.ExposureClosed() {

@@ -11,25 +11,23 @@ import (
 // of gno.land/r/aib/ibc/ibcgov (through the transfer proxy's GovApply). Their
 // parameters travel as Params in the wire format.
 const (
-	OpEnroll          = "enroll"            // Route, To (fee collector)
-	OpDenom           = "denom"             // Route, Denom, Config
-	OpCollector       = "collector"         // Route, To
-	OpRefuse          = "refuse"            // Route, Keys (Ethereum addresses)
-	OpUnrefuse        = "unrefuse"          // Route, Keys (Ethereum addresses)
-	OpVoid            = "void"              // Route, Keys, Forged, Incident
-	OpRestore         = "restore"           // Route, Keys
-	OpCredit          = "credit"            // Route, Key, Denom, To, Amount
-	OpSweep           = "sweep"             // Route, Keys, To
-	OpLoss            = "loss"              // Route, Key, Denom, Amount, Chain, Incident, Cause
-	OpRecapitalize    = "recapitalize"      // Route, Denom, Amount, Incident
-	OpRevokeRecap     = "revoke recap"      // Route, Amount (the authorization id)
-	OpReduce          = "reduce"            // Route, Key, Amount, Incident
-	OpAccept          = "accept"            // Route, Denom, Amount, Incident
-	OpSettle          = "settle"            // Route, Client (the retired client), Items, Incident
-	OpReplace         = "replace"           // Route, Client (the new client), Height (the suspect interval start)
-	OpReopen          = "reopen"            // Route
-	OpLegacyRefundCap = "legacy refund cap" // Amount
-	OpBridge          = "bridge"            // Route (an Ethereum client), Keys (its router, ICS20 transfer, IBCAdmin)
+	OpEnroll       = "enroll"       // Route, To (fee collector)
+	OpDenom        = "denom"        // Route, Denom, Config
+	OpCollector    = "collector"    // Route, To
+	OpRefuse       = "refuse"       // Route, Keys (Ethereum addresses)
+	OpUnrefuse     = "unrefuse"     // Route, Keys (Ethereum addresses)
+	OpVoid         = "void"         // Route, Keys, Forged, Incident
+	OpRestore      = "restore"      // Route, Keys
+	OpCredit       = "credit"       // Route, Key, Denom, To, Amount
+	OpSweep        = "sweep"        // Route, Keys, To
+	OpLoss         = "loss"         // Route, Key, Denom, Amount, Chain, Incident, Cause
+	OpRecapitalize = "recapitalize" // Route, Denom, Amount, Incident
+	OpRevokeRecap  = "revoke recap" // Route, Amount (the authorization id)
+	OpReduce       = "reduce"       // Route, Key, Amount, Incident
+	OpAccept       = "accept"       // Route, Denom, Amount, Incident
+	OpSettle       = "settle"       // Route, Client (the retired client), Items, Incident
+	OpReplace      = "replace"      // Route, Client (the new client), Height (the suspect interval start)
+	OpReopen       = "reopen"       // Route
 )
 
 // Params are the parameters of a governance operation; each operation reads

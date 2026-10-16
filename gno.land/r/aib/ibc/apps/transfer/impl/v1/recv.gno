@@ -84,9 +84,6 @@ func (l *logic) OnRecvPacket(_ int, rlm realm, sourceClient, destinationClient s
 	if rt == nil {
 		return refuse(ufmt.Errorf("client %s is an Ethereum client of no enrolled route", destinationClient))
 	}
-	if rt.Legacy {
-		return refuse(ufmt.Errorf("client %s is an Ethereum client of no enrolled route", destinationClient))
-	}
 	if rt.ExposureClosed() {
 		return refuse(ufmt.Errorf("route %s is closed (a replacement awaiting its reopening, or a loss without a restoring decision)", rt.Key))
 	}

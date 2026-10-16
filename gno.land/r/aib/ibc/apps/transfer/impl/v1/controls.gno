@@ -92,9 +92,6 @@ func (l *logic) Backfill(_ int, rlm realm, packet types.Packet) {
 			rt = reg.Route(k)
 		}
 	}
-	if rt == nil && isEthereum(packet.SourceClient) {
-		rt = reg.Legacy(packet.SourceClient) // a client no decision enrolled yet
-	}
 	if rt == nil {
 		panic("client " + packet.SourceClient + " is the client of no route")
 	}
@@ -125,15 +122,6 @@ func (l *logic) Backfill(_ int, rlm realm, packet types.Packet) {
 		// A voucher returning: keyed by the route key on this chain.
 		trace := append([]ics20.Hop{ics20.NewHop(transfer.PortID, rt.Key)}, token.Denom.Trace[1:]...)
 		accDenom, kind = ics20.Denom{Base: token.Denom.Base, Trace: trace}.IBCDenom(), controls.KindMint
-	}
-	if rt.Denom(accDenom) == nil {
-		// A denom no decision enabled yet: the legacy path keeps the record,
-		// its refund queued until the denom is enabled.
-		var supply int64
-		if tok := l.store.VoucherToken(accDenom); kind == controls.KindMint && tok != nil {
-			supply = tok.TotalSupply()
-		}
-		rt.LegacyDenom(accDenom, kind, supply, now(), reg.LegacyRefundCap())
 	}
 	key := controls.PacketKey(packet.SourceClient, packet.Sequence)
 	err = rt.Backfill(controls.SendRecord{
@@ -360,28 +348,6 @@ func (l *logic) GovApply(_ int, rlm realm, op string, params []byte) string {
 	}
 	reg := l.registry(0, rlm)
 	t := now()
-	if op == controls.OpLegacyRefundCap {
-		if err := reg.SetLegacyRefundCap(p.Amount); err != nil {
-			return err.Error()
-		}
-		transfer.EmitRoute(0, rlm, "gov", "op", op, "cap", strconv.FormatInt(p.Amount, 10))
-		return ""
-	}
-	if op == controls.OpBridge {
-		// The activation names every Ethereum client's bridge contracts, so
-		// a legacy route made for one protects them (ADR pr6375 R12).
-		if !isEthereum(p.Route) {
-			return p.Route + " is no Ethereum client"
-		}
-		if len(p.Keys) != 3 {
-			return "a client's bridge contracts are its router, ICS20 transfer and IBCAdmin"
-		}
-		if err := reg.SetBridge(p.Route, p.Keys[0], p.Keys[1], p.Keys[2]); err != nil {
-			return err.Error()
-		}
-		transfer.EmitRoute(0, rlm, "gov", "op", op, "client", p.Route)
-		return ""
-	}
 	if op == controls.OpEnroll {
 		if !isEthereum(p.Route) || core.IsClientRetired(p.Route) {
 			return p.Route + " is no usable Ethereum client"
@@ -395,9 +361,6 @@ func (l *logic) GovApply(_ int, rlm realm, op string, params []byte) string {
 		if err := controls.CheckBridge(p.Keys[0], p.Keys[1], p.Keys[2]); err != nil {
 			return err.Error()
 		}
-		if set, ok := reg.Bridge(p.Route); ok && (set[0] != strings.ToLower(p.Keys[0]) || set[1] != strings.ToLower(p.Keys[1]) || set[2] != strings.ToLower(p.Keys[2])) {
-			return "client " + p.Route + " has other bridge contracts already"
-		}
 		rt, err := reg.Enroll(p.Route, p.To, t, chainHeight())
 		if err != nil {
 			return err.Error()
@@ -405,17 +368,11 @@ func (l *logic) GovApply(_ int, rlm realm, op string, params []byte) string {
 		if err := rt.Protect(p.Keys[0], p.Keys[1], p.Keys[2]); err != nil {
 			panic(err) // checked above, on a route just enrolled
 		}
-		if err := reg.SetBridge(p.Route, p.Keys[0], p.Keys[1], p.Keys[2]); err != nil {
-			panic(err) // checked above
-		}
 		rt.StartImport(core.OutstandingSends(p.Route, transfer.PortID))
 		transfer.EmitRoute(0, rlm, "gov", "op", op, "route", p.Route)
 		return ""
 	}
 	rt := reg.Route(p.Route)
-	if rt != nil && rt.Legacy {
-		return "route " + p.Route + " is not enrolled (it has only the legacy path's records)"
-	}
 	if rt == nil {
 		return "no route " + p.Route
 	}

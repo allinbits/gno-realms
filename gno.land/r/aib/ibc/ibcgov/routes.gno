@@ -62,7 +62,7 @@ func (p *routeParams) deferredBy() string {
 func (p *routeParams) apply(cur realm, t int64) (string, string) {
 	if p.replace != "" {
 		// Re-check the new client before retiring the old one.
-		if refusal := checkNewRouteClient(p.p.Client); refusal != "" {
+		if refusal := checkReplacementClient(p.p.Client); refusal != "" {
 			return "", refusal
 		}
 		if view().Client(p.p.Route) != p.replace {
@@ -133,22 +133,42 @@ func mustKeys(list string) []string {
 	return keys
 }
 
-// checkNewRouteClient is why client cannot take a route now, or "".
-func checkNewRouteClient(client string) string {
+// checkRouteClient is why client cannot take a route now, or "". A new
+// route's client, or a replacement's, must be Active (needActive); the
+// staged activation enrolls the clients that hold transfer state whatever
+// their status, so a frozen or expired one is then replaced directly.
+func checkRouteClient(client string, needActive bool) string {
 	switch {
 	case core.ClientType(client) != ethereum.ClientType:
 		return client + " is not an Ethereum client"
 	case core.IsClientRetired(client):
 		return client + " is retired"
-	case core.ClientStatus(client) != "Active":
+	case needActive && core.ClientStatus(client) != "Active":
 		return client + " is not Active"
 	case core.CounterpartyClientID(client) == "":
 		return client + " has no counterparty registered"
 	}
 	if rd, ok := transfer.ExtView("controls").(controls.Reader); ok {
-		if (rd.RouteOf(client) != "" && !rd.Legacy(client)) || rd.RetiredRouteOf(client) != "" {
+		if rd.RouteOf(client) != "" || rd.RetiredRouteOf(client) != "" {
 			return client + " is a route's client already"
 		}
+	}
+	return ""
+}
+
+// checkReplacementClient is why client cannot replace a route's client, or
+// "": checkRouteClient, and it holds no transfer state of its own (escrow,
+// vouchers in circulation, outstanding transfer commitments), which the
+// route's key would no longer reach once the client is the route's alias.
+func checkReplacementClient(client string) string {
+	if refusal := checkRouteClient(client, true); refusal != "" {
+		return refusal
+	}
+	if assets := transfer.ClientAssets(client); len(assets) > 0 {
+		return client + " holds transfer state of its own (" + assets[0] + "): it cannot become another route's client"
+	}
+	if n := core.OutstandingSends(client, transfer.PortID); n > 0 {
+		return client + " has " + strconv.FormatInt(n, 10) + " outstanding transfer packets of its own: it cannot become another route's client"
 	}
 	return ""
 }
@@ -184,7 +204,7 @@ func bridgeText(f []string) string {
 // bridge ("router ics20 ibcAdmin", see mustBridge). Until a denom is enabled
 // on it (NewSetDenomRequest), the route refuses every send and receive.
 func NewEnrollRouteRequest(cur realm, clientID, feeCollector, bridge string) Request {
-	if refusal := checkNewRouteClient(clientID); refusal != "" {
+	if refusal := checkRouteClient(clientID, true); refusal != "" {
 		panic("ibcgov: " + refusal)
 	}
 	if routes.Has(clientID) {
@@ -553,7 +573,7 @@ func NewReplaceRouteRequest(cur realm, route, newClientID string, suspectFrom in
 	if view().Closed(route) {
 		panic("ibcgov: route " + route + " is still closed from its previous replacement: one replacement at a time")
 	}
-	if refusal := checkNewRouteClient(newClientID); refusal != "" {
+	if refusal := checkReplacementClient(newClientID); refusal != "" {
 		panic("ibcgov: " + refusal)
 	}
 	old := view().Client(route)
@@ -613,100 +633,103 @@ func NewBindGovernanceRequest(cur realm, clientID string) Request {
 	})
 }
 
-// maxActivationDenoms bounds the denoms an activation enables.
-const maxActivationDenoms = 16
+// maxActivationDenoms bounds the denoms an activation enables on one route,
+// maxActivationRoutes the routes it enrolls.
+const (
+	maxActivationDenoms = 16
+	maxActivationRoutes = 8
+)
+
+// stagedRoute is one route of the staged activation: its enrolment and its
+// denoms.
+type stagedRoute struct {
+	enroll controls.Params
+	denoms []controls.Params
+}
 
 // activateParams is the switch of the transfer app to an implementation with
-// the route controls, staged with its first route and that route's denoms
-// so they take effect in the same transaction (ADR pr6375 R17, §6.7, §7.3):
-// no moment exists in which an Ethereum client is under the controls but its
-// vouchers cannot go back.
+// the route controls, staged with a route for every Ethereum client that
+// holds transfer state and the denoms of every asset it holds, so they all
+// take effect in the transaction that switches (ADR pr6375 R17, §6.7, §7.3):
+// no moment exists in which an Ethereum client's assets are under the
+// controls without its route, and there is no fallback path for one left
+// out.
 type activateParams struct {
-	path            string
-	legacyRefundCap int64
-	enroll          controls.Params
-	denoms          []controls.Params
-	bridges         []controls.Params // every other Ethereum client's bridge contracts
+	path   string
+	routes []stagedRoute
+}
+
+// stagingGap is why the staged routes do not cover the transfer state on the
+// live chain, or "": every Ethereum client the core holds and has not
+// retired that has escrow, vouchers in circulation or outstanding transfer
+// commitments must be staged, with every one of those denoms. Read when the
+// request is built and again when it executes: a client or denom that gained
+// assets during the delay spends the decision, to be proposed again.
+func stagingGap(staged []stagedRoute) string {
+	byClient := map[string]map[string]bool{}
+	for _, r := range staged {
+		ds := map[string]bool{}
+		for _, d := range r.denoms {
+			ds[d.Denom] = true
+		}
+		byClient[r.enroll.Route] = ds
+	}
+	for _, id := range core.ClientIDs() {
+		if core.ClientType(id) != ethereum.ClientType || core.IsClientRetired(id) {
+			continue
+		}
+		assets := transfer.ClientAssets(id)
+		ds, ok := byClient[id]
+		if !ok {
+			if len(assets) > 0 || core.OutstandingSends(id, transfer.PortID) > 0 {
+				return "Ethereum client " + id + " holds transfer state and is not staged"
+			}
+			continue
+		}
+		for _, a := range assets {
+			if !ds[a] {
+				return "denom " + a + " of client " + id + " holds assets and is not staged"
+			}
+		}
+	}
+	return ""
 }
 
 func (p *activateParams) apply(cur realm, t int64) (string, string) {
 	// Every refusal the staged steps could meet is checked first, so the
-	// switch never lands without its route (it would abort instead).
+	// switch never lands without its routes (it would abort instead).
 	if refusal := transfer.CheckUpdateImpl(p.path); refusal != "" {
 		return "", refusal
 	}
 	if !transfer.KeepsControls(p.path) {
 		return "", p.path + " keeps no route controls"
 	}
-	if rd, ok := transfer.ExtView("controls").(controls.Reader); ok {
-		for _, d := range p.denoms {
-			if old, ok := rd.DenomConfig(p.enroll.Route, d.Denom); ok && old.Kind != d.Config.Kind {
-				return "", "denom " + d.Denom + " is accounted as " + old.Kind + " on " + p.enroll.Route + " already"
-			}
-		}
-	}
-	if routes.Has(p.enroll.Route) {
-		return "", p.enroll.Route + " is a route already"
-	}
-	if refusal := checkNewRouteClient(p.enroll.Route); refusal != "" {
+	if refusal := stagingGap(p.routes); refusal != "" {
 		return "", refusal
 	}
+	for _, r := range p.routes {
+		if routes.Has(r.enroll.Route) {
+			return "", r.enroll.Route + " is a route already"
+		}
+		if refusal := checkRouteClient(r.enroll.Route, false); refusal != "" {
+			return "", refusal
+		}
+	}
 	transfer.UpdateImpl(cross(cur), p.path)
-	if refusal := transfer.GovApply(cross(cur), controls.OpLegacyRefundCap, controls.Params{Amount: p.legacyRefundCap}.Encode()); refusal != "" {
-		panic("ibcgov: the legacy refund cap could not be set: " + refusal)
-	}
-	for _, b := range p.bridges {
-		if refusal := transfer.GovApply(cross(cur), controls.OpBridge, b.Encode()); refusal != "" {
-			panic("ibcgov: the bridge contracts of " + b.Route + " could not be recorded: " + refusal)
+	n := 0
+	for _, r := range p.routes {
+		if refusal := transfer.GovApply(cross(cur), controls.OpEnroll, r.enroll.Encode()); refusal != "" {
+			panic("ibcgov: the staged route " + r.enroll.Route + " could not be enrolled: " + refusal)
+		}
+		routes.Set(r.enroll.Route, &routeRec{epochAt: t})
+		for _, d := range r.denoms {
+			if refusal := transfer.GovApply(cross(cur), controls.OpDenom, d.Encode()); refusal != "" {
+				panic("ibcgov: the staged denom " + d.Denom + " could not be enabled: " + refusal)
+			}
+			n++
 		}
 	}
-	if refusal := transfer.GovApply(cross(cur), controls.OpEnroll, p.enroll.Encode()); refusal != "" {
-		panic("ibcgov: the staged route could not be enrolled: " + refusal)
-	}
-	routes.Set(p.enroll.Route, &routeRec{epochAt: t})
-	for _, d := range p.denoms {
-		if refusal := transfer.GovApply(cross(cur), controls.OpDenom, d.Encode()); refusal != "" {
-			panic("ibcgov: the staged denom " + d.Denom + " could not be enabled: " + refusal)
-		}
-	}
-	return "transfer " + p.path + " active with route " + p.enroll.Route + " and " + strconv.Itoa(len(p.denoms)) + " denoms", ""
-}
-
-// mustOtherBridges reads the bridge contracts of every Ethereum client other
-// than the activated one: a ";"-separated list of "clientID router ics20
-// ibcAdmin". Every Ethereum client the core holds and has not retired must
-// be named, so the legacy route a voucher return makes for any of them
-// protects its contracts from the switch on (ADR pr6375 R12, §7.8); a client
-// created later, never enrolled, refuses every contract known.
-func mustOtherBridges(activated, list string) []controls.Params {
-	var out []controls.Params
-	seen := map[string]bool{}
-	for _, entry := range strings.Split(list, ";") {
-		f := strings.Fields(entry)
-		if len(f) == 0 {
-			continue
-		}
-		if len(f) != 4 {
-			panic("ibcgov: another client's bridge contracts are \"clientID router ics20 ibcAdmin\", not " + entry)
-		}
-		client := f[0]
-		switch {
-		case client == activated:
-			panic("ibcgov: " + client + " is the activated route: its contracts are the bridge argument")
-		case core.ClientType(client) != ethereum.ClientType:
-			panic("ibcgov: " + client + " is not an Ethereum client")
-		case seen[client]:
-			panic("ibcgov: " + client + " named twice")
-		}
-		seen[client] = true
-		out = append(out, controls.Params{Route: client, Keys: mustBridge(strings.Join(f[1:], " "))})
-	}
-	for _, id := range core.ClientIDs() {
-		if id != activated && !seen[id] && core.ClientType(id) == ethereum.ClientType && !core.IsClientRetired(id) {
-			panic("ibcgov: name the bridge contracts of every Ethereum client: " + id + " is missing")
-		}
-	}
-	return out
+	return "transfer " + p.path + " active with " + strconv.Itoa(len(p.routes)) + " routes and " + strconv.Itoa(n) + " denoms", ""
 }
 
 func denomsText(names []string) string {
@@ -716,36 +739,11 @@ func denomsText(names []string) string {
 	return strings.Join(names, "; ")
 }
 
-// NewTransferActivateControlsRequest switches the transfer app to the
-// implementation at path (impl/v1: the route controls) after 7 days, staged
-// with its first route: the Ethereum client clientID, enrolled with fee
-// collector feeCollector and the protected bridge contracts bridge ("router
-// ics20 ibcAdmin"), the bridge contracts of every other Ethereum client
-// (otherBridges, see mustOtherBridges), and the denoms it carries, enabled in the same
-// transaction (ADR pr6375 R17). Vouchers impl/v0 minted go back at once after
-// the switch, recorded and metered, with no later decision. denoms is a
-// ";"-separated list of "denom kind capFloor supplyCap fee feeFloor sendMax
-// sendMin refundCap remoteToken" (space-separated, as NewSetDenomRequest
-// takes them; remoteToken "-" for none), at most 16, or "" for none yet.
-// legacyRefundCap, positive, is the refund meter's day cap of every legacy
-// denom: impl/v0's returns over clients and denoms no decision enabled yet go
-// back through the legacy path, and their genuine refunds are paid as that
-// meter refills.
-func NewTransferActivateControlsRequest(cur realm, path, clientID, feeCollector, bridge, otherBridges, denoms string, legacyRefundCap int64) Request {
-	mustImplPath(TransferPath, path)
-	if refusal := checkNewRouteClient(clientID); refusal != "" {
-		panic("ibcgov: " + refusal)
-	}
-	if routes.Has(clientID) {
-		panic("ibcgov: " + clientID + " is a route already")
-	}
-	fc := mustAddr(feeCollector)
-	b := mustBridge(bridge)
-	if legacyRefundCap <= 0 {
-		panic("ibcgov: the legacy refund cap is positive")
-	}
-	p := &activateParams{path: path, legacyRefundCap: legacyRefundCap, enroll: controls.Params{Route: clientID, To: fc, Keys: b}}
-	p.bridges = mustOtherBridges(clientID, otherBridges)
+// parseStagedDenoms reads a route's staged denoms: a ";"-separated list of
+// "denom kind capFloor supplyCap fee feeFloor sendMax sendMin refundCap
+// remoteToken" (as NewSetDenomRequest takes them; remoteToken "-" for none).
+func parseStagedDenoms(clientID, denoms string) ([]controls.Params, []string) {
+	var out []controls.Params
 	var names []string
 	seen := map[string]bool{}
 	for _, spec := range strings.Split(denoms, ";") {
@@ -773,21 +771,70 @@ func NewTransferActivateControlsRequest(cur realm, path, clientID, feeCollector,
 			panic("ibcgov: denom " + denom + " named twice")
 		}
 		seen[denom] = true
-		p.denoms = append(p.denoms, controls.Params{Route: clientID, Denom: denom, Config: c})
+		out = append(out, controls.Params{Route: clientID, Denom: denom, Config: c})
 		names = append(names, denomText(denom, c))
 	}
-	if len(p.denoms) > maxActivationDenoms {
-		panic("ibcgov: stage at most " + strconv.Itoa(maxActivationDenoms) + " denoms")
+	if len(out) > maxActivationDenoms {
+		panic("ibcgov: stage at most " + strconv.Itoa(maxActivationDenoms) + " denoms a route")
 	}
-	var others []string
-	for _, o := range p.bridges {
-		others = append(others, o.Route+": "+bridgeText(o.Keys))
+	return out, names
+}
+
+// NewTransferActivateControlsRequest switches the transfer app to the
+// implementation at path (impl/v1: the route controls) after 7 days, staged
+// with the routes routes names, enrolled and with their denoms enabled in the
+// same transaction (ADR pr6375 R17). routes is a "|"-separated list of
+// routes, each "clientID feeCollector router ics20 ibcAdmin" (the route's
+// protected bridge contracts), optionally followed by ":" and its denoms (see
+// parseStagedDenoms), at most 8 routes of 16 denoms each.
+//
+// Every Ethereum client that holds transfer state (escrow, vouchers in
+// circulation, outstanding transfer commitments) must be staged, with every
+// denom it holds assets of: the builder refuses a gap, and the decision is
+// refused and spent when it executes if the state changed in the meantime
+// (stagingGap). After the switch, an Ethereum client without a route carries
+// nothing, and impl/v0 can no longer create assets. The old clients need not
+// be Active: a frozen or expired route is then replaced directly.
+func NewTransferActivateControlsRequest(cur realm, path, routesSpec string) Request {
+	mustImplPath(TransferPath, path)
+	p := &activateParams{path: path}
+	var texts []string
+	seen := map[string]bool{}
+	for _, entry := range strings.Split(routesSpec, "|") {
+		head, denoms := entry, ""
+		if i := strings.Index(entry, ":"); i >= 0 {
+			head, denoms = entry[:i], entry[i+1:]
+		}
+		f := strings.Fields(head)
+		if len(f) == 0 && strings.TrimSpace(denoms) == "" {
+			continue
+		}
+		if len(f) != 5 {
+			panic("ibcgov: a staged route is \"clientID feeCollector router ics20 ibcAdmin[: denoms]\", not " + entry)
+		}
+		clientID := f[0]
+		if refusal := checkRouteClient(clientID, false); refusal != "" {
+			panic("ibcgov: " + refusal)
+		}
+		if routes.Has(clientID) || seen[clientID] {
+			panic("ibcgov: " + clientID + " is a route already, or staged twice")
+		}
+		seen[clientID] = true
+		fc := mustAddr(f[1])
+		b := mustBridge(strings.Join(f[2:], " "))
+		r := stagedRoute{enroll: controls.Params{Route: clientID, To: fc, Keys: b}}
+		var names []string
+		r.denoms, names = parseStagedDenoms(clientID, denoms)
+		p.routes = append(p.routes, r)
+		texts = append(texts, clientID+" (fee collector "+string(fc)+"; "+bridgeText(b)+"; denoms "+denomsText(names)+")")
 	}
-	if len(others) == 0 {
-		others = append(others, "none")
+	if len(p.routes) == 0 || len(p.routes) > maxActivationRoutes {
+		panic("ibcgov: stage 1 to " + strconv.Itoa(maxActivationRoutes) + " routes")
 	}
-	text := "transfer: activate " + path + " with route " + clientID + " (fee collector " + string(fc) + "; " + bridgeText(b) + "; other Ethereum clients' bridge contracts " + strings.Join(others, "; ") + "), legacy refund cap " +
-		itoa(legacyRefundCap) + " a day, and denoms " + denomsText(names)
+	if refusal := stagingGap(p.routes); refusal != "" {
+		panic("ibcgov: " + refusal)
+	}
+	text := "transfer: activate " + path + " with routes " + strings.Join(texts, " | ")
 	return propose(cur, "transfer activate controls", text, func(cur realm, made, t int64) {
 		decide(cur, "transfer activate controls", text, p, made, t, true)
 	})

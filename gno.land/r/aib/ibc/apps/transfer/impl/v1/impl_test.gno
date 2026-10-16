@@ -46,7 +46,7 @@ func TestCheckRecipient(cur realm, t *testing.T) {
 	rt := replacedRoute(t)
 	rt.Refuse([]string{"0x1d95d544586eacb63b6154e9e45122b32ded11aa"})
 	ok := "0x5f67a5398d91087d1b37a8a43436196a7830867f"
-	uassert.NotPanics(t, cur, func() { checkRecipient(controls.NewRegistry(), rt, ok, "") })
+	uassert.NotPanics(t, cur, func() { checkRecipient(rt, ok, "") })
 	cases := []struct{ receiver, token, want string }{
 		{"0x0000000000000000000000000000000000000000", "", "zero address"},
 		{"0x0000000000000000000000000000000000000001", "", "reserved"},
@@ -56,7 +56,7 @@ func TestCheckRecipient(cur realm, t *testing.T) {
 		{"g1abc", "", "not an Ethereum address"},
 	}
 	for _, c := range cases {
-		uassert.PanicsContains(t, cur, c.want, func() { checkRecipient(controls.NewRegistry(), rt, c.receiver, c.token) })
+		uassert.PanicsContains(t, cur, c.want, func() { checkRecipient(rt, c.receiver, c.token) })
 	}
 }
 

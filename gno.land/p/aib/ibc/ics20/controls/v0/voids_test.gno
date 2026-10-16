@@ -433,8 +433,8 @@ func TestProtectedRecipients(t *testing.T) {
 	if err := rt.Protect(router, ics20, admin); err != nil {
 		t.Fatal(err)
 	}
-	if !rt.Bridged() || rt.Protect(router, ics20, admin) != nil || rt.Protect(admin, ics20, router) == nil {
-		t.Fatalf("Protect is once: the same set again only")
+	if !rt.Bridged() || rt.Protect(router, ics20, admin) == nil {
+		t.Fatalf("Protect is once")
 	}
 	rt.Unrefuse([]string{router})
 	if !rt.IsRefused(router) || !rt.IsRefused("0x00000000000000000000000000000000000B0003") {
@@ -447,32 +447,6 @@ func TestProtectedRecipients(t *testing.T) {
 	}
 	if !rt.IsRefused(c.Remote) || len(rt.Protected()) != 3+boolInt(gnot().Remote != "")+1 {
 		t.Fatalf("voucher token not protected: %v", rt.Protected())
-	}
-}
-
-// The activation records every Ethereum client's bridge contracts: a legacy
-// route made for one of them protects its set from its creation, and every
-// known contract is a bridge contract of the registry (Codex round 7 #4).
-func TestLegacyRouteBridge(t *testing.T) {
-	r := NewRegistry()
-	const router, ics20, admin = "0x00000000000000000000000000000000000b0001", "0x00000000000000000000000000000000000b0002", "0x00000000000000000000000000000000000b0003"
-	if err := r.SetBridge("ethereum-2", router, ics20, admin); err != nil {
-		t.Fatal(err)
-	}
-	if r.SetBridge("ethereum-2", admin, ics20, router) == nil || r.SetBridge("ethereum-2", router, ics20, admin) != nil {
-		t.Fatalf("a client's set is recorded once")
-	}
-	rt := r.Legacy("ethereum-2")
-	if !rt.Bridged() || !rt.IsRefused(router) || !rt.IsRefused(admin) {
-		t.Fatalf("legacy route unprotected: %v", rt.Protected())
-	}
-	if other := r.Legacy("ethereum-3"); other.Bridged() || !r.IsBridgeContract("0x00000000000000000000000000000000000B0002") {
-		t.Fatalf("unknown client's legacy route, or the union")
-	}
-	// The enrolment adopting the legacy route names the same set.
-	adopted, err := r.Enroll("ethereum-2", collector, t0, 1)
-	if err != nil || adopted.Protect(router, ics20, admin) != nil {
-		t.Fatalf("%v", err)
 	}
 }
 
