@@ -139,6 +139,34 @@ func TestUpdateFromOlderTrustedStateRejected(t *testing.T) {
 	urequire.ErrorContains(t, c.VerifyClientMessage(hdr), "updates must build on the latest trusted slot")
 }
 
+// The client expires TrustingPeriods sync committee periods after its latest
+// trusted slot: it reports Expired and refuses updates until recovered.
+func TestClientExpires(t *testing.T) {
+	f := fixtureErc20()
+	c, hdr := firstUpdate(t, f)
+	urequire.Equal(t, "Active", string(c.Status()))
+	cs := c.ClientState
+	periodSeconds := cs.EpochsPerSyncCommitteePeriod * cs.SlotsPerEpoch * cs.SecondsPerSlot
+	latestTime := cs.GenesisTime + (cs.LatestSlot-cs.GenesisSlot)*cs.SecondsPerSlot
+	setNow(latestTime + (TrustingPeriods+2)*periodSeconds)
+	urequire.Equal(t, "Expired", string(c.Status()))
+	urequire.ErrorContains(t, c.VerifyClientMessage(hdr), "client expired")
+}
+
+// Misbehaviour is conflicting finality: two updates attesting different heads
+// but finalizing the same header are not evidence, and evidence must build on
+// the latest trusted state.
+func TestMisbehaviourNeedsConflictingFinality(t *testing.T) {
+	c, hdr := firstUpdate(t, fixtureErc20())
+	u := hdr.ConsensusUpdate
+	sameFinality := &Misbehaviour{TrustedSlot: hdr.TrustedSlot, ActiveIsNext: hdr.ActiveIsNext, Update1: u, Update2: u}
+	urequire.ErrorContains(t, c.VerifyClientMessage(sameFinality), "finalize the same beacon header")
+
+	c.UpdateState(hdr)
+	stale := &Misbehaviour{TrustedSlot: hdr.TrustedSlot, ActiveIsNext: hdr.ActiveIsNext, Update1: u, Update2: u}
+	urequire.ErrorContains(t, c.VerifyClientMessage(stale), "updates must build on the latest trusted slot")
+}
+
 // An update that does not advance finality is only accepted when it reveals
 // a next sync committee the trusted state does not know yet.
 func TestUpdateWithoutProgressRejected(t *testing.T) {

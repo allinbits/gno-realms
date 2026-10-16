@@ -127,12 +127,8 @@ func (c *EthLightClient) trustedState(slot uint64, isNext bool) (*ConsensusState
 // verifyHeader implements verify_header.
 func (c *EthLightClient) verifyHeader(h *Header) error {
 	cs := c.ClientState
-	// Updates build on the latest trusted state only, as the spec's single
-	// store does. Anchoring at an older stored state would let a past sync
-	// committee, long rotated out and never slashable, insert state roots
-	// below the latest slot that packet proofs would then accept.
-	if h.TrustedSlot != cs.LatestSlot {
-		return ufmt.Errorf("updates must build on the latest trusted slot %d, not %d", cs.LatestSlot, h.TrustedSlot)
+	if err := c.checkLatestAnchor(h.TrustedSlot); err != nil {
+		return err
 	}
 	trusted, active, err := c.trustedState(h.TrustedSlot, h.ActiveIsNext)
 	if err != nil {
@@ -334,16 +330,25 @@ func (c *EthLightClient) finalizedExecution(u LightClientUpdate) (executionData,
 	return decodeExecutionHeader(u.FinalizedExecutionHeader)
 }
 
+// verifyMisbehaviour accepts two valid updates that finalize different beacon
+// headers at the same slot: conflicting finality, which an honest chain never
+// produces. Different attested heads alone are not misbehaviour, since sync
+// committees sign their fork-choice head and an ordinary reorg yields two.
+// Like an update, the evidence must build on the latest trusted state of a
+// client that has not expired, so a past committee cannot freeze it.
 func (c *EthLightClient) verifyMisbehaviour(m *Misbehaviour) error {
+	if err := c.checkLatestAnchor(m.TrustedSlot); err != nil {
+		return err
+	}
 	trusted, active, err := c.trustedState(m.TrustedSlot, m.ActiveIsNext)
 	if err != nil {
 		return err
 	}
-	if m.Update1.AttestedHeader.Beacon.Slot != m.Update2.AttestedHeader.Beacon.Slot {
-		return errors.New("misbehaviour updates attest different slots")
+	if m.Update1.FinalizedHeader.Beacon.Slot != m.Update2.FinalizedHeader.Beacon.Slot {
+		return errors.New("misbehaviour updates finalize different slots")
 	}
-	if bytesEqual(m.Update1.AttestedHeader.Beacon.HashTreeRoot(), m.Update2.AttestedHeader.Beacon.HashTreeRoot()) {
-		return errors.New("misbehaviour updates attest the same beacon header")
+	if bytesEqual(m.Update1.FinalizedHeader.Beacon.HashTreeRoot(), m.Update2.FinalizedHeader.Beacon.HashTreeRoot()) {
+		return errors.New("misbehaviour updates finalize the same beacon header")
 	}
 	current, err := c.currentSlot()
 	if err != nil {
@@ -536,14 +541,49 @@ func commitmentStorageSlot(path, mappingSlot []byte) []byte {
 	return keccak(append(keccak(path), mappingSlot...))
 }
 
-// Implements lightclient.Interface. The client never expires on its own: a
-// client that misses a whole sync committee period can no longer verify
-// updates and must be recovered.
+// TrustingPeriods is how many sync committee periods (about 27 hours each on
+// mainnet) the latest trusted state stays usable. Past that the client
+// expires: its committees are too old to trust, so only a governed recovery
+// can bring it back.
+const TrustingPeriods = 8
+
+// expired reports whether the latest trusted state is older than
+// TrustingPeriods sync committee periods.
+func (c *EthLightClient) expired() bool {
+	current, err := c.currentSlot()
+	if err != nil {
+		return false
+	}
+	cs := c.ClientState
+	return cs.periodAtSlot(current) > cs.periodAtSlot(cs.LatestSlot)+TrustingPeriods
+}
+
+// checkLatestAnchor requires a client message to build on the latest trusted
+// state, as the spec's single store does, of a client that has not expired.
+// Anchoring at an older stored state would let a past sync committee, long
+// rotated out and never slashable, insert state roots below the latest slot
+// that packet proofs would accept, or freeze the client.
+func (c *EthLightClient) checkLatestAnchor(trustedSlot uint64) error {
+	cs := c.ClientState
+	if trustedSlot != cs.LatestSlot {
+		return ufmt.Errorf("updates must build on the latest trusted slot %d, not %d", cs.LatestSlot, trustedSlot)
+	}
+	if c.expired() {
+		return ufmt.Errorf("client expired: its latest trusted slot %d is more than %d sync committee periods old", cs.LatestSlot, TrustingPeriods)
+	}
+	return nil
+}
+
+// Implements lightclient.Interface. The client expires TrustingPeriods sync
+// committee periods after its latest trusted slot and must then be recovered.
 func (c *EthLightClient) Status() lightclient.Status {
 	if c.ClientState.IsFrozen {
 		return lightclient.Frozen
 	}
 	if _, ok := c.GetConsensusState(c.LatestHeight()); !ok {
+		return lightclient.Expired
+	}
+	if c.expired() {
 		return lightclient.Expired
 	}
 	return lightclient.Active
