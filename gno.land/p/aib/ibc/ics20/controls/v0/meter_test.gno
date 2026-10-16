@@ -123,3 +123,32 @@ func TestMeterTwoCapsPerDay(t *testing.T) {
 		}
 	}
 }
+
+// A cap near the int64 maximum never overflows a refill: a nearly full
+// bucket, a partial refill and a long idle period all saturate at the cap
+// (Codex review #16).
+func TestMeterNearMaxCap(t *testing.T) {
+	const ceil = int64(6_000_000_000_000_000_000)
+	m := NewMeter(0, 0)
+	m.Level = ceil - 1
+	m.Refill(Day, ceil, ceil, 0, 0) // a full day on a nearly full bucket
+	if m.Level != ceil {
+		t.Fatalf("nearly full + a day: %d", m.Level)
+	}
+	m.Take(ceil / 2)
+	m.Refill(Day+Day/4, ceil, ceil, 0, 0) // a quarter day: not full yet
+	if want := ceil/2 + ceil/4; m.Level != want {
+		t.Fatalf("partial refill: %d, want %d", m.Level, want)
+	}
+	m.Refill(100*Day, ceil, ceil, 0, 0) // idle for long
+	if m.Level != ceil {
+		t.Fatalf("idle: %d", m.Level)
+	}
+	// The largest positive rate and ceiling.
+	big := NewMeter(0, 0)
+	big.Level = maxInt64 - 5
+	big.Refill(Day, maxInt64, maxInt64, 0, 0)
+	if big.Level != maxInt64 {
+		t.Fatalf("max: %d", big.Level)
+	}
+}

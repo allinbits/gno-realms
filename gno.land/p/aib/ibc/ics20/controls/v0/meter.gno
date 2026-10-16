@@ -43,10 +43,18 @@ func (m *Meter) Refill(now, rate, ceil, epoch, epochAt int64) {
 			el = Day
 			m.Frac = 0
 		}
+		// Overflow-safe: (rate%Day)*el + Frac stays below 2·Day² and the
+		// refill itself at most rate, so only the addition to the level can
+		// overflow; it saturates at the ceiling against the headroom.
 		num := (rate%Day)*el + m.Frac
-		m.Level += (rate/Day)*el + num/Day
+		add := (rate/Day)*el + num/Day
 		m.Frac = num % Day
 		m.At = now
+		if add >= ceil-m.Level {
+			m.Level = ceil
+		} else {
+			m.Level += add
+		}
 	}
 	if m.Level >= ceil {
 		m.Level, m.Frac = ceil, 0
