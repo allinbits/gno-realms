@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"gno.land/p/aib/ibc/ics20/controls/v0"
+	"gno.land/p/aib/ibc/ics20/v0"
 	"gno.land/p/aib/ibc/types/v0"
 	"gno.land/p/nt/ufmt/v0"
 	"gno.land/r/aib/ibc/apps/transfer"
@@ -73,6 +74,61 @@ func (l *logic) ClaimRefunds(_ int, rlm realm, clientID, denom string, n int) in
 			"amount", strconv.FormatInt(p.Amount, 10))
 	}
 	return len(ps)
+}
+
+// Backfill records a send made over an Ethereum route before its controls
+// (ADR pr6375 §7.13), authenticated against the commitment the core still
+// holds for it: the route's current or retired client sent it, and its
+// acknowledgement or timeout was not processed yet.
+func (l *logic) Backfill(_ int, rlm realm, packet types.Packet) {
+	reg := l.registry(0, rlm)
+	rt := reg.RouteOf(packet.SourceClient)
+	if rt == nil {
+		if k := reg.RetiredRouteOf(packet.SourceClient); k != "" {
+			rt = reg.Route(k)
+		}
+	}
+	if rt == nil {
+		panic("client " + packet.SourceClient + " is the client of no route")
+	}
+	c := core.PacketCommitment(packet.SourceClient, packet.Sequence)
+	if len(c) == 0 {
+		panic(ufmt.Sprintf("the core holds no commitment for %s/%d: never sent, or its acknowledgement or timeout was processed", packet.SourceClient, packet.Sequence))
+	}
+	if !bytes.Equal(c, types.CommitPacket(packet)) {
+		panic("the packet differs from the one the core committed")
+	}
+	if len(packet.Payloads) != 1 || packet.Payloads[0].SourcePort != transfer.PortID {
+		panic("not a transfer packet")
+	}
+	data, token, err := unmarshalPayload(packet.Payloads[0])
+	if err != nil {
+		panic(err)
+	}
+	amount, err := token.AmountInt64()
+	if err != nil {
+		panic(err)
+	}
+	sender := address(data.Sender)
+	if !sender.IsValid() {
+		panic("invalid sender " + data.Sender)
+	}
+	accDenom, kind := token.Denom.IBCDenom(), controls.KindUnescrow
+	if token.Denom.HasPrefix(transfer.PortID, packet.SourceClient) {
+		// A voucher returning: keyed by the route key on this chain.
+		trace := append([]ics20.Hop{ics20.NewHop(transfer.PortID, rt.Key)}, token.Denom.Trace[1:]...)
+		accDenom, kind = ics20.Denom{Base: token.Denom.Base, Trace: trace}.IBCDenom(), controls.KindMint
+	}
+	key := controls.PacketKey(packet.SourceClient, packet.Sequence)
+	err = rt.Backfill(controls.SendRecord{
+		Key: key, Packet: packet, Commitment: c, Sender: sender, Receiver: data.Receiver,
+		Denom: accDenom, Kind: kind, Amount: amount, SentAt: now(),
+	})
+	if err != nil {
+		panic(err)
+	}
+	transfer.EmitRoute(0, rlm, "backfill", "route", rt.Key, "packet", key, "denom", accDenom,
+		"amount", strconv.FormatInt(amount, 10))
 }
 
 // Recapitalize pays an authorized recapitalization into the route's escrow

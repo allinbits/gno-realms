@@ -3,6 +3,8 @@ package transfer
 import (
 	"chain"
 	"chain/runtime/unsafe"
+
+	"gno.land/p/aib/ibc/types/v0"
 )
 
 // The entry points of the Ethereum route controls (ADR pr6375 §7.1, §7.9,
@@ -22,6 +24,15 @@ func Claim(cur realm, clientID, denom string, n int) int {
 // on. Anyone may call it.
 func ClaimRefunds(cur realm, clientID, denom string, n int) int {
 	return mustControls().ClaimRefunds(0, cur, clientID, denom, n)
+}
+
+// Backfill records a send made over an Ethereum route before its controls
+// (by impl/v0) whose commitment the core still holds: its acknowledgement or
+// timeout is refused until it has a record, so the refund cannot bypass the
+// refund meter or the refunds hold (ADR pr6375 §7.13). Anyone may call it
+// with the packet; it is authenticated against the core's commitment.
+func Backfill(cur realm, packet types.Packet) {
+	mustControls().Backfill(0, cur, packet)
 }
 
 // Recapitalize pays recapitalization id of route, which an ibcgov decision

@@ -320,3 +320,39 @@ func TestPendingReturnReservesSupply(t *testing.T) {
 		t.Fatalf("%v %+v", err, d.Totals)
 	}
 }
+
+// A send from before the controls is backfilled: it books no new escrow or
+// burn, a minted one reserves its supply, and its refund goes through the
+// meter and the hold like every other (Codex review #1).
+func TestBackfill(t *testing.T) {
+	_, rt := newRoute(t)
+	d := rt.Denom("ibc/WETH")
+	d.Totals.Outstanding = 1_000 // counted when the denom was enabled: the burn excluded
+	rec := sendRec(1, "ibc/WETH", KindMint, 400)
+	rec.Fee = 0
+	if err := rt.Backfill(sendRec(1, "ibc/WETH", KindMint, 400)); err == nil {
+		t.Fatalf("backfilled a fee")
+	}
+	if err := rt.Backfill(rec); err != nil {
+		t.Fatal(err)
+	}
+	if err := rt.Backfill(rec); err == nil {
+		t.Fatalf("backfilled twice")
+	}
+	if err := rt.RecordSend(rec); err == nil {
+		t.Fatalf("recorded a backfilled send")
+	}
+	got, _ := rt.Send(pk(1))
+	if !got.Backfilled || d.Totals.Outstanding != 1_000 || d.Totals.Returning != 400 {
+		t.Fatalf("%+v %+v", got, d.Totals)
+	}
+	// Its timeout's refund waits under a hold.
+	if pay, _ := rt.Settle(t0+Day, 1, pk(1), OutcomeTimeout, true, 0); pay != 0 || rt.QueuedRefundCount("ibc/WETH") != 1 {
+		t.Fatalf("refunded under a hold: %d", pay)
+	}
+	other := sendRec(2, "uatom", KindUnescrow, 5)
+	other.Fee = 0
+	if err := rt.Backfill(other); err == nil {
+		t.Fatalf("backfilled a denom not enabled")
+	}
+}

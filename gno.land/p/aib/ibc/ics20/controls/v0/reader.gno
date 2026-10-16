@@ -244,7 +244,7 @@ func SendJSON(r SendRecord) string {
 	return "{\"key\":" + q(r.Key) + ",\"packet\":" + packetJSON(r.Packet) + ",\"commitment\":" + q(hexs(r.Commitment)) +
 		",\"sender\":" + q(string(r.Sender)) + ",\"receiver\":" + q(r.Receiver) + ",\"denom\":" + q(r.Denom) +
 		",\"kind\":" + q(r.Kind) + ",\"amount\":" + itoa(r.Amount) + ",\"fee\":" + itoa(r.Fee) +
-		",\"sent_height\":" + itoa(r.SentHeight) + ",\"sent_at\":" + itoa(r.SentAt) + ",\"outcome\":" + q(r.Outcome) +
+		",\"sent_height\":" + itoa(r.SentHeight) + ",\"sent_at\":" + itoa(r.SentAt) + ",\"backfilled\":" + strconv.FormatBool(r.Backfilled) + ",\"outcome\":" + q(r.Outcome) +
 		",\"processed_height\":" + itoa(r.ProcessedHeight) + ",\"processed_at\":" + itoa(r.ProcessedAt) +
 		",\"payment\":" + q(r.Payment) + ",\"refunded\":" + itoa(r.Refunded) + ",\"incident\":" + q(r.Incident) + "}"
 }

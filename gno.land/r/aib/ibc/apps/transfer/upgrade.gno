@@ -68,9 +68,10 @@ type Logic interface {
 
 // ControlsLogic is implemented by an implementation that keeps the Ethereum
 // route controls of ADR pr6375 §7 (impl/v1): the permissionless payouts of
-// the claim queue and of the queued refunds, the recapitalization of a
-// route's escrow, and the governance operations ibcgov decides. The proxy's
-// entry points Claim, ClaimRefunds, Recapitalize and GovApply forward to it
+// the claim queue and of the queued refunds, the backfill of sends made
+// before the controls, the recapitalization of a route's escrow, and the
+// governance operations ibcgov decides. The proxy's entry points Claim,
+// ClaimRefunds, Backfill, Recapitalize and GovApply forward to it
 // non-crossing, as the other entry points do; an implementation without it
 // refuses them.
 type ControlsLogic interface {
@@ -80,6 +81,9 @@ type ControlsLogic interface {
 	// ClaimRefunds pays up to n queued refunds of denom on the route of
 	// clientID and returns how many it paid something on.
 	ClaimRefunds(_ int, rlm realm, clientID, denom string, n int) int
+	// Backfill records a send made over an Ethereum route before its
+	// controls, authenticated against the core's stored commitment.
+	Backfill(_ int, rlm realm, packet types.Packet)
 	// Recapitalize pays an authorized recapitalization into the escrow of
 	// route: sent is the send envelope of a direct user call (a native
 	// denom), empty otherwise (a GRC20, taken from the caller's allowance).

@@ -18,14 +18,36 @@ import (
 // queue it under the refund meter or a refunds hold. Pauses and limits never
 // block them (ADR pr6375 §7.3).
 
+// sendRecord is the record of a send on an Ethereum client the callbacks
+// settle. A send without one (made before the controls, over a client not
+// enrolled yet or not backfilled yet) is refused: the core keeps its
+// commitment, so Backfill records it and the relayer retries (ADR pr6375
+// §7.13: no refund on an Ethereum client bypasses the refund meter or the
+// refunds hold).
+func (l *logic) sendRecord(_ int, rlm realm, rt *controls.Route, sourceClient string, sequence uint64) (controls.SendRecord, error) {
+	key := controls.PacketKey(sourceClient, sequence)
+	if rt == nil {
+		return controls.SendRecord{}, ufmt.Errorf("client %s is an Ethereum client of no enrolled route: enroll it and backfill send %s first", sourceClient, key)
+	}
+	rec, ok := rt.Send(key)
+	if !ok {
+		return controls.SendRecord{}, ufmt.Errorf("send %s has no record: backfill it first (transfer.Backfill)", key)
+	}
+	return rec, nil
+}
+
 // OnAcknowledgementPacket is impl/v0's for clients the controls do not cover.
-// On a route, a success settles the send record; an error refunds the sender
-// under the refund meter. A send without a record is refunded at once.
+// On an Ethereum client it settles the send's record: a success completes
+// it, an error refunds the sender under the refund meter and the refunds
+// hold. A send without a record is refused until it is backfilled.
 func (l *logic) OnAcknowledgementPacket(_ int, rlm realm, sourceClient, destinationClient string, sequence uint64, acknowledgement []byte, payload types.Payload) error {
 	rt, covered := l.routeOf(0, rlm, sourceClient)
-	key := controls.PacketKey(sourceClient, sequence)
-	if !covered || rt == nil {
+	if !covered {
 		return l.Logic.OnAcknowledgementPacket(0, rlm, sourceClient, destinationClient, sequence, acknowledgement, payload)
+	}
+	rec, err := l.sendRecord(0, rlm, rt, sourceClient, sequence)
+	if err != nil {
+		return err
 	}
 	var ack types.AppAcknowledgement
 	if bytes.Equal(acknowledgement, types.UniversalErrorAcknowledgement()) {
@@ -37,19 +59,6 @@ func (l *logic) OnAcknowledgementPacket(_ int, rlm realm, sourceClient, destinat
 		if !ack.Success() {
 			return ufmt.Errorf("cannot pass in a custom error acknowledgement with IBC v2")
 		}
-	}
-	rec, ok := rt.Send(key)
-	if !ok {
-		// A send without a record (before the route was controlled, or a
-		// voucher of a denom the route does not account): refunded at once
-		// on an error, through the route key.
-		if !ack.Success() {
-			if err := l.refundUnrecorded(0, rlm, rt, sourceClient, payload); err != nil {
-				return err
-			}
-		}
-		transfer.EmitPacket(0, rlm, transfer.AttributeKeyAck, string(acknowledgement))
-		return nil
 	}
 	outcome := controls.OutcomeSuccess
 	if !ack.Success() {
@@ -72,21 +81,17 @@ func (l *logic) OnAcknowledgementPacket(_ int, rlm realm, sourceClient, destinat
 	return nil
 }
 
-// OnTimeoutPacket is impl/v0's for clients the controls do not cover; on a
-// route it refunds the sender under the refund meter (at once for a send
-// without a record).
+// OnTimeoutPacket is impl/v0's for clients the controls do not cover; on an
+// Ethereum client it refunds the sender under the refund meter and the
+// refunds hold. A send without a record is refused until it is backfilled.
 func (l *logic) OnTimeoutPacket(_ int, rlm realm, sourceClient, destinationClient string, sequence uint64, payload types.Payload) error {
 	rt, covered := l.routeOf(0, rlm, sourceClient)
-	if !covered || rt == nil {
+	if !covered {
 		return l.Logic.OnTimeoutPacket(0, rlm, sourceClient, destinationClient, sequence, payload)
 	}
-	rec, ok := rt.Send(controls.PacketKey(sourceClient, sequence))
-	if !ok {
-		if err := l.refundUnrecorded(0, rlm, rt, sourceClient, payload); err != nil {
-			return err
-		}
-		transfer.EmitRoute(0, rlm, "settle", "route", rt.Key, "packet", controls.PacketKey(sourceClient, sequence), "outcome", controls.OutcomeTimeout, "payment", "unrecorded")
-		return nil
+	rec, err := l.sendRecord(0, rlm, rt, sourceClient, sequence)
+	if err != nil {
+		return err
 	}
 	l.settle(0, rlm, rt, rec, controls.OutcomeTimeout)
 	transfer.EmitTimeout(0, rlm, string(rec.Sender), rec.Denom, strconv.FormatInt(rec.Amount, 10), "")
@@ -107,31 +112,6 @@ func (l *logic) settle(_ int, rlm realm, rt *controls.Route, rec controls.SendRe
 	after, _ := rt.Send(rec.Key)
 	transfer.EmitRoute(0, rlm, "settle", "route", rt.Key, "packet", rec.Key, "outcome", outcome,
 		"payment", after.Payment, "refunded", strconv.FormatInt(pay, 10))
-}
-
-// refundUnrecorded refunds a send that has no record: it mints back a
-// returning voucher under its internal denom (keyed by the route key), or
-// releases a gno-native token from the route's escrow.
-func (l *logic) refundUnrecorded(_ int, rlm realm, rt *controls.Route, sourceClient string, payload types.Payload) error {
-	data, token, err := unmarshalPayload(payload)
-	if err != nil {
-		return err
-	}
-	coin, err := token.ToCoin()
-	if err != nil {
-		return ufmt.Errorf("token to coin error: %v", err)
-	}
-	if token.Denom.HasPrefix(payload.SourcePort, sourceClient) {
-		internal := toInternal(token.Denom, rt).IBCDenom()
-		if err := l.store.MintVoucher(0, rlm, internal, address(data.Sender), coin.Amount); err != nil {
-			return ufmt.Errorf("re-mint voucher error: %v", err)
-		}
-		return nil
-	}
-	if transfer.IsGRC20Alias(coin.Denom) {
-		return l.store.UnescrowGRC20(0, rlm, rt.Key, data.Sender, coin)
-	}
-	return l.store.UnescrowNative(0, rlm, rt.Key, data.Sender, coin)
 }
 
 // payOut moves amount of denom to `to`: out of the route's escrow for a

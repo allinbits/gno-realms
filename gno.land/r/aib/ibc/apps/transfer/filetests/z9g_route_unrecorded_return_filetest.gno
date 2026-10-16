@@ -96,39 +96,102 @@ func controlsView() controls.Reader { return transfer.ExtView("controls").(contr
 
 func ugnot(a address) int64 { return banker.NewReadonlyBanker().GetCoin(a, "ugnot") }
 
-// A voucher minted by impl/v0 before the Ethereum client became a route goes
-// back to Ethereum under impl/v1 even though the route does not account its
-// denom: a return is never refused. It has no send record, so its timeout
-// refunds it at once, minted back under the voucher's denom.
+func refundState(client string, seq uint64) string {
+	r, ok := controlsView().Send(client, controls.PacketKey(client, seq))
+	if !ok {
+		return "no record"
+	}
+	return "outcome " + r.Outcome + ", payment " + r.Payment + ", refunded " + strconv.FormatInt(r.Refunded, 10) +
+		", backfilled " + strconv.FormatBool(r.Backfilled)
+}
+
+// returnVoucher sends amount of bob's vouchers back to Ethereum.
+func returnVoucher(cur realm, client, voucher string, amount int64) (types.MsgSendPacket, uint64) {
+	testing.SetRealm(testing.NewUserRealm(bob))
+	packet, seq := transfer.Transfer(cross(cur), client, ethReceiver, voucher, amount, uint64(time.Now().Add(time.Hour).Unix()), "")
+	testing.SetRealm(testing.NewCodeRealm("gno.land/r/aib/main"))
+	return packet, seq
+}
+
+func backfill(cur realm, p types.Packet) {
+	testing.SetRealm(testing.NewUserRealm(sender)) // anyone
+	transfer.Backfill(cross(cur), p)
+	testing.SetRealm(testing.NewCodeRealm("gno.land/r/aib/main"))
+}
+
+// Every send on an Ethereum route has a record, so every refund there goes
+// through the refund meter and the refunds hold (ADR pr6375 §7.13, Codex
+// review #1). Vouchers impl/v0 minted, and returns impl/v0 sent before the
+// upgrade, are not exempt: an acknowledgement or a timeout of a send without
+// a record is refused until anyone backfills it from the commitment the core
+// still holds; a return of a denom the route does not account waits for
+// governance to enable it.
 func main(cur realm) {
 	client := core.CreateClient(cross(cur), ethtesting.ClientState(), ethtesting.ConsensusState())
 	core.RegisterCounterparty(cross(cur), client, [][]byte{{}}, "client-0")
 	println("impl:", transfer.ImplVersion(), "| receive:", recv(cur, client, 1, weth, bob.String(), 100).Status)
 	voucher := ics20.NewDenom(weth, ics20.NewHop("transfer", client)).IBCDenom()
+	// Two returns sent under impl/v0, in flight across the upgrade.
+	msg1, seq1 := returnVoucher(cur, client, voucher, 40)
+	msg2, seq2 := returnVoucher(cur, client, voucher, 20)
+	timeout := msg1.TimeoutTimestamp
+	p1 := types.NewPacket(seq1, client, "client-0", timeout, msg1.Payloads[0])
+	p2 := types.NewPacket(seq2, client, "client-0", msg2.TimeoutTimestamp, msg2.Payloads[0])
 	println("bob's vouchers under v0:", transfer.VoucherBalanceOf(voucher, bob))
 
 	execute(cur, govern(cur, ibcgov.NewTransferUpdateImplRequest(cross(cur), "gno.land/r/aib/ibc/apps/transfer/impl/v1")))
 	execute(cur, govern(cur, ibcgov.NewEnrollRouteRequest(cross(cur), client, string(collector))))
 	println("impl:", transfer.ImplVersion(), "| denoms on the route:", len(controlsView().Denoms(client)))
 
-	testing.SetRealm(testing.NewUserRealm(bob))
-	packet, seq := transfer.Transfer(cross(cur), client, ethReceiver, voucher, 40, uint64(time.Now().Add(time.Hour).Unix()), "")
-	testing.SetRealm(testing.NewCodeRealm("gno.land/r/aib/main"))
-	_, recorded := controlsView().Send(client, controls.PacketKey(client, seq))
-	println("returned 40:", seq, "recorded:", recorded, "| bob's vouchers:", transfer.VoucherBalanceOf(voucher, bob))
-
 	testing.SetRealm(testing.NewCodeRealm("gno.land/r/aib/ibc/core"))
 	var app transfer.App
-	if err := app.OnTimeoutPacket(cross(cur), client, "client-0", seq, packet.Payloads[0]); err != nil {
+	println("timeout before the backfill:", app.OnTimeoutPacket(cross(cur), client, "client-0", seq1, p1.Payloads[0]))
+	testing.SetRealm(testing.NewCodeRealm("gno.land/r/aib/main"))
+	println("a return of a denom not enabled:", revive(func() { returnVoucher(cur, client, voucher, 10) }))
+	println("backfill before the denom:", revive(func() { backfill(cur, p1) }))
+
+	execute(cur, govern(cur, ibcgov.NewSetDenomRequest(cross(cur), client, weth, "mint", 4_000, 10_000, 10, 1, 0, 0, 4_000)))
+	t, _ := controlsView().Totals(client, voucher)
+	println("outstanding at enable:", t.Outstanding)
+	forged := p1
+	forged.TimeoutTimestamp++
+	println("backfill of another packet:", revive(func() { backfill(cur, forged) }))
+	backfill(cur, p1)
+	backfill(cur, p2)
+	println("again:", revive(func() { backfill(cur, p1) }))
+	t, _ = controlsView().Totals(client, voucher)
+	println("backfilled:", refundState(client, seq1), "| returning", t.Returning)
+
+	// The timeout's refund waits under the refund meter (it starts empty).
+	testing.SetRealm(testing.NewCodeRealm("gno.land/r/aib/ibc/core"))
+	if err := app.OnTimeoutPacket(cross(cur), client, "client-0", seq1, p1.Payloads[0]); err != nil {
+		panic(err)
+	}
+	ack := types.NewResultAppAcknowledgement([]byte{byte(1)})
+	if err := app.OnAcknowledgementPacket(cross(cur), client, "client-0", seq2, ack.MarshalJSON(), p2.Payloads[0]); err != nil {
 		panic(err)
 	}
 	testing.SetRealm(testing.NewCodeRealm("gno.land/r/aib/main"))
-	println("after the timeout, bob's vouchers:", transfer.VoucherBalanceOf(voucher, bob))
+	println("timed out:", refundState(client, seq1), "| bob's vouchers:", transfer.VoucherBalanceOf(voucher, bob))
+	println("acknowledged:", refundState(client, seq2))
+	advance(24 * time.Hour)
+	transfer.ClaimRefunds(cross(cur), client, voucher, 20)
+	t, _ = controlsView().Totals(client, voucher)
+	println("claimed:", refundState(client, seq1), "| bob's vouchers:", transfer.VoucherBalanceOf(voucher, bob),
+		"| outstanding", t.Outstanding, "returning", t.Returning)
 }
 
 // Output:
 // impl: v0 | receive: (1 gno.land/p/aib/ibc/types/v0.PacketStatus)
-// bob's vouchers under v0: 100
+// bob's vouchers under v0: 40
 // impl: v1 | denoms on the route: 0
-// returned 40: 1 recorded: false | bob's vouchers: 60
-// after the timeout, bob's vouchers: 100
+// timeout before the backfill: send ethereum-1/00000000000000000001 has no record: backfill it first (transfer.Backfill)
+// a return of a denom not enabled: denom ibc/2495500BDD01666856D26EE034DB2F940FD4DA91239F4D5C7AE1E9D07538CFFE is not enabled on route ethereum-1: its vouchers return once governance enables it
+// backfill before the denom: controls: denom ibc/2495500BDD01666856D26EE034DB2F940FD4DA91239F4D5C7AE1E9D07538CFFE is not enabled on route ethereum-1: enable it before backfilling its sends
+// outstanding at enable: 40
+// backfill of another packet: the packet differs from the one the core committed
+// again: controls: a send record exists for ethereum-1/00000000000000000001
+// backfilled: outcome , payment , refunded 0, backfilled true | returning 60
+// timed out: outcome timeout, payment queued, refunded 0, backfilled true | bob's vouchers: 40
+// acknowledged: outcome success, payment , refunded 0, backfilled true
+// claimed: outcome timeout, payment claimed, refunded 40, backfilled true | bob's vouchers: 80 | outstanding 80 returning 0

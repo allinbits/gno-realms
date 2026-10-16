@@ -118,6 +118,12 @@ func (l *logic) Transfer(_ int, rlm realm, sent []chain.Coin, clientID, receiver
 		if !d.HasPrefix(transfer.PortID, rt.Key) {
 			panic(ufmt.Sprintf("voucher %s did not come over route %s", denom, rt.Key))
 		}
+		// Every send on a route is recorded, a return too, so its refund is
+		// metered and held like any other (ADR pr6375 §7.13): a voucher of a
+		// denom the route does not account yet waits for it to be enabled.
+		if acc := rt.Denom(denom); acc == nil || acc.Config.Kind != controls.KindMint {
+			panic(ufmt.Sprintf("denom %s is not enabled on route %s: its vouchers return once governance enables it", denom, rt.Key))
+		}
 		checkRecipient(rt, receiver, strings.ToLower(d.Base))
 		wireDenom = toWire(d, rt).Path()
 		l.store.SetPendingVoucherSend(0, rlm, sender.String(), clientID, wireDenom, amount)
@@ -175,19 +181,15 @@ func (l *logic) Transfer(_ int, rlm realm, sent []chain.Coin, clientID, receiver
 	packet = types.MsgSendPacket{SourceClient: clientID, Payloads: []types.Payload{payload}, TimeoutTimestamp: timeoutTimestamp}
 	sequence = core.SendPacket(cross(rlm), packet)
 
-	// The send record (ADR pr6375 §7.13), in the transaction of the send. A
-	// voucher of a denom the route does not account (minted before the route
-	// was controlled) goes back unrecorded: a return is never refused.
-	if rt.Denom(accDenom) != nil {
-		full := types.NewPacket(sequence, clientID, core.CounterpartyClientID(clientID), timeoutTimestamp, payload)
-		err := rt.RecordSend(controls.SendRecord{
-			Key: controls.PacketKey(clientID, sequence), Packet: full, Commitment: types.CommitPacket(full),
-			Sender: sender, Receiver: receiver, Denom: accDenom, Kind: kind, Amount: amount, Fee: fee,
-			SentHeight: chainHeight(), SentAt: now(),
-		})
-		if err != nil {
-			panic(err)
-		}
+	// The send record (ADR pr6375 §7.13), in the transaction of the send.
+	full := types.NewPacket(sequence, clientID, core.CounterpartyClientID(clientID), timeoutTimestamp, payload)
+	err = rt.RecordSend(controls.SendRecord{
+		Key: controls.PacketKey(clientID, sequence), Packet: full, Commitment: types.CommitPacket(full),
+		Sender: sender, Receiver: receiver, Denom: accDenom, Kind: kind, Amount: amount, Fee: fee,
+		SentHeight: chainHeight(), SentAt: now(),
+	})
+	if err != nil {
+		panic(err)
 	}
 	return packet, sequence
 }
