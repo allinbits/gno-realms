@@ -243,6 +243,41 @@ func (rt *Route) CreditByVote(now, height, epoch int64, key, denom string, to ad
 	return nil
 }
 
+// CreditPending credits by decision a packet received on the route whose
+// asynchronous acknowledgement is still unwritten (ADR pr6375 §7.9): the
+// caller checked that the core received it after the route's activation and
+// writes its success acknowledgement in the same transaction, so the packet
+// can never be refunded at its source. Nothing was booked at its receipt, so
+// it has no claim or sweep entry; carried is what the packet carried. The
+// amount is at least the fee and at most carried; for an unescrowed denom it
+// is never above the free lock, for a minted one never past the supply cap.
+func (rt *Route) CreditPending(now, height, epoch int64, key, denom string, to address, amount, carried, lock int64) error {
+	if _, _, ok := ParsePacketKey(key); !ok {
+		return errors.New("controls: not a packet key: " + key)
+	}
+	if rt.claims.Has(key) || rt.sweeps.Has(key) {
+		return errors.New("controls: packet " + key + " is credited already")
+	}
+	d := rt.Denom(denom)
+	if d == nil {
+		return errors.New("controls: denom " + denom + " is not enabled on route " + rt.Key)
+	}
+	if !to.IsValid() {
+		return errors.New("controls: invalid recipient " + string(to))
+	}
+	if amount < d.Config.Fee || amount > carried {
+		return ufmt.Errorf("controls: %d is not between the fee (%d) and what the packet carried (%d)", amount, d.Config.Fee, carried)
+	}
+	if d.Config.Kind == KindUnescrow && amount > lock-d.Reserved() {
+		return ufmt.Errorf("controls: %d is above the free lock of %d", amount, lock-d.Reserved())
+	}
+	if d.Config.Kind == KindMint && amount > d.Config.SupplyCap-d.Totals.booked() {
+		return ufmt.Errorf("controls: %d would take %s past its supply cap", amount, denom)
+	}
+	rt.enqueue(d, now, height, epoch, key, to, amount, ByVote)
+	return nil
+}
+
 // PaySweeps pays live sweep entries of one denom to an address by decision
 // (ADR pr6375 §7.1: owed, paid only by a 7-day decision). For an unescrowed
 // denom the total never exceeds the free lock (what open claims do not

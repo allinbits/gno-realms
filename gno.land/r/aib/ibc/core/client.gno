@@ -2,6 +2,7 @@ package core
 
 import (
 	"gno.land/p/aib/ibc/lightclient/v0"
+	"gno.land/p/aib/ibc/types/v0"
 )
 
 // The client entry points below are thin dispatchers to the active
@@ -163,6 +164,27 @@ func PacketAcknowledgement(clientID string, sequence uint64) []byte {
 func HasPendingAsyncAck(clientID string, sequence uint64) bool {
 	c := store.getClient(clientID)
 	return c != nil && c.hasPendingAsyncAck(sequence)
+}
+
+// PendingAsyncAck returns a copy of the packet received on clientID that
+// waits for its asynchronous acknowledgement, the block height at which it
+// was received, and whether one waits.
+func PendingAsyncAck(clientID string, sequence uint64) (packet types.Packet, height int64, ok bool) {
+	c := store.getClient(clientID)
+	if c == nil {
+		return types.Packet{}, 0, false
+	}
+	p, _, found := c.PendingAsyncAck(sequence)
+	if !found {
+		return types.Packet{}, 0, false
+	}
+	out := p
+	out.Payloads = make([]types.Payload, len(p.Payloads))
+	for i, pl := range p.Payloads {
+		pl.Value = cloneBytes(pl.Value)
+		out.Payloads[i] = pl
+	}
+	return out, c.pendingAsyncAckHeight(sequence), true
 }
 
 func cloneBytes(b []byte) []byte {

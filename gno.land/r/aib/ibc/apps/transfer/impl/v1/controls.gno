@@ -117,6 +117,42 @@ func successAckCommitment() []byte {
 	return types.CommitAcknowledgement(types.Acknowledgement{AppAcknowledgements: [][]byte{ack.MarshalJSON()}})
 }
 
+// creditPending credits a packet whose asynchronous acknowledgement is still
+// unwritten and writes its success acknowledgement in the same transaction
+// (ADR pr6375 §7.9), so it can never be refunded at its source; on a retired
+// client too, which the core allows for a receipt it holds. It returns why it
+// refuses, before any change.
+func (l *logic) creditPending(_ int, rlm realm, rt *controls.Route, p controls.Params, pkt types.Packet, height, epoch int64) string {
+	if height < rt.Activated {
+		return "packet " + p.Key + " was received before the route's activation"
+	}
+	if core.Paused() {
+		return "the core is paused: the packet's acknowledgement cannot be written"
+	}
+	if len(pkt.Payloads) != 1 {
+		return "packet " + p.Key + " carries no single transfer payload"
+	}
+	_, token, err := unmarshalPayload(pkt.Payloads[0])
+	if err != nil {
+		return err.Error()
+	}
+	_, accDenom, _ := receivedDenom(rt, pkt.SourceClient, pkt.Payloads[0], token)
+	carried, err := token.AmountInt64()
+	if err != nil {
+		return err.Error()
+	}
+	if accDenom != p.Denom {
+		return "packet " + p.Key + " carried " + accDenom + ", not " + p.Denom
+	}
+	if err := rt.CreditPending(now(), chainHeight(), epoch, p.Key, p.Denom, p.To, p.Amount, carried, l.lockOf(rt, p.Denom)); err != nil {
+		return err.Error()
+	}
+	ack := types.NewResultAppAcknowledgement([]byte{byte(1)})
+	client, seq, _ := controls.ParsePacketKey(p.Key)
+	core.WriteAcknowledgement(cross(rlm), client, seq, types.Acknowledgement{AppAcknowledgements: [][]byte{ack.MarshalJSON()}})
+	return ""
+}
+
 // isLegacyReceipt reports whether a receipt is the constant 0x02 that cores
 // before this one stored for every packet (it identifies no packet): such a
 // receive predates the controls.
@@ -193,7 +229,14 @@ func (l *logic) GovApply(_ int, rlm realm, op string, params []byte) string {
 			return "packet " + p.Key + " was never received"
 		case isLegacyReceipt(core.PacketReceipt(client, seq)):
 			return "packet " + p.Key + "'s receipt is the legacy constant: it was received before the route's controls"
-		case !bytes.Equal(core.PacketAcknowledgement(client, seq), successAckCommitment()):
+		}
+		if pkt, height, pending := core.PendingAsyncAck(client, seq); pending {
+			if refusal := l.creditPending(0, rlm, rt, p, pkt, height, epoch); refusal != "" {
+				return refusal
+			}
+			break
+		}
+		if !bytes.Equal(core.PacketAcknowledgement(client, seq), successAckCommitment()) {
 			return "packet " + p.Key + " has no success acknowledgement: an error-acknowledged packet is refunded at its source"
 		}
 		err = rt.CreditByVote(t, chainHeight(), epoch, p.Key, p.Denom, p.To, p.Amount, l.lockOf(rt, p.Denom))

@@ -65,8 +65,8 @@ func setupRoute(cur realm) string {
 }
 
 // ethPacket is a transfer packet the Ethereum router sent to client.
-func ethPacket(client string, seq uint64, receiver string, amount int64, timeout uint64) types.Packet {
-	data := ics20.NewFungibleTokenPacketData(weth, strconv.FormatInt(amount, 10), ethReceiver, receiver, "")
+func ethPacket(client string, seq uint64, token, receiver string, amount int64, timeout uint64) types.Packet {
+	data := ics20.NewFungibleTokenPacketData(token, strconv.FormatInt(amount, 10), ethReceiver, receiver, "")
 	bz, err := abi.Marshal(data)
 	if err != nil {
 		panic(err)
@@ -98,11 +98,13 @@ func decided(id int64) string {
 func main(cur realm) {
 	const client = "ethereum-1"
 	timeout := uint64(time.Now().Add(90 * 24 * time.Hour).Unix())
-	p1 := ethPacket(client, 1, bob.String(), 900, timeout)
-	p2 := ethPacket(client, 2, chain.PackageAddress(transfer.PkgPath).String(), 50, timeout) // a bridge realm: swept
+	p1 := ethPacket(client, 1, weth, bob.String(), 900, timeout)
+	p2 := ethPacket(client, 2, weth, chain.PackageAddress(transfer.PkgPath).String(), 50, timeout) // a bridge realm: swept
+	p3 := ethPacket(client, 3, ethReceiver, bob.String(), 70, timeout)                             // a denom not enabled: error ack
 	router := ethtesting.NewRouter()
 	router.CommitPacket(p1)
 	router.CommitPacket(p2)
+	router.CommitPacket(p3)
 	id := core.CreateClient(cross(cur), ethtesting.ClientState(), ethtesting.ConsensusStateWithRoot(router.StateRoot()))
 	core.RegisterCounterparty(cross(cur), id, [][]byte{{}}, "client-0")
 
@@ -117,6 +119,8 @@ func main(cur realm) {
 	relay(cur, router, p2)
 	e, _ := controlsView().Sweep(client, controls.PacketKey(client, 2))
 	println("v1 receive swept:", e.Amount, e.Reason)
+	relay(cur, router, p3)
+	println("v1 receive refused, error ack:", string(core.PacketAcknowledgement(client, 3)) != string(core.PacketAcknowledgement(client, 2)))
 
 	legacy := govern(cur, ibcgov.NewCreditRequest(cross(cur), client, controls.PacketKey(client, 1), voucher, string(bob), 900))
 	execute(cur, legacy)
@@ -124,6 +128,12 @@ func main(cur realm) {
 	booked := govern(cur, ibcgov.NewCreditRequest(cross(cur), client, controls.PacketKey(client, 2), voucher, string(bob), 50))
 	execute(cur, booked)
 	println("credit of the swept receive:", decided(booked))
+	again := govern(cur, ibcgov.NewCreditRequest(cross(cur), client, controls.PacketKey(client, 2), voucher, string(bob), 50))
+	execute(cur, again)
+	println("credit again:", decided(again))
+	errAcked := govern(cur, ibcgov.NewCreditRequest(cross(cur), client, controls.PacketKey(client, 3), voucher, string(bob), 50))
+	execute(cur, errAcked)
+	println("credit of the error-acknowledged receive:", decided(errAcked))
 	c, _ := controlsView().Claim(client, controls.PacketKey(client, 2))
 	_, legacyClaim := controlsView().Claim(client, controls.PacketKey(client, 1))
 	println("claims:", c.Amount, c.By, "| v0 packet claimed:", legacyClaim, "| bob's vouchers:", transfer.VoucherBalanceOf(voucher, bob))
@@ -132,6 +142,9 @@ func main(cur realm) {
 // Output:
 // impl: v0 | bob's vouchers: 900 | receipt: true | ack: true
 // v1 receive swept: 50 bridge realm
+// v1 receive refused, error ack: true
 // credit of the v0 receive: spent - spent: controls: packet ethereum-1/00000000000000000001 was not received under the route's controls (no sweep entry booked at its receipt): a receive from before the activation was paid already
 // credit of the swept receive: applied - credit
+// credit again: spent - spent: controls: packet ethereum-1/00000000000000000002 has a claim already
+// credit of the error-acknowledged receive: spent - spent: packet ethereum-1/00000000000000000003 has no success acknowledgement: an error-acknowledged packet is refunded at its source
 // claims: 50 vote | v0 packet claimed: false | bob's vouchers: 900

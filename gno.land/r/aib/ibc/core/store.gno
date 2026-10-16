@@ -2,6 +2,7 @@ package core
 
 import (
 	"chain/params"
+	"chain/runtime"
 
 	"gno.land/p/aib/ibc/app/v0"
 	"gno.land/p/aib/ibc/host/v0"
@@ -164,6 +165,7 @@ var _ Client = (*client)(nil)
 type pendingAsyncAck struct {
 	packet     types.Packet
 	appPkgPath string
+	height     int64 // the block height of the receive
 }
 
 func (cs *coreStore) AddClient(_ int, rlm realm, typ string, creator address, newLightClient func() lightclient.Interface) Client {
@@ -394,6 +396,16 @@ func (c *client) DeletePacketAcknowledgement(_ int, rlm realm, sequence uint64) 
 	setChainParam(key, nil)
 }
 
+// pendingAsyncAckHeight is the block height at which the packet waiting for
+// its asynchronous acknowledgement at sequence was received, 0 if none.
+func (c *client) pendingAsyncAckHeight(sequence uint64) int64 {
+	v := c.pendingAsyncAcksBySeq.Get(seqid.ID(sequence).Binary())
+	if v == nil {
+		return 0
+	}
+	return v.(*pendingAsyncAck).height
+}
+
 func (c *client) PendingAsyncAck(sequence uint64) (types.Packet, string, bool) {
 	v := c.pendingAsyncAcksBySeq.Get(seqid.ID(sequence).Binary())
 	if v == nil {
@@ -415,6 +427,7 @@ func (c *client) SavePendingAsyncAck(_ int, rlm realm, packet types.Packet, appP
 	c.pendingAsyncAcksBySeq.Set(seqid.ID(sequence).Binary(), &pendingAsyncAck{
 		packet:     packet,
 		appPkgPath: appPkgPath,
+		height:     runtime.ChainHeight(),
 	})
 }
 

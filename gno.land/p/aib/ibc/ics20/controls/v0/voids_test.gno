@@ -528,3 +528,33 @@ func TestRecapAuthorizationBoundToIncident(t *testing.T) {
 		t.Fatalf("%+v", d.Totals)
 	}
 }
+
+// A packet whose asynchronous acknowledgement is unwritten is credited once,
+// within what it carried and the supply cap (Codex review #14).
+func TestCreditPending(t *testing.T) {
+	rt, lock := setupClaims(t)
+	if err := rt.CreditPending(t0, 20, 0, pk(1), "ugnot", alice, 100, 100, lock); err == nil {
+		t.Fatalf("credited a packet with a claim")
+	}
+	if err := rt.CreditPending(t0, 20, 0, pk(3), "ugnot", alice, 100, 100, lock); err == nil {
+		t.Fatalf("credited a packet with a sweep entry")
+	}
+	if err := rt.CreditPending(t0, 20, 0, pk(60), "ugnot", alice, 101, 100, lock); err == nil {
+		t.Fatalf("credited more than the packet carried")
+	}
+	if err := rt.CreditPending(t0, 20, 0, pk(60), "ugnot", alice, 100, 100, lock); err != nil {
+		t.Fatal(err)
+	}
+	if err := rt.CreditPending(t0, 20, 0, pk(60), "ugnot", alice, 100, 100, lock); err == nil {
+		t.Fatalf("credited twice")
+	}
+	d := rt.Denom("ibc/WETH")
+	d.Totals.Outstanding = d.Config.SupplyCap - 50
+	if err := rt.CreditPending(t0, 20, 0, pk(61), "ibc/WETH", alice, 51, 51, 0); err == nil {
+		t.Fatalf("credited past the supply cap")
+	}
+	if err := rt.CreditPending(t0, 20, 0, pk(61), "ibc/WETH", alice, 50, 51, 0); err != nil {
+		t.Fatal(err)
+	}
+	checkClaimTotals(t, rt, "ugnot")
+}

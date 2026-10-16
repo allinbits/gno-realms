@@ -31,10 +31,15 @@ func RecvPacket(cur realm, msg types.MsgRecvPacket) types.ResponseResultType {
 
 // WriteAcknowledgement writes the acknowledgement of a packet whose
 // OnRecvPacket returned an async status. Only the realm that registered the
-// app for that packet may call it.
+// app for that packet may call it. A retired client still takes it for a
+// packet it received before its retirement: the app finalizes the receipt it
+// already holds, so the packet reaches a terminal state before the
+// reconciliation (ADR pr6375 §7.12); nothing new is received there.
 func WriteAcknowledgement(cur realm, clientID string, sequence uint64, ack types.Acknowledgement) {
 	ensureNotPaused()
-	ensureNotRetired(clientID)
+	if !HasPendingAsyncAck(clientID, sequence) {
+		ensureNotRetired(clientID)
+	}
 	mustImpl().WriteAcknowledgement(0, cur, clientID, sequence, ack)
 }
 

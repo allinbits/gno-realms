@@ -34,6 +34,20 @@ func isBridgeRealm(a address) bool {
 	return false
 }
 
+// receivedDenom is the denom a received token is booked under on rt, its
+// accounting denom and accounting: a gno-native token returning is released
+// from the route's escrow; an Ethereum token arriving is a voucher keyed by
+// the route key.
+func receivedDenom(rt *controls.Route, sourceClient string, payload types.Payload, token ics20.Token) (denom ics20.Denom, accDenom, kind string) {
+	if token.Denom.HasPrefix(payload.SourcePort, sourceClient) {
+		denom = ics20.Denom{Base: token.Denom.Base, Trace: token.Denom.Trace[1:]}
+		return denom, denom.IBCDenom(), controls.KindUnescrow
+	}
+	trace := append([]ics20.Hop{ics20.NewHop(payload.DestinationPort, rt.Key)}, token.Denom.Trace...)
+	denom = ics20.Denom{Base: token.Denom.Base, Trace: trace}
+	return denom, denom.IBCDenom(), controls.KindMint
+}
+
 // OnRecvPacket is impl/v0's for clients the controls do not cover. On a route
 // it books the transfer as a claim keyed by the packet (or a sweep entry) in
 // the transaction of the receipt, and answers a success acknowledgement; the
@@ -97,21 +111,7 @@ func (l *logic) OnRecvPacket(_ int, rlm realm, sourceClient, destinationClient s
 		return refuse(err)
 	}
 
-	var (
-		accDenom string
-		kind     string
-		denom    ics20.Denom
-	)
-	if token.Denom.HasPrefix(payload.SourcePort, sourceClient) {
-		// A gno-native token returning: released from the route's escrow.
-		denom = ics20.Denom{Base: token.Denom.Base, Trace: token.Denom.Trace[1:]}
-		accDenom, kind = denom.IBCDenom(), controls.KindUnescrow
-	} else {
-		// An Ethereum token arriving: a voucher, keyed by the route key.
-		trace := append([]ics20.Hop{ics20.NewHop(payload.DestinationPort, rt.Key)}, token.Denom.Trace...)
-		denom = ics20.Denom{Base: token.Denom.Base, Trace: trace}
-		accDenom, kind = denom.IBCDenom(), controls.KindMint
-	}
+	denom, accDenom, kind := receivedDenom(rt, sourceClient, payload, token)
 	if acc := rt.Denom(accDenom); acc != nil && acc.Config.Kind != kind {
 		return refuse(ufmt.Errorf("denom %s is accounted as %s on route %s", accDenom, acc.Config.Kind, rt.Key))
 	}
