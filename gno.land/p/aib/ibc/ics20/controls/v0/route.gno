@@ -170,13 +170,23 @@ func (r *Registry) RetiredRouteOf(clientID string) string {
 // route closes in the same step (no send, credit, claim payout or refund
 // payout) until a governed reopening, once the reconciliation's losses all
 // have a restoring decision (Reopen).
-func (r *Registry) Replace(key, newClient string, suspectFrom int64) error {
+func (r *Registry) Replace(key, newClient string, suspectFrom, height int64) error {
 	rt := r.Route(key)
 	if rt == nil {
 		return errors.New("controls: no route " + key)
 	}
 	if suspectFrom < 0 {
 		return errors.New("controls: a negative suspect height")
+	}
+	// One replacement at a time, as on Ethereum: the previous one's
+	// reconciliation and reopening come first.
+	if rt.Closed || rt.Reopening {
+		return errors.New("controls: route " + key + " is still closed from its previous replacement")
+	}
+	// The old client became current at the previous replacement: its suspect
+	// interval never starts before it (records before were reconciled then).
+	if suspectFrom < rt.ReplacedAt {
+		suspectFrom = rt.ReplacedAt
 	}
 	if newClient == "" || r.aliases.Has(newClient) || r.retired.Has(newClient) || r.routes.Has(newClient) {
 		return errors.New("controls: client " + newClient + " is a route's client already")
@@ -188,6 +198,7 @@ func (r *Registry) Replace(key, newClient string, suspectFrom int64) error {
 	rt.Client = newClient
 	rt.Replaced = append(rt.Replaced, old)
 	rt.suspect.Set(old, suspectFrom)
+	rt.ReplacedAt = height
 	rt.Closed = true
 	return nil
 }
@@ -217,6 +228,7 @@ type Route struct {
 	FeeCollector address
 	Closed       bool // closed by a replacement until a governed reopening
 	Reopening bool // a reopening decision runs in batches (ContinueReopen)
+	ReplacedAt int64 // the block height of the last replacement
 
 	refused   avl.Tree // lower-case Ethereum address -> true: refused send recipients
 	denoms    avl.Tree // denom -> *Denom

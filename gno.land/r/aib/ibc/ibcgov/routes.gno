@@ -470,11 +470,17 @@ func NewSettleRequest(cur realm, route, client, items, incident string) Request 
 // NewReopenRouteRequest reopens it. suspectFrom is the gno.land height from
 // which acknowledgements and timeouts processed through the old client are
 // suspect (ADR pr6375 §7.12): every send of it processed at or after that
-// height must be settled before the reopening.
+// height must be settled before the reopening. As on Ethereum, a route is
+// replaced once at a time (never while closed from the previous
+// replacement), and the interval never starts before the previous
+// replacement.
 func NewReplaceRouteRequest(cur realm, route, newClientID string, suspectFrom int64) Request {
 	mustRoute(route)
 	if suspectFrom < 0 || suspectFrom > chainHeight() {
 		panic("ibcgov: the suspect interval starts at a past gno.land height (0 for every record)")
+	}
+	if view().Closed(route) {
+		panic("ibcgov: route " + route + " is still closed from its previous replacement: one replacement at a time")
 	}
 	if refusal := checkNewRouteClient(newClientID); refusal != "" {
 		panic("ibcgov: " + refusal)
