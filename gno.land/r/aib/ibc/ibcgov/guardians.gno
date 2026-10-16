@@ -397,11 +397,9 @@ func NewSetSeatsRequest(cur realm, changes string) Request {
 			panic("ibcgov: not a seat, or named twice: " + it[:i])
 		}
 		seen[n] = true
-		a := address(strings.TrimSpace(it[i+1:]))
-		if a != "" {
-			if !a.IsValid() {
-				panic("ibcgov: not an address: " + string(a))
-			}
+		var a address
+		if raw := strings.TrimSpace(it[i+1:]); raw != "" {
+			a = mustAddr(raw)
 			if seats[n] == a {
 				panic("ibcgov: seat " + strconv.Itoa(n) + " holds " + string(a) + " already")
 			}

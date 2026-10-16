@@ -196,9 +196,13 @@ func adminRequest(cur realm, op, text string, queued bool, args ...string) Reque
 	})
 }
 
+// mustAddr is s as a gno address in its canonical (lowercase) spelling: bech32
+// also accepts the uppercase one, which the banker credits to the same account
+// but which every string comparison and key (seats, the GRC20 ledger, the
+// blocklist, relayers) tells apart (transfer.CanonicalAddress).
 func mustAddr(s string) address {
-	a := address(s)
-	if !a.IsValid() {
+	a, ok := transfer.CanonicalAddress(strings.TrimSpace(s))
+	if !ok {
 		panic("ibcgov: not an address: " + s)
 	}
 	return a

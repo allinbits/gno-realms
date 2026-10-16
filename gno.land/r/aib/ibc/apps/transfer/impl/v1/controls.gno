@@ -353,6 +353,16 @@ func (l *logic) GovApply(_ int, rlm realm, op string, params []byte) string {
 	if err != nil {
 		return err.Error()
 	}
+	// A payee or fee collector is stored and paid in its canonical spelling:
+	// the GRC20 ledger keys balances by the string, so an uppercase one would
+	// strand what it receives.
+	if p.To != "" {
+		to, ok := transfer.CanonicalAddress(string(p.To))
+		if !ok {
+			return "not an address: " + string(p.To)
+		}
+		p.To = to
+	}
 	reg := l.registry(0, rlm)
 	t := now()
 	if op == controls.OpLegacyRefundCap {
