@@ -84,6 +84,11 @@ func (p *routeParams) apply(cur realm, t int64) (string, string) {
 		// new payouts epoch, reset lazily in constant work.
 		bumpPayoutsEpoch(p.p.Route, t)
 		note += ": client " + p.replace + " retired, meters emptied"
+		// The new client is the route's alias from now on: flags standing
+		// under its own id join the route's.
+		if n := foldFlags(p.p.Client, p.p.Route, t); n > 0 {
+			note += ", " + strconv.Itoa(n) + " flags of " + p.p.Client + " moved to the route"
+		}
 		if EpochClient() == p.replace {
 			nextEpoch(p.p.Client)
 			note += ", governance epoch " + strconv.FormatUint(uint64(epoch), 10) + " opened over " + p.p.Client
@@ -99,10 +104,14 @@ func routeRequest(cur realm, op, kind, text string, p controls.Params, queued bo
 	})
 }
 
-func mustRoute(route string) {
-	if !routes.Has(route) {
+// mustRoute is the key of the route route names, a route key or one of its
+// clients, current or retired (routeKeyOf); it panics if there is none.
+func mustRoute(route string) string {
+	key := routeKeyOf(route)
+	if !routes.Has(key) {
 		panic("ibcgov: no route " + route)
 	}
+	return key
 }
 
 func mustIncident(s string) {
@@ -250,7 +259,7 @@ func denomConfig(route, denom, kind string, capFloor, supplyCap, fee, feeFloor, 
 // A change that only tightens applies at once; a new denom or any loosening
 // waits 7 days.
 func NewSetDenomRequest(cur realm, route, denom, kind string, capFloor, supplyCap, fee, feeFloor, sendMax, sendMin, refundCap int64, remoteToken string) Request {
-	mustRoute(route)
+	route = mustRoute(route)
 	denom, c := denomConfig(route, denom, kind, capFloor, supplyCap, fee, feeFloor, sendMax, sendMin, refundCap, remoteToken)
 	if old, ok := view().DenomConfig(route, denom); ok && old.Kind != kind {
 		panic("ibcgov: a denom never changes accounting")
@@ -271,7 +280,7 @@ func NewSetDenomRequest(cur realm, route, denom, kind string, capFloor, supplyCa
 
 // NewSetFeeCollectorRequest replaces a route's fee collector after 7 days.
 func NewSetFeeCollectorRequest(cur realm, route, feeCollector string) Request {
-	mustRoute(route)
+	route = mustRoute(route)
 	fc := mustAddr(feeCollector)
 	return routeRequest(cur, controls.OpCollector, "set fee collector", "fee collector of route "+route+": "+string(fc),
 		controls.Params{Route: route, To: fc}, true)
@@ -298,7 +307,7 @@ func mustEthAddrs(list string) []string {
 // enrolment named (the router, ICS20 transfer and IBCAdmin) and its voucher
 // tokens, which are refused already.
 func NewRefuseRecipientsRequest(cur realm, route, addrs string) Request {
-	mustRoute(route)
+	route = mustRoute(route)
 	list := mustEthAddrs(addrs)
 	return routeRequest(cur, controls.OpRefuse, "refuse recipients", "refuse recipients on route "+route+": "+strings.Join(list, ","),
 		controls.Params{Route: route, Keys: list}, false)
@@ -309,7 +318,7 @@ func NewRefuseRecipientsRequest(cur realm, route, addrs string) Request {
 // transfer and IBCAdmin, and its voucher tokens) stay refused whatever it
 // names.
 func NewUnrefuseRecipientsRequest(cur realm, route, addrs string) Request {
-	mustRoute(route)
+	route = mustRoute(route)
 	list := mustEthAddrs(addrs)
 	return routeRequest(cur, controls.OpUnrefuse, "unrefuse recipients", "stop refusing recipients on route "+route+": "+strings.Join(list, ","),
 		controls.Params{Route: route, Keys: list}, true)
@@ -321,7 +330,7 @@ func NewUnrefuseRecipientsRequest(cur realm, route, addrs string) Request {
 // a guardian's standing payouts flag names every packet, after 7 days
 // otherwise. A void never refunds the source.
 func NewVoidRequest(cur realm, route, keys string, forged bool, incident string) Request {
-	mustRoute(route)
+	route = mustRoute(route)
 	mustIncident(incident)
 	list := mustKeys(keys)
 	rd := view()
@@ -355,7 +364,7 @@ func NewVoidRequest(cur realm, route, keys string, forged bool, incident string)
 // withheld void can be restored). A forged void and a voided sweep entry are
 // final; transfer re-checks every key when the decision applies.
 func NewRestoreRequest(cur realm, route, keys string) Request {
-	mustRoute(route)
+	route = mustRoute(route)
 	list := mustKeys(keys)
 	rd := view()
 	for _, k := range list {
@@ -372,7 +381,7 @@ func NewRestoreRequest(cur realm, route, keys string) Request {
 // its whole payable amount (a haircut goes through NewReduceRequest), never
 // above the free lock, deduplicated against every claim of the packet.
 func NewCreditRequest(cur realm, route, key, denom, to string, amount int64) Request {
-	mustRoute(route)
+	route = mustRoute(route)
 	if _, _, ok := controls.ParsePacketKey(key); !ok {
 		panic("ibcgov: not a packet key: " + key)
 	}
@@ -387,7 +396,7 @@ func NewCreditRequest(cur realm, route, key, denom, to string, amount int64) Req
 // NewSweepRequest pays sweep entries of one denom to an address after 7
 // days.
 func NewSweepRequest(cur realm, route, keys, to string) Request {
-	mustRoute(route)
+	route = mustRoute(route)
 	list := mustKeys(keys)
 	a := mustAddr(to)
 	return routeRequest(cur, controls.OpSweep, "sweep", "pay sweep entries on route "+route+" to "+string(a)+": "+strings.Join(list, ","),
@@ -404,7 +413,7 @@ var lossCauses = map[string]bool{
 // days: chain "gno" or "ethereum", cause one of
 // forged-delivery, collision.
 func NewRecordLossRequest(cur realm, route, key, denom string, amount int64, chain, incident, cause string) Request {
-	mustRoute(route)
+	route = mustRoute(route)
 	mustIncident(incident)
 	if !lossCauses[cause] {
 		panic("ibcgov: a loss cause is forged-delivery or collision (a refund paid for a delivered packet is settled with NewSettleRequest action 4)")
@@ -424,7 +433,7 @@ func NewRecordLossRequest(cur realm, route, key, denom string, amount int64, cha
 // denom by amount after 7 days; anyone then pays it with
 // transfer.Recapitalize(route, id).
 func NewRecapitalizeRequest(cur realm, route, denom string, amount int64, incident string) Request {
-	mustRoute(route)
+	route = mustRoute(route)
 	mustIncident(incident)
 	if !isDenom(denom) || amount <= 0 {
 		panic("ibcgov: a recapitalization names a denom and a positive amount")
@@ -439,7 +448,7 @@ func NewRecapitalizeRequest(cur realm, route, denom string, amount int64, incide
 // or an accepted deficit decided later revokes conflicting authorizations by
 // itself.
 func NewRevokeRecapRequest(cur realm, route string, id int64) Request {
-	mustRoute(route)
+	route = mustRoute(route)
 	if r, ok := view().Recap(route, id); !ok || r.Paid || r.Revoked {
 		panic("ibcgov: no unpaid recapitalization " + itoa(id) + " on route " + route)
 	}
@@ -451,7 +460,7 @@ func NewRevokeRecapRequest(cur realm, route string, id int64) Request {
 // entry, by amount against an incident after 7 days (a published liability
 // reduction; refunds are never reduced).
 func NewReduceRequest(cur realm, route, key string, amount int64, incident string) Request {
-	mustRoute(route)
+	route = mustRoute(route)
 	mustIncident(incident)
 	if _, _, ok := controls.ParsePacketKey(key); !ok || amount <= 0 {
 		panic("ibcgov: a reduction names a packet key and a positive amount")
@@ -463,7 +472,7 @@ func NewReduceRequest(cur realm, route, key string, amount int64, incident strin
 // NewAcceptDeficitRequest records an accepted deficit after 7 days: the route
 // reopens with amount of its losses unrecovered, as the trust statement says.
 func NewAcceptDeficitRequest(cur realm, route, denom string, amount int64, incident string) Request {
-	mustRoute(route)
+	route = mustRoute(route)
 	mustIncident(incident)
 	if !isDenom(denom) || amount <= 0 {
 		panic("ibcgov: an accepted deficit names a denom and a positive amount")
@@ -487,7 +496,7 @@ func NewAcceptDeficitRequest(cur realm, route, denom string, amount int64, incid
 // replacement client (transfer.ProveOutcome). Each send is settled exactly once; a queued refund leaves the queue
 // under any action.
 func NewSettleRequest(cur realm, route, client, items, incident string) Request {
-	mustRoute(route)
+	route = mustRoute(route)
 	mustIncident(incident)
 	if view().RetiredRouteOf(client) != route {
 		panic("ibcgov: " + client + " is no client a replacement retired from route " + route)
@@ -537,7 +546,7 @@ func NewSettleRequest(cur realm, route, client, items, incident string) Request 
 // replacement), and the interval never starts before the previous
 // replacement.
 func NewReplaceRouteRequest(cur realm, route, newClientID string, suspectFrom int64) Request {
-	mustRoute(route)
+	route = mustRoute(route)
 	if suspectFrom < 0 || suspectFrom > chainHeight() {
 		panic("ibcgov: the suspect interval starts at a past gno.land height (0 for every record)")
 	}
@@ -562,7 +571,7 @@ func NewReplaceRouteRequest(cur realm, route, newClientID string, suspectFrom in
 // NewSettleRequest), and records every loss not recapitalized or reduced as
 // an accepted deficit.
 func NewReopenRouteRequest(cur realm, route string) Request {
-	mustRoute(route)
+	route = mustRoute(route)
 	if !view().Closed(route) {
 		panic("ibcgov: route " + route + " is not closed")
 	}

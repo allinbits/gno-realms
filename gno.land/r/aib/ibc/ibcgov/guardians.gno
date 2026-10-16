@@ -9,6 +9,7 @@ import (
 	"gno.land/p/aib/ibc/ics20/controls/v0"
 	"gno.land/p/aib/ibc/lightclient/ethereum/v0"
 	"gno.land/p/nt/avl/v0"
+	"gno.land/r/aib/ibc/apps/transfer"
 	"gno.land/r/aib/ibc/core"
 )
 
@@ -105,6 +106,66 @@ func IsGuardianSeat(n int) bool { return n >= 0 && n < GuardianSeats }
 // IsRoute reports whether ibcgov enrolled route.
 func IsRoute(route string) bool { return routes.Has(route) }
 
+// routeKeyOf is the stable key flags and route records are kept under for
+// id: the route's key when id is a route key or one of a route's clients,
+// current or retired (a replacement keeps the first client's id as the key),
+// and id itself otherwise (an Ethereum client no route uses yet, which a
+// legacy fallback route takes as its key). Every flag operation and check
+// resolves its route through it, so a flag on a client and the transfer app's
+// check on its route meet.
+func routeKeyOf(id string) string {
+	if routes.Has(id) {
+		return id
+	}
+	if rd, ok := transfer.ExtView("controls").(controls.Reader); ok {
+		if k := rd.RouteOf(id); k != "" {
+			return k
+		}
+		if k := rd.RetiredRouteOf(id); k != "" {
+			return k
+		}
+	}
+	return id
+}
+
+// foldFlags moves the flags standing under from to the route key to, when
+// from becomes one of the route's clients (a replacement), and returns how
+// many it moved. A seat's flag of a function standing under both is kept
+// once, with the earlier time and the packets both name.
+func foldFlags(from, to string, t int64) int {
+	if from == to {
+		return 0
+	}
+	var keys []string
+	flags.Iterate(from+"|", from+"|~", func(k string, _ any) bool {
+		keys = append(keys, k)
+		return false
+	})
+	for _, k := range keys {
+		v, _ := flags.Remove(k)
+		f := v.(*flag)
+		fn := strings.Split(k, "|")[1]
+		if w := flags.Get(flagKey(to, fn, f.seat)); w != nil {
+			g := w.(*flag)
+			if f.at < g.at {
+				g.at = f.at
+			}
+			for _, key := range f.keys {
+				if !contains(g.keys, key) && len(g.keys) < controls.MaxKeys {
+					g.keys = append(g.keys, key)
+				}
+			}
+			continue
+		}
+		flags.Set(flagKey(to, fn, f.seat), f)
+	}
+	if len(keys) > 0 {
+		chain.Emit("FlagsMoved", "from", from, "to", to, "flags", strconv.Itoa(len(keys)))
+		updateHold(t)
+	}
+	return len(keys)
+}
+
 // flaggable reports whether a flag may stand on route: a route ibcgov
 // enrolled, or any Ethereum client, whose key a legacy fallback route of the
 // transfer app takes from the moment a voucher return makes it (ADR pr6375
@@ -118,6 +179,7 @@ func flaggable(route string) bool {
 // transfer implementation asks before sending, crediting, paying out or
 // refunding.
 func Flagged(route, fn string) bool {
+	route = routeKeyOf(route)
 	found := false
 	flags.Iterate(flagPrefix(route, fn), flagPrefix(route, fn)+"~", func(_ string, _ any) bool {
 		found = true
@@ -129,7 +191,7 @@ func Flagged(route, fn string) bool {
 // PayoutsEpoch is how many times a standing payouts flag on route was
 // cleared, and when the last was: the route's meters empty when it changes.
 func PayoutsEpoch(route string) (epoch, at int64) {
-	v := routes.Get(route)
+	v := routes.Get(routeKeyOf(route))
 	if v == nil {
 		return 0, 0
 	}
@@ -140,6 +202,7 @@ func PayoutsEpoch(route string) (epoch, at int64) {
 // NamedSuspect reports whether a guardian's standing payouts flag on route
 // names the packet key: what makes its void immediate.
 func NamedSuspect(route, key string) bool {
+	route = routeKeyOf(route)
 	found := false
 	flags.Iterate(flagPrefix(route, FnPayouts), flagPrefix(route, FnPayouts)+"~", func(_ string, v any) bool {
 		f := v.(*flag)
@@ -232,6 +295,7 @@ func SetFlag(cur realm, route, fn, keys string) {
 	if seat < 0 {
 		panic("ibcgov: not a guardian or a watch key: " + who(0, cur.Previous()))
 	}
+	route = routeKeyOf(route)
 	if !flaggable(route) {
 		panic("ibcgov: no route or Ethereum client " + route)
 	}
@@ -257,6 +321,7 @@ func ClearFlag(cur realm, route, fn string) {
 	if seat < 0 {
 		panic("ibcgov: not a guardian or a watch key: " + who(0, cur.Previous()))
 	}
+	route = routeKeyOf(route)
 	if !flags.Has(flagKey(route, fn, seat)) {
 		panic("ibcgov: no such flag of yours")
 	}
@@ -318,6 +383,7 @@ func clearSeat(seat int, t int64) {
 // Flags lists the standing flags of a route as "fn seat <n> at <time>" lines,
 // with the packets a payouts flag names.
 func Flags(route string) []string {
+	route = routeKeyOf(route)
 	var out []string
 	flags.Iterate(route+"|", route+"|~", func(k string, v any) bool {
 		f := v.(*flag)
@@ -445,7 +511,8 @@ type unpauseRouteParams struct {
 func (*unpauseRouteParams) unpause() {}
 
 func (p *unpauseRouteParams) apply(cur realm, t int64) (string, string) {
-	n := clearFns(p.route, p.fns, t)
+	// The client named may have become a route's alias since the decision.
+	n := clearFns(routeKeyOf(p.route), p.fns, t)
 	if n == 0 {
 		return "", "no flag stood"
 	}
@@ -458,6 +525,7 @@ func (p *unpauseRouteParams) apply(cur realm, t int64) (string, string) {
 // with losses that have no restoring decision stays closed in the transfer
 // app all the same.
 func NewUnpauseRouteRequest(cur realm, route, fns string) Request {
+	route = routeKeyOf(route)
 	if !flaggable(route) {
 		panic("ibcgov: no route or Ethereum client " + route)
 	}
