@@ -413,14 +413,16 @@ func (rt *Route) Reduce(key string, amount int64, incident string) error {
 }
 
 // Accept records an accepted deficit (ADR pr6375 §7.9): governance reopens
-// with amount of the losses unrecovered, stated in the trust statement.
+// with amount of the losses unrecovered, stated in the trust statement. The
+// loss stays unrecovered (the supply identity still carries it); it only no
+// longer waits for a restoring decision.
 func (rt *Route) Accept(denom string, amount int64, incident string) error {
 	d := rt.Denom(denom)
 	if d == nil {
 		return errors.New("controls: denom " + denom + " is not enabled on route " + rt.Key)
 	}
-	if amount <= 0 || amount > d.Totals.Unrecovered() {
-		return ufmt.Errorf("controls: %d is not within the unrecovered losses", amount)
+	if amount <= 0 || amount > d.Totals.Unresolved() {
+		return ufmt.Errorf("controls: %d is not within the losses waiting for a restoring decision", amount)
 	}
 	if incident == "" {
 		return errors.New("controls: an accepted deficit names its incident")

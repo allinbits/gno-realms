@@ -130,10 +130,18 @@ func (rd Reader) Voidable(route, key string, forged bool) bool {
 	return false
 }
 
-// Unrecovered is a route's open loss total.
+// Unrecovered is a route's economic open loss total.
 func (rd Reader) Unrecovered(route string) int64 {
 	if rt := rd.route(route); rt != nil {
 		return rt.Unrecovered()
+	}
+	return 0
+}
+
+// Unresolved is a route's loss total still waiting for a restoring decision.
+func (rd Reader) Unresolved(route string) int64 {
+	if rt := rd.route(route); rt != nil {
+		return rt.Unresolved()
 	}
 	return 0
 }
@@ -187,7 +195,7 @@ func (rd Reader) RouteJSON(route string) string {
 	var b strings.Builder
 	b.WriteString("{\"route\":" + q(rt.Key) + ",\"client\":" + q(rt.Client) + ",\"replaced\":" + strList(rt.Replaced) +
 		",\"enrolled\":" + itoa(rt.Enrolled) + ",\"fee_collector\":" + q(string(rt.FeeCollector)) +
-		",\"refused_recipients\":" + strList(rt.Refused()) + ",\"unrecovered\":" + itoa(rt.Unrecovered()) + ",\"denoms\":[")
+		",\"refused_recipients\":" + strList(rt.Refused()) + ",\"unrecovered\":" + itoa(rt.Unrecovered()) + ",\"unresolved\":" + itoa(rt.Unresolved()) + ",\"denoms\":[")
 	for i, name := range rt.Denoms() {
 		if i > 0 {
 			b.WriteString(",")
@@ -212,7 +220,7 @@ func denomJSON(d *Denom) string {
 		",\"sweep_paid\":" + itoa(t.SweepPaid) + ",\"outstanding\":" + itoa(t.Outstanding) + ",\"sent\":" + itoa(t.Sent) +
 		",\"send_fees\":" + itoa(t.SendFees) + ",\"refunded\":" + itoa(t.Refunded) + ",\"queued_refunds\":" + itoa(t.QueuedRefunds) +
 		",\"lost\":" + itoa(t.Lost) + ",\"recapitalized\":" + itoa(t.Recapitalized) + ",\"reduced\":" + itoa(t.Reduced) +
-		",\"accepted\":" + itoa(t.Accepted) + ",\"unrecovered\":" + itoa(t.Unrecovered()) + "}}"
+		",\"accepted\":" + itoa(t.Accepted) + ",\"unrecovered\":" + itoa(t.Unrecovered()) + ",\"unresolved\":" + itoa(t.Unresolved()) + "}}"
 }
 
 // ClaimJSON is a claim's JSON.

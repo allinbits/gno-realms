@@ -323,10 +323,11 @@ func Flags(route string) []string {
 	return out
 }
 
-// unrecovered reads the route's open loss total from the transfer app.
+// unrecovered reads from the transfer app the route's losses that still wait
+// for a restoring decision (recapitalized, reduced or accepted).
 func unrecovered(route string) int64 {
 	if rd, ok := transfer.ExtView("controls").(controls.Reader); ok {
-		return rd.Unrecovered(route)
+		return rd.Unresolved(route)
 	}
 	return 0
 }

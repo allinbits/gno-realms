@@ -215,9 +215,9 @@ func main(cur realm) {
 // wrong amount: send exactly 2000ugnot in a direct call
 // recap paid: true true | owed 1500 withheld 0 swept 10 lost 2500 unrecovered 500
 // {"denom":"ugnot","amount":15000,"clients":[{"client":"ethereum-1","amount":15000}]}
-// owed 1500 withheld 0 swept 10 lost 2500 unrecovered 0
+// owed 1500 withheld 0 swept 10 lost 2500 unrecovered 500
 // payouts flagged: false
-// owed 1500 withheld 0 swept 10 lost 2600 unrecovered 100
-// carol: open paid 2500 of 3900 | owed 1400 withheld 0 swept 10 lost 2600 unrecovered 0
+// owed 1500 withheld 0 swept 10 lost 2600 unrecovered 600
+// carol: open paid 2500 of 3900 | owed 1400 withheld 0 swept 10 lost 2600 unrecovered 500
 // sweep paid: true true
 // credit: spent - spent: packet ethereum-1/00000000000000000042 was never received

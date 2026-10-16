@@ -263,8 +263,14 @@ func TestLossLedger(t *testing.T) {
 	if err := rt.Accept("ugnot", 100, "inc"); err != nil {
 		t.Fatal(err)
 	}
-	if d.Totals.Unrecovered() != 0 || rt.Unrecovered() != 0 {
+	// Accepting restores neither backing nor liabilities: the loss stays in
+	// the supply identity's unrecovered term, and only stops waiting for a
+	// restoring decision (Codex review #5).
+	if d.Totals.Unrecovered() != 100 || rt.Unrecovered() != 100 || d.Totals.Unresolved() != 0 || rt.Unresolved() != 0 {
 		t.Fatalf("%+v", d.Totals)
+	}
+	if err := rt.Accept("ugnot", 1, "inc"); err == nil {
+		t.Fatalf("accepted the same loss twice")
 	}
 	if _, err := rt.AuthorizeRecap("ibc/WETH", 1, "inc"); err == nil {
 		t.Fatalf("recapitalized a minted denom")

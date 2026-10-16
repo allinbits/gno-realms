@@ -292,10 +292,23 @@ type Totals struct {
 	Accepted      int64
 }
 
-// Unrecovered is the loss ledger's open total: losses not yet recapitalized,
-// reduced or accepted (ADR pr6375 §7.9).
+// Unrecovered is the loss ledger's economic open total, the term of the
+// supply identity (ADR pr6375 §7.11): losses neither recapitalized nor
+// reduced. An accepted deficit restores neither backing nor liabilities, so
+// it stays unrecovered.
 func (t Totals) Unrecovered() int64 {
-	u := t.Lost - t.Recapitalized - t.Reduced - t.Accepted
+	u := t.Lost - t.Recapitalized - t.Reduced
+	if u < 0 {
+		return 0
+	}
+	return u
+}
+
+// Unresolved is what of the losses still waits for a restoring decision
+// (ADR pr6375 §7.9): the unrecovered losses not accepted as a deficit
+// either. A route reopens only when it is zero.
+func (t Totals) Unresolved() int64 {
+	u := t.Unrecovered() - t.Accepted
 	if u < 0 {
 		return 0
 	}
@@ -356,11 +369,22 @@ func (rt *Route) Denoms() []string {
 	return out
 }
 
-// Unrecovered is the open loss total over the route's denoms.
+// Unrecovered is the economic open loss total over the route's denoms.
 func (rt *Route) Unrecovered() int64 {
 	var u int64
 	rt.denoms.Iterate("", "", func(_ string, v any) bool {
 		u += v.(*Denom).Totals.Unrecovered()
+		return false
+	})
+	return u
+}
+
+// Unresolved is the loss total over the route's denoms that still waits for
+// a restoring decision.
+func (rt *Route) Unresolved() int64 {
+	var u int64
+	rt.denoms.Iterate("", "", func(_ string, v any) bool {
+		u += v.(*Denom).Totals.Unresolved()
 		return false
 	})
 	return u
