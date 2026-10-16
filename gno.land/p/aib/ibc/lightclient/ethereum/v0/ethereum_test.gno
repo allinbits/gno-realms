@@ -139,6 +139,32 @@ func TestUpdateFromOlderTrustedStateRejected(t *testing.T) {
 	urequire.ErrorContains(t, c.VerifyClientMessage(hdr), "updates must build on the latest trusted slot")
 }
 
+// SSZ hashes fixed-size fields side by side, so moving the state root's bytes
+// into the receipts root keeps the execution header's root. Fixed sizes are
+// checked first, so such a header is refused instead of storing an empty root.
+func TestUpdateRejectsShiftedSSZFields(t *testing.T) {
+	c, hdr := firstUpdate(t, fixtureErc20())
+	shifted := *hdr
+	u := shifted.ConsensusUpdate
+	ex := u.FinalizedHeader.Execution
+	urequire.True(t, ex.StateRoot != nil, "the fixture should be pre-Gloas")
+	before := ex.HashTreeRoot()
+	ex.ReceiptsRoot = append(append([]byte{}, ex.StateRoot...), ex.ReceiptsRoot...)
+	ex.StateRoot = []byte{}
+	urequire.True(t, bytesEqual(before, ex.HashTreeRoot()), "the shift should keep the SSZ root")
+	u.FinalizedHeader.Execution = ex
+	shifted.ConsensusUpdate = u
+	urequire.ErrorContains(t, c.VerifyClientMessage(&shifted), "state root must be 32 bytes")
+
+	short := *hdr
+	su := short.ConsensusUpdate
+	branch := append([][]byte{}, su.FinalityBranch...)
+	branch[0] = branch[0][:31]
+	su.FinalityBranch = branch
+	short.ConsensusUpdate = su
+	urequire.ErrorContains(t, c.VerifyClientMessage(&short), "finality branch")
+}
+
 // The client keeps copies of every byte slice it is given: changing the
 // caller's input after Initialize or a verified update changes nothing trusted.
 func TestStateDoesNotAliasInput(t *testing.T) {

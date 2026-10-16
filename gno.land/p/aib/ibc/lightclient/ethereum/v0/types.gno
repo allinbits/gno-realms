@@ -214,6 +214,57 @@ func validateSummary(s SummarizedSyncCommittee) error {
 	return nil
 }
 
+// validateBranch requires every node of a Merkle branch to be one 32-byte
+// chunk: a longer or shorter node would change where its bytes fall in the
+// parent hash.
+func validateBranch(branch [][]byte) error {
+	for i, node := range branch {
+		if len(node) != hashSize {
+			return ufmt.Errorf("node %d is %d bytes, not 32", i, len(node))
+		}
+	}
+	return nil
+}
+
+// validateSizes checks the fixed-size fields SSZ hashes as whole chunks.
+func (h BeaconBlockHeader) validateSizes() error {
+	if len(h.ParentRoot) != hashSize || len(h.StateRoot) != hashSize || len(h.BodyRoot) != hashSize {
+		return errors.New("beacon header roots must be 32 bytes")
+	}
+	return nil
+}
+
+// validateSizes checks every field of the execution payload header against its
+// SSZ size: fixed-size fields exactly, bounded ones within their bound.
+func (h ExecutionPayloadHeader) validateSizes() error {
+	for _, f := range []struct {
+		name string
+		b    []byte
+		size int
+	}{
+		{"parent hash", h.ParentHash, hashSize},
+		{"fee recipient", h.FeeRecipient, 20},
+		{"state root", h.StateRoot, hashSize},
+		{"receipts root", h.ReceiptsRoot, hashSize},
+		{"logs bloom", h.LogsBloom, logsBloomSize},
+		{"prev randao", h.PrevRandao, hashSize},
+		{"block hash", h.BlockHash, hashSize},
+		{"transactions root", h.TransactionsRoot, hashSize},
+		{"withdrawals root", h.WithdrawalsRoot, hashSize},
+	} {
+		if len(f.b) != f.size {
+			return ufmt.Errorf("execution header %s must be %d bytes, got %d", f.name, f.size, len(f.b))
+		}
+	}
+	if len(h.ExtraData) > maxExtraDataLen {
+		return ufmt.Errorf("execution header extra data exceeds %d bytes", maxExtraDataLen)
+	}
+	if len(h.BaseFeePerGas) > chunkSize {
+		return errors.New("execution header base fee exceeds 32 bytes")
+	}
+	return nil
+}
+
 // BeaconBlockHeader is the consensus-layer block header.
 type BeaconBlockHeader struct {
 	Slot          uint64
@@ -321,9 +372,18 @@ func (u LightClientUpdate) validateBasic() error {
 			return ufmt.Errorf("next sync committee: %v", err)
 		}
 	}
+	if err := validateBranch(u.NextSyncCommitteeBranch); err != nil {
+		return ufmt.Errorf("next sync committee branch: %v", err)
+	}
+	if err := validateBranch(u.FinalityBranch); err != nil {
+		return ufmt.Errorf("finality branch: %v", err)
+	}
 	for i, ns := range u.NonSigners {
 		if len(ns.Pubkey) != blsPubKeySize {
 			return ufmt.Errorf("non-signer %d: pubkey is not 48 bytes", i)
+		}
+		if err := validateBranch(ns.Branch); err != nil {
+			return ufmt.Errorf("non-signer %d branch: %v", i, err)
 		}
 	}
 	if len(u.SyncAggregate.SyncCommitteeSignature) != blsSignatureSize {

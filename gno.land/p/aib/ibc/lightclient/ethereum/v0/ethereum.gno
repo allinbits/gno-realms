@@ -149,6 +149,11 @@ func (c *EthLightClient) trustedState(slot uint64, isNext bool) (*ConsensusState
 // verifyHeader implements verify_header.
 func (c *EthLightClient) verifyHeader(h *Header) error {
 	cs := c.ClientState
+	// Also checked by core before it calls VerifyClientMessage; repeated here so
+	// no caller of the client can skip the size checks.
+	if err := h.ValidateBasic(); err != nil {
+		return err
+	}
 	if err := c.checkLatestAnchor(h.TrustedSlot); err != nil {
 		return err
 	}
@@ -318,12 +323,26 @@ func (c *EthLightClient) validateLightClientHeader(h LightClientHeader) error {
 	if err := c.ClientState.verifySupportedFork(h.Beacon.Slot); err != nil {
 		return err
 	}
-	leaf, gindex := h.Execution.HashTreeRoot(), uint64(executionPayloadGindex)
+	// SSZ hashes fixed-size fields as chunks laid side by side: a field of the
+	// wrong length could shift bytes into its neighbour and keep the root, so
+	// every fixed size is checked before hashing.
+	if err := h.Beacon.validateSizes(); err != nil {
+		return err
+	}
+	if err := validateBranch(h.ExecutionBranch); err != nil {
+		return ufmt.Errorf("execution branch: %v", err)
+	}
+	leaf, gindex := []byte(nil), uint64(executionPayloadGindex)
 	if c.ClientState.isGloas(h.Beacon.Slot) {
 		if len(h.ExecutionBlockHash) != hashSize {
 			return errors.New("execution block hash must be 32 bytes")
 		}
 		leaf, gindex = h.ExecutionBlockHash, executionBlockHashGindexGloas
+	} else {
+		if err := h.Execution.validateSizes(); err != nil {
+			return err
+		}
+		leaf = h.Execution.HashTreeRoot()
 	}
 	if !isValidMerkleBranch(leaf, h.ExecutionBranch, gindex, h.Beacon.BodyRoot) {
 		return errors.New("invalid execution branch")
@@ -359,6 +378,9 @@ func (c *EthLightClient) finalizedExecution(u LightClientUpdate) (executionData,
 // Like an update, the evidence must build on the latest trusted state of a
 // client that has not expired, so a past committee cannot freeze it.
 func (c *EthLightClient) verifyMisbehaviour(m *Misbehaviour) error {
+	if err := m.ValidateBasic(); err != nil {
+		return err
+	}
 	if err := c.checkLatestAnchor(m.TrustedSlot); err != nil {
 		return err
 	}
