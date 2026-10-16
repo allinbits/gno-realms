@@ -252,13 +252,38 @@ func (c *client) ID() string                         { return c.id }
 func (c *client) Type() string                       { return c.typ }
 func (c *client) Creator() address                   { return c.creator }
 func (c *client) CounterpartyClientID() string       { return c.counterpartyClientID }
-func (c *client) CounterpartyMerklePrefix() [][]byte { return c.counterpartyMerklePrefix }
+func (c *client) CounterpartyMerklePrefix() [][]byte { return copyPrefix(c.counterpartyMerklePrefix) }
 func (c *client) LightClient() lightclient.Interface { return c.lightClient }
 
 func (c *client) SetCounterparty(_ int, rlm realm, clientID string, merklePrefix [][]byte) {
 	assertProxyRealm(0, rlm)
 	c.counterpartyClientID = clientID
-	c.counterpartyMerklePrefix = merklePrefix
+	// Both levels are copied: the caller's slice stays the caller's, and a
+	// later change to it must not move the client's proof namespace.
+	c.counterpartyMerklePrefix = copyPrefix(merklePrefix)
+}
+
+// copyPrefix deep-copies a merkle prefix into this realm's storage.
+func copyPrefix(p [][]byte) [][]byte {
+	if p == nil {
+		return nil
+	}
+	out := make([][]byte, len(p))
+	for i, e := range p {
+		out[i] = append([]byte{}, e...)
+	}
+	return out
+}
+
+// copyPacket deep-copies a packet (its payloads and their values).
+func copyPacket(p types.Packet) types.Packet {
+	out := p
+	out.Payloads = make([]types.Payload, len(p.Payloads))
+	for i, pl := range p.Payloads {
+		pl.Value = append([]byte{}, pl.Value...)
+		out.Payloads[i] = pl
+	}
+	return out
 }
 
 func (c *client) SetLightClient(_ int, rlm realm, convert func(lightclient.Interface) lightclient.Interface) {
@@ -454,7 +479,7 @@ func (c *client) SavePendingAsyncAck(_ int, rlm realm, packet types.Packet, appP
 		panic(ufmt.Sprintf("acknowledgement already written for sequence %d", sequence))
 	}
 	c.pendingAsyncAcksBySeq.Set(seqid.ID(sequence).Binary(), &pendingAsyncAck{
-		packet:     packet,
+		packet:     copyPacket(packet),
 		appPkgPath: appPkgPath,
 		height:     runtime.ChainHeight(),
 	})

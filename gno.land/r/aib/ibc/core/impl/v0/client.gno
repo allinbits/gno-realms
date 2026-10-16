@@ -73,6 +73,12 @@ func (l *logic) RegisterCounterparty(_ int, rlm realm, clientID string, counterp
 	valid := types.IsValidClientID(counterpartyClientID)
 	if c.Type() == ethereum.ClientType {
 		valid = types.IsValidRouterClientID(counterpartyClientID)
+		// An Ethereum router keeps its commitments at the bare ICS24 keys:
+		// eureka's canonical prefix is a single empty element. Any other
+		// would move every proof of the client off the router's state.
+		if len(counterpartyMerklePrefix) != 1 || len(counterpartyMerklePrefix[0]) != 0 {
+			panic("an Ethereum counterparty's merkle prefix is a single empty element")
+		}
 	}
 	if !valid {
 		panic("invalid counterparty client id")
