@@ -214,6 +214,15 @@ func DispatchState(e uint32, seq uint64) (status uint8, redispatch, inFlight boo
 	return d.status, d.redispatch, d.inFlight, d.sends, d.event
 }
 
+// DispatchTransport is the core sequence of the last packet sent for (e,
+// seq), 0 if none.
+func DispatchTransport(e uint32, seq uint64) uint64 {
+	if d := dispatchOf(e, seq); d != nil {
+		return d.transport
+	}
+	return 0
+}
+
 // bindChannel opens epoch 1 over client.
 func bindChannel(client string) {
 	epoch = 1

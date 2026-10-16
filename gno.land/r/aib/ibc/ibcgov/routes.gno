@@ -6,6 +6,7 @@ import (
 
 	"gno.land/p/aib/encoding/ethaddr/v0"
 	"gno.land/p/aib/ibc/ics20/controls/v0"
+	"gno.land/p/aib/ibc/ics20/v0"
 	"gno.land/p/aib/ibc/lightclient/ethereum/v0"
 	"gno.land/r/aib/ibc/apps/transfer"
 	"gno.land/r/aib/ibc/core"
@@ -144,12 +145,22 @@ func NewEnrollRouteRequest(cur realm, clientID, feeCollector string) Request {
 // is its voucher's IBC denom); capFloor the day cap floor (unescrow) or day
 // cap (mint); supplyCap the voucher supply cap (mint, else 0); fee and its
 // floor; sendMax and sendMin (unescrow, else 0); refundCap the refund meter's
-// day cap. A change that only tightens applies at once; a new denom or any
-// loosening waits 7 days.
+// day cap. For a minted denom, denom may be the token's Ethereum address
+// (0x…): the voucher denom is then computed, ibc/<sha256("transfer/<route>/
+// <lower-case address>")>, the denom this chain keys the token's vouchers by.
+// A change that only tightens applies at once; a new denom or any loosening
+// waits 7 days.
 func NewSetDenomRequest(cur realm, route, denom, kind string, capFloor, supplyCap, fee, feeFloor, sendMax, sendMin, refundCap int64) Request {
 	mustRoute(route)
 	if !isDenom(denom) {
 		panic("ibcgov: not a denom: " + denom)
+	}
+	if kind == controls.KindMint && strings.HasPrefix(denom, "0x") {
+		a, err := ethaddr.Parse(denom)
+		if err != nil {
+			panic("ibcgov: " + err.Error())
+		}
+		denom = ics20.NewDenom(a.Lower(), ics20.NewHop("transfer", route)).IBCDenom()
 	}
 	c := controls.DenomConfig{Kind: kind, CapFloor: capFloor, SupplyCap: supplyCap, Fee: fee, FeeFloor: feeFloor,
 		SendMax: sendMax, SendMin: sendMin, RefundCap: refundCap}
