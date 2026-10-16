@@ -16,6 +16,9 @@ PACKAGES=(
   "gno.land/p/aib/jsonpage/v0:gno.land/p/aib/jsonpage/v0"
   "gno.land/p/aib/ibc/host/v0:gno.land/p/aib/ibc/host/v0"
   "gno.land/p/aib/authority/v0:gno.land/p/aib/authority/v0"
+  "gno.land/p/aib/encoding/wire/v0:gno.land/p/aib/encoding/wire/v0"
+  "gno.land/p/aib/encoding/ethaddr/v0:gno.land/p/aib/encoding/ethaddr/v0"
+  "gno.land/p/aib/decisions/v0:gno.land/p/aib/decisions/v0"
 
   # depends on encoding/proto
   "gno.land/p/aib/ics23/v0:gno.land/p/aib/ics23/v0"
@@ -29,8 +32,17 @@ PACKAGES=(
   # depends on encoding/proto, ibc/host, ibc/types (ICS-20 types of the transfer app)
   "gno.land/p/aib/ibc/ics20/v0:gno.land/p/aib/ibc/ics20/v0"
 
+  # depends on ics20 (Solidity ABI payloads), then the general ABI encoder
+  # (whose tests compare with it)
+  "gno.land/p/aib/ibc/ics20/abi/v0:gno.land/p/aib/ibc/ics20/abi/v0"
+  "gno.land/p/aib/encoding/abi/v0:gno.land/p/aib/encoding/abi/v0"
+
   # depends on ibc/types
   "gno.land/p/aib/ibc/app/v0:gno.land/p/aib/ibc/app/v0"
+  "gno.land/p/aib/ibc/lightclient/extproof/v0:gno.land/p/aib/ibc/lightclient/extproof/v0"
+
+  # depends on encoding/wire, ibc/host, ibc/types (the Ethereum route controls)
+  "gno.land/p/aib/ibc/ics20/controls/v0:gno.land/p/aib/ibc/ics20/controls/v0"
 
   # depends on ibc/types, ics23
   "gno.land/p/aib/ibc/lightclient/v0:gno.land/p/aib/ibc/lightclient/v0"
@@ -41,6 +53,11 @@ PACKAGES=(
   # depends on lightclient/tendermint, ibc/types, ics23
   "gno.land/p/aib/ibc/lightclient/tendermint/testing/v0:gno.land/p/aib/ibc/lightclient/tendermint/testing/v0"
 
+  # depends on encoding/wire, ibc/lightclient, lightclient/extproof, ibc/types,
+  # ics23 (and the crypto/bls12381 native)
+  "gno.land/p/aib/ibc/lightclient/ethereum/v0:gno.land/p/aib/ibc/lightclient/ethereum/v0"
+  "gno.land/p/aib/ibc/lightclient/ethereum/testing/v0:gno.land/p/aib/ibc/lightclient/ethereum/testing/v0"
+
   # realms (stateful)
   # grc20test has no aib deps
   "gno.land/r/aib/ibc/apps/testing/grc20test:gno.land/r/aib/ibc/apps/testing/grc20test"
@@ -49,7 +66,8 @@ PACKAGES=(
   "gno.land/r/aib/ibc/apps/testing:gno.land/r/aib/ibc/apps/testing"
 
   # depends on ibc/app, ibc/host, ibc/lightclient, lightclient/tendermint,
-  # lightclient/tendermint/testing (filetest), ibc/types, ics23, jsonpage
+  # lightclient/ethereum, lightclient/tendermint/testing (filetest),
+  # ibc/types, ics23, jsonpage
   "gno.land/r/aib/ibc/core:gno.land/r/aib/ibc/core"
 
   # depends on r/aib/ibc/core (registers itself as the core logic at init)
@@ -61,4 +79,18 @@ PACKAGES=(
 
   # depends on r/aib/ibc/apps/transfer (registers itself as the transfer logic at init)
   "gno.land/r/aib/ibc/apps/transfer/impl/v0:gno.land/r/aib/ibc/apps/transfer/impl/v0"
+
+  # depends on r/aib/ibc/core, lightclient/ethereum, encoding/wire, extproof
+  "gno.land/r/aib/ibc/ethrelay:gno.land/r/aib/ibc/ethrelay"
+
+  # the governance realm: depends on decisions, encoding/abi, encoding/ethaddr,
+  # ics20/controls, lightclient/ethereum, r/aib/ibc/core,
+  # r/aib/ibc/apps/transfer, r/gov/dao; registers port gov at init
+  "gno.land/r/aib/ibc/ibcgov:gno.land/r/aib/ibc/ibcgov"
+
+  # candidates, activated by ibcgov decisions (UpdateImpl, 7 days):
+  # core impl/v1 (client migration) and transfer impl/v1 (route controls,
+  # depends on ibcgov)
+  "gno.land/r/aib/ibc/core/impl/v1:gno.land/r/aib/ibc/core/impl/v1"
+  "gno.land/r/aib/ibc/apps/transfer/impl/v1:gno.land/r/aib/ibc/apps/transfer/impl/v1"
 )
