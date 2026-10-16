@@ -271,7 +271,12 @@ func (transferStore) MintVoucher(_ int, rlm realm, ibcDenom string, to address, 
 	if inst == nil {
 		return ufmt.Errorf("voucher token not found for denom %s", ibcDenom)
 	}
-	return inst.ledger.Mint(to, amount)
+	before := inst.token.TotalSupply()
+	if err := inst.ledger.Mint(to, amount); err != nil {
+		return err
+	}
+	noteSupply(ibcDenom, before, inst.token.TotalSupply())
+	return nil
 }
 
 func (transferStore) BurnVoucher(_ int, rlm realm, ibcDenom string, from address, amount int64) error {
@@ -280,7 +285,12 @@ func (transferStore) BurnVoucher(_ int, rlm realm, ibcDenom string, from address
 	if inst == nil {
 		return ufmt.Errorf("voucher token not found for denom %s", ibcDenom)
 	}
-	return inst.ledger.Burn(from, amount)
+	before := inst.token.TotalSupply()
+	if err := inst.ledger.Burn(from, amount); err != nil {
+		return err
+	}
+	noteSupply(ibcDenom, before, inst.token.TotalSupply())
+	return nil
 }
 
 func (transferStore) SetPendingNativeEscrow(_ int, rlm realm, c chain.Coin) {
@@ -407,10 +417,13 @@ func getEscrowForClient(clientID string) *bptree.BPTree {
 // back through the same client.
 func addEscrowForClient(clientID string, c chain.Coin) {
 	t := escrowForClient(clientID)
+	var before int64
 	if x := t.Get(c.Denom); x != nil {
+		before = x.(chain.Coin).Amount
 		c = x.(chain.Coin).Add(c)
 	}
 	t.Set(c.Denom, c)
+	noteEscrow(clientID, before, c.Amount)
 }
 
 // checkEscrowForClient verifies clientID locked enough of c.Denom, without
@@ -439,6 +452,7 @@ func debitEscrowForClient(clientID string, c chain.Coin) {
 	x := t.Get(c.Denom)
 	have := x.(chain.Coin)
 	t.Set(c.Denom, chain.NewCoin(c.Denom, have.Amount-c.Amount))
+	noteEscrow(clientID, have.Amount, have.Amount-c.Amount)
 }
 
 // unescrowGRC20 returns escrowed GRC20 tokens to receiver. The check runs

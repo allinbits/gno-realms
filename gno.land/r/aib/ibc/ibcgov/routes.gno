@@ -1,13 +1,16 @@
 package ibcgov
 
 import (
+	"errors"
 	"strconv"
 	"strings"
 
 	"gno.land/p/aib/encoding/ethaddr/v0"
+	ics20abi "gno.land/p/aib/ibc/ics20/abi/v0"
 	"gno.land/p/aib/ibc/ics20/controls/v0"
 	"gno.land/p/aib/ibc/ics20/v0"
 	"gno.land/p/aib/ibc/lightclient/ethereum/v0"
+	"gno.land/p/aib/ibc/types/v0"
 	"gno.land/r/aib/ibc/apps/transfer"
 	"gno.land/r/aib/ibc/core"
 )
@@ -164,8 +167,8 @@ func checkReplacementClient(client string) string {
 	if refusal := checkRouteClient(client, true); refusal != "" {
 		return refusal
 	}
-	if assets := transfer.ClientAssets(client); len(assets) > 0 {
-		return client + " holds transfer state of its own (" + assets[0] + "): it cannot become another route's client"
+	if n := transfer.ClientAssetCount(client); n > 0 {
+		return client + " holds transfer state of its own (" + strconv.FormatInt(n, 10) + " denoms): it cannot become another route's client"
 	}
 	if n := core.OutstandingSends(client, transfer.PortID); n > 0 {
 		return client + " has " + strconv.FormatInt(n, 10) + " outstanding transfer packets of its own: it cannot become another route's client"
@@ -662,12 +665,21 @@ type activateParams struct {
 	routes []stagedRoute
 }
 
+// maxActivationInFlight bounds the outstanding transfer packets of a staged
+// client the activation reads to stage the denoms they carry.
+const maxActivationInFlight = 64
+
 // stagingGap is why the staged routes do not cover the transfer state on the
 // live chain, or "": every Ethereum client the core holds and has not
 // retired that has escrow, vouchers in circulation or outstanding transfer
-// commitments must be staged, with every one of those denoms. Read when the
-// request is built and again when it executes: a client or denom that gained
-// assets during the delay spends the decision, to be proposed again.
+// packets must be staged, with every denom it holds assets of and every
+// denom its outstanding packets carry (a voucher burnt in flight has no
+// supply left, but its refund needs the denom). The asset counts are read in
+// constant work per client (transfer.ClientAssetCount, HoldsAsset); the
+// outstanding packets, at most maxActivationInFlight per staged client. Read
+// when the request is built and again when it executes: a client or denom
+// that gained state during the delay spends the decision, to be proposed
+// again.
 func stagingGap(staged []stagedRoute) string {
 	byClient := map[string]map[string]bool{}
 	for _, r := range staged {
@@ -681,21 +693,51 @@ func stagingGap(staged []stagedRoute) string {
 		if core.ClientType(id) != ethereum.ClientType || core.IsClientRetired(id) {
 			continue
 		}
-		assets := transfer.ClientAssets(id)
 		ds, ok := byClient[id]
 		if !ok {
-			if len(assets) > 0 || core.OutstandingSends(id, transfer.PortID) > 0 {
+			if transfer.ClientAssetCount(id) > 0 || core.OutstandingSends(id, transfer.PortID) > 0 {
 				return "Ethereum client " + id + " holds transfer state and is not staged"
 			}
 			continue
 		}
-		for _, a := range assets {
-			if !ds[a] {
-				return "denom " + a + " of client " + id + " holds assets and is not staged"
+		var held int64
+		for d := range ds {
+			if transfer.HoldsAsset(id, d) {
+				held++
+			}
+		}
+		if held != transfer.ClientAssetCount(id) {
+			return "client " + id + " holds assets of a denom that is not staged"
+		}
+		payloads, complete := transfer.InFlightPayloads(id, maxActivationInFlight)
+		if !complete {
+			return "client " + id + " has more than " + strconv.Itoa(maxActivationInFlight) + " outstanding transfer packets: let them settle first"
+		}
+		for _, pl := range payloads {
+			denom, err := sentDenom(pl)
+			if err != nil {
+				return "an outstanding transfer packet of " + id + " cannot be read: " + err.Error()
+			}
+			if !ds[denom] {
+				return "denom " + denom + " of an outstanding transfer packet of " + id + " is not staged"
 			}
 		}
 	}
 	return ""
+}
+
+// sentDenom is the accounting denom of a transfer packet gno.land sent over
+// an Ethereum client: what its backfill records it under (the voucher's IBC
+// denom for a returning voucher, the escrow denom otherwise).
+func sentDenom(pl types.Payload) (string, error) {
+	if pl.Encoding != ics20abi.Encoding {
+		return "", errors.New("not an ABI-encoded transfer payload")
+	}
+	data, err := ics20abi.Unmarshal(pl.Value)
+	if err != nil {
+		return "", err
+	}
+	return ics20.ExtractDenomFromPathFunc(data.Denom, ics20.IsHopClientID).IBCDenom(), nil
 }
 
 func (p *activateParams) apply(cur realm, t int64) (string, string) {

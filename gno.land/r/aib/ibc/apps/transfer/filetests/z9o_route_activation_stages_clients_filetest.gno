@@ -251,7 +251,7 @@ func main(cur realm) {
 
 // Output:
 // without b: ibcgov: Ethereum client ethereum-2 holds transfer state and is not staged
-// without a denom of a: ibcgov: denom ibc/0F891433D44A41B5CD1003824EBEBB555D14033B24ED1054D7F6072378A382F5 of client ethereum-1 holds assets and is not staged
+// without a denom of a: ibcgov: client ethereum-1 holds assets of a denom that is not staged
 // the first activation: spent - spent: Ethereum client ethereum-3 holds transfer state and is not staged | impl: v0
 // impl: v1 | routes: 3 | denoms on ethereum-1 : 3
 // return on ethereum-2 to 0x00000000000000000000000000000000000b0021: the receiver is a contract of the bridge
