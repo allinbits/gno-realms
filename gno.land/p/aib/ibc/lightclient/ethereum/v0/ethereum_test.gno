@@ -139,18 +139,45 @@ func TestUpdateFromOlderTrustedStateRejected(t *testing.T) {
 	urequire.ErrorContains(t, c.VerifyClientMessage(hdr), "updates must build on the latest trusted slot")
 }
 
-// The client expires TrustingPeriods sync committee periods after its latest
-// trusted slot: it reports Expired and refuses updates until recovered.
+// The client expires exactly TrustingPeriods sync committee periods' worth of
+// slots after its latest trusted slot, wherever that slot falls in its period:
+// it reports Expired and refuses updates until recovered.
 func TestClientExpires(t *testing.T) {
 	f := fixtureErc20()
 	c, hdr := firstUpdate(t, f)
 	urequire.Equal(t, "Active", string(c.Status()))
 	cs := c.ClientState
-	periodSeconds := cs.EpochsPerSyncCommitteePeriod * cs.SlotsPerEpoch * cs.SecondsPerSlot
-	latestTime := cs.GenesisTime + (cs.LatestSlot-cs.GenesisSlot)*cs.SecondsPerSlot
-	setNow(latestTime + (TrustingPeriods+2)*periodSeconds)
-	urequire.Equal(t, "Expired", string(c.Status()))
+	window := TrustingPeriods * cs.EpochsPerSyncCommitteePeriod * cs.SlotsPerEpoch
+	timeAt := func(slot uint64) uint64 { return cs.GenesisTime + (slot-cs.GenesisSlot)*cs.SecondsPerSlot }
+
+	setNow(timeAt(cs.LatestSlot + window))
+	urequire.Equal(t, "Active", string(c.Status()), "still active at the last slot of the window")
+	setNow(timeAt(cs.LatestSlot + window + 1))
+	urequire.Equal(t, "Expired", string(c.Status()), "expired one slot after the window")
 	urequire.ErrorContains(t, c.VerifyClientMessage(hdr), "client expired")
+}
+
+// Misbehaviour evidence needs the 2/3 supermajority an update needs, not only
+// the configured minimum participation.
+func TestMisbehaviourNeedsSupermajority(t *testing.T) {
+	c, hdr := firstUpdate(t, fixtureErc20())
+	u1 := hdr.ConsensusUpdate
+	u2 := hdr.ConsensusUpdate
+	u2.FinalizedHeader.Beacon.ProposerIndex++ // a different finalized header at the same slot
+	bits := append([]byte{}, u2.SyncAggregate.SyncCommitteeBits...)
+	for i := range bits {
+		bits[i] = 0
+	}
+	n := int(u2.SyncAggregate.size()) * 2 / 3 // one short of 2/3 when size is not a multiple of 3
+	if int(u2.SyncAggregate.size())*2%3 == 0 {
+		n--
+	}
+	for i := 0; i < n; i++ {
+		bits[i/8] |= 1 << uint(i%8)
+	}
+	u2.SyncAggregate.SyncCommitteeBits = bits
+	m := &Misbehaviour{TrustedSlot: hdr.TrustedSlot, ActiveIsNext: hdr.ActiveIsNext, Update1: u1, Update2: u2}
+	urequire.ErrorContains(t, c.VerifyClientMessage(m), "not enough sync committee signatures")
 }
 
 // Misbehaviour is conflicting finality: two updates attesting different heads

@@ -143,7 +143,7 @@ func (c *EthLightClient) verifyHeader(h *Header) error {
 		return err
 	}
 	// Only a 2/3 supermajority may move the client.
-	if u.SyncAggregate.participants()*3 < u.SyncAggregate.size()*2 {
+	if !hasSupermajority(u) {
 		return errors.New("not enough sync committee signatures")
 	}
 	if u.FinalizedHeader.Beacon.Slot <= trusted.Slot {
@@ -350,6 +350,11 @@ func (c *EthLightClient) verifyMisbehaviour(m *Misbehaviour) error {
 	if bytesEqual(m.Update1.FinalizedHeader.Beacon.HashTreeRoot(), m.Update2.FinalizedHeader.Beacon.HashTreeRoot()) {
 		return errors.New("misbehaviour updates finalize the same beacon header")
 	}
+	// Evidence needs the same 2/3 supermajority as an update moving the client,
+	// not only the configured minimum participation.
+	if !hasSupermajority(m.Update1) || !hasSupermajority(m.Update2) {
+		return errors.New("not enough sync committee signatures")
+	}
 	current, err := c.currentSlot()
 	if err != nil {
 		return err
@@ -547,15 +552,23 @@ func commitmentStorageSlot(path, mappingSlot []byte) []byte {
 // can bring it back.
 const TrustingPeriods = 8
 
-// expired reports whether the latest trusted state is older than
-// TrustingPeriods sync committee periods.
+// hasSupermajority reports whether at least 2/3 of the sync committee signed u.
+func hasSupermajority(u LightClientUpdate) bool {
+	return u.SyncAggregate.participants()*3 >= u.SyncAggregate.size()*2
+}
+
+// expired reports whether more than TrustingPeriods sync committee periods'
+// worth of slots have passed since the latest trusted slot. It counts slots,
+// not period numbers, so the window is the same wherever in a period the
+// latest trusted slot falls.
 func (c *EthLightClient) expired() bool {
 	current, err := c.currentSlot()
 	if err != nil {
 		return false
 	}
 	cs := c.ClientState
-	return cs.periodAtSlot(current) > cs.periodAtSlot(cs.LatestSlot)+TrustingPeriods
+	window := TrustingPeriods * cs.EpochsPerSyncCommitteePeriod * cs.SlotsPerEpoch
+	return current > cs.LatestSlot+window
 }
 
 // checkLatestAnchor requires a client message to build on the latest trusted
