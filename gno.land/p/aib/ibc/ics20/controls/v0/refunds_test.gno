@@ -739,3 +739,80 @@ func TestRefundForDeliveredOnlyBySettlement(t *testing.T) {
 		t.Fatalf("%v %+v", err, rt.Denom("ugnot").Totals)
 	}
 }
+
+// One loss per packet and direction, whatever the path (Codex round 9 #3): a
+// paid forged receive is booked by its void or its settlement, never also by
+// a recorded loss, in either order; a send's loss by its settlement or a
+// recorded Ethereum loss, once.
+func TestOneLossPerPacket(t *testing.T) {
+	setup := func() (*Registry, *Route, int64) {
+		r, rt := newRoute(t)
+		mustCredit(t, rt, t0, 5, "ugnot", alice, 3_000, big)
+		rt.PayClaims(t0+Day, 0, t0, "ugnot", 1, big)
+		c, _ := rt.Claim(pk(5))
+		return r, rt, c.Paid
+	}
+	// A recorded loss of a represented receive is refused outright.
+	_, rt, _ := setup()
+	if err := rt.RecordLoss(pk(5), "ugnot", 100, ChainGno, "inc", "forged-delivery"); err == nil {
+		t.Fatalf("recorded a loss of a represented receive")
+	}
+	// Void as forged, then settle as a forged receive: once.
+	r, rt, paid := setup()
+	if err := rt.Void([]string{pk(5)}, true, "inc"); err != nil {
+		t.Fatal(err)
+	}
+	r.Replace("ethereum-1", "ethereum-2", 0, 1000)
+	if _, err := rt.SettleRecords("ethereum-1", []SettleItem{{Seq: 5, Action: SettleForgedReceive, Amount: paid}}, "inc", lockOf(big), activeAll); err == nil {
+		t.Fatalf("settled a voided receive's loss again")
+	}
+	if err := rt.RecordLoss(pk(5), "ugnot", paid, ChainGno, "inc", "forged-delivery"); err == nil {
+		t.Fatalf("recorded a voided receive's loss again")
+	}
+	if rt.Denom("ugnot").Totals.Lost != paid {
+		t.Fatalf("lost %d", rt.Denom("ugnot").Totals.Lost)
+	}
+	// Settle as a forged receive, then void as forged: once.
+	r, rt, paid = setup()
+	r.Replace("ethereum-1", "ethereum-2", 0, 1000)
+	if _, err := rt.SettleRecords("ethereum-1", []SettleItem{{Seq: 5, Action: SettleForgedReceive, Amount: paid}}, "inc", lockOf(big), activeAll); err != nil {
+		t.Fatal(err)
+	}
+	if rt.Void([]string{pk(5)}, true, "inc") == nil || rt.RecordLoss(pk(5), "ugnot", paid, ChainGno, "inc", "collision") == nil {
+		t.Fatalf("booked a settled receive's loss again")
+	}
+	if rt.Denom("ugnot").Totals.Lost != paid {
+		t.Fatalf("lost %d", rt.Denom("ugnot").Totals.Lost)
+	}
+	// A send: a recorded Ethereum loss, then the settlement's, and the
+	// reverse, once each; the send and receive spaces stay apart.
+	for _, recordFirst := range []bool{true, false} {
+		r, rt := newRoute(t)
+		rt.RecordSend(sendRec(1, "ugnot", KindUnescrow, 1_000))
+		rt.Settle(t0, 1, pk(1), OutcomeTimeout, false, big)
+		rt.PayRefunds(t0+Day, "ugnot", 5, false, big)
+		r.Replace("ethereum-1", "ethereum-2", 0, 1000)
+		rec, _ := rt.Send(pk(1))
+		record := func() error { return rt.RecordLoss(pk(1), "ugnot", rec.Refunded, ChainEthereum, "inc", "collision") }
+		settle := func() error {
+			_, err := settleProven(rt, "ethereum-1", []SettleItem{{Seq: 1, Action: SettleLoss, Amount: rec.Refunded}}, "inc", lockOf(big))
+			return err
+		}
+		first, second := settle, record
+		if recordFirst {
+			first, second = record, settle
+		}
+		if rec.Refunded <= 0 {
+			t.Fatalf("no refund paid: %+v", rec)
+		}
+		if err := first(); err != nil {
+			t.Fatal(err)
+		}
+		if second() == nil {
+			t.Fatalf("booked a send's loss twice (record first: %v)", recordFirst)
+		}
+		if !rt.LossBooked(DirSend, pk(1)) || rt.LossBooked(DirRecv, pk(1)) {
+			t.Fatalf("directions")
+		}
+	}
+}

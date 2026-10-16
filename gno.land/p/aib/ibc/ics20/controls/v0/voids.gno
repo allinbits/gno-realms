@@ -20,12 +20,13 @@ const (
 // or a reconciliation outcome, keyed by its packet (ADR pr6375 §7.9).
 // Monitors and guardians cannot record one.
 type Loss struct {
-	Key      string // packet key
-	Denom    string
-	Amount   int64
-	Chain    string
-	Incident string
-	Cause    string // "forged payout", or the reconciliation outcome's words
+	Key       string // packet key
+	Direction string // DirRecv or DirSend: which of the client's packet spaces Key is in
+	Denom     string
+	Amount    int64
+	Chain     string
+	Incident  string
+	Cause     string // "forged payout", or the reconciliation outcome's words
 }
 
 // Recap is a recapitalization a decision authorized: Amount of Denom to be
@@ -42,6 +43,24 @@ type Recap struct {
 }
 
 func lossKey(key, cause string) string { return key + "|" + cause }
+
+// Packet directions of a loss: a packet received on gno.land (its claim or
+// sweep entry), or one gno.land sent (its send record). A client's inbound
+// and outbound sequences are distinct spaces, so the direction is part of a
+// packet's identity.
+const (
+	DirRecv = "recv"
+	DirSend = "send"
+)
+
+// lossID is a packet's economic-loss identity: one loss per packet and
+// direction, whatever its cause, so no payout is booked twice through two
+// paths (a void, a settlement, a recorded loss).
+func lossID(dir, key string) string { return dir + "|" + key }
+
+// LossBooked reports whether a loss of the packet key in direction dir is in
+// the ledger.
+func (rt *Route) LossBooked(dir, key string) bool { return rt.lossIDs.Has(lossID(dir, key)) }
 
 // IncidentTotals is the loss ledger of one incident on one denom: what it
 // lost and how much of that each restoring decision resolved. Resolutions of
@@ -87,8 +106,8 @@ func (rt *Route) resolvable(denom, incident string, skip int64) int64 {
 // claim or sweep entry of key as it stands: an open claim either way, a
 // withheld or paid claim as forged only, a live sweep entry as forged only.
 func (rt *Route) Voidable(key string, forged bool) bool {
-	if rt.losses.Has(lossKey(key, CauseForgedReceive)) {
-		return false // settled as a forged receive: its loss is booked
+	if rt.LossBooked(DirRecv, key) {
+		return false // its loss is booked (a forged-receive settlement or a recorded loss)
 	}
 	if c := rt.claim(key); c != nil {
 		switch c.State {
@@ -171,7 +190,7 @@ func (rt *Route) voidClaim(c *Claim, forged bool, incident string) {
 		c.State = Forged
 	}
 	if forged && c.Paid > 0 {
-		rt.addLoss(d, Loss{Key: c.Key, Denom: c.Denom, Amount: c.Paid, Chain: ChainGno, Incident: incident, Cause: "forged payout"})
+		rt.addLoss(d, Loss{Key: c.Key, Direction: DirRecv, Denom: c.Denom, Amount: c.Paid, Chain: ChainGno, Incident: incident, Cause: "forged payout"})
 	}
 }
 
@@ -195,7 +214,11 @@ func (rt *Route) addLoss(d *Denom, l Loss) {
 	if !ok1 || !ok2 {
 		panic("controls: the loss ledger would overflow")
 	}
+	if l.Direction != DirRecv && l.Direction != DirSend || rt.lossIDs.Has(lossID(l.Direction, l.Key)) {
+		panic("controls: a packet's loss is booked once")
+	}
 	rt.losses.Set(lossKey(l.Key, l.Cause), &l)
+	rt.lossIDs.Set(lossID(l.Direction, l.Key), lossKey(l.Key, l.Cause))
 	d.Totals.Lost = lost
 	it.Lost = itLost
 	rt.lossesBooked++
@@ -402,13 +425,26 @@ func (rt *Route) RecordLoss(key, denom string, amount int64, chain, incident, ca
 	if cause == CauseRefundForDelivered || cause == CauseForgedReceive {
 		return errors.New("controls: a " + cause + " loss is booked by settling its record")
 	}
-	if rt.losses.Has(lossKey(key, cause)) {
-		return errors.New("controls: this loss is recorded already")
+	// A loss on gno.land is of a packet gno.land received; one on Ethereum,
+	// of a sequence gno.land sent (a collision with an honest send, or a
+	// delivery of a sequence it never sent).
+	dir := DirSend
+	if chain == ChainGno {
+		dir = DirRecv
+		// A receive represented here (a claim or a sweep entry) books its
+		// loss by its own operation: a void as forged, or a forged-receive
+		// settlement, which also settle the claim or entry.
+		if rt.claim(key) != nil || rt.sweep(key) != nil {
+			return errors.New("controls: receive " + key + " is represented here: void it as forged or settle it (action 5)")
+		}
+	}
+	if rt.LossBooked(dir, key) {
+		return errors.New("controls: a loss of packet " + key + " is recorded already")
 	}
 	if err := rt.lossFits(denom, incident, amount); err != nil {
 		return err
 	}
-	rt.addLoss(d, Loss{Key: key, Denom: denom, Amount: amount, Chain: chain, Incident: incident, Cause: cause})
+	rt.addLoss(d, Loss{Key: key, Direction: dir, Denom: denom, Amount: amount, Chain: chain, Incident: incident, Cause: cause})
 	return nil
 }
 

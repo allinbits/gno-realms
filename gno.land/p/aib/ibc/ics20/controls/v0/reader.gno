@@ -326,7 +326,7 @@ func hexs(b []byte) string {
 
 // LossJSON is a loss's JSON.
 func LossJSON(l Loss) string {
-	return "{\"key\":" + q(l.Key) + ",\"denom\":" + q(l.Denom) + ",\"amount\":" + itoa(l.Amount) + ",\"chain\":" + q(l.Chain) +
+	return "{\"key\":" + q(l.Key) + ",\"direction\":" + q(l.Direction) + ",\"denom\":" + q(l.Denom) + ",\"amount\":" + itoa(l.Amount) + ",\"chain\":" + q(l.Chain) +
 		",\"incident\":" + q(l.Incident) + ",\"cause\":" + q(l.Cause) + "}"
 }
 

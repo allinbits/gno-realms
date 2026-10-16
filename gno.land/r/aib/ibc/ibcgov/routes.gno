@@ -430,8 +430,11 @@ var lossCauses = map[string]bool{
 }
 
 // NewRecordLossRequest records a loss a reconciliation recognized, after 7
-// days: chain "gno" or "ethereum", cause one of
-// forged-delivery, collision.
+// days: chain "gno" or "ethereum", cause one of forged-delivery, collision.
+// A packet has one loss, whatever the path that books it: a receive
+// represented on gno.land (a claim or a sweep entry) books its loss by a void
+// as forged or a forged-receive settlement, so a "gno" loss of it is refused,
+// and a second loss of any packet is refused (controls.Route.RecordLoss).
 func NewRecordLossRequest(cur realm, route, key, denom string, amount int64, chain, incident, cause string) Request {
 	route = mustRoute(route)
 	mustIncident(incident)

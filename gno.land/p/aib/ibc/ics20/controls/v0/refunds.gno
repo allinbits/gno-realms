@@ -605,7 +605,7 @@ func (rt *Route) SettleRecords(client string, items []SettleItem, incident strin
 			if r.Refunded <= 0 || it.Amount != r.Refunded {
 				return nil, ufmt.Errorf("controls: item %d: a forged refund's loss is what send %s was refunded (%d), not %d", i, key, r.Refunded, it.Amount)
 			}
-			if rt.losses.Has(lossKey(key, CauseRefundForDelivered)) {
+			if rt.LossBooked(DirSend, key) {
 				return nil, ufmt.Errorf("controls: item %d: the loss of %s is recorded already", i, key)
 			}
 			var ok bool
@@ -656,7 +656,7 @@ func (rt *Route) SettleRecords(client string, items []SettleItem, incident strin
 				}
 				c.State = Forged
 			}
-			rt.addLoss(d, Loss{Key: key, Denom: denom, Amount: it.Amount, Chain: ChainGno, Incident: incident, Cause: CauseForgedReceive})
+			rt.addLoss(d, Loss{Key: key, Direction: DirRecv, Denom: denom, Amount: it.Amount, Chain: ChainGno, Incident: incident, Cause: CauseForgedReceive})
 			continue
 		}
 		r := rt.send(key)
@@ -675,7 +675,7 @@ func (rt *Route) SettleRecords(client string, items []SettleItem, incident strin
 				out = append(out, RefundPayment{Key: key, Denom: r.Denom, To: r.Sender, Amount: it.Amount})
 			}
 		case SettleLoss:
-			rt.addLoss(d, Loss{Key: key, Denom: r.Denom, Amount: it.Amount, Chain: ChainGno, Incident: incident, Cause: CauseRefundForDelivered})
+			rt.addLoss(d, Loss{Key: key, Direction: DirSend, Denom: r.Denom, Amount: it.Amount, Chain: ChainGno, Incident: incident, Cause: CauseRefundForDelivered})
 		}
 		rt.release(d, r)
 		r.Settlement = it.Action
@@ -690,7 +690,7 @@ func (rt *Route) SettleRecords(client string, items []SettleItem, incident strin
 // included), or the sweep entry a decision paid. A receive whose forged void
 // booked its loss already, or whose loss is booked, is refused: once.
 func (rt *Route) forgedReceive(key string) (string, int64, error) {
-	if rt.losses.Has(lossKey(key, CauseForgedReceive)) {
+	if rt.LossBooked(DirRecv, key) {
 		return "", 0, errors.New("the loss of receive " + key + " is booked already")
 	}
 	if c := rt.claim(key); c != nil {

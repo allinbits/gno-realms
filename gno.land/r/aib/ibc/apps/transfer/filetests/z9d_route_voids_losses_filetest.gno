@@ -203,6 +203,11 @@ func main(cur realm) {
 	// A loss a reconciliation recognized, and a liability reduction against it.
 	execute(cur, govern(cur, ibcgov.NewRecordLossRequest(cross(cur), route, "ethereum-1/00000000000000000099", "ugnot", 100, "ethereum", "inc-2", "forged-delivery")))
 	println(totals(route))
+	// The forged receive voided above has its loss booked: a recorded loss of
+	// it is refused, so its payout is in the ledger once (Codex round 9 #3).
+	again := govern(cur, ibcgov.NewRecordLossRequest(cross(cur), route, controls.PacketKey(route, 1), "ugnot", 2500, "gno", "inc-2", "forged-delivery"))
+	execute(cur, again)
+	println("the voided receive's loss recorded again:", decided(again), "|", totals(route))
 	execute(cur, govern(cur, ibcgov.NewReduceRequest(cross(cur), route, controls.PacketKey(route, 4), 100, "inc-2")))
 	println("carol:", state(route, 4), "|", totals(route))
 
@@ -221,7 +226,7 @@ func main(cur realm) {
 // alice: open paid 2500 of 3000 | bob: done paid 2000 of 2000 | carol: open paid 2500 of 4000
 // void named: applied - void
 // alice: forged paid 2500 of 3000 | owed 1500 withheld 0 swept 10 lost 2500 unrecovered 2500
-// [{"key":"ethereum-1/00000000000000000001","denom":"ugnot","amount":2500,"chain":"gno","incident":"inc-1","cause":"forged payout"}]
+// [{"key":"ethereum-1/00000000000000000001","direction":"recv","denom":"ugnot","amount":2500,"chain":"gno","incident":"inc-1","cause":"forged payout"}]
 // restore forged: ibcgov: ethereum-1/00000000000000000001 is no withheld claim
 // payouts flagged: false | closed: true | claims paid: 0
 // void not named: pending - queued 7 days
@@ -236,6 +241,7 @@ func main(cur realm) {
 // stale payment: no unpaid recapitalization 2 on route ethereum-1
 // owed 1500 withheld 0 swept 10 lost 2500 unrecovered 500 | closed: false
 // owed 1500 withheld 0 swept 10 lost 2600 unrecovered 600
+// the voided receive's loss recorded again: spent - spent: controls: receive ethereum-1/00000000000000000001 is represented here: void it as forged or settle it (action 5) | owed 1500 withheld 0 swept 10 lost 2600 unrecovered 600
 // carol: open paid 2500 of 3900 | owed 1400 withheld 0 swept 10 lost 2600 unrecovered 500
 // sweep paid: true true
 // credit: spent - spent: packet ethereum-1/00000000000000000042 was never received

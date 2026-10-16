@@ -249,6 +249,7 @@ type Route struct {
 	lossesBooked                int64    // every loss booked: a reopening restarts its scan when it changes
 	reopenLosses                int64    // lossesBooked when the reopening's incident scan started
 	losses                      avl.Tree // loss key -> *Loss
+	lossIDs                     avl.Tree // lossID(direction, packet key) -> loss key: one loss per packet
 	incidents                   avl.Tree // denom|incident -> *IncidentTotals
 	recaps                      avl.Tree // seqKey(id) -> *Recap
 	nRecaps                     int64
