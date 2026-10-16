@@ -77,6 +77,7 @@ func resetUpgradeState() {
 	implCtors = bptree.NewBPTree32()
 	auth = authority.NewWithMembers(chain.PackageAddress(authority.GovDAOPath), chain.PackageAddress(IBCGovPath))
 	blocked = bptree.NewBPTree32()
+	ext = bptree.NewBPTree32()
 }
 
 func registerAs(cur realm, path string, ctor func(Store) Logic) {

@@ -66,6 +66,30 @@ type Logic interface {
 	OnAcknowledgementPacket(_ int, rlm realm, sourceClient, destinationClient string, sequence uint64, acknowledgement []byte, payload types.Payload) error
 }
 
+// ControlsLogic is implemented by an implementation that keeps the Ethereum
+// route controls of ADR pr6375 §7 (impl/v1): the permissionless payouts of
+// the claim queue and of the queued refunds, the recapitalization of a
+// route's escrow, and the governance operations ibcgov decides. The proxy's
+// entry points Claim, ClaimRefunds, Recapitalize and GovApply forward to it
+// non-crossing, as the other entry points do; an implementation without it
+// refuses them.
+type ControlsLogic interface {
+	// Claim pays up to n claims of denom on the route of clientID and
+	// returns how many it paid something on.
+	Claim(_ int, rlm realm, clientID, denom string, n int) int
+	// ClaimRefunds pays up to n queued refunds of denom on the route of
+	// clientID and returns how many it paid something on.
+	ClaimRefunds(_ int, rlm realm, clientID, denom string, n int) int
+	// Recapitalize pays an authorized recapitalization into the escrow of
+	// route: sent is the send envelope of a direct user call (a native
+	// denom), empty otherwise (a GRC20, taken from the caller's allowance).
+	Recapitalize(_ int, rlm realm, sent []chain.Coin, route string, id int64)
+	// GovApply applies a governance operation; it returns "" when applied
+	// and the reason otherwise, which spends the decision. Only ibcgov's
+	// calls reach it.
+	GovApply(_ int, rlm realm, op string, params []byte) string
+}
+
 var (
 	// impl is the active implementation; nil until the first registration.
 	impl        Logic
@@ -162,6 +186,14 @@ func RegisteredImplPaths() []string {
 		return false
 	})
 	return paths
+}
+
+func mustControls() ControlsLogic {
+	c, ok := mustImpl().(ControlsLogic)
+	if !ok {
+		panic("transfer: the active implementation " + implVersion + " keeps no route controls")
+	}
+	return c
 }
 
 func mustImpl() Logic {

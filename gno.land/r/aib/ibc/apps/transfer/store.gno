@@ -43,6 +43,9 @@ type Store interface {
 	// IterateEscrow walks the accounting, clients in key order and their
 	// denoms in key order, until fn returns true.
 	IterateEscrow(fn func(clientID string, c chain.Coin) bool)
+	// Escrowed is the amount of denom accounted to clientID (a client id, or
+	// the route key of a controlled route), 0 if none.
+	Escrowed(clientID, denom string) int64
 
 	// EscrowGRC20 moves c from `from` to this realm (TransferFrom, so the
 	// owner must have approved this realm) and records it under clientID.
@@ -69,6 +72,23 @@ type Store interface {
 	ConsumePendingVoucherSend(_ int, rlm realm) (PendingSend, bool)
 	SetPendingGRC20Send(_ int, rlm realm, sender, sourceClient, denom string, amount int64)
 	ConsumePendingGRC20Send(_ int, rlm realm) (PendingSend, bool)
+
+	// Extension state: values an implementation keeps in this realm under a
+	// key, beside the frozen state above (the Ethereum route controls of
+	// ADR pr6375 §7). InitExt stores ctor() under key once, calling ctor here
+	// so the value is allocated in this realm: ctor must be a /p/-declared
+	// top-level function (as for core.Store.AddClient). Ext returns the
+	// stored value, mutable, to the implementation only. ExtView returns its
+	// read-only view (the value's ReadOnly() result), which anyone may read.
+	InitExt(_ int, rlm realm, key string, ctor func() any)
+	Ext(_ int, rlm realm, key string) any
+	ExtView(key string) any
+}
+
+// ReadOnlyer is implemented by extension values: ReadOnly returns a view
+// that exposes no mutator, which ExtView hands to anyone.
+type ReadOnlyer interface {
+	ReadOnly() any
 }
 
 // PendingSend records the token send that Transfer authorized for
@@ -100,6 +120,9 @@ var (
 	// possible in Transfer where PreviousRealm() is the EOA, to the escrow
 	// accounting done in OnSendPacket.
 	pendingNativeEscrow *chain.Coin
+	// ext holds the implementations' extension state (see Store.InitExt).
+	ext = bptree.NewBPTree32() // key -> value
+
 	// pendingVoucherSend and pendingGRC20Send are set by the voucher and
 	// GRC20 branches of Transfer after the direct user-call guard passes.
 	// OnSendPacket consumes them before burning or escrowing user-owned
@@ -159,6 +182,46 @@ func (transferStore) IterateEscrow(fn func(clientID string, c chain.Coin) bool) 
 		})
 		return stop
 	})
+}
+
+func (transferStore) Escrowed(clientID, denom string) int64 {
+	t := getEscrowForClient(clientID)
+	if t == nil {
+		return 0
+	}
+	x := t.Get(denom)
+	if x == nil {
+		return 0
+	}
+	return x.(chain.Coin).Amount
+}
+
+func (transferStore) InitExt(_ int, rlm realm, key string, ctor func() any) {
+	assertProxyRealm(0, rlm)
+	if ext.Has(key) {
+		return
+	}
+	if ctor == nil {
+		panic("InitExt: nil constructor")
+	}
+	v := ctor()
+	if _, ok := v.(ReadOnlyer); !ok {
+		panic("InitExt: the value has no read-only view")
+	}
+	ext.Set(key, v)
+}
+
+func (transferStore) Ext(_ int, rlm realm, key string) any {
+	assertProxyRealm(0, rlm)
+	return ext.Get(key)
+}
+
+func (transferStore) ExtView(key string) any {
+	v := ext.Get(key)
+	if v == nil {
+		return nil
+	}
+	return v.(ReadOnlyer).ReadOnly()
 }
 
 func (transferStore) EscrowGRC20(_ int, rlm realm, clientID, denomKey string, from address, c chain.Coin) error {
