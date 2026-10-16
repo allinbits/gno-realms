@@ -8,7 +8,6 @@ import (
 	"gno.land/p/aib/decisions/v0"
 	"gno.land/p/aib/ibc/ics20/controls/v0"
 	"gno.land/p/nt/avl/v0"
-	"gno.land/r/aib/ibc/apps/transfer"
 )
 
 // The guardians on gno.land (ADR pr6375 §7.4, R10): six seats, 0–3 the
@@ -238,9 +237,10 @@ func SetFlag(cur realm, route, fn, keys string) {
 	chain.Emit("Flag", "route", route, "fn", fn, "seat", strconv.Itoa(seat), "packets", strconv.Itoa(len(list)))
 }
 
-// ClearFlag clears the caller's own flag on fn of route. A route that
-// recognized losses not yet recapitalized, reduced or accepted stays flagged
-// (ADR pr6375 §7.9: it reopens only after one of those decisions).
+// ClearFlag clears the caller's own flag on fn of route. A route with losses
+// that have no restoring decision stays closed in the transfer app whatever
+// the flags (ADR pr6375 §7.9), so clearing a flag, ending a hold, never
+// reopens it: the restoring decisions the hold would defer can then land.
 func ClearFlag(cur realm, route, fn string) {
 	seat := SeatOf(cur.Previous().Address())
 	if seat < 0 {
@@ -248,9 +248,6 @@ func ClearFlag(cur realm, route, fn string) {
 	}
 	if !flags.Has(flagKey(route, fn, seat)) {
 		panic("ibcgov: no such flag of yours")
-	}
-	if u := unrecovered(route); u > 0 {
-		panic("ibcgov: route " + route + " has " + itoa(u) + " of unrecovered losses: it reopens only after a recapitalization, a reduction or an accepted deficit is decided")
 	}
 	t := now()
 	clearFlag(route, fn, seat, t)
@@ -321,15 +318,6 @@ func Flags(route string) []string {
 		return false
 	})
 	return out
-}
-
-// unrecovered reads from the transfer app the route's losses that still wait
-// for a restoring decision (recapitalized, reduced or accepted).
-func unrecovered(route string) int64 {
-	if rd, ok := transfer.ExtView("controls").(controls.Reader); ok {
-		return rd.Unresolved(route)
-	}
-	return 0
 }
 
 // ------------------------------------------------------------------ seats
@@ -448,9 +436,6 @@ type unpauseRouteParams struct {
 func (*unpauseRouteParams) unpause() {}
 
 func (p *unpauseRouteParams) apply(cur realm, t int64) (string, string) {
-	if u := unrecovered(p.route); u > 0 {
-		return "", "route " + p.route + " has " + itoa(u) + " of unrecovered losses"
-	}
 	n := clearFns(p.route, p.fns, t)
 	if n == 0 {
 		return "", "no flag stood"
@@ -460,8 +445,9 @@ func (p *unpauseRouteParams) apply(cur realm, t int64) (string, string) {
 
 // NewUnpauseRouteRequest clears every seat's flags of fns (comma-separated:
 // sends, credits, payouts, refunds) on route, at once (ADR pr6375 §7.4: on
-// gno.land GovDAO unpauses immediately). Spent under a guardian hold, and
-// while the route has unrecovered losses.
+// gno.land GovDAO unpauses immediately). Spent under a guardian hold. A route
+// with losses that have no restoring decision stays closed in the transfer
+// app all the same.
 func NewUnpauseRouteRequest(cur realm, route, fns string) Request {
 	if !routes.Has(route) {
 		panic("ibcgov: no route " + route)

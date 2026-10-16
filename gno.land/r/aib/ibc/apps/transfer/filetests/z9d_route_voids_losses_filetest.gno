@@ -131,7 +131,7 @@ func decided(id int64) string {
 
 // Voids, restores and the loss ledger (ADR pr6375 §7.9): a void named by a
 // guardian's payouts flag applies at once; a forged void books what was paid
-// as lost; a route with unrecovered losses stays flagged until a
+// as lost; a route with losses stays closed, whatever the flags, until a
 // recapitalization, a reduction or an accepted deficit is decided.
 func main(cur realm) {
 	route := setupRoute(cur)
@@ -159,9 +159,12 @@ func main(cur realm) {
 		ibcgov.NewRestoreRequest(cross(cur), route, controls.PacketKey(route, 1))
 	}))
 
-	// Unrecovered losses keep the route flagged.
-	println("guardian clears:", revive(func() { clearPayouts(cur, route) }))
-	println("unpause:", decided(govern(cur, ibcgov.NewUnpauseRouteRequest(cross(cur), route, "payouts"))))
+	// A loss without a restoring decision closes the route whatever the
+	// flags: the guardian clears its own flag, payouts stay closed.
+	clearPayouts(cur, route)
+	advance(24 * time.Hour)
+	println("payouts flagged:", ibcgov.Flagged(route, ibcgov.FnPayouts), "| closed:", controlsView().Closed(route),
+		"| claims paid:", transfer.Claim(cross(cur), route, "ugnot", 20))
 
 	// A void nobody named waits 7 days; a withheld void is restored at once.
 	voidC := govern(cur, ibcgov.NewVoidRequest(cross(cur), route, controls.PacketKey(route, 4), false, "inc-1"))
@@ -183,9 +186,7 @@ func main(cur realm) {
 
 	// An accepted deficit closes the rest; the route reopens.
 	execute(cur, govern(cur, ibcgov.NewAcceptDeficitRequest(cross(cur), route, "ugnot", 500, "inc-1")))
-	println(totals(route))
-	clearPayouts(cur, route)
-	println("payouts flagged:", ibcgov.Flagged(route, ibcgov.FnPayouts))
+	println(totals(route), "| closed:", controlsView().Closed(route))
 
 	// A loss a reconciliation recognized, and a liability reduction against it.
 	execute(cur, govern(cur, ibcgov.NewRecordLossRequest(cross(cur), route, "ethereum-1/00000000000000000099", "ugnot", 100, "ethereum", "inc-2", "refund-for-delivered")))
@@ -210,8 +211,7 @@ func main(cur realm) {
 // alice: forged paid 2500 of 3000 | owed 1500 withheld 0 swept 10 lost 2500 unrecovered 2500
 // [{"key":"ethereum-1/00000000000000000001","denom":"ugnot","amount":2500,"chain":"gno","incident":"inc-1","cause":"forged payout"}]
 // restore forged: ibcgov: ethereum-1/00000000000000000001 is no withheld claim
-// guardian clears: ibcgov: route ethereum-1 has 2500 of unrecovered losses: it reopens only after a recapitalization, a reduction or an accepted deficit is decided
-// unpause: spent - spent: route ethereum-1 has 2500 of unrecovered losses
+// payouts flagged: false | closed: true | claims paid: 0
 // void not named: pending - queued 7 days
 // carol: withheld paid 2500 of 4000 | owed 0 withheld 1500 swept 10 lost 2500 unrecovered 2500
 // restore: applied - restore
@@ -220,8 +220,7 @@ func main(cur realm) {
 // wrong amount: send exactly 2000ugnot in a direct call
 // recap paid: true true | owed 1500 withheld 0 swept 10 lost 2500 unrecovered 500
 // {"denom":"ugnot","amount":15000,"clients":[{"client":"ethereum-1","amount":15000}]}
-// owed 1500 withheld 0 swept 10 lost 2500 unrecovered 500
-// payouts flagged: false
+// owed 1500 withheld 0 swept 10 lost 2500 unrecovered 500 | closed: false
 // owed 1500 withheld 0 swept 10 lost 2600 unrecovered 600
 // carol: open paid 2500 of 3900 | owed 1400 withheld 0 swept 10 lost 2600 unrecovered 500
 // sweep paid: true true

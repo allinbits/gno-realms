@@ -222,9 +222,12 @@ type Route struct {
 }
 
 // IsClosed reports whether the route is closed: no send, credit, claim
-// payout or refund payout moves on it (ADR pr6375 §7.12). Acknowledgements
-// and timeouts still settle its sends, their refunds queued.
-func (rt *Route) IsClosed() bool { return rt.Closed }
+// payout or refund payout moves on it (ADR pr6375 §7.9, §7.12).
+// Acknowledgements and timeouts still settle its sends, their refunds queued.
+// A route is closed by a replacement until a governed reopening, and while
+// any loss it recorded has no restoring decision: this financial closure is
+// the route's own state, whatever flags the guardians' seats hold or clear.
+func (rt *Route) IsClosed() bool { return rt.Closed || rt.Unresolved() > 0 }
 
 // Reopen reopens a route a replacement closed, by decision (the gno
 // analogue of Ethereum's kind 13): only once every loss the route recorded
