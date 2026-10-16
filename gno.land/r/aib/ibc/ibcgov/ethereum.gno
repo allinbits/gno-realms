@@ -750,16 +750,20 @@ func NewEthHandOverRequest(cur realm, exec, codeHash, migrationCall string) Requ
 }
 
 // NewEthRouteReplacementRequest (kind 10) retires and freezes the router
-// client oldClientID, migrates its route to newClientID (added by kind 6
-// first) and opens IBCAdmin's next epoch over it.
-func NewEthRouteReplacementRequest(cur realm, oldClientID, newClientID string) Request {
+// client oldClientID, migrates its route to newClientID (a custom id added by
+// kind 6 first) and opens IBCAdmin's next epoch over it. suspectFrom is the
+// Ethereum block from which acknowledgements and timeouts processed through
+// the old client are suspect (ADR pr6375 §5.4, §7.12): every send record
+// processed at or after it must be settled by kind 12 before kind 13 reopens
+// the route.
+func NewEthRouteReplacementRequest(cur realm, oldClientID, newClientID string, suspectFrom uint64) Request {
 	mustEthClientID(oldClientID)
 	mustCustomEthClientID(newClientID)
 	if oldClientID == newClientID {
 		panic("ibcgov: the clients differ")
 	}
-	return ethRequest(cur, "route replacement", KindRouteReplace, "replace route "+oldClientID+" by "+newClientID,
-		abi.Encode(abi.String(oldClientID), abi.String(newClientID)))
+	return ethRequest(cur, "route replacement", KindRouteReplace, "replace route "+oldClientID+" by "+newClientID+", suspect from Ethereum block "+u64s(suspectFrom),
+		abi.Encode(abi.String(oldClientID), abi.String(newClientID), abi.Uint64(suspectFrom)))
 }
 
 // NewEthRouteSettingsRequest (kind 11) sets the quarantine of the route of

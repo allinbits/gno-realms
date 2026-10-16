@@ -82,7 +82,7 @@ func main(cur realm) {
 	println("eight items:", len(ibcgov.DispatchBody(1, 3)), "bytes")
 
 	// The recovery's order: replace, settle the retired client, reopen.
-	govern(cur, ibcgov.NewEthRouteReplacementRequest(cross(cur), "client-0", "gnoland-2"))
+	govern(cur, ibcgov.NewEthRouteReplacementRequest(cross(cur), "client-0", "gnoland-2", 1))
 	govern(cur, ibcgov.NewEthSettleRequest(cross(cur), "client-0", "1:3:0"))
 	govern(cur, ibcgov.NewEthReopenRequest(cross(cur), "gnoland-2"))
 	for seq := uint64(4); seq <= 6; seq++ {

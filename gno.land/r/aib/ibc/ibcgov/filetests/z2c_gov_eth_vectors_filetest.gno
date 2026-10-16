@@ -126,7 +126,7 @@ func main(cur realm) {
 		"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc", ""))
 	govern(cur, ibcgov.NewEthRoleRequest(cross(cur), true, 1, "0x8888888888888888888888888888888888888888"))
 	govern(cur, ibcgov.NewEthHandOverRequest(cross(cur), "0x9999999999999999999999999999999999999999", "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd", ""))
-	govern(cur, ibcgov.NewEthRouteReplacementRequest(cross(cur), "client-0", "gnoland-2"))
+	govern(cur, ibcgov.NewEthRouteReplacementRequest(cross(cur), "client-0", "gnoland-2", 0))
 	govern(cur, ibcgov.NewEthRouteSettingsRequest(cross(cur), "client-0", 1209600))
 	govern(cur, ibcgov.NewEthCancelRequest(cross(cur), "2-3"))
 	govern(cur, ibcgov.NewEthRouteSettingsRequest(cross(cur), "client-0", 86400))    // seq 12, for the "spent" acknowledgement
@@ -137,6 +137,10 @@ func main(cur realm) {
 	for _, v := range ethVectors {
 		ours := hex.EncodeToString(ibcgov.DispatchBody(v.epoch, v.seq))
 		switch v.name {
+		case "kind10-route":
+			// ADR pr6375's third amendment added suspectFrom to kind 10; this
+			// fixture predates it (z2b checks the new tuple against viem).
+			println(v.name, ": two-field tuple of the fixture, superseded by (old, new, suspectFrom)")
 		case "conflict-at-seq-1", "spent-unknown-kind", "cancel-beyond-window":
 			println(v.name, ": not ours (another sender's bytes, an unknown kind, or seq", v.seq, ")")
 		default:
@@ -175,7 +179,7 @@ func main(cur realm) {
 // kind7-upgrade : envelope equal true
 // kind8-role-grant-relayer : envelope equal true
 // kind9-handover : envelope equal true
-// kind10-route : envelope equal true
+// kind10-route : two-field tuple of the fixture, superseded by (old, new, suspectFrom)
 // kind11-settings-lengthen : envelope equal true
 // kind1-cancel : envelope equal true
 // duplicate-of-seq-1 : envelope equal true

@@ -61,11 +61,11 @@ func main(cur realm) {
 
 	govern(cur, ibcgov.NewEthRouteSettingsRequest(cross(cur), "gnoland", 86400))
 	govern(cur, ibcgov.NewEthClientRequest(cross(cur), 1, "gnoland.v2", client, "6d61696e", "0x1111111111111111111111111111111111111111", "abababababababababababababababababababababababababababababababab"))
-	govern(cur, ibcgov.NewEthRouteReplacementRequest(cross(cur), "gnoland", "gnoland.v2"))
+	govern(cur, ibcgov.NewEthRouteReplacementRequest(cross(cur), "gnoland", "gnoland.v2", 1))
 	println("dispatched:", ibcgov.LastSeq(1))
 	for _, id := range []string{"channel-1", "client-7", "abc", "gno/land"} {
 		println("add", id+":", revive(func() {
-			govern(cur, ibcgov.NewEthRouteReplacementRequest(cross(cur), "gnoland", id))
+			govern(cur, ibcgov.NewEthRouteReplacementRequest(cross(cur), "gnoland", id, 1))
 		}))
 	}
 	println("settings client-01:", revive(func() { govern(cur, ibcgov.NewEthRouteSettingsRequest(cross(cur), "client-01", 1)) }))
