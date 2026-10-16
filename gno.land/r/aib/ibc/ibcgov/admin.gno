@@ -87,6 +87,9 @@ func (p *adminParams) check() string {
 		}
 		return core.CheckMigrateClient(a[0], a[1], bz)
 	case "transfer update impl":
+		if refusal := firstControls(a[0]); refusal != "" {
+			return refusal
+		}
 		return transfer.CheckUpdateImpl(a[0])
 	case "transfer block":
 		if transfer.IsBlocked(address(a[0])) {
@@ -381,10 +384,27 @@ func forkScheduleText(p ethereum.ForkParameters) string {
 }
 
 // NewTransferUpdateImplRequest activates a registered transfer implementation
-// after 7 days.
+// after 7 days. The first implementation with the route controls is refused:
+// it is activated only by NewTransferActivateControlsRequest, which stages
+// its first route and the legacy refund cap with it. Once an implementation
+// with the controls is active, another one with them installs here.
 func NewTransferUpdateImplRequest(cur realm, path string) Request {
 	mustImplPath(TransferPath, path)
+	if refusal := firstControls(path); refusal != "" {
+		panic("ibcgov: " + refusal)
+	}
 	return adminRequest(cur, "transfer update impl", "transfer: activate the implementation "+path, true, path)
+}
+
+// firstControls refuses installing path if it would be the first active
+// implementation with the route controls (ADR pr6375 R17, §7.3): without the
+// staged activation, the controls would start with no legacy refund cap, and
+// the refunds of impl/v0's returning vouchers could never be paid.
+func firstControls(path string) string {
+	if transfer.KeepsControls(path) && !transfer.KeepsControls(transfer.ImplPath()) {
+		return "the route controls are first activated by a staged activation (NewTransferActivateControlsRequest), with their first route and legacy refund cap"
+	}
+	return ""
 }
 
 // NewTransferBlockRequest blocks an address in the transfer app at once.

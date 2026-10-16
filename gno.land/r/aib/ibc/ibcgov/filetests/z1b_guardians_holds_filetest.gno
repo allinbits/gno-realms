@@ -51,8 +51,8 @@ func execute(cur realm, id int64) {
 func setupRoute(cur realm) string {
 	clientID := core.CreateClient(cross(cur), ethtesting.ClientState(), ethtesting.ConsensusState())
 	core.RegisterCounterparty(cross(cur), clientID, [][]byte{{}}, "client-0")
-	execute(cur, govern(cur, ibcgov.NewTransferUpdateImplRequest(cross(cur), "gno.land/r/aib/ibc/apps/transfer/impl/v1")))
-	execute(cur, govern(cur, ibcgov.NewEnrollRouteRequest(cross(cur), clientID, string(collector))))
+	execute(cur, govern(cur, ibcgov.NewTransferActivateControlsRequest(cross(cur), "gno.land/r/aib/ibc/apps/transfer/impl/v1", clientID, string(collector), "", 10_000)))
+	advance(7*24*time.Hour + time.Second) // the separate enrollment's delay, kept so the timeline stays
 	return clientID
 }
 
@@ -159,15 +159,15 @@ func main(cur realm) {
 // payouts: true credits: true sends: false held: false
 // named: true false
 // held: true
-// execute under a hold: ibcgov: decision 5 is deferred: a guardian hold stands since 1236987094
+// execute under a hold: ibcgov: decision 4 is deferred: a guardian hold stands since 1236987094
 // unpause under a hold: spent - spent: a guardian hold stands, which spends every unpause - sends still flagged: true
 // held right after: true
-// execute 23h later: ibcgov: decision 5 is deferred: a guardian hold stands since 1236987094
+// execute 23h later: ibcgov: decision 4 is deferred: a guardian hold stands since 1236987094
 // held a day later: false relayers: 1
 // payouts epoch: 0 -> 1
 // clear twice: ibcgov: no such flag of yours
 // unpause: applied - cleared 2 flags - credits: false refunds: false
-// replacement on day 7 of the hold: ibcgov: decision 8 is deferred: a guardian hold stands since 1237678295
+// replacement on day 7 of the hold: ibcgov: decision 7 is deferred: a guardian hold stands since 1237678295
 // replacement on day 21: true still held: true
 // seat 1:  sends flags: slice[("sends seat 0 at 1237678295" string)]
 // # IBC governance
@@ -198,36 +198,29 @@ func main(cur realm) {
 // pending: none
 //
 // executed:
-// - #9 applied: set seats 1= (recorded 1239492695, applied 1239492695) — seats 1
-// - #8 applied: set seats 3=g1va6kzunyd9skutfn94hx2a6lta047h6l562e9h (recorded 1237678295, applied 1239492695) — seats 3
-// - #4 applied: set seats 2=g1va6kzunyd9skutfjta047h6lta047h6l2w3lun,3=g1va6kzunyd9skutfnta047h6lta047h6lrgljvn,4=g1washgcmg95697h6lta047h6lta047h6l726ltc,5=g1washgcmg95647h6lta047h6lta047h6lpq3k32 (recorded 1236382293, applied 1236987094) — seats 2,3,4,5
-// - #3 applied: set seats 0=g1va6kzunyd9skutfsta047h6lta047h6lczd94n,1=g1va6kzunyd9skutf3ta047h6lta047h6l3yrg9n (recorded 1235777492, applied 1236382293) — seats 0,1
+// - #8 applied: set seats 1= (recorded 1239492695, applied 1239492695) — seats 1
+// - #7 applied: set seats 3=g1va6kzunyd9skutfn94hx2a6lta047h6l562e9h (recorded 1237678295, applied 1239492695) — seats 3
+// - #3 applied: set seats 2=g1va6kzunyd9skutfjta047h6lta047h6l2w3lun,3=g1va6kzunyd9skutfnta047h6lta047h6lrgljvn,4=g1washgcmg95697h6lta047h6lta047h6l726ltc,5=g1washgcmg95647h6lta047h6lta047h6lpq3k32 (recorded 1236382293, applied 1236987094) — seats 2,3,4,5
+// - #2 applied: set seats 0=g1va6kzunyd9skutfsta047h6lta047h6lczd94n,1=g1va6kzunyd9skutf3ta047h6lta047h6l3yrg9n (recorded 1235777492, applied 1236382293) — seats 0,1
 //
 // ### unpause route
 //
 // pending: none
 //
 // executed:
-// - #7 applied: unpause credits,refunds on route ethereum-1 (recorded 1237678295, applied 1237678295) — cleared 2 flags
-// - #6 spent: unpause sends on route ethereum-1 (recorded 1237591895) — spent: a guardian hold stands, which spends every unpause
+// - #6 applied: unpause credits,refunds on route ethereum-1 (recorded 1237678295, applied 1237678295) — cleared 2 flags
+// - #5 spent: unpause sends on route ethereum-1 (recorded 1237591895) — spent: a guardian hold stands, which spends every unpause
 //
 // ### core add relayer
 //
 // pending: none
 //
 // executed:
-// - #5 applied: core: add relayer g1wfjkcctev4e97h6lta047h6lta047h6lyh98u9 (recorded 1236987094, applied 1237678295) — core add relayer
+// - #4 applied: core: add relayer g1wfjkcctev4e97h6lta047h6lta047h6lyh98u9 (recorded 1236987094, applied 1237678295) — core add relayer
 //
-// ### enroll route
-//
-// pending: none
-//
-// executed:
-// - #2 applied: enroll route ethereum-1 with fee collector g1vdhkcmr9vd6x7ujlta047h6lta047h6lsp3m50 (recorded 1235172691, applied 1235777492) — enroll
-//
-// ### transfer update impl
+// ### transfer activate controls
 //
 // pending: none
 //
 // executed:
-// - #1 applied: transfer: activate the implementation gno.land/r/aib/ibc/apps/transfer/impl/v1 (recorded 1234567890, applied 1235172691) — transfer update impl
+// - #1 applied: transfer: activate gno.land/r/aib/ibc/apps/transfer/impl/v1 with route ethereum-1 (fee collector g1vdhkcmr9vd6x7ujlta047h6lta047h6lsp3m50), legacy refund cap 10000 a day, and denoms none yet (recorded 1234567890, applied 1235172691) — transfer gno.land/r/aib/ibc/apps/transfer/impl/v1 active with route ethereum-1 and 0 denoms

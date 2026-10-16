@@ -626,6 +626,13 @@ func (p *activateParams) apply(cur realm, t int64) (string, string) {
 	return "transfer " + p.path + " active with route " + p.enroll.Route + " and " + strconv.Itoa(len(p.denoms)) + " denoms", ""
 }
 
+func denomsText(names []string) string {
+	if len(names) == 0 {
+		return "none yet"
+	}
+	return strings.Join(names, "; ")
+}
+
 // NewTransferActivateControlsRequest switches the transfer app to the
 // implementation at path (impl/v1: the route controls) after 7 days, staged
 // with its first route: the Ethereum client clientID, enrolled with fee
@@ -634,7 +641,7 @@ func (p *activateParams) apply(cur realm, t int64) (string, string) {
 // the switch, recorded and metered, with no later decision. denoms is a
 // ";"-separated list of "denom kind capFloor supplyCap fee feeFloor sendMax
 // sendMin refundCap remoteToken" (space-separated, as NewSetDenomRequest
-// takes them; remoteToken "-" for none), at most 16. legacyRefundCap, positive,
+// takes them; remoteToken "-" for none), at most 16, or "" for none yet. legacyRefundCap, positive,
 // is the refund meter's day cap of every legacy denom: impl/v0's returns over
 // clients and denoms no decision enabled yet go back through the legacy path,
 // and their genuine refunds are paid as that meter refills.
@@ -681,11 +688,11 @@ func NewTransferActivateControlsRequest(cur realm, path, clientID, feeCollector,
 		p.denoms = append(p.denoms, controls.Params{Route: clientID, Denom: denom, Config: c})
 		names = append(names, denomText(denom, c))
 	}
-	if len(p.denoms) == 0 || len(p.denoms) > maxActivationDenoms {
-		panic("ibcgov: stage 1 to " + strconv.Itoa(maxActivationDenoms) + " denoms")
+	if len(p.denoms) > maxActivationDenoms {
+		panic("ibcgov: stage at most " + strconv.Itoa(maxActivationDenoms) + " denoms")
 	}
 	text := "transfer: activate " + path + " with route " + clientID + " (fee collector " + string(fc) + "), legacy refund cap " +
-		itoa(legacyRefundCap) + " a day, and denoms " + strings.Join(names, "; ")
+		itoa(legacyRefundCap) + " a day, and denoms " + denomsText(names)
 	return propose(cur, "transfer activate controls", text, func(cur realm, made, t int64) {
 		decide(cur, "transfer activate controls", text, p, made, t, true)
 	})
