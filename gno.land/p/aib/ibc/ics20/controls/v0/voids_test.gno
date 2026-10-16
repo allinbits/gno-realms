@@ -710,3 +710,40 @@ func TestLossesNearMaximum(t *testing.T) {
 		t.Fatalf("an unresolved denom left the route open, or a loss closed it like a replacement")
 	}
 }
+
+// Batch losses are summed with checked additions: four or five paid claims
+// of 2^62 voided together would wrap the sum to zero or to a positive value
+// below the truth (Codex round 3 #1).
+func TestBatchLossesNeverWrap(t *testing.T) {
+	for _, n := range []int{4, 5} {
+		_, rt := newRoute(t)
+		var keys []string
+		for i := 0; i < n; i++ {
+			k := pk(uint64(100 + i))
+			rt.claims.Set(k, &Claim{Key: k, Denom: "ibc/WETH", To: alice, Amount: 1 << 62, Paid: 1 << 62, State: Done})
+			keys = append(keys, k)
+		}
+		if err := rt.Void(keys, true, "inc"); err == nil {
+			t.Fatalf("%d claims of 2^62: a wrapped loss was booked: %+v", n, rt.Denom("ibc/WETH").Totals)
+		}
+		if rt.Denom("ibc/WETH").Totals.Lost != 0 {
+			t.Fatalf("a refused void changed the ledger")
+		}
+	}
+	// A settlement's forged refunds are summed the same way.
+	r, rt := newRoute(t)
+	for i := uint64(1); i <= 4; i++ {
+		rec := sendRec(i, "ibc/WETH", KindMint, 1<<62)
+		rt.RecordSend(rec)
+		rt.send(pk(i)).Refunded = 1 << 62
+		rt.send(pk(i)).Outcome = OutcomeTimeout
+	}
+	r.Replace("ethereum-1", "ethereum-2")
+	var items []SettleItem
+	for i := uint64(1); i <= 4; i++ {
+		items = append(items, SettleItem{Seq: i, Action: SettleLoss, Amount: 1 << 62})
+	}
+	if _, err := rt.SettleRecords("ethereum-1", items, "inc", lockOf(0)); err == nil {
+		t.Fatalf("a wrapped settlement loss was booked")
+	}
+}

@@ -444,9 +444,14 @@ func (rt *Route) SettleRecords(client string, items []SettleItem, incident strin
 			if it.Amount <= 0 || it.Amount != r.Amount-r.Refunded {
 				return nil, ufmt.Errorf("controls: item %d: a refund pays send %s's whole remainder (%d), not %d", i, key, r.Amount-r.Refunded, it.Amount)
 			}
-			pays[r.Denom] += it.Amount
+			var ok bool
+			if pays[r.Denom], ok = checkedAdd(pays[r.Denom], it.Amount); !ok {
+				return nil, ufmt.Errorf("controls: item %d: the settlement's payments overflow", i)
+			}
 			if r.Payment == PayQueued {
-				queued[r.Denom] += r.Amount - r.Refunded
+				if queued[r.Denom], ok = checkedAdd(queued[r.Denom], r.Amount-r.Refunded); !ok {
+					return nil, ufmt.Errorf("controls: item %d: the settlement's queued refunds overflow", i)
+				}
 			}
 		case SettleReject:
 			if r.Payment != PayQueued || it.Amount != 0 {
@@ -465,7 +470,10 @@ func (rt *Route) SettleRecords(client string, items []SettleItem, incident strin
 			if rt.losses.Has(lossKey(key, CauseRefundForDelivered)) {
 				return nil, ufmt.Errorf("controls: item %d: the loss of %s is recorded already", i, key)
 			}
-			lossTotals[r.Denom] += it.Amount // each at most a send's amount
+			var ok bool
+			if lossTotals[r.Denom], ok = checkedAdd(lossTotals[r.Denom], it.Amount); !ok {
+				return nil, ufmt.Errorf("controls: item %d: the settlement's losses overflow", i)
+			}
 		default:
 			return nil, ufmt.Errorf("controls: item %d: unknown action %d", i, it.Action)
 		}

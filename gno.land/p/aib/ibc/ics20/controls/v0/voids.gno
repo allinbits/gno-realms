@@ -117,7 +117,11 @@ func (rt *Route) Void(keys []string, forged bool, incident string) error {
 			return errors.New("controls: " + k + " cannot be voided " + voidWord(forged) + " as it stands")
 		}
 		if c := rt.claim(k); c != nil && forged {
-			losses[c.Denom] += c.Paid // each at most a claim's amount: no overflow per key
+			sum, ok := checkedAdd(losses[c.Denom], c.Paid)
+			if !ok {
+				return errors.New("controls: the void's losses would overflow the loss ledger of " + c.Denom)
+			}
+			losses[c.Denom] = sum
 		}
 	}
 	for denom, amount := range losses {
@@ -179,10 +183,26 @@ func (rt *Route) lossFits(denom, incident string, amount int64) error {
 	return nil
 }
 
+// checkedAdd is a + b for non-negative terms, and whether it fits an int64.
+func checkedAdd(a, b int64) (int64, bool) {
+	if a < 0 || b < 0 || b > maxInt64-a {
+		return 0, false
+	}
+	return a + b, true
+}
+
+// addLoss books a loss its caller checked fits (lossFits); an addition that
+// would still overflow is a broken invariant and aborts.
 func (rt *Route) addLoss(d *Denom, l Loss) {
+	lost, ok1 := checkedAdd(d.Totals.Lost, l.Amount)
+	it := rt.incident(l.Denom, l.Incident)
+	itLost, ok2 := checkedAdd(it.Lost, l.Amount)
+	if !ok1 || !ok2 {
+		panic("controls: the loss ledger would overflow")
+	}
 	rt.losses.Set(lossKey(l.Key, l.Cause), &l)
-	d.Totals.Lost += l.Amount
-	rt.incident(l.Denom, l.Incident).Lost += l.Amount
+	d.Totals.Lost = lost
+	it.Lost = itLost
 }
 
 // Restore restores withheld claims (ADR pr6375 §7.9: a withheld void can be
