@@ -127,6 +127,13 @@ func (c *EthLightClient) trustedState(slot uint64, isNext bool) (*ConsensusState
 // verifyHeader implements verify_header.
 func (c *EthLightClient) verifyHeader(h *Header) error {
 	cs := c.ClientState
+	// Updates build on the latest trusted state only, as the spec's single
+	// store does. Anchoring at an older stored state would let a past sync
+	// committee, long rotated out and never slashable, insert state roots
+	// below the latest slot that packet proofs would then accept.
+	if h.TrustedSlot != cs.LatestSlot {
+		return ufmt.Errorf("updates must build on the latest trusted slot %d, not %d", cs.LatestSlot, h.TrustedSlot)
+	}
 	trusted, active, err := c.trustedState(h.TrustedSlot, h.ActiveIsNext)
 	if err != nil {
 		return err

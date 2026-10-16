@@ -129,6 +129,16 @@ func TestProofRejectsTampering(t *testing.T) {
 	urequire.ErrorContains(t, c.VerifyMembership(p.height, nil, ethPath(key), value), "extproof")
 }
 
+// An update anchored at a stored state other than the latest is refused, even
+// a valid one: once the client has moved on, an older committee cannot add
+// state roots behind the latest slot.
+func TestUpdateFromOlderTrustedStateRejected(t *testing.T) {
+	c, hdr := firstUpdate(t, fixtureErc20())
+	c.UpdateState(hdr)
+	urequire.True(t, c.ClientState.LatestSlot > hdr.TrustedSlot, "the update should have advanced the client")
+	urequire.ErrorContains(t, c.VerifyClientMessage(hdr), "updates must build on the latest trusted slot")
+}
+
 // An update that does not advance finality is only accepted when it reveals
 // a next sync committee the trusted state does not know yet.
 func TestUpdateWithoutProgressRejected(t *testing.T) {
