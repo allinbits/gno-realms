@@ -1,6 +1,7 @@
 package controls
 
 import (
+	"strings"
 	"testing"
 
 	"gno.land/p/aib/ibc/types/v0"
@@ -207,7 +208,7 @@ func TestSettleRecords(t *testing.T) {
 	if _, err := rt.SettleRecords("ethereum-1", items, "inc-1", lockOf(big)); err == nil {
 		t.Fatalf("settled the sends of a live client")
 	}
-	if err := r.Replace("ethereum-1", "ethereum-2"); err != nil {
+	if err := r.Replace("ethereum-1", "ethereum-2", 0); err != nil {
 		t.Fatal(err)
 	}
 	before := d.Totals
@@ -271,7 +272,7 @@ func TestSettleReleasesSupply(t *testing.T) {
 	d.Totals.Outstanding = 1_000
 	rt.RecordSend(sendRec(1, "ibc/WETH", KindMint, 400))
 	rt.RecordSend(sendRec(2, "ibc/WETH", KindMint, 300))
-	r.Replace("ethereum-1", "ethereum-2")
+	r.Replace("ethereum-1", "ethereum-2", 0)
 	ps, err := rt.SettleRecords("ethereum-1", []SettleItem{{Seq: 1, Action: SettleDelivered}, {Seq: 2, Action: SettlePay, Amount: 300}}, "inc", lockOf(0))
 	if err != nil || len(ps) != 1 {
 		t.Fatalf("%+v %v", ps, err)
@@ -345,7 +346,7 @@ func TestPendingReturnReservesSupply(t *testing.T) {
 	// A rejected refund frees what it did not refund.
 	rt.RecordSend(sendRec(3, "ibc/WETH", KindMint, 300))
 	rt.Settle(t0+50*Day, 1, pk(3), OutcomeTimeout, true, 0)
-	reg.Replace("ethereum-1", "ethereum-2")
+	reg.Replace("ethereum-1", "ethereum-2", 0)
 	if _, err := rt.SettleRecords("ethereum-1", []SettleItem{{Seq: 3, Action: SettleReject}}, "inc", lockOf(0)); err != nil {
 		t.Fatal(err)
 	}
@@ -408,7 +409,7 @@ func TestReservationReleasedOnce(t *testing.T) {
 	if err := rt.CheckCredit("ibc/WETH", 1); err == nil {
 		t.Fatalf("over the cap")
 	}
-	r.Replace("ethereum-1", "ethereum-2")
+	r.Replace("ethereum-1", "ethereum-2", 0)
 	// Send 1 delivered; send 2's success was forged: its refund is paid.
 	ps, err := rt.SettleRecords("ethereum-1", []SettleItem{{Seq: 1, Action: SettleDelivered}, {Seq: 2, Action: SettlePay, Amount: 300}}, "inc", lockOf(0))
 	if err != nil || len(ps) != 1 {
@@ -435,7 +436,7 @@ func TestSettleRefundPaidInFull(t *testing.T) {
 	rt.RecordSend(sendRec(2, "ugnot", KindUnescrow, 1_000))
 	rt.Settle(t0+Day, 1, pk(1), OutcomeTimeout, false, big) // paid at once
 	rt.Settle(t0+Day, 1, pk(2), OutcomeTimeout, false, big) // paid at once
-	r.Replace("ethereum-1", "ethereum-2")
+	r.Replace("ethereum-1", "ethereum-2", 0)
 	for _, bad := range []SettleItem{{Seq: 1, Action: SettlePay, Amount: 1}, {Seq: 1, Action: SettleDelivered}} {
 		if _, err := rt.SettleRecords("ethereum-1", []SettleItem{bad}, "inc", lockOf(big)); err == nil {
 			t.Fatalf("applied %+v", bad)
@@ -453,6 +454,41 @@ func TestSettleRefundPaidInFull(t *testing.T) {
 		t.Fatalf("settled twice")
 	}
 	if _, err := rt.SettleRecords("ethereum-1", []SettleItem{{Seq: 2, Action: SettleLoss, Amount: 1_000}}, "inc", lockOf(big)); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// A replacement names the height its suspect interval starts at: every send
+// of the old client processed at or after it must be settled before the
+// route reopens, counted in logarithmic work; one processed before it is not
+// (ADR pr6375 §7.12).
+func TestSuspectIntervalBlocksReopen(t *testing.T) {
+	r, rt := newRoute(t)
+	for i := uint64(1); i <= 4; i++ {
+		rt.RecordSend(sendRec(i, "ugnot", KindUnescrow, 1_000))
+	}
+	rt.Settle(t0, 10, pk(1), OutcomeSuccess, false, big)
+	rt.Settle(t0, 20, pk(2), OutcomeSuccess, false, big)
+	rt.Settle(t0, 30, pk(3), OutcomeSuccess, false, big)
+	rt.Settle(t0, 30, pk(4), OutcomeSuccess, false, big)
+	if err := r.Replace("ethereum-1", "ethereum-2", -1); err == nil {
+		t.Fatalf("a negative suspect height")
+	}
+	if err := r.Replace("ethereum-1", "ethereum-2", 20); err != nil {
+		t.Fatal(err)
+	}
+	if n := rt.SuspectUnsettled("ethereum-1"); n != 3 {
+		t.Fatalf("suspect %d", n)
+	}
+	if _, err := rt.Reopen(); err == nil || !strings.Contains(err.Error(), "suspect interval") {
+		t.Fatalf("reopened with suspect records unsettled: %v", err)
+	}
+	rt.SettleRecords("ethereum-1", []SettleItem{{Seq: 2, Action: SettleDelivered}, {Seq: 3, Action: SettleDelivered}}, "inc", lockOf(big))
+	if n := rt.SuspectUnsettled("ethereum-1"); n != 1 {
+		t.Fatalf("suspect %d", n)
+	}
+	rt.SettleRecords("ethereum-1", []SettleItem{{Seq: 4, Action: SettleDelivered}}, "inc", lockOf(big))
+	if _, err := rt.Reopen(); err != nil {
 		t.Fatal(err)
 	}
 }

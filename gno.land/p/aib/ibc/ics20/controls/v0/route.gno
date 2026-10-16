@@ -167,10 +167,13 @@ func (r *Registry) RetiredRouteOf(clientID string) string {
 // route closes in the same step (no send, credit, claim payout or refund
 // payout) until a governed reopening, once the reconciliation's losses all
 // have a restoring decision (Reopen).
-func (r *Registry) Replace(key, newClient string) error {
+func (r *Registry) Replace(key, newClient string, suspectFrom int64) error {
 	rt := r.Route(key)
 	if rt == nil {
 		return errors.New("controls: no route " + key)
+	}
+	if suspectFrom < 0 {
+		return errors.New("controls: a negative suspect height")
 	}
 	if newClient == "" || r.aliases.Has(newClient) || r.retired.Has(newClient) || r.routes.Has(newClient) {
 		return errors.New("controls: client " + newClient + " is a route's client already")
@@ -181,6 +184,7 @@ func (r *Registry) Replace(key, newClient string) error {
 	r.aliases.Set(newClient, key)
 	rt.Client = newClient
 	rt.Replaced = append(rt.Replaced, old)
+	rt.suspect.Set(old, suspectFrom)
 	rt.Closed = true
 	return nil
 }
@@ -216,6 +220,8 @@ type Route struct {
 	sweeps    avl.Tree // packet key -> *SweepEntry
 	sends     avl.Tree // packet key -> *SendRecord
 	openSends avl.Tree // client id -> int64: its open send records
+	processed avl.Tree // client id -> *processedSet: its processed, unsettled send records by height
+	suspect   avl.Tree // retired client id -> int64: the height its suspect interval starts at
 	losses    avl.Tree // loss key -> *Loss
 	incidents avl.Tree // denom|incident -> *IncidentTotals
 	recaps    avl.Tree // seqKey(id) -> *Recap
@@ -261,7 +267,9 @@ func saturatingAdd(a, b int64) int64 {
 // Reopen reopens a route a replacement closed, by decision (the gno
 // analogue of Ethereum's kind 13, ADR pr6375 §5.4): refused while any send
 // record of a retired client is still open (its commitment outstanding or
-// its refund queued, not settled by reconciliation). Every loss not
+// its refund queued, not settled by reconciliation), or was processed (an
+// acknowledgement or a timeout) at or after the replacement's suspect height
+// and is not settled. Every loss not
 // recapitalized or reduced is recorded as an accepted deficit by the reopening
 // itself (§7.9); a recapitalization authorized and not paid yet then finds
 // nothing left to recapitalize. It returns the deficit it accepted.
@@ -272,6 +280,9 @@ func (rt *Route) Reopen() (int64, error) {
 	for _, c := range rt.Replaced {
 		if n := rt.OpenSends(c); n > 0 {
 			return 0, ufmt.Errorf("controls: %d send records of retired client %s are still open: settle them first", n, c)
+		}
+		if n := rt.SuspectUnsettled(c); n > 0 {
+			return 0, ufmt.Errorf("controls: %d send records retired client %s processed in its suspect interval are not settled: settle them first", n, c)
 		}
 	}
 	var accepted int64

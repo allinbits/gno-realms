@@ -62,6 +62,15 @@ func (rd Reader) Client(route string) string {
 	return ""
 }
 
+// SuspectUnsettled is how many send records of a retired client processed
+// in its suspect interval are not settled (see Route.SuspectUnsettled).
+func (rd Reader) SuspectUnsettled(route, clientID string) int64 {
+	if rt := rd.route(route); rt != nil {
+		return rt.SuspectUnsettled(clientID)
+	}
+	return 0
+}
+
 // LossClosed reports whether a route takes no new exposure because a loss
 // has no restoring decision (see Route.ExposureClosed).
 func (rd Reader) LossClosed(route string) bool {

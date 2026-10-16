@@ -180,9 +180,9 @@ func main(cur realm) {
 
 	// The new client: an Active Ethereum client with its counterparty.
 	newClient := core.CreateClient(cross(cur), ethtesting.ClientState(), ethtesting.ConsensusState())
-	println("not registered yet:", revive(func() { govern(cur, ibcgov.NewReplaceRouteRequest(cross(cur), route, newClient)) }))
+	println("not registered yet:", revive(func() { govern(cur, ibcgov.NewReplaceRouteRequest(cross(cur), route, newClient, 1)) }))
 	core.RegisterCounterparty(cross(cur), newClient, [][]byte{{}}, "client-1")
-	replace := govern(cur, ibcgov.NewReplaceRouteRequest(cross(cur), route, newClient))
+	replace := govern(cur, ibcgov.NewReplaceRouteRequest(cross(cur), route, newClient, 1))
 	advance(7*24*time.Hour + time.Second)
 	println("meters before the migration:", meters(route, voucher))
 	ibcgov.Execute(cross(cur), replace)

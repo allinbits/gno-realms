@@ -3,6 +3,8 @@ package controls
 import (
 	"errors"
 
+	"gno.land/p/nt/avl/v0"
+
 	"gno.land/p/aib/ibc/types/v0"
 	"gno.land/p/nt/ufmt/v0"
 )
@@ -184,6 +186,59 @@ func (rt *Route) track(r *SendRecord, was bool) {
 	rt.openSends.Set(client, n)
 }
 
+// processedSet is a client's send records that were processed (an
+// acknowledgement or a timeout attached) and are not settled by
+// reconciliation, ordered by processing height: the records processed at or
+// after a height are counted in logarithmic work (ADR pr6375 §7.12).
+type processedSet struct {
+	root *avl.Node // processedKey -> true
+}
+
+func processedKey(height int64, key string) string { return seqKey(height) + "|" + key }
+
+func (rt *Route) processedOf(client string, create bool) *processedSet {
+	if v := rt.processed.Get(client); v != nil {
+		return v.(*processedSet)
+	}
+	if !create {
+		return nil
+	}
+	ps := &processedSet{}
+	rt.processed.Set(client, ps)
+	return ps
+}
+
+// markProcessed adds a record whose outcome was just attached.
+func (rt *Route) markProcessed(r *SendRecord) {
+	client, _, _ := ParsePacketKey(r.Key)
+	ps := rt.processedOf(client, true)
+	ps.root, _ = ps.root.Set(processedKey(r.ProcessedHeight, r.Key), true)
+}
+
+// unmarkProcessed removes a record a reconciliation settled.
+func (rt *Route) unmarkProcessed(r *SendRecord) {
+	if r.Outcome == OutcomePending {
+		return
+	}
+	client, _, _ := ParsePacketKey(r.Key)
+	if ps := rt.processedOf(client, false); ps != nil {
+		ps.root, _, _, _ = ps.root.Remove(processedKey(r.ProcessedHeight, r.Key))
+	}
+}
+
+// SuspectUnsettled is how many send records of a retired client were
+// processed at or after the replacement's suspect height and are not settled
+// by reconciliation; 0 for a client no replacement retired.
+func (rt *Route) SuspectUnsettled(clientID string) int64 {
+	v := rt.suspect.Get(clientID)
+	ps := rt.processedOf(clientID, false)
+	if v == nil || ps == nil {
+		return 0
+	}
+	below, _, _ := ps.root.Get(seqKey(v.(int64)))
+	return int64(ps.root.Size() - below)
+}
+
 // OpenSends is how many send records of clientID are still open.
 func (rt *Route) OpenSends(clientID string) int64 {
 	if v := rt.openSends.Get(clientID); v != nil {
@@ -244,6 +299,9 @@ func (rt *Route) Settle(now, height int64, key, outcome string, hold bool, lock 
 	d := rt.Denom(r.Denom)
 	defer rt.track(r, isOpen(r))
 	r.Outcome, r.ProcessedHeight, r.ProcessedAt = outcome, height, now
+	if r.Settlement == 0 {
+		rt.markProcessed(r)
+	}
 	if r.Settlement != 0 {
 		return 0, nil // a reconciliation settled it: nothing more moves, nothing is paid
 	}
@@ -503,6 +561,7 @@ func (rt *Route) SettleRecords(client string, items []SettleItem, incident strin
 		r := rt.send(key)
 		d := rt.Denom(r.Denom)
 		was := isOpen(r)
+		rt.unmarkProcessed(r)
 		if r.Payment == PayQueued {
 			rt.unqueue(d, r)
 			r.Payment = PayRejected

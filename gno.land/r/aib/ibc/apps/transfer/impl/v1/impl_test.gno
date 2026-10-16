@@ -16,7 +16,7 @@ func replacedRoute(t *testing.T) *controls.Route {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := reg.Replace("ethereum-1", "ethereum-4"); err != nil {
+	if err := reg.Replace("ethereum-1", "ethereum-4", 0); err != nil {
 		t.Fatal(err)
 	}
 	return rt

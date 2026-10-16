@@ -341,7 +341,7 @@ func (l *logic) GovApply(_ int, rlm realm, op string, params []byte) string {
 		if !isEthereum(p.Client) || core.IsClientRetired(p.Client) {
 			return p.Client + " is no usable Ethereum client"
 		}
-		err = reg.Replace(rt.Key, p.Client)
+		err = reg.Replace(rt.Key, p.Client, p.Height)
 	default:
 		return "unknown operation " + op
 	}

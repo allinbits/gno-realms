@@ -26,7 +26,7 @@ const (
 	OpReduce       = "reduce"       // Route, Key, Amount, Incident
 	OpAccept       = "accept"       // Route, Denom, Amount, Incident
 	OpSettle       = "settle"       // Route, Client (the retired client), Items, Incident
-	OpReplace      = "replace"      // Route, Client (the new client)
+	OpReplace      = "replace"      // Route, Client (the new client), Height (the suspect interval start)
 	OpReopen       = "reopen"       // Route
 )
 
@@ -46,6 +46,7 @@ type Params struct {
 	Amount   int64
 	Config   DenomConfig
 	Items    []SettleItem
+	Height   int64
 }
 
 // Encode writes p in the wire format, every field in a fixed order.
@@ -63,6 +64,7 @@ func (p Params) Encode() []byte {
 	for _, it := range p.Items {
 		w.Uvarint(it.Seq).Uvarint(uint64(it.Action)).Int(it.Amount)
 	}
+	w.Int(p.Height)
 	return w.Bytes()
 }
 
@@ -95,6 +97,7 @@ func DecodeParams(bz []byte) (Params, error) {
 		}
 		p.Items = append(p.Items, SettleItem{Seq: seq, Action: uint8(action), Amount: amount})
 	}
+	p.Height = r.Int()
 	if err := r.Err(); err != nil {
 		return Params{}, ufmt.Errorf("controls: params: %v", err)
 	}
