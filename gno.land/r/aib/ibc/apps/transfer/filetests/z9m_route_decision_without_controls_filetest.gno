@@ -129,28 +129,35 @@ func decided(id int64) string {
 	return d.State() + " - " + d.Note
 }
 
-// A route decision that matures while an implementation without the
-// controls is active (a rollback to impl/v0) is refused and spent; once
-// impl/v1 is back, its old approval never applies (Codex round 3 #3).
+// The controls are never rolled back (ADR pr6375 §5.4; Codex round 5 #4): a
+// decision switching back to impl/v0 once a route has controls is refused
+// and spent, and the route's traffic keeps its records: a send's timeout is
+// refunded through the controls, once.
 func main(cur realm) {
 	route := setupRoute(cur)
-	collector2 := testutils.TestAddress("collector-2")
-	change := govern(cur, ibcgov.NewSetFeeCollectorRequest(cross(cur), route, string(collector2)))
+	execute(cur, govern(cur, ibcgov.NewSetDenomRequest(cross(cur), route, "ugnot", "unescrow", 10_000, 0, 20, 2, 25_000, 40, 10_000, "0x0000000000000000000000000000000000c0ffee")))
+	seq := send(cur, route, 1_000, 1_020, ethReceiver)
+
+	println("rollback check:", transfer.CheckUpdateImpl("gno.land/r/aib/ibc/apps/transfer/impl/v0"))
 	rollback := govern(cur, ibcgov.NewTransferUpdateImplRequest(cross(cur), "gno.land/r/aib/ibc/apps/transfer/impl/v0"))
 	execute(cur, rollback)
-	println("impl:", transfer.ImplVersion())
-	ibcgov.Execute(cross(cur), change)
-	println("collector change under v0:", decided(change))
+	println("rollback:", decided(rollback), "| impl:", transfer.ImplVersion())
 
-	execute(cur, govern(cur, ibcgov.NewTransferUpdateImplRequest(cross(cur), "gno.land/r/aib/ibc/apps/transfer/impl/v1")))
-	println("impl:", transfer.ImplVersion())
-	println("retry:", revive(func() { ibcgov.Execute(cross(cur), change) }))
-	println("collector:", controlsView().FeeCollector(route) == collector)
+	rec, _ := controlsView().Send(route, controls.PacketKey(route, seq))
+	before := ugnot(sender)
+	testing.SetRealm(testing.NewCodeRealm("gno.land/r/aib/ibc/core"))
+	var app transfer.App
+	if err := app.OnTimeoutPacket(cross(cur), route, "client-0", seq, rec.Packet.Payloads[0]); err != nil {
+		panic(err)
+	}
+	testing.SetRealm(testing.NewCodeRealm("gno.land/r/aib/main"))
+	advance(24 * time.Hour)
+	transfer.ClaimRefunds(cross(cur), route, "ugnot", 20)
+	rec, _ = controlsView().Send(route, controls.PacketKey(route, seq))
+	println("refund:", rec.Outcome, rec.Payment, rec.Refunded, "| sender +", ugnot(sender)-before)
 }
 
 // Output:
-// impl: v0
-// collector change under v0: spent - spent: the active implementation v0 keeps no route controls
-// impl: v1
-// retry: ibcgov: decision 3 is spent, not pending
-// collector: true
+// rollback check: transfer: an implementation without the route controls cannot replace them once a route has them
+// rollback: spent - spent: transfer: an implementation without the route controls cannot replace them once a route has them | impl: v1
+// refund: timeout paid 1000 | sender + 1000

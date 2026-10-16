@@ -163,6 +163,9 @@ func install(_ int, rlm realm, path string) {
 	if l == nil {
 		panic(ufmt.Sprintf("implementation %s returned a nil Logic", path))
 	}
+	if refusal := controlsContinuity(l); refusal != "" {
+		panic(refusal)
+	}
 	// A panic in the hook unwinds the transaction: nothing below runs and
 	// nothing the hook wrote persists.
 	l.OnInstall(0, rlm, implPath, implVersion)
@@ -197,10 +200,28 @@ func CheckUpdateImpl(path string) string {
 	if l == nil {
 		return "implementation " + path + " returned a nil Logic"
 	}
+	if refusal := controlsContinuity(l); refusal != "" {
+		return refusal
+	}
 	if ic, ok := l.(InstallChecker); ok {
 		if err := ic.CheckInstall(implPath, implVersion); err != nil {
 			return err.Error()
 		}
+	}
+	return ""
+}
+
+// controlsContinuity refuses an implementation without the route controls
+// once any route has them (ADR pr6375 §5.4): it would move value on Ethereum
+// routes without keeping their send records, meters and supply accounting,
+// so a reinstalled controls implementation would trust stale state (refund
+// a packet a second time). The controls are never rolled back.
+func controlsContinuity(l Logic) string {
+	if _, ok := l.(ControlsLogic); ok {
+		return ""
+	}
+	if rd, ok := store.ExtView("controls").(interface{ Routes() []string }); ok && len(rd.Routes()) > 0 {
+		return "transfer: an implementation without the route controls cannot replace them once a route has them"
 	}
 	return ""
 }

@@ -46,7 +46,10 @@ func (s *E2ETestSuite) TestGovernorUpdateImpl() {
 	}
 }
 
-// TestUpgradeRehearsal is the upgrade runbook end to end on a running chain:
+// TestUpgradeRehearsal is the upgrade runbook end to end on a running chain
+// without Ethereum routes (on a chain whose transfer app keeps route
+// controls, a switch to an implementation without them, such as this
+// rehearsal's v99, is refused: the controls are never rolled back):
 // deploy the v99 candidates with addpkg (their init registers them), switch
 // both realms to them through ibcgov decisions, relay a transfer in each
 // direction through the new implementations, roll back to v0, and relay
