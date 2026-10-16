@@ -367,6 +367,21 @@ func (l *logic) GovApply(_ int, rlm realm, op string, params []byte) string {
 		transfer.EmitRoute(0, rlm, "gov", "op", op, "cap", strconv.FormatInt(p.Amount, 10))
 		return ""
 	}
+	if op == controls.OpBridge {
+		// The activation names every Ethereum client's bridge contracts, so
+		// a legacy route made for one protects them (ADR pr6375 R12).
+		if !isEthereum(p.Route) {
+			return p.Route + " is no Ethereum client"
+		}
+		if len(p.Keys) != 3 {
+			return "a client's bridge contracts are its router, ICS20 transfer and IBCAdmin"
+		}
+		if err := reg.SetBridge(p.Route, p.Keys[0], p.Keys[1], p.Keys[2]); err != nil {
+			return err.Error()
+		}
+		transfer.EmitRoute(0, rlm, "gov", "op", op, "client", p.Route)
+		return ""
+	}
 	if op == controls.OpEnroll {
 		if !isEthereum(p.Route) || core.IsClientRetired(p.Route) {
 			return p.Route + " is no usable Ethereum client"
@@ -380,12 +395,18 @@ func (l *logic) GovApply(_ int, rlm realm, op string, params []byte) string {
 		if err := controls.CheckBridge(p.Keys[0], p.Keys[1], p.Keys[2]); err != nil {
 			return err.Error()
 		}
+		if set, ok := reg.Bridge(p.Route); ok && (set[0] != strings.ToLower(p.Keys[0]) || set[1] != strings.ToLower(p.Keys[1]) || set[2] != strings.ToLower(p.Keys[2])) {
+			return "client " + p.Route + " has other bridge contracts already"
+		}
 		rt, err := reg.Enroll(p.Route, p.To, t, chainHeight())
 		if err != nil {
 			return err.Error()
 		}
 		if err := rt.Protect(p.Keys[0], p.Keys[1], p.Keys[2]); err != nil {
 			panic(err) // checked above, on a route just enrolled
+		}
+		if err := reg.SetBridge(p.Route, p.Keys[0], p.Keys[1], p.Keys[2]); err != nil {
+			panic(err) // checked above
 		}
 		rt.StartImport(core.OutstandingSends(p.Route, transfer.PortID))
 		transfer.EmitRoute(0, rlm, "gov", "op", op, "route", p.Route)

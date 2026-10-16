@@ -29,6 +29,7 @@ const (
 	OpReplace         = "replace"           // Route, Client (the new client), Height (the suspect interval start)
 	OpReopen          = "reopen"            // Route
 	OpLegacyRefundCap = "legacy refund cap" // Amount
+	OpBridge          = "bridge"            // Route (an Ethereum client), Keys (its router, ICS20 transfer, IBCAdmin)
 )
 
 // Params are the parameters of a governance operation; each operation reads

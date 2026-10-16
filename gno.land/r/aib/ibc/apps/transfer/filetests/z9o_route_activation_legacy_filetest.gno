@@ -65,7 +65,7 @@ func execute(cur realm, id int64) {
 func setupRoute(cur realm) string {
 	clientID := core.CreateClient(cross(cur), ethtesting.ClientState(), ethtesting.ConsensusState())
 	core.RegisterCounterparty(cross(cur), clientID, [][]byte{{}}, "client-0")
-	execute(cur, govern(cur, ibcgov.NewTransferActivateControlsRequest(cross(cur), "gno.land/r/aib/ibc/apps/transfer/impl/v1", clientID, string(collector), bridge, "", 10_000)))
+	execute(cur, govern(cur, ibcgov.NewTransferActivateControlsRequest(cross(cur), "gno.land/r/aib/ibc/apps/transfer/impl/v1", clientID, string(collector), bridge, "", "", 10_000)))
 	advance(7*24*time.Hour + time.Second) // the separate enrollment's delay, kept so the timeline stays
 	return clientID
 }
@@ -113,10 +113,13 @@ func refundState(client string, seq uint64) string {
 
 // returnVoucher sends amount of bob's vouchers back to Ethereum.
 func returnVoucher(cur realm, client, voucher string, amount int64) (types.MsgSendPacket, uint64) {
+	return returnVoucherTo(cur, client, voucher, amount, ethReceiver)
+}
+
+func returnVoucherTo(cur realm, client, voucher string, amount int64, to string) (types.MsgSendPacket, uint64) {
 	testing.SetRealm(testing.NewUserRealm(bob))
-	packet, seq := transfer.Transfer(cross(cur), client, ethReceiver, voucher, amount, uint64(time.Now().Add(time.Hour).Unix()), "")
-	testing.SetRealm(testing.NewCodeRealm("gno.land/r/aib/main"))
-	return packet, seq
+	defer testing.SetRealm(testing.NewCodeRealm("gno.land/r/aib/main"))
+	return transfer.Transfer(cross(cur), client, to, voucher, amount, uint64(time.Now().Add(time.Hour).Unix()), "")
 }
 
 func backfill(cur realm, p types.Packet) {
@@ -162,9 +165,32 @@ func main(cur realm) {
 	msg, legacySeq := returnVoucher(cur, a, vouchers[0], 40) // under impl/v0, outstanding across the switch
 	legacy := types.NewPacket(legacySeq, a, "client-0", msg.TimeoutTimestamp, msg.Payloads[0])
 
-	execute(cur, govern(cur, ibcgov.NewTransferActivateControlsRequest(cross(cur), "gno.land/r/aib/ibc/apps/transfer/impl/v1",
-		a, string(collector), bridge, token(1)+" mint 4000 10000 10 1 0 0 4000 -", 4000)))
+	const bBridge = "0x00000000000000000000000000000000000b0021 0x00000000000000000000000000000000000b0022 0x00000000000000000000000000000000000b0023"
+	println("without the second client's contracts:", revive(func() {
+		ibcgov.NewTransferActivateControlsRequest(cross(cur), "gno.land/r/aib/ibc/apps/transfer/impl/v1", a, string(collector), bridge, "", "", 4000)
+	}))
+	activate := govern(cur, ibcgov.NewTransferActivateControlsRequest(cross(cur), "gno.land/r/aib/ibc/apps/transfer/impl/v1",
+		a, string(collector), bridge, b+" "+bBridge, token(1)+" mint 4000 10000 10 1 0 0 4000 -", 4000))
+	// A third client, created after the decision and never named in it,
+	// mints vouchers under impl/v0 before the switch.
+	c := core.CreateClient(cross(cur), ethtesting.ClientState(), ethtesting.ConsensusState())
+	core.RegisterCounterparty(cross(cur), c, [][]byte{{}}, "client-0")
+	recv(cur, c, 1, weth, bob.String(), 100)
+	onC := ics20.NewDenom(weth, ics20.NewHop("transfer", c)).IBCDenom()
+	execute(cur, activate)
 	println("impl:", transfer.ImplVersion(), "| denoms enabled on", a, ":", len(controlsView().Denoms(a)))
+
+	// Right after the switch, the second client's vouchers never go to its
+	// own bridge contracts (Codex round 7 #4), and the third client's never
+	// to any bridge contract known.
+	for _, to := range []string{"0x00000000000000000000000000000000000b0021", "0x00000000000000000000000000000000000B0022", "0x00000000000000000000000000000000000b0023"} {
+		println("return on", b, "to", to+":", revive(func() { returnVoucherTo(cur, b, onB, 1, to) }))
+	}
+	println("return on", c, "to a's router:", revive(func() { returnVoucherTo(cur, c, onC, 1, "0x00000000000000000000000000000000000b0001") }),
+		"| to b's IBCAdmin:", revive(func() { returnVoucherTo(cur, c, onC, 1, "0x00000000000000000000000000000000000b0023") }))
+	_, seqC := returnVoucherTo(cur, c, onC, 1, ethReceiver)
+	_, okC := controlsView().Send(c, controls.PacketKey(c, seqC))
+	println("an ordinary return on", c, "recorded:", okC)
 
 	// Every voucher goes back at once, the 17 denoms no decision enabled and
 	// the second client's included, recorded.
@@ -230,7 +256,13 @@ func main(cur realm) {
 }
 
 // Output:
+// without the second client's contracts: ibcgov: name the bridge contracts of every Ethereum client: ethereum-2 is missing
 // impl: v1 | denoms enabled on ethereum-1 : 1
+// return on ethereum-2 to 0x00000000000000000000000000000000000b0021: the receiver is a contract of the bridge
+// return on ethereum-2 to 0x00000000000000000000000000000000000B0022: the receiver is a contract of the bridge
+// return on ethereum-2 to 0x00000000000000000000000000000000000b0023: the receiver is a contract of the bridge
+// return on ethereum-3 to a's router: the receiver is a contract of the bridge | to b's IBCAdmin: the receiver is a contract of the bridge
+// an ordinary return on ethereum-3 recorded: true
 // legacy returns recorded: 17 of 17 | on ethereum-2 : true | legacy route: true
 // credit before the backfill: (2 gno.land/p/aib/ibc/types/v0.PacketStatus)
 // credit after it: (1 gno.land/p/aib/ibc/types/v0.PacketStatus)

@@ -113,6 +113,9 @@ type Registry struct {
 	retired avl.Tree // retired client id -> route key
 
 	legacyRefundCap int64 // the refund cap of the legacy denoms, set by the activation
+
+	bridges     avl.Tree // client id -> [3]string: its router, ICS20 transfer and IBCAdmin
+	bridgeAddrs avl.Tree // lower-case address -> true: every known bridge contract
 }
 
 // NewRegistry is an empty registry.
@@ -163,6 +166,50 @@ func (r *Registry) SetLegacyRefundCap(n int64) error {
 // activation approved one).
 func (r *Registry) LegacyRefundCap() int64 { return r.legacyRefundCap }
 
+// SetBridge records the bridge contracts of an Ethereum client (its router,
+// ICS20 transfer and IBCAdmin): the staged activation names them for every
+// Ethereum client, so the legacy route a voucher return makes for a client no
+// decision enrolled protects them from its creation (ADR pr6375 R12, §7.8),
+// and an enrolment records its own. A client's set is recorded once; the
+// same set again is accepted.
+func (r *Registry) SetBridge(clientID, router, ics20, ibcAdmin string) error {
+	if err := CheckBridge(router, ics20, ibcAdmin); err != nil {
+		return err
+	}
+	set := [3]string{strings.ToLower(router), strings.ToLower(ics20), strings.ToLower(ibcAdmin)}
+	if v := r.bridges.Get(clientID); v != nil {
+		if v.([3]string) != set {
+			return errors.New("controls: client " + clientID + " has other bridge contracts already")
+		}
+		return nil
+	}
+	r.bridges.Set(clientID, set)
+	for _, a := range set {
+		r.bridgeAddrs.Set(a, true)
+	}
+	if rt := r.RouteOf(clientID); rt != nil && !rt.bridged {
+		rt.Protect(set[0], set[1], set[2])
+	}
+	return nil
+}
+
+// Bridge is the bridge contracts recorded for clientID, if any.
+func (r *Registry) Bridge(clientID string) ([3]string, bool) {
+	v := r.bridges.Get(clientID)
+	if v == nil {
+		return [3]string{}, false
+	}
+	return v.([3]string), true
+}
+
+// IsBridgeContract reports whether addr (any case) is a bridge contract of
+// any client the registry knows: what a legacy route whose own contracts are
+// unknown (a client created after the activation and never enrolled) refuses
+// as a recipient.
+func (r *Registry) IsBridgeContract(addr string) bool {
+	return r.bridgeAddrs.Has(strings.ToLower(addr))
+}
+
 // Legacy is the route of an Ethereum client no decision enrolled, made on
 // first use: the legacy path that keeps impl/v0's vouchers going back after
 // the switch to the controls (ADR pr6375 R17). It records and meters their
@@ -173,6 +220,9 @@ func (r *Registry) Legacy(clientID string) *Route {
 		return rt
 	}
 	rt := &Route{Key: clientID, Client: clientID, Legacy: true}
+	if set, ok := r.Bridge(clientID); ok {
+		rt.Protect(set[0], set[1], set[2])
+	}
 	r.routes.Set(clientID, rt)
 	r.aliases.Set(clientID, clientID)
 	return rt
@@ -535,11 +585,14 @@ const (
 // are set. Each voucher token a denom names (DenomConfig.Remote) is
 // protected as it is configured.
 func (rt *Route) Protect(router, ics20, ibcAdmin string) error {
-	if rt.bridged {
-		return errors.New("controls: the bridge contracts of route " + rt.Key + " are set already")
-	}
 	if err := CheckBridge(router, ics20, ibcAdmin); err != nil {
 		return err
+	}
+	if rt.bridged {
+		if rt.protectedAs(router, RoleRouter) && rt.protectedAs(ics20, RoleICS20) && rt.protectedAs(ibcAdmin, RoleIBCAdmin) {
+			return nil // the same set again: a legacy route the activation protected, now enrolled
+		}
+		return errors.New("controls: the bridge contracts of route " + rt.Key + " are set already, to others")
 	}
 	rt.protected.Set(strings.ToLower(router), RoleRouter)
 	rt.protected.Set(strings.ToLower(ics20), RoleICS20)
@@ -562,6 +615,11 @@ func CheckBridge(router, ics20, ibcAdmin string) error {
 		}
 	}
 	return nil
+}
+
+func (rt *Route) protectedAs(addr, role string) bool {
+	v := rt.protected.Get(strings.ToLower(addr))
+	return v != nil && v.(string) == role
 }
 
 // Bridged reports whether the route's bridge contracts are protected.

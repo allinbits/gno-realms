@@ -626,6 +626,7 @@ type activateParams struct {
 	legacyRefundCap int64
 	enroll          controls.Params
 	denoms          []controls.Params
+	bridges         []controls.Params // every other Ethereum client's bridge contracts
 }
 
 func (p *activateParams) apply(cur realm, t int64) (string, string) {
@@ -654,6 +655,11 @@ func (p *activateParams) apply(cur realm, t int64) (string, string) {
 	if refusal := transfer.GovApply(cross(cur), controls.OpLegacyRefundCap, controls.Params{Amount: p.legacyRefundCap}.Encode()); refusal != "" {
 		panic("ibcgov: the legacy refund cap could not be set: " + refusal)
 	}
+	for _, b := range p.bridges {
+		if refusal := transfer.GovApply(cross(cur), controls.OpBridge, b.Encode()); refusal != "" {
+			panic("ibcgov: the bridge contracts of " + b.Route + " could not be recorded: " + refusal)
+		}
+	}
 	if refusal := transfer.GovApply(cross(cur), controls.OpEnroll, p.enroll.Encode()); refusal != "" {
 		panic("ibcgov: the staged route could not be enrolled: " + refusal)
 	}
@@ -664,6 +670,43 @@ func (p *activateParams) apply(cur realm, t int64) (string, string) {
 		}
 	}
 	return "transfer " + p.path + " active with route " + p.enroll.Route + " and " + strconv.Itoa(len(p.denoms)) + " denoms", ""
+}
+
+// mustOtherBridges reads the bridge contracts of every Ethereum client other
+// than the activated one: a ";"-separated list of "clientID router ics20
+// ibcAdmin". Every Ethereum client the core holds and has not retired must
+// be named, so the legacy route a voucher return makes for any of them
+// protects its contracts from the switch on (ADR pr6375 R12, §7.8); a client
+// created later, never enrolled, refuses every contract known.
+func mustOtherBridges(activated, list string) []controls.Params {
+	var out []controls.Params
+	seen := map[string]bool{}
+	for _, entry := range strings.Split(list, ";") {
+		f := strings.Fields(entry)
+		if len(f) == 0 {
+			continue
+		}
+		if len(f) != 4 {
+			panic("ibcgov: another client's bridge contracts are \"clientID router ics20 ibcAdmin\", not " + entry)
+		}
+		client := f[0]
+		switch {
+		case client == activated:
+			panic("ibcgov: " + client + " is the activated route: its contracts are the bridge argument")
+		case core.ClientType(client) != ethereum.ClientType:
+			panic("ibcgov: " + client + " is not an Ethereum client")
+		case seen[client]:
+			panic("ibcgov: " + client + " named twice")
+		}
+		seen[client] = true
+		out = append(out, controls.Params{Route: client, Keys: mustBridge(strings.Join(f[1:], " "))})
+	}
+	for _, id := range core.ClientIDs() {
+		if id != activated && !seen[id] && core.ClientType(id) == ethereum.ClientType && !core.IsClientRetired(id) {
+			panic("ibcgov: name the bridge contracts of every Ethereum client: " + id + " is missing")
+		}
+	}
+	return out
 }
 
 func denomsText(names []string) string {
@@ -677,7 +720,8 @@ func denomsText(names []string) string {
 // implementation at path (impl/v1: the route controls) after 7 days, staged
 // with its first route: the Ethereum client clientID, enrolled with fee
 // collector feeCollector and the protected bridge contracts bridge ("router
-// ics20 ibcAdmin"), and the denoms it carries, enabled in the same
+// ics20 ibcAdmin"), the bridge contracts of every other Ethereum client
+// (otherBridges, see mustOtherBridges), and the denoms it carries, enabled in the same
 // transaction (ADR pr6375 R17). Vouchers impl/v0 minted go back at once after
 // the switch, recorded and metered, with no later decision. denoms is a
 // ";"-separated list of "denom kind capFloor supplyCap fee feeFloor sendMax
@@ -687,7 +731,7 @@ func denomsText(names []string) string {
 // denom: impl/v0's returns over clients and denoms no decision enabled yet go
 // back through the legacy path, and their genuine refunds are paid as that
 // meter refills.
-func NewTransferActivateControlsRequest(cur realm, path, clientID, feeCollector, bridge, denoms string, legacyRefundCap int64) Request {
+func NewTransferActivateControlsRequest(cur realm, path, clientID, feeCollector, bridge, otherBridges, denoms string, legacyRefundCap int64) Request {
 	mustImplPath(TransferPath, path)
 	if refusal := checkNewRouteClient(clientID); refusal != "" {
 		panic("ibcgov: " + refusal)
@@ -701,6 +745,7 @@ func NewTransferActivateControlsRequest(cur realm, path, clientID, feeCollector,
 		panic("ibcgov: the legacy refund cap is positive")
 	}
 	p := &activateParams{path: path, legacyRefundCap: legacyRefundCap, enroll: controls.Params{Route: clientID, To: fc, Keys: b}}
+	p.bridges = mustOtherBridges(clientID, otherBridges)
 	var names []string
 	seen := map[string]bool{}
 	for _, spec := range strings.Split(denoms, ";") {
@@ -734,7 +779,14 @@ func NewTransferActivateControlsRequest(cur realm, path, clientID, feeCollector,
 	if len(p.denoms) > maxActivationDenoms {
 		panic("ibcgov: stage at most " + strconv.Itoa(maxActivationDenoms) + " denoms")
 	}
-	text := "transfer: activate " + path + " with route " + clientID + " (fee collector " + string(fc) + "; " + bridgeText(b) + "), legacy refund cap " +
+	var others []string
+	for _, o := range p.bridges {
+		others = append(others, o.Route+": "+bridgeText(o.Keys))
+	}
+	if len(others) == 0 {
+		others = append(others, "none")
+	}
+	text := "transfer: activate " + path + " with route " + clientID + " (fee collector " + string(fc) + "; " + bridgeText(b) + "; other Ethereum clients' bridge contracts " + strings.Join(others, "; ") + "), legacy refund cap " +
 		itoa(legacyRefundCap) + " a day, and denoms " + denomsText(names)
 	return propose(cur, "transfer activate controls", text, func(cur realm, made, t int64) {
 		decide(cur, "transfer activate controls", text, p, made, t, true)

@@ -66,8 +66,9 @@ func toInternal(d ics20.Denom, rt *controls.Route) ics20.Denom {
 // checkRecipient applies the send-side recipient filters (ADR pr6375 §7.8):
 // the receiver is an Ethereum address, not the zero address, not one reserved
 // at or below 0xffff, not one of the route's refused bridge contracts and not
-// the token itself.
-func checkRecipient(rt *controls.Route, receiver, token string) {
+// the token itself; a route whose own contracts are unknown refuses every
+// bridge contract the registry knows.
+func checkRecipient(reg *controls.Registry, rt *controls.Route, receiver, token string) {
 	a, err := ethaddr.Parse(receiver)
 	if err != nil {
 		panic("the receiver is " + err.Error())
@@ -80,6 +81,10 @@ func checkRecipient(rt *controls.Route, receiver, token string) {
 	case strings.EqualFold(a.Lower(), token):
 		panic("the receiver is the token itself")
 	case rt.IsRefused(a.Lower()):
+		panic("the receiver is a contract of the bridge")
+	case !rt.Bridged() && reg.IsBridgeContract(a.Lower()):
+		// A legacy route whose own contracts no decision named (a client
+		// created after the activation): every known bridge contract.
 		panic("the receiver is a contract of the bridge")
 	}
 }
@@ -139,7 +144,7 @@ func (l *logic) Transfer(_ int, rlm realm, sent []chain.Coin, clientID, receiver
 		if acc.Config.Kind != controls.KindMint {
 			panic(ufmt.Sprintf("denom %s is accounted as %s on route %s", denom, acc.Config.Kind, rt.Key))
 		}
-		checkRecipient(rt, receiver, strings.ToLower(d.Base))
+		checkRecipient(l.registry(0, rlm), rt, receiver, strings.ToLower(d.Base))
 		wireDenom = toWire(d, rt).Path()
 		l.store.SetPendingVoucherSend(0, rlm, sender.String(), clientID, wireDenom, amount)
 		accDenom, kind = denom, controls.KindMint
@@ -149,7 +154,7 @@ func (l *logic) Transfer(_ int, rlm realm, sent []chain.Coin, clientID, receiver
 		}
 		alias := transfer.GRC20Alias(denom)
 		acc := l.mustSendable(rt, alias, amount)
-		checkRecipient(rt, receiver, acc.Config.Remote)
+		checkRecipient(l.registry(0, rlm), rt, receiver, acc.Config.Remote)
 		fee = acc.Config.Fee
 		if fee > 0 {
 			c := chain.NewCoin(alias, fee)
@@ -166,7 +171,7 @@ func (l *logic) Transfer(_ int, rlm realm, sent []chain.Coin, clientID, receiver
 		panic(ufmt.Sprintf("GRC20 token %s not found in grc20reg", denom))
 	default:
 		acc := l.mustSendable(rt, denom, amount)
-		checkRecipient(rt, receiver, acc.Config.Remote)
+		checkRecipient(l.registry(0, rlm), rt, receiver, acc.Config.Remote)
 		fee = acc.Config.Fee
 		if amount > math.MaxInt64-fee {
 			panic("the amount plus the route fee overflows")
