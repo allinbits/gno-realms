@@ -108,7 +108,7 @@ func main(cur realm) {
 
 	execute(cur, govern(cur, ibcgov.NewTransferUpdateImplRequest(cross(cur), "gno.land/r/aib/ibc/apps/transfer/impl/v1")))
 	execute(cur, govern(cur, ibcgov.NewEnrollRouteRequest(cross(cur), client, string(collector))))
-	execute(cur, govern(cur, ibcgov.NewSetDenomRequest(cross(cur), client, weth, "mint", 4_000, 1_000, 10, 1, 0, 0, 4_000)))
+	execute(cur, govern(cur, ibcgov.NewSetDenomRequest(cross(cur), client, weth, "mint", 4_000, 1_000, 10, 1, 0, 0, 4_000, "")))
 	t, _ := controlsView().Totals(client, voucher)
 	println("outstanding at enable:", t.Outstanding)
 

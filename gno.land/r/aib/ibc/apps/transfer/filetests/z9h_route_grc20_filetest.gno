@@ -98,8 +98,12 @@ func controlsView() controls.Reader { return transfer.ExtView("controls").(contr
 func ugnot(a address) int64 { return banker.NewReadonlyBanker().GetCoin(a, "ugnot") }
 
 func sendGRC20(cur realm, route string, amount int64) uint64 {
+	return sendGRC20To(cur, route, amount, ethReceiver)
+}
+
+func sendGRC20To(cur realm, route string, amount int64, receiver string) uint64 {
 	testing.SetRealm(testing.NewUserRealm(sender))
-	_, seq := transfer.Transfer(cross(cur), route, ethReceiver, token, amount, uint64(time.Now().Add(time.Hour).Unix()), "")
+	_, seq := transfer.Transfer(cross(cur), route, receiver, token, amount, uint64(time.Now().Add(time.Hour).Unix()), "")
 	testing.SetRealm(testing.NewCodeRealm("gno.land/r/aib/main"))
 	return seq
 }
@@ -111,11 +115,14 @@ func sendGRC20(cur realm, route string, amount int64) uint64 {
 func main(cur realm) {
 	route := setupRoute(cur)
 	alias := transfer.GRC20Alias(token)
-	execute(cur, govern(cur, ibcgov.NewSetDenomRequest(cross(cur), route, alias, "unescrow", 10_000, 0, 20, 2, 25_000, 40, 10_000)))
+	execute(cur, govern(cur, ibcgov.NewSetDenomRequest(cross(cur), route, alias, "unescrow", 10_000, 0, 20, 2, 25_000, 40, 10_000, "0x0000000000000000000000000000000000c0ffee")))
 
 	transferAddr := chain.PackageAddress(transfer.PkgPath)
 	grc20test.Mint(cross(cur), sender, 5_000)
 	grc20test.Approve(cross(cur), sender, transferAddr, 1_000)
+	// Its GnoVoucher on Ethereum could never move what it receives (Codex
+	// review #17).
+	println("to its Ethereum token:", revive(func() { sendGRC20To(cur, route, 100, "0x0000000000000000000000000000000000C0FFEE") }))
 	println("allowance below amount + fee:", revive(func() { sendGRC20(cur, route, 990) }))
 	// revive keeps what ran before the abort (on chain the whole transaction
 	// reverts): start again from fresh balances.
@@ -150,6 +157,7 @@ func main(cur realm) {
 }
 
 // Output:
+// to its Ethereum token: the receiver is the token itself
 // allowance below amount + fee: send packet failed for payload #0 app "transfer": escrow GRC20 gno.land/r/aib/ibc/apps/testing/grc20test.TEST error: insufficient allowance
 // sent 2 | sender 4000 | collector + 20 | realm 980
 // {"denom":"gno.land:r:aib:ibc:apps:testing:grc20test.TEST","amount":980,"clients":[{"client":"ethereum-1","amount":980}]}

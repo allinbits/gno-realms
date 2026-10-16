@@ -73,7 +73,7 @@ func main(cur realm) {
 	// The transfer app carries a packet from the router client "gnoland".
 	execute(cur, govern(cur, ibcgov.NewTransferUpdateImplRequest(cross(cur), "gno.land/r/aib/ibc/apps/transfer/impl/v1")))
 	execute(cur, govern(cur, ibcgov.NewEnrollRouteRequest(cross(cur), client, string(collector))))
-	execute(cur, govern(cur, ibcgov.NewSetDenomRequest(cross(cur), client, weth, "mint", 4_000, 10_000, 10, 1, 0, 0, 4_000)))
+	execute(cur, govern(cur, ibcgov.NewSetDenomRequest(cross(cur), client, weth, "mint", 4_000, 10_000, 10, 1, 0, 0, 4_000, "")))
 	data := ics20.NewFungibleTokenPacketData(weth, "100", "0x5f67a5398d91087d1b37a8a43436196a7830867f", bob.String(), "")
 	bz, _ := abi.Marshal(data)
 	payload := types.Payload{SourcePort: "transfer", DestinationPort: "transfer", Version: "ics20-1", Encoding: abi.Encoding, Value: bz}

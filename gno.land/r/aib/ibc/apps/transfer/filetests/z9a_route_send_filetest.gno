@@ -100,7 +100,7 @@ func ugnot(a address) int64 { return banker.NewReadonlyBanker().GetCoin(a, "ugno
 func main(cur realm) {
 	route := setupRoute(cur)
 	println("before the denom:", revive(func() { send(cur, route, 100, 120, ethReceiver) }))
-	execute(cur, govern(cur, ibcgov.NewSetDenomRequest(cross(cur), route, "ugnot", "unescrow", 10_000, 0, 20, 2, 25_000, 40, 10_000)))
+	execute(cur, govern(cur, ibcgov.NewSetDenomRequest(cross(cur), route, "ugnot", "unescrow", 10_000, 0, 20, 2, 25_000, 40, 10_000, "0x0000000000000000000000000000000000c0ffee")))
 	execute(cur, govern(cur, ibcgov.NewSetSeatsRequest(cross(cur), "4:"+string(watch))))
 	govern(cur, ibcgov.NewRefuseRecipientsRequest(cross(cur), route, "0x1d95d544586eacb63b6154e9e45122b32ded11aa"))
 
@@ -108,6 +108,7 @@ func main(cur realm) {
 	println("below the minimum:", revive(func() { send(cur, route, 39, 59, ethReceiver) }))
 	println("above the maximum:", revive(func() { send(cur, route, 25_001, 25_021, ethReceiver) }))
 	println("zero address:", revive(func() { send(cur, route, 100, 120, "0x0000000000000000000000000000000000000000") }))
+	println("to its Ethereum token:", revive(func() { send(cur, route, 100, 120, "0x0000000000000000000000000000000000C0FFEE") }))
 	println("reserved:", revive(func() { send(cur, route, 100, 120, "0x000000000000000000000000000000000000ffff") }))
 	println("malformed:", revive(func() { send(cur, route, 100, 120, "cosmos1abc") }))
 	println("bad checksum:", revive(func() { send(cur, route, 100, 120, "0x5F67a5398d91087d1b37a8a43436196a7830867f") }))
@@ -135,6 +136,7 @@ func main(cur realm) {
 // below the minimum: controls: 39 is below the minimum send of 40
 // above the maximum: controls: 25001 is above the maximum send of 25000
 // zero address: the receiver is the zero address
+// to its Ethereum token: the receiver is the token itself
 // reserved: the receiver is a reserved address (at or below 0xffff)
 // malformed: the receiver is not an Ethereum address: want 0x and 40 hex digits
 // bad checksum: the receiver is not an Ethereum address: mixed case that is not its EIP-55 checksum
@@ -145,4 +147,4 @@ func main(cur realm) {
 // record commitment is the core's: true
 // [{"key":"ethereum-1/00000000000000000001","packet":{"sequence":1,"source_client":"ethereum-1","destination_client":"client-0","timeout_timestamp":1236990694,"payloads":[{"source_port":"transfer","destination_port":"transfer","version":"ics20-1","encoding":"application/x-solidity-abi","value":"000000000000000000000000000000000000000000000000000000000000002000000000000000000000000000000000000000000000000000000000000000a000000000000000000000000000000000000000000000000000000000000000e00000000000000000000000000000000000000000000000000000000000000140000000000000000000000000000000000000000000000000000000000000006400000000000000000000000000000000000000000000000000000000000001a0000000000000000000000000000000000000000000000000000000000000000575676e6f740000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000028673177646a6b75657239776630343768366c746130343768366c746130343768366c647978356178000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000002a307835663637613533393864393130383764316233376138613433343336313936613738333038363766000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"}]},"commitment":"384e4719a608fdca78ca0088687060392acb9f346c4fd079e8e8911507e99883","sender":"g1wdjkuer9wf047h6lta047h6lta047h6ldyx5ax","receiver":"0x5f67a5398d91087d1b37a8a43436196a7830867f","denom":"ugnot","kind":"unescrow","amount":100,"fee":20,"sent_height":123,"sent_at":1236987094,"backfilled":false,"outcome":"","processed_height":0,"processed_at":0,"payment":"","refunded":0,"settlement":0,"incident":""}]
 // flagged: sends are paused on route ethereum-1
-// {"route":"ethereum-1","client":"ethereum-1","replaced":[],"enrolled":1235777492,"activated":123,"closed":false,"fee_collector":"g1vdhkcmr9vd6x7ujlta047h6lta047h6lsp3m50","refused_recipients":["0x1d95d544586eacb63b6154e9e45122b32ded11aa"],"unrecovered":0,"unresolved":0,"denoms":[{"denom":"ugnot","kind":"unescrow","cap_floor":10000,"launch_cap_floor":10000,"supply_cap":0,"fee":20,"fee_floor":2,"send_max":25000,"send_min":40,"refund_cap":10000,"meter":{"level":0,"at":1236382293,"epoch":0},"refund_meter":{"level":0,"at":1236382293},"waiting":0,"queued_refunds":0,"totals":{"credited":0,"owed":0,"withheld":0,"swept":0,"paid":0,"fees":0,"sweep_paid":0,"outstanding":0,"returning":0,"sent":100,"send_fees":20,"refunded":0,"queued_refunds":0,"lost":0,"recapitalized":0,"reduced":0,"accepted":0,"unrecovered":0,"unresolved":0}}]}
+// {"route":"ethereum-1","client":"ethereum-1","replaced":[],"enrolled":1235777492,"activated":123,"closed":false,"fee_collector":"g1vdhkcmr9vd6x7ujlta047h6lta047h6lsp3m50","refused_recipients":["0x1d95d544586eacb63b6154e9e45122b32ded11aa"],"unrecovered":0,"unresolved":0,"denoms":[{"denom":"ugnot","kind":"unescrow","cap_floor":10000,"launch_cap_floor":10000,"supply_cap":0,"fee":20,"fee_floor":2,"send_max":25000,"send_min":40,"refund_cap":10000,"remote":"0x0000000000000000000000000000000000c0ffee","meter":{"level":0,"at":1236382293,"epoch":0},"refund_meter":{"level":0,"at":1236382293},"waiting":0,"queued_refunds":0,"totals":{"credited":0,"owed":0,"withheld":0,"swept":0,"paid":0,"fees":0,"sweep_paid":0,"outstanding":0,"returning":0,"sent":100,"send_fees":20,"refunded":0,"queued_refunds":0,"lost":0,"recapitalized":0,"reduced":0,"accepted":0,"unrecovered":0,"unresolved":0}}]}

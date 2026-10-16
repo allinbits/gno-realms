@@ -3,6 +3,7 @@ package controls
 import (
 	"errors"
 
+	"gno.land/p/aib/encoding/ethaddr/v0"
 	"gno.land/p/nt/ufmt/v0"
 )
 
@@ -38,6 +39,11 @@ type DenomConfig struct {
 	SendMin int64
 	// RefundCap is the refund meter's day cap (ADR pr6375 §7.13).
 	RefundCap int64
+	// Remote (KindUnescrow only) is the lower-case Ethereum address of the
+	// denom's token on Ethereum (its GnoVoucher): a send to it is refused,
+	// since that contract could never move what it receives (§7.8). A minted
+	// denom's token is its base, refused the same way.
+	Remote string
 }
 
 // Validate checks a configuration on its own.
@@ -50,12 +56,19 @@ func (c DenomConfig) Validate() error {
 		if c.SupplyCap != 0 {
 			return errors.New("controls: an unescrowed denom has no supply cap")
 		}
+		a, err := ethaddr.Parse(c.Remote)
+		if err != nil || a.IsZero() || a.Lower() != c.Remote {
+			return ufmt.Errorf("controls: an unescrowed denom names its Ethereum token, a lower-case address, not %q", c.Remote)
+		}
 	case KindMint:
 		if c.SupplyCap <= 0 {
 			return errors.New("controls: a minted denom needs a positive supply cap")
 		}
 		if c.SendMax != 0 || c.SendMin != 0 {
 			return errors.New("controls: a minted denom's sends are voucher returns and take no send limits")
+		}
+		if c.Remote != "" {
+			return errors.New("controls: a minted denom's Ethereum token is its base")
 		}
 	default:
 		return ufmt.Errorf("controls: unknown accounting %q", c.Kind)
@@ -80,7 +93,7 @@ func (c DenomConfig) Validate() error {
 // Loosens reports whether moving from old to new loosens anything, so the
 // change waits for the 7-day delay (ADR pr6375 §7.5, §9): a higher cap, supply
 // cap, fee, send maximum or refund cap, a lower send minimum, or any change of
-// the fee floor. Everything else (lowering a cap, a fee, a maximum, raising a
+// the fee floor or of the Ethereum token. Everything else (lowering a cap, a fee, a maximum, raising a
 // minimum) tightens and applies at once.
 func Loosens(old, new DenomConfig) bool {
 	return new.Kind != old.Kind ||
@@ -90,5 +103,6 @@ func Loosens(old, new DenomConfig) bool {
 		new.FeeFloor != old.FeeFloor ||
 		new.SendMax > old.SendMax ||
 		new.SendMin < old.SendMin ||
-		new.RefundCap > old.RefundCap
+		new.RefundCap > old.RefundCap ||
+		new.Remote != old.Remote
 }

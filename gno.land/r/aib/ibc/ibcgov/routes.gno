@@ -150,12 +150,13 @@ func NewEnrollRouteRequest(cur realm, clientID, feeCollector string) Request {
 // is its voucher's IBC denom); capFloor the day cap floor (unescrow) or day
 // cap (mint); supplyCap the voucher supply cap (mint, else 0); fee and its
 // floor; sendMax and sendMin (unescrow, else 0); refundCap the refund meter's
-// day cap. For a minted denom, denom may be the token's Ethereum address
+// day cap; remoteToken (unescrow, else "") the token's GnoVoucher on Ethereum,
+// which sends may never name as their receiver. For a minted denom, denom may be the token's Ethereum address
 // (0x…): the voucher denom is then computed, ibc/<sha256("transfer/<route>/
 // <lower-case address>")>, the denom this chain keys the token's vouchers by.
 // A change that only tightens applies at once; a new denom or any loosening
 // waits 7 days.
-func NewSetDenomRequest(cur realm, route, denom, kind string, capFloor, supplyCap, fee, feeFloor, sendMax, sendMin, refundCap int64) Request {
+func NewSetDenomRequest(cur realm, route, denom, kind string, capFloor, supplyCap, fee, feeFloor, sendMax, sendMin, refundCap int64, remoteToken string) Request {
 	mustRoute(route)
 	if !isDenom(denom) {
 		panic("ibcgov: not a denom: " + denom)
@@ -167,8 +168,16 @@ func NewSetDenomRequest(cur realm, route, denom, kind string, capFloor, supplyCa
 		}
 		denom = ics20.NewDenom(a.Lower(), ics20.NewHop("transfer", route)).IBCDenom()
 	}
+	remote := ""
+	if remoteToken != "" {
+		a, err := ethaddr.Parse(remoteToken)
+		if err != nil {
+			panic("ibcgov: " + err.Error())
+		}
+		remote = a.Lower()
+	}
 	c := controls.DenomConfig{Kind: kind, CapFloor: capFloor, SupplyCap: supplyCap, Fee: fee, FeeFloor: feeFloor,
-		SendMax: sendMax, SendMin: sendMin, RefundCap: refundCap}
+		SendMax: sendMax, SendMin: sendMin, RefundCap: refundCap, Remote: remote}
 	if err := c.Validate(); err != nil {
 		panic("ibcgov: " + err.Error())
 	}
@@ -184,7 +193,7 @@ func NewSetDenomRequest(cur realm, route, denom, kind string, capFloor, supplyCa
 	}
 	text := "denom " + denom + " on route " + route + ": kind=" + kind + " capFloor=" + itoa(capFloor) + " supplyCap=" + itoa(supplyCap) +
 		" fee=" + itoa(fee) + " feeFloor=" + itoa(feeFloor) + " sendMax=" + itoa(sendMax) + " sendMin=" + itoa(sendMin) +
-		" refundCap=" + itoa(refundCap)
+		" refundCap=" + itoa(refundCap) + " remoteToken=" + remote
 	rp := &routeParams{op: controls.OpDenom, p: controls.Params{Route: route, Denom: denom, Config: c}}
 	return propose(cur, "set denom", text, func(cur realm, made, t int64) {
 		decide(cur, "set denom", text, rp, made, t, loosens())

@@ -150,7 +150,7 @@ func main(cur realm) {
 	println("a return of a denom not enabled:", revive(func() { returnVoucher(cur, client, voucher, 10) }))
 	println("backfill before the denom:", revive(func() { backfill(cur, p1) }))
 
-	execute(cur, govern(cur, ibcgov.NewSetDenomRequest(cross(cur), client, weth, "mint", 4_000, 10_000, 10, 1, 0, 0, 4_000)))
+	execute(cur, govern(cur, ibcgov.NewSetDenomRequest(cross(cur), client, weth, "mint", 4_000, 10_000, 10, 1, 0, 0, 4_000, "")))
 	t, _ := controlsView().Totals(client, voucher)
 	println("outstanding at enable:", t.Outstanding)
 	forged := p1

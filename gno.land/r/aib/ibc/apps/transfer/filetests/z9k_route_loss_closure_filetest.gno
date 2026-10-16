@@ -144,7 +144,7 @@ func decided(id int64) string {
 // reopening it either.
 func main(cur realm) {
 	route := setupRoute(cur)
-	execute(cur, govern(cur, ibcgov.NewSetDenomRequest(cross(cur), route, "ugnot", "unescrow", 10_000, 0, 20, 2, 25_000, 40, 10_000)))
+	execute(cur, govern(cur, ibcgov.NewSetDenomRequest(cross(cur), route, "ugnot", "unescrow", 10_000, 0, 20, 2, 25_000, 40, 10_000, "0x0000000000000000000000000000000000c0ffee")))
 	execute(cur, govern(cur, ibcgov.NewSetSeatsRequest(cross(cur), "0:"+string(guardian)+",1:"+string(guardian1))))
 	send(cur, route, 20_000, 20_020, ethReceiver)
 	recv(cur, route, 1, "transfer/client-0/ugnot", alice.String(), 3_000)

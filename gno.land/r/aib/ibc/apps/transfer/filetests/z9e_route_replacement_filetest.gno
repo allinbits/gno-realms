@@ -150,8 +150,8 @@ func claimState(route string, seq uint64) string {
 // the route again (Codex review #3).
 func main(cur realm) {
 	route := setupRoute(cur) // ethereum-1
-	execute(cur, govern(cur, ibcgov.NewSetDenomRequest(cross(cur), route, "ugnot", "unescrow", 10_000, 0, 20, 2, 25_000, 40, 10_000)))
-	execute(cur, govern(cur, ibcgov.NewSetDenomRequest(cross(cur), route, weth, "mint", 4_000, 10_000, 10, 1, 0, 0, 4_000)))
+	execute(cur, govern(cur, ibcgov.NewSetDenomRequest(cross(cur), route, "ugnot", "unescrow", 10_000, 0, 20, 2, 25_000, 40, 10_000, "0x0000000000000000000000000000000000c0ffee")))
+	execute(cur, govern(cur, ibcgov.NewSetDenomRequest(cross(cur), route, weth, "mint", 4_000, 10_000, 10, 1, 0, 0, 4_000, "")))
 	execute(cur, govern(cur, ibcgov.NewBindGovernanceRequest(cross(cur), route)))
 	voucher := ics20.NewDenom(weth, ics20.NewHop("transfer", route)).IBCDenom()
 

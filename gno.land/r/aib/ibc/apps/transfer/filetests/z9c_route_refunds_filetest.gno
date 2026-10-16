@@ -132,7 +132,7 @@ func record(route string, seq uint64) string {
 // refunds hold, never cancelled.
 func main(cur realm) {
 	route := setupRoute(cur)
-	execute(cur, govern(cur, ibcgov.NewSetDenomRequest(cross(cur), route, "ugnot", "unescrow", 10_000, 0, 20, 2, 25_000, 40, 2_400)))
+	execute(cur, govern(cur, ibcgov.NewSetDenomRequest(cross(cur), route, "ugnot", "unescrow", 10_000, 0, 20, 2, 25_000, 40, 2_400, "0x0000000000000000000000000000000000c0ffee")))
 	execute(cur, govern(cur, ibcgov.NewSetSeatsRequest(cross(cur), "4:"+string(watch))))
 	// The refund meter started empty when the denom was enabled, 7 days ago:
 	// it is full now (2400).

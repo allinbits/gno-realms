@@ -137,7 +137,7 @@ func (l *logic) Transfer(_ int, rlm realm, sent []chain.Coin, clientID, receiver
 		}
 		alias := transfer.GRC20Alias(denom)
 		acc := l.mustSendable(rt, alias, amount)
-		checkRecipient(rt, receiver, "")
+		checkRecipient(rt, receiver, acc.Config.Remote)
 		fee = acc.Config.Fee
 		if fee > 0 {
 			c := chain.NewCoin(alias, fee)
@@ -154,7 +154,7 @@ func (l *logic) Transfer(_ int, rlm realm, sent []chain.Coin, clientID, receiver
 		panic(ufmt.Sprintf("GRC20 token %s not found in grc20reg", denom))
 	default:
 		acc := l.mustSendable(rt, denom, amount)
-		checkRecipient(rt, receiver, "")
+		checkRecipient(rt, receiver, acc.Config.Remote)
 		fee = acc.Config.Fee
 		if len(sent) != 1 || sent[0].Denom != denom || sent[0].Amount != amount+fee {
 			panic(ufmt.Sprintf("send exactly %d%s: the amount plus the route fee of %d", amount+fee, denom, fee))

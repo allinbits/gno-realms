@@ -135,7 +135,7 @@ func decided(id int64) string {
 // paid only by a 7-day decision naming the payee.
 func main(cur realm) {
 	route := setupRoute(cur)
-	execute(cur, govern(cur, ibcgov.NewSetDenomRequest(cross(cur), route, "ugnot", "unescrow", 10_000, 0, 20, 2, 25_000, 40, 10_000)))
+	execute(cur, govern(cur, ibcgov.NewSetDenomRequest(cross(cur), route, "ugnot", "unescrow", 10_000, 0, 20, 2, 25_000, 40, 10_000, "0x0000000000000000000000000000000000c0ffee")))
 	send(cur, route, 5_000, 5_020, ethReceiver)
 
 	res := recv(cur, route, 1, "transfer/client-0/ugnot", "cosmos1notgnoland", 300)

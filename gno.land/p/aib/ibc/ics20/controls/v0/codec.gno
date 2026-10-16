@@ -57,7 +57,7 @@ func (p Params) Encode() []byte {
 	}
 	w.Bool(p.Forged).Int(p.Amount)
 	c := p.Config
-	w.Str(c.Kind).Int(c.CapFloor).Int(c.SupplyCap).Int(c.Fee).Int(c.FeeFloor).Int(c.SendMax).Int(c.SendMin).Int(c.RefundCap)
+	w.Str(c.Kind).Int(c.CapFloor).Int(c.SupplyCap).Int(c.Fee).Int(c.FeeFloor).Int(c.SendMax).Int(c.SendMin).Int(c.RefundCap).Str(c.Remote)
 	w.Uvarint(uint64(len(p.Items)))
 	for _, it := range p.Items {
 		w.Uvarint(it.Seq).Uvarint(uint64(it.Action)).Int(it.Amount)
@@ -82,7 +82,7 @@ func DecodeParams(bz []byte) (Params, error) {
 	p.Amount = r.Int()
 	p.Config.Kind = r.Str()
 	p.Config.CapFloor, p.Config.SupplyCap, p.Config.Fee, p.Config.FeeFloor = r.Int(), r.Int(), r.Int(), r.Int()
-	p.Config.SendMax, p.Config.SendMin, p.Config.RefundCap = r.Int(), r.Int(), r.Int()
+	p.Config.SendMax, p.Config.SendMin, p.Config.RefundCap, p.Config.Remote = r.Int(), r.Int(), r.Int(), r.Str()
 	n = r.Uvarint()
 	if r.Err() == nil && n > MaxKeys {
 		return Params{}, ufmt.Errorf("controls: more than %d items", MaxKeys)

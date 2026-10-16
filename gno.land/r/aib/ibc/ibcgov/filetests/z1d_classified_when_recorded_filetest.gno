@@ -59,11 +59,11 @@ func decided(id int64) string {
 func main(cur realm) {
 	route := setupRoute(cur)
 	// Launch floor 10000, then raised to 50000.
-	execute(cur, govern(cur, ibcgov.NewSetDenomRequest(cross(cur), route, "ugnot", "unescrow", 10_000, 0, 20, 2, 25_000, 40, 10_000)))
-	execute(cur, govern(cur, ibcgov.NewSetDenomRequest(cross(cur), route, "ugnot", "unescrow", 50_000, 0, 20, 2, 25_000, 40, 10_000)))
+	execute(cur, govern(cur, ibcgov.NewSetDenomRequest(cross(cur), route, "ugnot", "unescrow", 10_000, 0, 20, 2, 25_000, 40, 10_000, "0x0000000000000000000000000000000000c0ffee")))
+	execute(cur, govern(cur, ibcgov.NewSetDenomRequest(cross(cur), route, "ugnot", "unescrow", 50_000, 0, 20, 2, 25_000, 40, 10_000, "0x0000000000000000000000000000000000c0ffee")))
 
-	a := ibcgov.NewSetDenomRequest(cross(cur), route, "ugnot", "unescrow", 40_000, 0, 20, 2, 25_000, 40, 10_000) // a lowering when built
-	b := govern(cur, ibcgov.NewSetDenomRequest(cross(cur), route, "ugnot", "unescrow", 20_000, 0, 20, 2, 25_000, 40, 10_000))
+	a := ibcgov.NewSetDenomRequest(cross(cur), route, "ugnot", "unescrow", 40_000, 0, 20, 2, 25_000, 40, 10_000, "0x0000000000000000000000000000000000c0ffee") // a lowering when built
+	b := govern(cur, ibcgov.NewSetDenomRequest(cross(cur), route, "ugnot", "unescrow", 20_000, 0, 20, 2, 25_000, 40, 10_000, "0x0000000000000000000000000000000000c0ffee"))
 	println(decided(b))
 	println("A, now a raising from 20000:", decided(govern(cur, a)))
 

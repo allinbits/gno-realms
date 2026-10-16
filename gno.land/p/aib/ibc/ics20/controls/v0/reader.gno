@@ -243,7 +243,7 @@ func denomJSON(d *Denom) string {
 	return "{\"denom\":" + q(d.Name) + ",\"kind\":" + q(c.Kind) +
 		",\"cap_floor\":" + itoa(c.CapFloor) + ",\"launch_cap_floor\":" + itoa(d.LaunchCapFloor) +
 		",\"supply_cap\":" + itoa(c.SupplyCap) + ",\"fee\":" + itoa(c.Fee) + ",\"fee_floor\":" + itoa(c.FeeFloor) +
-		",\"send_max\":" + itoa(c.SendMax) + ",\"send_min\":" + itoa(c.SendMin) + ",\"refund_cap\":" + itoa(c.RefundCap) +
+		",\"send_max\":" + itoa(c.SendMax) + ",\"send_min\":" + itoa(c.SendMin) + ",\"refund_cap\":" + itoa(c.RefundCap) + ",\"remote\":" + q(c.Remote) +
 		",\"meter\":{\"level\":" + itoa(d.meter.Level) + ",\"at\":" + itoa(d.meter.At) + ",\"epoch\":" + itoa(d.meter.Epoch) + "}" +
 		",\"refund_meter\":{\"level\":" + itoa(d.refundMeter.Level) + ",\"at\":" + itoa(d.refundMeter.At) + "}" +
 		",\"waiting\":" + itoa(int64(d.waiting.Size())) + ",\"queued_refunds\":" + itoa(int64(d.refundQueue.Size())) +

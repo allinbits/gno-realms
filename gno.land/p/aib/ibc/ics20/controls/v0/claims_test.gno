@@ -17,7 +17,7 @@ var (
 const t0 = int64(1_700_000_000)
 
 func gnot() DenomConfig {
-	return DenomConfig{Kind: KindUnescrow, CapFloor: 10_000, Fee: 20, FeeFloor: 2, SendMax: 25_000, SendMin: 40, RefundCap: 10_000}
+	return DenomConfig{Kind: KindUnescrow, CapFloor: 10_000, Fee: 20, FeeFloor: 2, SendMax: 25_000, SendMin: 40, RefundCap: 10_000, Remote: "0x0000000000000000000000000000000000c0ffee"}
 }
 
 func mintCfg() DenomConfig {
@@ -161,6 +161,9 @@ func TestConfigValidateAndLoosens(t *testing.T) {
 		func(c *DenomConfig) { c.SupplyCap = 1 },            // unescrow has no supply cap
 		func(c *DenomConfig) { c.RefundCap = 0 },            // refunds metered
 		func(c *DenomConfig) { c.Fee, c.CapFloor = 20, 79 }, // cap floor below 4 fees
+		func(c *DenomConfig) { c.Remote = "" },              // no Ethereum token (Codex review #17)
+		func(c *DenomConfig) { c.Remote = "0x0000000000000000000000000000000000C0FFEE" },
+		func(c *DenomConfig) { c.Remote = "0x0000000000000000000000000000000000000000" },
 	}
 	for i, m := range bad {
 		c := gnot()
@@ -173,6 +176,16 @@ func TestConfigValidateAndLoosens(t *testing.T) {
 	mc.SendMax = 1
 	if mc.Validate() == nil {
 		t.Errorf("minted denom with send limits")
+	}
+	mc = mintCfg()
+	mc.Remote = "0x0000000000000000000000000000000000c0ffee"
+	if mc.Validate() == nil {
+		t.Errorf("minted denom with a remote token")
+	}
+	other := gnot()
+	other.Remote = "0x0000000000000000000000000000000000c0fffe"
+	if !Loosens(gnot(), other) {
+		t.Errorf("a new Ethereum token does not wait")
 	}
 	mc = mintCfg()
 	mc.SupplyCap = 0
