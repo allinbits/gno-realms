@@ -184,9 +184,10 @@ func (c *EthLightClient) verifyHeader(h *Header) error {
 		}
 		return nil
 	}
-	if cs.periodAtSlot(u.FinalizedHeader.Beacon.Slot) > cs.periodAtSlot(trusted.Slot) && u.NextSyncCommittee == nil {
-		return errors.New("an update into the next period must carry the next sync committee")
-	}
+	// An update may cross into the next period without the committee after
+	// it, as a finality update does at every rotation: as in the sync
+	// protocol's apply_light_client_update, the new state then does not know
+	// its next committee until a later update reveals it.
 	_, err = c.finalizedExecution(u)
 	return err
 }

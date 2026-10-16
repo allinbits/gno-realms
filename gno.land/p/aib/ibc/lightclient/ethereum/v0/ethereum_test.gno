@@ -284,3 +284,45 @@ func TestUpdateWithoutProgressRejected(t *testing.T) {
 	again.ActiveIsNext = false
 	urequire.ErrorContains(t, c.VerifyClientMessage(&again), "is not after trusted slot")
 }
+
+// A finality update carries no next sync committee, and relayers submit one
+// at every rotation. Crossing into the next period with it must work: the
+// client rotates its committees and marks the next one unknown, so an update
+// signed by the period after is refused until a later update reveals it.
+func TestCrossingWithoutNextCommittee(t *testing.T) {
+	f := fixtureMultiperiod()
+	var steps []*Header
+	for _, s := range f.steps {
+		if s.update != nil {
+			steps = append(steps, s.update)
+		}
+	}
+	urequire.True(t, len(steps) >= 2, "fixture needs two updates")
+	full := steps[0]
+	cs := f.clientState
+	urequire.True(t, cs.periodAtSlot(full.ConsensusUpdate.FinalizedHeader.Beacon.Slot) > cs.periodAtSlot(full.TrustedSlot), "first update should cross a period")
+
+	fin := *full
+	fin.ConsensusUpdate.NextSyncCommittee = nil
+	fin.ConsensusUpdate.NextSyncCommitteeBranch = nil
+	urequire.NoError(t, fin.ValidateBasic())
+
+	c := NewEthLightClient()
+	urequire.NoError(t, c.Initialize(f.clientState, f.consensusState))
+	u := fin.ConsensusUpdate
+	setNow(cs.GenesisTime + (u.SignatureSlot-cs.GenesisSlot+1)*cs.SecondsPerSlot)
+	urequire.NoError(t, c.VerifyClientMessage(&fin))
+	c.UpdateState(&fin)
+
+	finalized := u.FinalizedHeader.Beacon.Slot
+	urequire.Equal(t, finalized, c.LatestHeight().RevisionHeight)
+	cons, ok := c.GetConsensusState(heightAtSlot(finalized))
+	urequire.True(t, ok)
+	urequire.True(t, cons.NextSyncCommittee == nil, "the next committee should be unknown after crossing without it")
+	urequire.True(t, bytesEqual(f.consensusState.NextSyncCommittee.PubkeysHash, cons.CurrentSyncCommittee.PubkeysHash), "the old next committee should now be current")
+
+	next := steps[1]
+	u = next.ConsensusUpdate
+	setNow(cs.GenesisTime + (u.SignatureSlot-cs.GenesisSlot+1)*cs.SecondsPerSlot)
+	urequire.Error(t, c.VerifyClientMessage(next), "an update signed by an unknown committee must be refused")
+}
