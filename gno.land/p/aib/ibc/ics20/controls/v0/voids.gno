@@ -2,6 +2,7 @@ package controls
 
 import (
 	"errors"
+	"strings"
 
 	"gno.land/p/nt/ufmt/v0"
 )
@@ -38,6 +39,46 @@ type Recap struct {
 }
 
 func lossKey(key, cause string) string { return key + "|" + cause }
+
+// IncidentTotals is the loss ledger of one incident on one denom: what it
+// lost and how much of that each restoring decision resolved. Resolutions of
+// an incident never exceed its losses, and an authorized recapitalization not
+// yet paid holds its part (ADR pr6375 §7.9).
+type IncidentTotals struct {
+	Lost          int64
+	Recapitalized int64
+	Reduced       int64
+	Accepted      int64
+}
+
+func incidentKey(denom, incident string) string { return denom + "|" + incident }
+
+func (rt *Route) incident(denom, incident string) *IncidentTotals {
+	k := incidentKey(denom, incident)
+	if v := rt.incidents.Get(k); v != nil {
+		return v.(*IncidentTotals)
+	}
+	it := &IncidentTotals{}
+	rt.incidents.Set(k, it)
+	return it
+}
+
+// Incident is the loss ledger of an incident on a denom, by value.
+func (rt *Route) Incident(denom, incident string) IncidentTotals {
+	if v := rt.incidents.Get(incidentKey(denom, incident)); v != nil {
+		return *v.(*IncidentTotals)
+	}
+	return IncidentTotals{}
+}
+
+// resolvable is what of an incident's losses on denom no decision resolved
+// or reserved yet: its losses minus what was recapitalized, reduced or
+// accepted, minus the recapitalizations authorized and not paid (except
+// skip, an authorization being paid).
+func (rt *Route) resolvable(denom, incident string, skip int64) int64 {
+	it := rt.Incident(denom, incident)
+	return it.Lost - it.Recapitalized - it.Reduced - it.Accepted - rt.openRecaps(denom, incident, skip)
+}
 
 // Voidable reports whether a void as forged (or as withheld) can take the
 // claim or sweep entry of key as it stands: an open claim either way, a
@@ -121,10 +162,12 @@ func (rt *Route) addLoss(d *Denom, l Loss) {
 		old := v.(*Loss)
 		if !old.Restored {
 			d.Totals.Lost -= old.Amount
+			rt.incident(old.Denom, old.Incident).Lost -= old.Amount
 		}
 	}
 	rt.losses.Set(k, &l)
 	d.Totals.Lost += l.Amount
+	rt.incident(l.Denom, l.Incident).Lost += l.Amount
 }
 
 // Restore restores voided claims and sweep entries: the full inverse of the
@@ -142,7 +185,8 @@ func (rt *Route) Restore(keys []string, now, epoch int64) error {
 				return errors.New("controls: " + k + " is not voided")
 			}
 			if v := rt.losses.Get(lossKey(c.Key, "forged payout")); c.State == Forged && v != nil && !v.(*Loss).Restored {
-				restoredLoss[c.Denom] += v.(*Loss).Amount
+				l := v.(*Loss)
+				restoredLoss[incidentKey(l.Denom, l.Incident)] += l.Amount
 			}
 			continue
 		}
@@ -153,10 +197,10 @@ func (rt *Route) Restore(keys []string, now, epoch int64) error {
 	}
 	// A loss already recapitalized, reduced or accepted cannot be restored:
 	// the surplus would silently cancel the next real loss.
-	for denom, amount := range restoredLoss {
-		t := rt.Denom(denom).Totals
-		if t.Lost-amount < t.Recapitalized+t.Reduced+t.Accepted {
-			return errors.New("controls: restoring would undo a loss already recapitalized, reduced or accepted")
+	for k, amount := range restoredLoss {
+		i := strings.Index(k, "|")
+		if rt.resolvable(k[:i], k[i+1:], 0) < amount {
+			return errors.New("controls: restoring would undo a loss already recapitalized, reduced, accepted or authorized for recapitalization")
 		}
 	}
 	for _, k := range keys {
@@ -181,6 +225,7 @@ func (rt *Route) restoreClaim(c *Claim, now, epoch int64) {
 		if !l.Restored {
 			l.Restored = true
 			d.Totals.Lost -= l.Amount
+			rt.incident(l.Denom, l.Incident).Lost -= l.Amount
 		}
 	}
 	if rem == 0 {
@@ -317,8 +362,9 @@ func (rt *Route) RecordLoss(key, denom string, amount int64, chain, incident, ca
 }
 
 // AuthorizeRecap records a recapitalization a decision authorized (ADR
-// pr6375 §7.9): amount, at most the denom's unrecovered losses, to be paid
-// into the escrow. It returns the authorization's id.
+// pr6375 §7.9): amount, at most what of the incident's losses on the denom no
+// decision resolved or reserved yet, to be paid into the escrow. It returns
+// the authorization's id.
 func (rt *Route) AuthorizeRecap(denom string, amount int64, incident string) (int64, error) {
 	d := rt.Denom(denom)
 	if d == nil {
@@ -327,22 +373,24 @@ func (rt *Route) AuthorizeRecap(denom string, amount int64, incident string) (in
 	if d.Config.Kind != KindUnescrow {
 		return 0, errors.New("controls: only an escrowed denom is recapitalized on gno.land")
 	}
-	if amount <= 0 || amount > d.Totals.Unrecovered()-rt.openRecaps(denom) {
-		return 0, ufmt.Errorf("controls: %d is not within the unrecovered losses not yet authorized", amount)
-	}
 	if incident == "" {
 		return 0, errors.New("controls: a recapitalization names its incident")
+	}
+	if amount <= 0 || amount > rt.resolvable(denom, incident, 0) {
+		return 0, ufmt.Errorf("controls: %d is not within incident %s's losses not yet resolved or authorized", amount, incident)
 	}
 	rt.nRecaps++
 	rt.recaps.Set(seqKey(rt.nRecaps), &Recap{ID: rt.nRecaps, Denom: denom, Amount: amount, Incident: incident})
 	return rt.nRecaps, nil
 }
 
-func (rt *Route) openRecaps(denom string) int64 {
+// openRecaps is what the unpaid recapitalizations of an incident on denom
+// hold, the authorization skip aside.
+func (rt *Route) openRecaps(denom, incident string, skip int64) int64 {
 	var n int64
 	rt.recaps.Iterate("", "", func(_ string, v any) bool {
 		r := v.(*Recap)
-		if !r.Paid && r.Denom == denom {
+		if !r.Paid && r.ID != skip && r.Denom == denom && r.Incident == incident {
 			n += r.Amount
 		}
 		return false
@@ -374,8 +422,13 @@ func (rt *Route) Recapitalize(id int64, denom string, amount int64, by address) 
 	if r.Denom != denom || r.Amount != amount {
 		return ufmt.Errorf("controls: recapitalization %d is %d %s", id, r.Amount, r.Denom)
 	}
+	// Re-checked at payment: the incident's losses must still hold it.
+	if amount > rt.resolvable(denom, r.Incident, id) {
+		return ufmt.Errorf("controls: recapitalization %d is above what incident %s still has to resolve", id, r.Incident)
+	}
 	r.Paid, r.PaidBy = true, by
 	rt.Denom(denom).Totals.Recapitalized += amount
+	rt.incident(denom, r.Incident).Recapitalized += amount
 	return nil
 }
 
@@ -391,15 +444,16 @@ func (rt *Route) Reduce(key string, amount int64, incident string) error {
 		return errors.New("controls: claim " + key + " is " + c.State)
 	}
 	d := rt.Denom(c.Denom)
-	if amount <= 0 || amount > c.Remaining() || amount > d.Totals.Unrecovered() {
-		return ufmt.Errorf("controls: %d is not within the claim's remainder and the unrecovered losses", amount)
-	}
 	if incident == "" {
 		return errors.New("controls: a reduction names its incident")
+	}
+	if amount <= 0 || amount > c.Remaining() || amount > rt.resolvable(c.Denom, incident, 0) {
+		return ufmt.Errorf("controls: %d is not within the claim's remainder and incident %s's losses not yet resolved or authorized", amount, incident)
 	}
 	c.Amount -= amount
 	c.Reduced += amount
 	d.Totals.Reduced += amount
+	rt.incident(c.Denom, incident).Reduced += amount
 	if c.State == Open {
 		d.Totals.Owed -= amount
 		if c.Remaining() == 0 {
@@ -421,12 +475,13 @@ func (rt *Route) Accept(denom string, amount int64, incident string) error {
 	if d == nil {
 		return errors.New("controls: denom " + denom + " is not enabled on route " + rt.Key)
 	}
-	if amount <= 0 || amount > d.Totals.Unresolved() {
-		return ufmt.Errorf("controls: %d is not within the losses waiting for a restoring decision", amount)
-	}
 	if incident == "" {
 		return errors.New("controls: an accepted deficit names its incident")
 	}
+	if amount <= 0 || amount > rt.resolvable(denom, incident, 0) {
+		return ufmt.Errorf("controls: %d is not within incident %s's losses not yet resolved or authorized", amount, incident)
+	}
 	d.Totals.Accepted += amount
+	rt.incident(denom, incident).Accepted += amount
 	return nil
 }

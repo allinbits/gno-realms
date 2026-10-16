@@ -207,8 +207,9 @@ type Route struct {
 	claims  avl.Tree // packet key -> *Claim
 	sweeps  avl.Tree // packet key -> *SweepEntry
 	sends   avl.Tree // packet key -> *SendRecord
-	losses  avl.Tree // loss key -> *Loss
-	recaps  avl.Tree // seqKey(id) -> *Recap
+	losses    avl.Tree // loss key -> *Loss
+	incidents avl.Tree // denom|incident -> *IncidentTotals
+	recaps    avl.Tree // seqKey(id) -> *Recap
 	nRecaps int64
 }
 

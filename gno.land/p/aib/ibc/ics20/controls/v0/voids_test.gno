@@ -428,3 +428,50 @@ func TestRestoreRefusedAfterRecovery(t *testing.T) {
 		t.Fatalf("%+v", c)
 	}
 }
+
+// An authorized recapitalization holds its part of the incident's losses:
+// no reduction or accepted deficit can resolve the same loss again, and the
+// payment re-checks what the incident still has to resolve (Codex review
+// #6).
+func TestRecapAuthorizationBoundToIncident(t *testing.T) {
+	rt, _ := setupClaims(t)
+	d := rt.Denom("ugnot")
+	if err := rt.RecordLoss(pk(10), "ugnot", 100, ChainGno, "inc-a", "forged delivery"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := rt.AuthorizeRecap("ugnot", 100, "inc-b"); err == nil {
+		t.Fatalf("authorized against an incident without losses")
+	}
+	id, err := rt.AuthorizeRecap("ugnot", 100, "inc-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := rt.AuthorizeRecap("ugnot", 1, "inc-a"); err == nil {
+		t.Fatalf("authorized the same loss twice")
+	}
+	// The alternative resolutions of the same loss are refused while the
+	// authorization holds it.
+	if err := rt.Reduce(pk(2), 100, "inc-a"); err == nil {
+		t.Fatalf("reduced a loss an authorization holds")
+	}
+	if err := rt.Accept("ugnot", 100, "inc-a"); err == nil {
+		t.Fatalf("accepted a loss an authorization holds")
+	}
+	if err := rt.Recapitalize(id, "ugnot", 100, alice); err != nil {
+		t.Fatal(err)
+	}
+	if d.Totals.Unrecovered() != 0 || rt.Incident("ugnot", "inc-a").Recapitalized != 100 {
+		t.Fatalf("%+v", d.Totals)
+	}
+	// Another incident's loss leaves this one's resolutions alone.
+	rt.RecordLoss(pk(11), "ugnot", 50, ChainGno, "inc-c", "forged delivery")
+	if err := rt.Reduce(pk(2), 50, "inc-a"); err == nil {
+		t.Fatalf("reduced against a resolved incident")
+	}
+	if err := rt.Reduce(pk(2), 50, "inc-c"); err != nil {
+		t.Fatal(err)
+	}
+	if d.Totals.Unrecovered() != 0 {
+		t.Fatalf("%+v", d.Totals)
+	}
+}
