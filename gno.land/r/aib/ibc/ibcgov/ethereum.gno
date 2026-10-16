@@ -776,10 +776,11 @@ func NewEthRouteSettingsRequest(cur realm, clientID string, quarantineSeconds ui
 // "sequence:action:amount" (amount in base units as decimal digits), at most
 // 8, each sequence once:
 //
-//   - 1 pay the refund's remainder: amount is exactly the entitlement minus
-//     what was already refunded (a refund is never cut short);
-//   - 2 reject a queued refund, amount 0;
-//   - 3 settled as delivered, amount 0;
+//   - 1 a genuine refund: pay its remainder, amount exactly the entitlement
+//     minus what was already refunded (a refund is never cut short), 0 for one
+//     paid in full already, which only marks the record settled;
+//   - 2 reject a queued refund none of which was paid, amount 0;
+//   - 3 settled as delivered, no refund paid, amount 0;
 //   - 4 a forged refund: the unpaid remainder is rejected and what was
 //     already paid is recorded as a loss, atomically; amount is exactly what
 //     was paid.
@@ -805,8 +806,8 @@ func NewEthSettleRequest(cur realm, clientID, items string) Request {
 		}
 		amount := mustUint256("amount", parts[2])
 		zero := strings.TrimLeft(parts[2], "0") == ""
-		if (action == 1 || action == 4) == zero {
-			panic("ibcgov: a payment or a forged refund names its positive amount, a rejection or a delivery 0: " + it)
+		if (action == 4 && zero) || ((action == 2 || action == 3) && !zero) {
+			panic("ibcgov: a forged refund names its positive amount, a rejection or a delivery 0: " + it)
 		}
 		seen[seq] = true
 		vals = append(vals, abi.Tuple(abi.Uint64(seq), abi.Uint64(action), amount))

@@ -384,9 +384,9 @@ func (rt *Route) QueuedRefundCount(denom string) int {
 // Settlement actions of a reconciliation (ADR pr6375 §5.4 kind 12, §7.12),
 // one per send record, the same numbers as on Ethereum.
 const (
-	SettlePay       = uint8(1) // pay the refund's whole remainder: Amount equals what the packet carried minus what was refunded
-	SettleReject    = uint8(2) // reject a queued refund: the packet was delivered
-	SettleDelivered = uint8(3) // the packet was delivered: settled, nothing owed (a queued refund is rejected)
+	SettlePay       = uint8(1) // a genuine refund: pay its whole remainder, Amount = what the packet carried minus what was refunded (0 if paid in full)
+	SettleReject    = uint8(2) // reject a queued refund, none of it paid: the packet was delivered
+	SettleDelivered = uint8(3) // the packet was delivered, no refund paid: settled, nothing owed (a queued refund is rejected)
 	SettleLoss      = uint8(4) // a forged refund: the unpaid remainder rejected, what was paid (Amount) recorded as a loss
 )
 
@@ -439,9 +439,10 @@ func (rt *Route) SettleRecords(client string, items []SettleItem, incident strin
 		seen[it.Seq] = true
 		switch it.Action {
 		case SettlePay:
-			// A refund is never cut short (ADR pr6375 §7.9): its whole
-			// remainder.
-			if it.Amount <= 0 || it.Amount != r.Amount-r.Refunded {
+			// A genuine refund: its whole remainder, never cut short (ADR
+			// pr6375 §7.9); zero for one paid in full already, which only
+			// settles the record.
+			if it.Amount != r.Amount-r.Refunded {
 				return nil, ufmt.Errorf("controls: item %d: a refund pays send %s's whole remainder (%d), not %d", i, key, r.Amount-r.Refunded, it.Amount)
 			}
 			var ok bool
@@ -457,9 +458,15 @@ func (rt *Route) SettleRecords(client string, items []SettleItem, incident strin
 			if r.Payment != PayQueued || it.Amount != 0 {
 				return nil, ufmt.Errorf("controls: item %d: send %s has no queued refund, or names an amount", i, key)
 			}
+			if r.Refunded > 0 {
+				return nil, ufmt.Errorf("controls: item %d: send %s was refunded in part already: a delivered packet's paid refund is a forged refund (action 4)", i, key)
+			}
 		case SettleDelivered:
 			if it.Amount != 0 {
 				return nil, ufmt.Errorf("controls: item %d: a delivered send names no amount", i)
+			}
+			if r.Refunded > 0 {
+				return nil, ufmt.Errorf("controls: item %d: send %s was refunded: a delivered packet's paid refund is a forged refund (action 4)", i, key)
 			}
 		case SettleLoss:
 			// A forged refund: what was paid is the loss, the remainder is
@@ -502,9 +509,11 @@ func (rt *Route) SettleRecords(client string, items []SettleItem, incident strin
 		}
 		switch it.Action {
 		case SettlePay:
-			rt.refunded(d, r, it.Amount)
-			r.Payment = PayReconciled
-			out = append(out, RefundPayment{Key: key, Denom: r.Denom, To: r.Sender, Amount: it.Amount})
+			if it.Amount > 0 {
+				rt.refunded(d, r, it.Amount)
+				r.Payment = PayReconciled
+				out = append(out, RefundPayment{Key: key, Denom: r.Denom, To: r.Sender, Amount: it.Amount})
+			}
 		case SettleLoss:
 			rt.addLoss(d, Loss{Key: key, Denom: r.Denom, Amount: it.Amount, Chain: ChainGno, Incident: incident, Cause: CauseRefundForDelivered})
 		}

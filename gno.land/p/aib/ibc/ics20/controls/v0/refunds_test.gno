@@ -425,3 +425,34 @@ func TestReservationReleasedOnce(t *testing.T) {
 		t.Fatalf("%+v", r1)
 	}
 }
+
+// A genuine refund paid in full during the suspect interval settles with a
+// zero payment, once; a delivered settlement or a rejection is refused once
+// a refund was paid (it is a forged refund: action 4) (Codex round 3 #5).
+func TestSettleRefundPaidInFull(t *testing.T) {
+	r, rt := newRoute(t)
+	rt.RecordSend(sendRec(1, "ugnot", KindUnescrow, 1_000))
+	rt.RecordSend(sendRec(2, "ugnot", KindUnescrow, 1_000))
+	rt.Settle(t0+Day, 1, pk(1), OutcomeTimeout, false, big) // paid at once
+	rt.Settle(t0+Day, 1, pk(2), OutcomeTimeout, false, big) // paid at once
+	r.Replace("ethereum-1", "ethereum-2")
+	for _, bad := range []SettleItem{{Seq: 1, Action: SettlePay, Amount: 1}, {Seq: 1, Action: SettleDelivered}} {
+		if _, err := rt.SettleRecords("ethereum-1", []SettleItem{bad}, "inc", lockOf(big)); err == nil {
+			t.Fatalf("applied %+v", bad)
+		}
+	}
+	ps, err := rt.SettleRecords("ethereum-1", []SettleItem{{Seq: 1, Action: SettlePay}}, "inc", lockOf(big))
+	if err != nil || len(ps) != 0 {
+		t.Fatalf("%+v %v", ps, err)
+	}
+	r1, _ := rt.Send(pk(1))
+	if r1.Settlement != SettlePay || r1.Refunded != 1_000 || rt.OpenSends("ethereum-1") != 0 {
+		t.Fatalf("%+v", r1)
+	}
+	if _, err := rt.SettleRecords("ethereum-1", []SettleItem{{Seq: 1, Action: SettlePay}}, "inc", lockOf(big)); err == nil {
+		t.Fatalf("settled twice")
+	}
+	if _, err := rt.SettleRecords("ethereum-1", []SettleItem{{Seq: 2, Action: SettleLoss, Amount: 1_000}}, "inc", lockOf(big)); err != nil {
+		t.Fatal(err)
+	}
+}

@@ -61,7 +61,6 @@ func main(cur realm) {
 	}
 
 	for _, items := range []string{
-		"1:1:0",       // a payment of nothing
 		"1:4:0",       // a forged refund paid nothing
 		"1:2:5",       // a rejection with an amount
 		"1:3:1",       // a delivery with an amount
@@ -91,6 +90,11 @@ func main(cur realm) {
 		println("seq", seq, "kind", kind)
 	}
 
+	// A genuine refund paid in full settles with a zero payment (Codex round
+	// 3 #5).
+	govern(cur, ibcgov.NewEthSettleRequest(cross(cur), "client-0", "7:1:0"))
+	println("zero payment dispatched:", ibcgov.LastSeq(1))
+
 	// A packet the core would refuse to send spends its decision, binding no
 	// number (Codex round 2 #3).
 	govern(cur, ibcgov.NewCorePauseRequest(cross(cur)))
@@ -102,10 +106,9 @@ func main(cur realm) {
 // Output:
 // seq 1 matches: true
 // seq 2 matches: true
-// 1:1:0: ibcgov: a payment or a forged refund names its positive amount, a rejection or a delivery 0: 1:1:0
-// 1:4:0: ibcgov: a payment or a forged refund names its positive amount, a rejection or a delivery 0: 1:4:0
-// 1:2:5: ibcgov: a payment or a forged refund names its positive amount, a rejection or a delivery 0: 1:2:5
-// 1:3:1: ibcgov: a payment or a forged refund names its positive amount, a rejection or a delivery 0: 1:3:1
+// 1:4:0: ibcgov: a forged refund names its positive amount, a rejection or a delivery 0: 1:4:0
+// 1:2:5: ibcgov: a forged refund names its positive amount, a rejection or a delivery 0: 1:2:5
+// 1:3:1: ibcgov: a forged refund names its positive amount, a rejection or a delivery 0: 1:3:1
 // 1:5:0: ibcgov: not a settlement item, or a sequence named twice: 1:5:0
 // 0:3:0: ibcgov: not a settlement item, or a sequence named twice: 0:3:0
 // 1:3:0,1:2:0: ibcgov: not a settlement item, or a sequence named twice: 1:2:0
@@ -117,4 +120,5 @@ func main(cur realm) {
 // seq 4 kind 10
 // seq 5 kind 12
 // seq 6 kind 13
-// while the core is paused: spent - spent: the core is paused: no governance packet can be sent | last seq 6
+// zero payment dispatched: 7
+// while the core is paused: spent - spent: the core is paused: no governance packet can be sent | last seq 7

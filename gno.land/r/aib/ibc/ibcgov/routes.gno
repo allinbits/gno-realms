@@ -403,12 +403,13 @@ func NewAcceptDeficitRequest(cur realm, route, denom string, amount int64, incid
 // NewSettleRequest applies a reconciliation's outcomes to the sends of
 // client, a client a replacement retired from route, after 7 days (ADR pr6375
 // §7.12, the gno analogue of Ethereum's kind 12): items is a comma-separated
-// list of "sequence:action:amount", action 1 pay the refund's whole
+// list of "sequence:action:amount", action 1 a genuine refund: pay its whole
 // remainder (amount equals what the send carried minus what was refunded: a
-// refund is never cut short), 2 reject a queued refund (amount 0), 3 settled
-// as delivered (amount 0), 4 a forged refund: the unpaid remainder rejected
-// and what was paid (amount, equal to it) recorded as a loss; at most 64
-// items. Each send is settled exactly once; a queued refund leaves the queue
+// refund is never cut short; 0 for one paid in full, which only settles the
+// record), 2 reject a queued refund none of which was paid (amount 0), 3
+// settled as delivered, no refund paid (amount 0), 4 a forged refund: the
+// unpaid remainder rejected and what was paid (amount, equal to it) recorded
+// as a loss; at most 64 items. Each send is settled exactly once; a queued refund leaves the queue
 // under any action.
 func NewSettleRequest(cur realm, route, client, items, incident string) Request {
 	mustRoute(route)
@@ -433,8 +434,8 @@ func NewSettleRequest(cur realm, route, client, items, incident string) Request 
 		if err1 != nil || err2 != nil || err3 != nil || seq == 0 || seen[seq] || action < 1 || action > 4 || amount < 0 {
 			panic("ibcgov: not a settlement item, or a sequence named twice: " + it)
 		}
-		if (action == 1 || action == 4) != (amount > 0) {
-			panic("ibcgov: a payment or a loss names a positive amount, a rejection or a delivery none: " + it)
+		if (action == 4 && amount == 0) || ((action == 2 || action == 3) && amount != 0) {
+			panic("ibcgov: a forged refund names a positive amount, a rejection or a delivery none: " + it)
 		}
 		seen[seq] = true
 		parsed = append(parsed, controls.SettleItem{Seq: seq, Action: uint8(action), Amount: amount})
