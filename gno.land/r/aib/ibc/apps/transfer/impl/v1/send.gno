@@ -94,6 +94,12 @@ func (l *logic) Transfer(_ int, rlm realm, sent []chain.Coin, clientID, receiver
 	if !covered {
 		return l.Logic.Transfer(0, rlm, sent, clientID, receiver, denom, amount, timeoutTimestamp, memo)
 	}
+	if rt == nil && strings.HasPrefix(denom, "ibc/") {
+		// impl/v0's vouchers go back over a client no decision enrolled
+		// yet: the legacy path records and meters the return (ADR pr6375
+		// R17).
+		rt = l.registry(0, rlm).Legacy(clientID)
+	}
 	rt = mustRoute(rt, clientID)
 	if rt.IsClosed() {
 		panic(ufmt.Sprintf("route %s is closed until a governed reopening: it carries no send", rt.Key))
@@ -123,10 +129,15 @@ func (l *logic) Transfer(_ int, rlm realm, sent []chain.Coin, clientID, receiver
 			panic(ufmt.Sprintf("voucher %s did not come over route %s", denom, rt.Key))
 		}
 		// Every send on a route is recorded, a return too, so its refund is
-		// metered and held like any other (ADR pr6375 §7.13): a voucher of a
-		// denom the route does not account yet waits for it to be enabled.
-		if acc := rt.Denom(denom); acc == nil || acc.Config.Kind != controls.KindMint {
-			panic(ufmt.Sprintf("denom %s is not enabled on route %s: its vouchers return once governance enables it", denom, rt.Key))
+		// metered and held like any other (ADR pr6375 §7.13). A voucher of a
+		// denom no decision enabled yet goes back through the legacy path:
+		// recorded, its refund queued until the denom is enabled.
+		acc := rt.Denom(denom)
+		if acc == nil {
+			acc = rt.LegacyDenom(denom, controls.KindMint, l.store.VoucherToken(denom).TotalSupply(), now())
+		}
+		if acc.Config.Kind != controls.KindMint {
+			panic(ufmt.Sprintf("denom %s is accounted as %s on route %s", denom, acc.Config.Kind, rt.Key))
 		}
 		checkRecipient(rt, receiver, strings.ToLower(d.Base))
 		wireDenom = toWire(d, rt).Path()
@@ -205,7 +216,7 @@ func (l *logic) Transfer(_ int, rlm realm, sent []chain.Coin, clientID, receiver
 // rt: enabled, not paused by a sends flag, within the send limits.
 func (l *logic) mustSendable(rt *controls.Route, denom string, amount int64) *controls.Denom {
 	acc := rt.Denom(denom)
-	if acc == nil || acc.Config.Kind != controls.KindUnescrow {
+	if rt.Legacy || acc == nil || acc.Legacy || acc.Config.Kind != controls.KindUnescrow {
 		panic(ufmt.Sprintf("denom %s is not enabled for sends on route %s", denom, rt.Key))
 	}
 	if rt.ExposureClosed() {

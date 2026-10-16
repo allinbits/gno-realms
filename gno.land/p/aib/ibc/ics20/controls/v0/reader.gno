@@ -71,6 +71,15 @@ func (rd Reader) SuspectUnsettled(route, clientID string) int64 {
 	return 0
 }
 
+// Legacy reports whether route is a legacy route: made by the legacy path,
+// enrolled by no decision yet.
+func (rd Reader) Legacy(route string) bool {
+	if rt := rd.route(route); rt != nil {
+		return rt.Legacy
+	}
+	return false
+}
+
 // LossClosed reports whether a route takes no new exposure because a loss
 // has no restoring decision (see Route.ExposureClosed).
 func (rd Reader) LossClosed(route string) bool {
@@ -244,7 +253,7 @@ func (rd Reader) RouteJSON(route string) string {
 	}
 	var b strings.Builder
 	b.WriteString("{\"route\":" + q(rt.Key) + ",\"client\":" + q(rt.Client) + ",\"replaced\":" + strList(rt.Replaced) +
-		",\"enrolled\":" + itoa(rt.Enrolled) + ",\"activated\":" + itoa(rt.Activated) + ",\"closed\":" + strconv.FormatBool(rt.IsClosed()) + ",\"loss_closed\":" + strconv.FormatBool(rt.LossClosed()) + ",\"fee_collector\":" + q(string(rt.FeeCollector)) +
+		",\"enrolled\":" + itoa(rt.Enrolled) + ",\"activated\":" + itoa(rt.Activated) + ",\"closed\":" + strconv.FormatBool(rt.IsClosed()) + ",\"legacy\":" + strconv.FormatBool(rt.Legacy) + ",\"unimported\":" + itoa(rt.Unimported) + ",\"loss_closed\":" + strconv.FormatBool(rt.LossClosed()) + ",\"fee_collector\":" + q(string(rt.FeeCollector)) +
 		",\"refused_recipients\":" + strList(rt.Refused()) + ",\"unrecovered\":" + itoa(rt.Unrecovered()) + ",\"unresolved\":" + itoa(rt.Unresolved()) + ",\"denoms\":[")
 	for i, name := range rt.Denoms() {
 		if i > 0 {

@@ -118,7 +118,7 @@ func checkNewRouteClient(client string) string {
 		return client + " has no counterparty registered"
 	}
 	if rd, ok := transfer.ExtView("controls").(controls.Reader); ok {
-		if rd.RouteOf(client) != "" || rd.RetiredRouteOf(client) != "" {
+		if (rd.RouteOf(client) != "" && !rd.Legacy(client)) || rd.RetiredRouteOf(client) != "" {
 			return client + " is a route's client already"
 		}
 	}
@@ -193,7 +193,6 @@ func denomConfig(route, denom, kind string, capFloor, supplyCap, fee, feeFloor, 
 func NewSetDenomRequest(cur realm, route, denom, kind string, capFloor, supplyCap, fee, feeFloor, sendMax, sendMin, refundCap int64, remoteToken string) Request {
 	mustRoute(route)
 	denom, c := denomConfig(route, denom, kind, capFloor, supplyCap, fee, feeFloor, sendMax, sendMin, refundCap, remoteToken)
-	remote := c.Remote
 	if old, ok := view().DenomConfig(route, denom); ok && old.Kind != kind {
 		panic("ibcgov: a denom never changes accounting")
 	}
@@ -204,6 +203,7 @@ func NewSetDenomRequest(cur realm, route, denom, kind string, capFloor, supplyCa
 		old, ok := view().DenomConfig(route, denom)
 		return !ok || controls.Loosens(old, c)
 	}
+	remote := c.Remote
 	text := "denom " + denom + " on route " + route + ": kind=" + kind + " capFloor=" + itoa(capFloor) + " supplyCap=" + itoa(supplyCap) +
 		" fee=" + itoa(fee) + " feeFloor=" + itoa(feeFloor) + " sendMax=" + itoa(sendMax) + " sendMin=" + itoa(sendMin) +
 		" refundCap=" + itoa(refundCap) + " remoteToken=" + remote

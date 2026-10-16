@@ -101,6 +101,7 @@ func (rt *Route) RecordSend(rec SendRecord) error {
 	r.Reservation = 0
 	rt.sends.Set(r.Key, &r)
 	rt.track(&r, false)
+	rt.addPending(r.Key, 1)
 	d.Totals.Sent = statAdd(d.Totals.Sent, r.Amount)
 	d.Totals.SendFees = statAdd(d.Totals.SendFees, r.Fee)
 	if d.Config.Kind == KindMint {
@@ -157,6 +158,10 @@ func (rt *Route) Backfill(rec SendRecord) error {
 	r.Reservation = 0
 	rt.sends.Set(r.Key, &r)
 	rt.track(&r, false)
+	rt.addPending(r.Key, 1)
+	if rt.Unimported > 0 {
+		rt.Unimported--
+	}
 	d.Totals.Sent = statAdd(d.Totals.Sent, r.Amount)
 	if d.Config.Kind == KindMint {
 		r.Reservation = r.Amount
@@ -314,6 +319,7 @@ func (rt *Route) Settle(now, height int64, key, outcome string, hold bool, lock 
 	}
 	d := rt.Denom(r.Denom)
 	defer rt.track(r, isOpen(r))
+	rt.addPending(r.Key, -1)
 	r.Outcome, r.ProcessedHeight, r.ProcessedAt = outcome, height, now
 	if r.Settlement == 0 {
 		rt.markProcessed(r)

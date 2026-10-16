@@ -89,6 +89,9 @@ func (l *logic) Backfill(_ int, rlm realm, packet types.Packet) {
 			rt = reg.Route(k)
 		}
 	}
+	if rt == nil && isEthereum(packet.SourceClient) {
+		rt = reg.Legacy(packet.SourceClient) // a client no decision enrolled yet
+	}
 	if rt == nil {
 		panic("client " + packet.SourceClient + " is the client of no route")
 	}
@@ -119,6 +122,15 @@ func (l *logic) Backfill(_ int, rlm realm, packet types.Packet) {
 		// A voucher returning: keyed by the route key on this chain.
 		trace := append([]ics20.Hop{ics20.NewHop(transfer.PortID, rt.Key)}, token.Denom.Trace[1:]...)
 		accDenom, kind = ics20.Denom{Base: token.Denom.Base, Trace: trace}.IBCDenom(), controls.KindMint
+	}
+	if rt.Denom(accDenom) == nil {
+		// A denom no decision enabled yet: the legacy path keeps the record,
+		// its refund queued until the denom is enabled.
+		var supply int64
+		if tok := l.store.VoucherToken(accDenom); kind == controls.KindMint && tok != nil {
+			supply = tok.TotalSupply()
+		}
+		rt.LegacyDenom(accDenom, kind, supply, now())
 	}
 	key := controls.PacketKey(packet.SourceClient, packet.Sequence)
 	err = rt.Backfill(controls.SendRecord{
@@ -225,6 +237,16 @@ func (l *logic) creditPending(_ int, rlm realm, rt *controls.Route, p controls.P
 	return ""
 }
 
+// imported reports whether every send impl/v0 made over the route's client
+// and left outstanding has been backfilled (ADR pr6375 §7.13): until then the
+// route takes no credit, so a credit cannot use the supply or escrow a legacy
+// return still owes. The count is taken at the enrolment (from the core's
+// outstanding transfer commitments on the client, less the sends already
+// recorded) and each backfill lowers it.
+func (l *logic) imported(_ int, rlm realm, rt *controls.Route) bool {
+	return rt.Unimported == 0
+}
+
 // isLegacyReceipt reports whether a receipt is the constant 0x02 that cores
 // before this one stored for every packet (it identifies no packet): such a
 // receive predates the controls.
@@ -257,13 +279,18 @@ func (l *logic) GovApply(_ int, rlm realm, op string, params []byte) string {
 		if !isEthereum(p.Route) || core.IsClientRetired(p.Route) {
 			return p.Route + " is no usable Ethereum client"
 		}
-		if _, err := reg.Enroll(p.Route, p.To, t, chainHeight()); err != nil {
+		rt, err := reg.Enroll(p.Route, p.To, t, chainHeight())
+		if err != nil {
 			return err.Error()
 		}
+		rt.StartImport(core.OutstandingSends(p.Route, transfer.PortID))
 		transfer.EmitRoute(0, rlm, "gov", "op", op, "route", p.Route)
 		return ""
 	}
 	rt := reg.Route(p.Route)
+	if rt != nil && rt.Legacy {
+		return "route " + p.Route + " is not enrolled (it has only the legacy path's records)"
+	}
 	if rt == nil {
 		return "no route " + p.Route
 	}
@@ -297,6 +324,8 @@ func (l *logic) GovApply(_ int, rlm realm, op string, params []byte) string {
 		switch {
 		case rt.ExposureClosed():
 			return "route " + rt.Key + " is closed (a replacement awaiting its reopening, or a loss without a restoring decision): it credits nothing"
+		case !l.imported(0, rlm, rt):
+			return "route " + rt.Key + " still has sends impl/v0 made without a record: credits start once they are backfilled"
 		case !clientOfRoute(rt, client):
 			return "packet " + p.Key + " was not received on route " + rt.Key
 		case len(core.PacketReceipt(client, seq)) == 0:

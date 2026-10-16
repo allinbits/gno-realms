@@ -158,6 +158,11 @@ type client struct {
 	packetReceiptsBySeq         *bptree.BPTree // sequence:receipt
 	packetAcknowledgementsBySeq *bptree.BPTree // sequence:ack
 	pendingAsyncAcksBySeq       *bptree.BPTree // sequence:pendingAsyncAck
+	// commitmentPorts and outstandingByPort count the outstanding packet
+	// commitments by source port, so an app tells whether every send of its
+	// on a client is accounted for (ADR pr6375 §7.13).
+	commitmentPorts   *bptree.BPTree // sequence:source port
+	outstandingByPort *bptree.BPTree // port:int64
 }
 
 var _ Client = (*client)(nil)
@@ -192,6 +197,8 @@ func (cs *coreStore) addClient(typ string, creator address, lc lightclient.Inter
 		packetReceiptsBySeq:         bptree.NewBPTree32(),
 		packetAcknowledgementsBySeq: bptree.NewBPTree32(),
 		pendingAsyncAcksBySeq:       bptree.NewBPTree32(),
+		commitmentPorts:             bptree.NewBPTree32(),
+		outstandingByPort:           bptree.NewBPTree32(),
 	}
 	cs.clientByID.Set(id, c)
 	return c
@@ -275,6 +282,15 @@ func (c *client) NextSequenceSend() uint64 {
 	return uint64(c.sendSeq) + 1
 }
 
+// OutstandingSends is how many packets sent from port over the client have
+// their commitment outstanding (no acknowledgement or timeout processed).
+func (c *client) OutstandingSends(port string) int64 {
+	if v := c.outstandingByPort.Get(port); v != nil {
+		return v.(int64)
+	}
+	return 0
+}
+
 func (c *client) PacketCommitments() bptree.ITree { return readOnlyTree{c.packetCommitmentsBySeq} }
 
 func (c *client) PacketCommitment(sequence uint64) []byte {
@@ -293,6 +309,11 @@ func (c *client) SetPacketCommitment(_ int, rlm realm, packet types.Packet) {
 
 	// store in client data
 	c.packetCommitmentsBySeq.Set(seqid.ID(packet.Sequence).Binary(), commitment)
+	if len(packet.Payloads) > 0 {
+		port := packet.Payloads[0].SourcePort
+		c.commitmentPorts.Set(seqid.ID(packet.Sequence).Binary(), port)
+		c.outstandingByPort.Set(port, c.OutstandingSends(port)+1)
+	}
 
 	// store in params, so it is provable by the counterparty
 	// The key will be: (abci path=.store/main/key)
@@ -304,6 +325,14 @@ func (c *client) SetPacketCommitment(_ int, rlm realm, packet types.Packet) {
 func (c *client) DeletePacketCommitment(_ int, rlm realm, sequence uint64) {
 	assertProxyRealm(0, rlm)
 	c.packetCommitmentsBySeq.Remove(seqid.ID(sequence).Binary())
+	if v, removed := c.commitmentPorts.Remove(seqid.ID(sequence).Binary()); removed {
+		port := v.(string)
+		if n := c.OutstandingSends(port) - 1; n > 0 {
+			c.outstandingByPort.Set(port, n)
+		} else {
+			c.outstandingByPort.Remove(port)
+		}
+	}
 
 	key := host.PacketCommitmentKey(c.id, sequence)
 	setChainParam(key, nil)

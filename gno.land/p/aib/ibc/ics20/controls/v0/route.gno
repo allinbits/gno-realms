@@ -124,16 +124,38 @@ func (r *Registry) Enroll(key string, collector address, now, height int64) (*Ro
 	if key == "" {
 		return nil, errors.New("controls: empty route key")
 	}
-	if r.routes.Has(key) || r.aliases.Has(key) || r.retired.Has(key) {
-		return nil, errors.New("controls: client " + key + " is a route or a route's client already")
-	}
 	if !collector.IsValid() {
 		return nil, errors.New("controls: invalid fee collector " + string(collector))
+	}
+	// A legacy route (voucher returns impl/v0's vouchers made before the
+	// client was enrolled) is adopted with its records.
+	if rt := r.Route(key); rt != nil && rt.Legacy {
+		rt.Legacy = false
+		rt.Enrolled, rt.Activated, rt.FeeCollector = now, height, collector
+		return rt, nil
+	}
+	if r.routes.Has(key) || r.aliases.Has(key) || r.retired.Has(key) {
+		return nil, errors.New("controls: client " + key + " is a route or a route's client already")
 	}
 	rt := &Route{Key: key, Client: key, Enrolled: now, Activated: height, FeeCollector: collector}
 	r.routes.Set(key, rt)
 	r.aliases.Set(key, key)
 	return rt, nil
+}
+
+// Legacy is the route of an Ethereum client no decision enrolled, made on
+// first use: the legacy path that keeps impl/v0's vouchers going back after
+// the switch to the controls (ADR pr6375 R17). It records and meters their
+// returns (Route.LegacyDenom) and takes no other transfer: no gno-native
+// send, no credit, until a decision enrolls it (Enroll adopts it).
+func (r *Registry) Legacy(clientID string) *Route {
+	if rt := r.RouteOf(clientID); rt != nil {
+		return rt
+	}
+	rt := &Route{Key: clientID, Client: clientID, Legacy: true}
+	r.routes.Set(clientID, rt)
+	r.aliases.Set(clientID, clientID)
+	return rt
 }
 
 // Route is the route with this key, or nil.
@@ -227,6 +249,8 @@ type Route struct {
 	Activated    int64    // block height of the enrolment: the controls' cutoff
 	FeeCollector address
 	Closed       bool // closed by a replacement until a governed reopening
+	Legacy bool // made by the legacy path; no decision enrolled it yet
+	Unimported int64 // sends of its client impl/v0 made, outstanding at the enrolment and not backfilled yet: credits wait for 0
 	Reopening bool // a reopening decision runs in batches (ContinueReopen)
 	ReplacedAt int64 // the block height of the last replacement
 
@@ -236,6 +260,7 @@ type Route struct {
 	sweeps    avl.Tree // packet key -> *SweepEntry
 	sends     avl.Tree // packet key -> *SendRecord
 	openSends avl.Tree // client id -> int64: its open send records
+	pending avl.Tree // client id -> int64: its send records with no outcome yet
 	processed avl.Tree // client id -> *processedSet: its processed, unsettled send records by height
 	suspect   avl.Tree // retired client id -> int64: the height its suspect interval starts at
 
@@ -244,6 +269,35 @@ type Route struct {
 	incidents avl.Tree // denom|incident -> *IncidentTotals
 	recaps    avl.Tree // seqKey(id) -> *Recap
 	nRecaps   int64
+}
+
+// StartImport sets, at the enrolment, how many sends of the route's client
+// are outstanding (outstanding, the core's commitments on the transfer port)
+// without a record: sends impl/v0 made, which must be backfilled before the
+// route takes a credit.
+func (rt *Route) StartImport(outstanding int64) {
+	if n := outstanding - rt.PendingSends(rt.Client); n > 0 {
+		rt.Unimported = n
+	}
+}
+
+// PendingSends is how many send records of clientID have no outcome yet:
+// their commitments are outstanding in the core.
+func (rt *Route) PendingSends(clientID string) int64 {
+	if v := rt.pending.Get(clientID); v != nil {
+		return v.(int64)
+	}
+	return 0
+}
+
+func (rt *Route) addPending(key string, delta int64) {
+	client, _, _ := ParsePacketKey(key)
+	n := rt.PendingSends(client) + delta
+	if n == 0 {
+		rt.pending.Remove(client)
+		return
+	}
+	rt.pending.Set(client, n)
 }
 
 // IsClosed reports whether a replacement closed the route until a governed
@@ -419,6 +473,7 @@ type Denom struct {
 	Name           string // the escrow denom (KindUnescrow) or the voucher's IBC denom (KindMint)
 	Config         DenomConfig
 	LaunchCapFloor int64 // the cap floor it was enabled with: lowering never goes below it
+	Legacy         bool  // made by the legacy path, not enabled by a decision: takes no credit, refunds wait
 
 	meter       Meter
 	queues      avl.Tree // recipient -> *queue
@@ -492,6 +547,26 @@ type queue struct {
 	next  int64
 }
 
+// LegacyDenom is a denom the legacy path made: a voucher (KindMint) of
+// impl/v0 going back, or a gno-native token whose send impl/v0 made, before a
+// decision enabled the denom. It starts with outstanding (the voucher supply
+// impl/v0 left) and a refund cap of zero: its records are kept and their
+// refunds wait in the refund queue until a decision enables the denom
+// (SetDenom keeps them). It takes no credit.
+func (rt *Route) LegacyDenom(name, kind string, outstanding, now int64) *Denom {
+	if d := rt.Denom(name); d != nil {
+		return d
+	}
+	d := &Denom{Name: name, Config: DenomConfig{Kind: kind}, Legacy: true}
+	if kind == KindMint && outstanding > 0 {
+		d.Totals.Outstanding = outstanding
+	}
+	d.meter = NewMeter(now, 0)
+	d.refundMeter = NewMeter(now, 0)
+	rt.denoms.Set(name, d)
+	return d
+}
+
 // SetDenom enables a denom on the route or replaces its configuration. A new
 // denom's meters start empty as of now in epoch. A new minted denom starts
 // with outstanding, the vouchers of it already in circulation (minted before
@@ -511,6 +586,12 @@ func (rt *Route) SetDenom(name string, c DenomConfig, now, epoch, outstanding in
 	if d := rt.Denom(name); d != nil {
 		if c.Kind != d.Config.Kind {
 			return errors.New("controls: a denom never changes accounting")
+		}
+		if d.Legacy {
+			// A legacy denom is enabled with its records and totals.
+			d.Config, d.LaunchCapFloor, d.Legacy = c, c.CapFloor, false
+			d.meter = NewMeter(now, epoch)
+			return nil
 		}
 		if c.CapFloor < d.LaunchCapFloor {
 			return ufmt.Errorf("controls: the cap floor (%d) cannot go below its launch value (%d)", c.CapFloor, d.LaunchCapFloor)
@@ -700,7 +781,7 @@ func (rt *Route) sweep(key string) *SweepEntry {
 // source.
 func (rt *Route) CheckCredit(denom string, amount int64) error {
 	d := rt.Denom(denom)
-	if d == nil {
+	if d == nil || d.Legacy || rt.Legacy {
 		return errors.New("controls: denom " + denom + " is not enabled on route " + rt.Key)
 	}
 	if amount <= 0 {
