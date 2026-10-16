@@ -4,6 +4,8 @@ import (
 	"strconv"
 	"strings"
 
+	"gno.land/p/aib/jsonmd/v0"
+
 	"gno.land/p/aib/ibc/types/v0"
 	"gno.land/p/nt/avl/v0"
 )
@@ -223,7 +225,9 @@ func (rd Reader) Recap(route string, id int64) (Recap, bool) {
 
 // ------------------------------------------------------------------- JSON
 
-func q(s string) string { return strconv.Quote(s) }
+// q is s as a JSON string, inert in Markdown (jsonmd.Quote): the records
+// keep raw, attacker-chosen strings, such as an undecodable receiver.
+func q(s string) string { return jsonmd.Quote(s) }
 
 func strList(ss []string) string {
 	parts := make([]string, len(ss))

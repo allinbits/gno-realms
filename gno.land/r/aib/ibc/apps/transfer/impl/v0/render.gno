@@ -6,6 +6,9 @@ import (
 	"strings"
 	"time"
 
+	"gno.land/p/aib/jsonmd/v0"
+	"gno.land/p/nt/markdown/sanitize/v0"
+
 	"gno.land/p/aib/ibc/ics20/v0"
 	"gno.land/p/aib/ibc/lightclient/v0"
 	"gno.land/p/aib/jsonpage/v0"
@@ -106,7 +109,7 @@ func (rd *Renderer) Home(w *mux.ResponseWriter, r *mux.Request) {
 			)
 			out.WriteString(ufmt.Sprintf(
 				"| [`%s`](/r/aib/ibc/apps/transfer:denoms/%s) | %s | %s | %s | %s | %s |\n",
-				ShortDenom(ibcDenom), ibcDenom, d.Base, d.Path(), supply, grc20link, actions,
+				ShortDenom(ibcDenom), ibcDenom, sanitize.TableCell(d.Base), sanitize.TableCell(d.Path()), supply, grc20link, actions,
 			))
 		}
 		out.WriteString("\n")
@@ -404,13 +407,14 @@ func ShortDenom(ibcDenom string) string {
 	return ibcDenom
 }
 
-// RenderNode writes n as JSON.
+// RenderNode writes n as JSON, inert in Markdown (jsonmd.Inert): its strings
+// may carry a counterparty's base denom or a path segment of the request.
 func RenderNode(w *mux.ResponseWriter, n *json.Node) {
 	bz, err := json.Marshal(n)
 	if err != nil {
 		panic(err)
 	}
-	w.Write(string(bz))
+	w.Write(jsonmd.Inert(string(bz)))
 }
 
 // GRC20RegKey returns the grc20reg key for a voucher ibc denom. grc20reg keys

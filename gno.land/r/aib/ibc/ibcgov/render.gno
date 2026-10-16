@@ -4,6 +4,8 @@ import (
 	"strconv"
 	"strings"
 
+	"gno.land/p/aib/jsonmd/v0"
+
 	"gno.land/p/aib/decisions/v0"
 	"gno.land/p/nt/markdown/sanitize/v0"
 )
@@ -23,7 +25,7 @@ func Render(path string) string {
 	case path == "":
 		return home()
 	case path == "decisions":
-		return ledger.JSON()
+		return jsonmd.Inert(ledger.JSON())
 	case strings.HasPrefix(path, "dispatch/"):
 		parts := strings.Split(strings.TrimPrefix(path, "dispatch/"), "/")
 		if len(parts) != 2 {
@@ -34,7 +36,7 @@ func Render(path string) string {
 		if err1 != nil || err2 != nil {
 			return "null"
 		}
-		return dispatchJSON(uint32(e), s)
+		return jsonmd.Inert(dispatchJSON(uint32(e), s))
 	}
 	return "# Not found\n"
 }

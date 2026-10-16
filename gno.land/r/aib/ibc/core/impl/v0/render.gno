@@ -6,6 +6,9 @@ import (
 	"strings"
 	"time"
 
+	"gno.land/p/aib/jsonmd/v0"
+	"gno.land/p/nt/markdown/sanitize/v0"
+
 	"gno.land/p/aib/ibc/lightclient/ethereum/v0"
 	"gno.land/p/aib/ibc/lightclient/tendermint/v0"
 	"gno.land/p/aib/ibc/lightclient/v0"
@@ -99,7 +102,7 @@ func (rd *Renderer) Home(w *mux.ResponseWriter, r *mux.Request) {
 				id, id,
 				lc.Status(), id,
 				RenderAddr(c.Creator()),
-				c.CounterpartyClientID(),
+				sanitize.TableCell(c.CounterpartyClientID()),
 				lc.LatestHeight().String(), id, lc.LatestHeight().RevisionNumber, lc.LatestHeight().RevisionHeight,
 				heightTime,
 				nConsStates, id,
@@ -120,7 +123,7 @@ func (rd *Renderer) Home(w *mux.ResponseWriter, r *mux.Request) {
 		out.WriteString("|------|-----|------|\n")
 		for _, port := range ports {
 			app := rd.store.Route(port)
-			out.WriteString(ufmt.Sprintf("| %s | %s | %s |\n", port, RenderPkgPath(app.PkgPath), RenderAddr(app.Address)))
+			out.WriteString(ufmt.Sprintf("| %s | %s | %s |\n", sanitize.TableCell(port), RenderPkgPath(app.PkgPath), RenderAddr(app.Address)))
 		}
 		out.WriteString("\n")
 	} else {
@@ -573,13 +576,14 @@ func RenderStrings(s []string) *json.Node {
 	return json.ArrayNode("", nodes)
 }
 
-// RenderNode writes n as JSON.
+// RenderNode writes n as JSON, inert in Markdown (jsonmd.Inert): its strings
+// may carry a path segment of the request or a relayer's identifier.
 func RenderNode(w *mux.ResponseWriter, n *json.Node) {
 	bz, err := json.Marshal(n)
 	if err != nil {
 		panic(err)
 	}
-	w.Write(string(bz))
+	w.Write(jsonmd.Inert(string(bz)))
 }
 
 func NodeErrorClientNotFound(id string) *json.Node {

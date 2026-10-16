@@ -522,10 +522,17 @@ func TestReaderJSON(t *testing.T) {
 	if rd.RoutesJSON() == "[]" {
 		t.Fatalf("routes json")
 	}
-	// The JSON escapes what the counterparty wrote.
+	// The JSON escapes what the counterparty wrote, and nothing of it is
+	// active in Markdown (Codex round 6 #6).
+	u := "\\" + "u"
 	mustCredit(t, rt, t0, 3, "ugnot", `g1"x`, 1, 100_000) // swept: below the fee
-	if !strings.Contains(rd.SweepsJSON("ethereum-1", ""), `"to":"g1\"x"`) {
+	if !strings.Contains(rd.SweepsJSON("ethereum-1", ""), `"to":"g1`+u+`0022x"`) {
 		t.Fatalf("escaping: %s", rd.SweepsJSON("ethereum-1", ""))
+	}
+	mustCredit(t, rt, t0, 4, "ugnot", "[claim](https://attacker.example)<b>", 1, 100_000)
+	sweeps := rd.SweepsJSON("ethereum-1", "")
+	if !strings.Contains(sweeps, `"to":"`+u+`005bclaim`+u+`005d`+u+`0028https://attacker.example`+u+`0029`+u+`003cb`+u+`003e"`) {
+		t.Fatalf("markdown in the JSON: %s", sweeps)
 	}
 }
 
