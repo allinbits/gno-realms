@@ -857,6 +857,12 @@ func TestReopenInBatches(t *testing.T) {
 	if _, _, err := rt.Reopen(); err == nil {
 		t.Fatalf("started twice")
 	}
+	// A loss booked between batches on an incident the first batch accepted
+	// already, behind the cursor (Codex round 8 #5): the scan starts over.
+	if err := rt.RecordLoss(pk(5000), "ugnot", 7, ChainGno, "inc-0", "collision"); err != nil {
+		t.Fatal(err)
+	}
+	n += 7
 	for !done {
 		var a int64
 		a, done, err = rt.ContinueReopen()

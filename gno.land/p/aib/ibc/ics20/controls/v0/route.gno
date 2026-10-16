@@ -337,6 +337,8 @@ type Route struct {
 	suspect   avl.Tree // retired client id -> int64: the height its suspect interval starts at
 
 	reopenIncident, reopenRecap string   // where a batched reopening stopped
+	lossesBooked                int64    // every loss booked: a reopening restarts its scan when it changes
+	reopenLosses                int64    // lossesBooked when the reopening's incident scan started
 	losses                      avl.Tree // loss key -> *Loss
 	incidents                   avl.Tree // denom|incident -> *IncidentTotals
 	recaps                      avl.Tree // seqKey(id) -> *Recap
@@ -423,6 +425,7 @@ func (rt *Route) Reopen() (int64, bool, error) {
 	}
 	rt.Reopening = true
 	rt.reopenIncident, rt.reopenRecap = "", ""
+	rt.reopenLosses = rt.lossesBooked
 	return rt.reopenBatch()
 }
 
@@ -503,6 +506,14 @@ func (rt *Route) reopenBatch() (int64, bool, error) {
 		return false
 	})
 	if more {
+		return accepted, false, nil
+	}
+	// A loss booked since the incident scan started may sit behind its
+	// cursor, on an incident it accepted already: the scan starts over, so
+	// the route opens only once every incident's losses are resolved or
+	// accepted (ADR pr6375 §5.4 kind 13, §7.12).
+	if rt.lossesBooked != rt.reopenLosses {
+		rt.reopenIncident, rt.reopenLosses = "", rt.lossesBooked
 		return accepted, false, nil
 	}
 	rt.Reopening, rt.Closed = false, false

@@ -198,6 +198,7 @@ func (rt *Route) addLoss(d *Denom, l Loss) {
 	rt.losses.Set(lossKey(l.Key, l.Cause), &l)
 	d.Totals.Lost = lost
 	it.Lost = itLost
+	rt.lossesBooked++
 }
 
 // Restore restores withheld claims (ADR pr6375 §7.9: a withheld void can be
