@@ -142,7 +142,7 @@ func (l *logic) Recapitalize(_ int, rlm realm, sent []chain.Coin, route string, 
 		panic("no route " + route)
 	}
 	r, ok := rt.Recap(id)
-	if !ok || r.Paid {
+	if !ok || r.Paid || r.Revoked {
 		panic(ufmt.Sprintf("no unpaid recapitalization %d on route %s", id, route))
 	}
 	payer := rlm.Previous().Address()
@@ -321,6 +321,8 @@ func (l *logic) GovApply(_ int, rlm realm, op string, params []byte) string {
 		var id int64
 		id, err = rt.AuthorizeRecap(p.Denom, p.Amount, p.Incident)
 		note = strconv.FormatInt(id, 10)
+	case controls.OpRevokeRecap:
+		err = rt.RevokeRecap(p.Amount)
 	case controls.OpReduce:
 		err = rt.Reduce(p.Key, p.Amount, p.Incident)
 	case controls.OpAccept:

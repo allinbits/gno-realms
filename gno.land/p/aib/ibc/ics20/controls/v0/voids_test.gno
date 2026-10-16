@@ -521,10 +521,10 @@ func TestRestoreNeverOverbooksSupply(t *testing.T) {
 	}
 }
 
-// An authorized recapitalization holds its part of the incident's losses:
-// no reduction or accepted deficit can resolve the same loss again, and the
-// payment re-checks what the incident still has to resolve (Codex review
-// #6).
+// An authorized recapitalization holds its part of the incident's losses
+// from other authorizations; a later alternative resolution (a reduction, an
+// accepted deficit) supersedes it, revoking it, and a revoked or stale
+// authorization is never paid (Codex review #6, round 2 #6).
 func TestRecapAuthorizationBoundToIncident(t *testing.T) {
 	rt, _ := setupClaims(t)
 	d := rt.Denom("ugnot")
@@ -541,30 +541,49 @@ func TestRecapAuthorizationBoundToIncident(t *testing.T) {
 	if _, err := rt.AuthorizeRecap("ugnot", 1, "inc-a"); err == nil {
 		t.Fatalf("authorized the same loss twice")
 	}
-	// The alternative resolutions of the same loss are refused while the
-	// authorization holds it.
-	if err := rt.Reduce(pk(2), 100, "inc-a"); err == nil {
-		t.Fatalf("reduced a loss an authorization holds")
+	// The funding falls through: an accepted deficit supersedes it.
+	if err := rt.Accept("ugnot", 101, "inc-a"); err == nil {
+		t.Fatalf("accepted more than the loss")
 	}
-	if err := rt.Accept("ugnot", 100, "inc-a"); err == nil {
-		t.Fatalf("accepted a loss an authorization holds")
-	}
-	if err := rt.Recapitalize(id, "ugnot", 100, alice); err != nil {
+	if err := rt.Accept("ugnot", 100, "inc-a"); err != nil {
 		t.Fatal(err)
 	}
-	if d.Totals.Unrecovered() != 0 || rt.Incident("ugnot", "inc-a").Recapitalized != 100 {
+	if r, _ := rt.Recap(id); !r.Revoked {
+		t.Fatalf("the superseded authorization stands: %+v", r)
+	}
+	if err := rt.Recapitalize(id, "ugnot", 100, alice); err == nil {
+		t.Fatalf("paid a superseded authorization")
+	}
+	if d.Totals.Unresolved() != 0 || d.Totals.Recapitalized != 0 {
 		t.Fatalf("%+v", d.Totals)
 	}
-	// Another incident's loss leaves this one's resolutions alone.
+	// A governed revocation frees an authorization's part for a reduction.
 	rt.RecordLoss(pk(11), "ugnot", 50, ChainGno, "inc-c", "forged delivery")
-	if err := rt.Reduce(pk(2), 50, "inc-a"); err == nil {
-		t.Fatalf("reduced against a resolved incident")
+	id2, _ := rt.AuthorizeRecap("ugnot", 50, "inc-c")
+	if err := rt.RevokeRecap(id2); err != nil {
+		t.Fatal(err)
+	}
+	if err := rt.RevokeRecap(id2); err == nil {
+		t.Fatalf("revoked twice")
 	}
 	if err := rt.Reduce(pk(2), 50, "inc-c"); err != nil {
 		t.Fatal(err)
 	}
-	if d.Totals.Unrecovered() != 0 {
-		t.Fatalf("%+v", d.Totals)
+	if err := rt.Recapitalize(id2, "ugnot", 50, alice); err == nil {
+		t.Fatalf("paid a revoked authorization")
+	}
+	// A reduction of part of a loss revokes only what conflicts.
+	rt.RecordLoss(pk(12), "ugnot", 80, ChainGno, "inc-d", "forged delivery")
+	keep, _ := rt.AuthorizeRecap("ugnot", 30, "inc-d")
+	drop, _ := rt.AuthorizeRecap("ugnot", 50, "inc-d")
+	if err := rt.Reduce(pk(2), 40, "inc-d"); err != nil {
+		t.Fatal(err)
+	}
+	if r, _ := rt.Recap(drop); !r.Revoked {
+		t.Fatalf("the conflicting authorization stands")
+	}
+	if err := rt.Recapitalize(keep, "ugnot", 30, alice); err != nil {
+		t.Fatal(err)
 	}
 }
 

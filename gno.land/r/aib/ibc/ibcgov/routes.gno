@@ -360,6 +360,20 @@ func NewRecapitalizeRequest(cur realm, route, denom string, amount int64, incide
 		controls.Params{Route: route, Denom: denom, Amount: amount, Incident: incident}, true)
 }
 
+// NewRevokeRecapRequest revokes the unpaid recapitalization authorization id
+// of route, at once (a removal): its funding fell through, and its part of
+// the incident's losses is free for another restoring decision. A reduction
+// or an accepted deficit decided later revokes conflicting authorizations by
+// itself.
+func NewRevokeRecapRequest(cur realm, route string, id int64) Request {
+	mustRoute(route)
+	if r, ok := view().Recap(route, id); !ok || r.Paid || r.Revoked {
+		panic("ibcgov: no unpaid recapitalization " + itoa(id) + " on route " + route)
+	}
+	return routeRequest(cur, controls.OpRevokeRecap, "revoke recap", "revoke recapitalization "+itoa(id)+" on route "+route,
+		controls.Params{Route: route, Amount: id}, false)
+}
+
 // NewReduceRequest cuts an open or withheld claim, or an unpaid owed sweep
 // entry, by amount against an incident after 7 days (a published liability
 // reduction; refunds are never reduced).

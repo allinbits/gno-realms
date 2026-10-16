@@ -38,6 +38,7 @@ type Recap struct {
 	Incident string
 	Paid     bool
 	PaidBy   address
+	Revoked  bool // revoked by decision, or by an alternative resolution of its loss
 }
 
 func lossKey(key, cause string) string { return key + "|" + cause }
@@ -405,12 +406,53 @@ func (rt *Route) openRecaps(denom, incident string, skip int64) int64 {
 	var n int64
 	rt.recaps.Iterate("", "", func(_ string, v any) bool {
 		r := v.(*Recap)
-		if !r.Paid && r.ID != skip && r.Denom == denom && r.Incident == incident {
+		if !r.Paid && !r.Revoked && r.ID != skip && r.Denom == denom && r.Incident == incident {
 			n += r.Amount
 		}
 		return false
 	})
 	return n
+}
+
+// unresolvedOf is what of an incident's losses on denom no decision resolved
+// (recapitalized, reduced or accepted), unpaid authorizations aside.
+func (rt *Route) unresolvedOf(denom, incident string) int64 {
+	it := rt.Incident(denom, incident)
+	return it.Lost - it.Recapitalized - it.Reduced - it.Accepted
+}
+
+// revokeConflicting revokes the newest unpaid recapitalization authorizations
+// of an incident until amount fits what the incident still has to resolve: an
+// alternative resolution decided later supersedes them (ADR pr6375 §7.9). The
+// caller checked amount fits unresolvedOf.
+func (rt *Route) revokeConflicting(denom, incident string, amount int64) {
+	var open []*Recap
+	rt.recaps.Iterate("", "", func(_ string, v any) bool {
+		r := v.(*Recap)
+		if !r.Paid && !r.Revoked && r.Denom == denom && r.Incident == incident {
+			open = append(open, r)
+		}
+		return false
+	})
+	for i := len(open) - 1; i >= 0 && rt.resolvable(denom, incident, 0) < amount; i-- {
+		open[i].Revoked = true
+	}
+}
+
+// RevokeRecap revokes an unpaid recapitalization authorization by decision,
+// one whose funding fell through: its part of the incident's losses is free
+// for another restoring decision.
+func (rt *Route) RevokeRecap(id int64) error {
+	v := rt.recaps.Get(seqKey(id))
+	if v == nil {
+		return ufmt.Errorf("controls: no recapitalization %d", id)
+	}
+	r := v.(*Recap)
+	if r.Paid || r.Revoked {
+		return ufmt.Errorf("controls: recapitalization %d is paid or revoked already", id)
+	}
+	r.Revoked = true
+	return nil
 }
 
 // Recap is a recapitalization authorization by id, by value.
@@ -431,8 +473,8 @@ func (rt *Route) Recapitalize(id int64, denom string, amount int64, by address) 
 		return ufmt.Errorf("controls: no recapitalization %d", id)
 	}
 	r := v.(*Recap)
-	if r.Paid {
-		return ufmt.Errorf("controls: recapitalization %d is paid already", id)
+	if r.Paid || r.Revoked {
+		return ufmt.Errorf("controls: recapitalization %d is paid or revoked", id)
 	}
 	if r.Denom != denom || r.Amount != amount {
 		return ufmt.Errorf("controls: recapitalization %d is %d %s", id, r.Amount, r.Denom)
@@ -464,9 +506,10 @@ func (rt *Route) Reduce(key string, amount int64, incident string) error {
 	if incident == "" {
 		return errors.New("controls: a reduction names its incident")
 	}
-	if amount <= 0 || amount > c.Remaining() || amount > rt.resolvable(c.Denom, incident, 0) {
-		return ufmt.Errorf("controls: %d is not within the claim's remainder and incident %s's losses not yet resolved or authorized", amount, incident)
+	if amount <= 0 || amount > c.Remaining() || amount > rt.unresolvedOf(c.Denom, incident) {
+		return ufmt.Errorf("controls: %d is not within the claim's remainder and incident %s's unresolved losses", amount, incident)
 	}
+	rt.revokeConflicting(c.Denom, incident, amount)
 	c.Amount -= amount
 	c.Reduced += amount
 	d.Totals.Reduced += amount
@@ -496,9 +539,10 @@ func (rt *Route) reduceSweep(key string, amount int64, incident string) error {
 	if incident == "" {
 		return errors.New("controls: a reduction names its incident")
 	}
-	if amount <= 0 || amount > e.Amount || amount > rt.resolvable(e.Denom, incident, 0) {
-		return ufmt.Errorf("controls: %d is not within the sweep entry's amount and incident %s's losses not yet resolved or authorized", amount, incident)
+	if amount <= 0 || amount > e.Amount || amount > rt.unresolvedOf(e.Denom, incident) {
+		return ufmt.Errorf("controls: %d is not within the sweep entry's amount and incident %s's unresolved losses", amount, incident)
 	}
+	rt.revokeConflicting(e.Denom, incident, amount)
 	d := rt.Denom(e.Denom)
 	e.Amount -= amount
 	e.Reduced += amount
@@ -523,9 +567,10 @@ func (rt *Route) Accept(denom string, amount int64, incident string) error {
 	if incident == "" {
 		return errors.New("controls: an accepted deficit names its incident")
 	}
-	if amount <= 0 || amount > rt.resolvable(denom, incident, 0) {
-		return ufmt.Errorf("controls: %d is not within incident %s's losses not yet resolved or authorized", amount, incident)
+	if amount <= 0 || amount > rt.unresolvedOf(denom, incident) {
+		return ufmt.Errorf("controls: %d is not within incident %s's unresolved losses", amount, incident)
 	}
+	rt.revokeConflicting(denom, incident, amount)
 	d.Totals.Accepted += amount
 	rt.incident(denom, incident).Accepted += amount
 	return nil

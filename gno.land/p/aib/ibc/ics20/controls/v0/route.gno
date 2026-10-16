@@ -285,6 +285,13 @@ func (rt *Route) Reopen() (int64, error) {
 		}
 		return false
 	})
+	// Everything is resolved now: no unpaid authorization is left to pay.
+	rt.recaps.Iterate("", "", func(_ string, v any) bool {
+		if r := v.(*Recap); !r.Paid {
+			r.Revoked = true
+		}
+		return false
+	})
 	rt.Closed = false
 	return accepted, nil
 }

@@ -184,6 +184,14 @@ func main(cur realm) {
 	println("recap paid:", r.Paid, r.PaidBy == funder, "|", totals(route))
 	println(transfer.Render("total_escrow/ugnot"))
 
+	// An authorization whose funding fell through is revoked, at once, and
+	// its payment refused (Codex round 2 #6).
+	execute(cur, govern(cur, ibcgov.NewRecapitalizeRequest(cross(cur), route, "ugnot", 300, "inc-1")))
+	println("revoke:", decided(govern(cur, ibcgov.NewRevokeRecapRequest(cross(cur), route, 2))))
+	println("stale payment:", revive(func() { recapitalize(cur, route, 2, 300) }))
+	testing.SetOriginSend(nil)
+	testing.SetRealm(testing.NewCodeRealm("gno.land/r/aib/main"))
+
 	// An accepted deficit closes the rest; the route reopens.
 	execute(cur, govern(cur, ibcgov.NewAcceptDeficitRequest(cross(cur), route, "ugnot", 500, "inc-1")))
 	println(totals(route), "| closed:", controlsView().LossClosed(route))
@@ -220,6 +228,8 @@ func main(cur realm) {
 // wrong amount: send exactly 2000ugnot in a direct call
 // recap paid: true true | owed 1500 withheld 0 swept 10 lost 2500 unrecovered 500
 // {"denom":"ugnot","amount":15000,"clients":[{"client":"ethereum-1","amount":15000}]}
+// revoke: applied - revoke recap
+// stale payment: no unpaid recapitalization 2 on route ethereum-1
 // owed 1500 withheld 0 swept 10 lost 2500 unrecovered 500 | closed: false
 // owed 1500 withheld 0 swept 10 lost 2600 unrecovered 600
 // carol: open paid 2500 of 3900 | owed 1400 withheld 0 swept 10 lost 2600 unrecovered 500

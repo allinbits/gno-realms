@@ -22,6 +22,7 @@ const (
 	OpSweep        = "sweep"        // Route, Keys, To
 	OpLoss         = "loss"         // Route, Key, Denom, Amount, Chain, Incident, Cause
 	OpRecapitalize = "recapitalize" // Route, Denom, Amount, Incident
+	OpRevokeRecap = "revoke recap" // Route, Amount (the authorization id)
 	OpReduce       = "reduce"       // Route, Key, Amount, Incident
 	OpAccept       = "accept"       // Route, Denom, Amount, Incident
 	OpSettle       = "settle"       // Route, Client (the retired client), Items, Incident
