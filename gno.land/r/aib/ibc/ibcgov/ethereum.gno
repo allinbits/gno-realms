@@ -492,6 +492,18 @@ func mustEthClientID(s string) string {
 	return s
 }
 
+// mustCustomEthClientID is a router client id that governance adds (kind 6
+// op 1, and kind 10's new client): eureka v3.0.2's router refuses a custom id
+// starting with "client-" or shorter than four characters, so such a decision
+// would only be spent on Ethereum.
+func mustCustomEthClientID(s string) string {
+	mustEthClientID(s)
+	if strings.HasPrefix(s, "client-") || len(s) < 4 {
+		panic("ibcgov: a router client id added by governance does not start with client- (the router keeps those for its own counter): " + s)
+	}
+	return s
+}
+
 func mustHash(s string) [32]byte {
 	b, err := hex.DecodeString(strings.TrimPrefix(s, "0x"))
 	if err != nil || len(b) != 32 {
@@ -637,13 +649,16 @@ func NewEthClientRequest(cur realm, op int, clientID, counterpartyClientID, merk
 	if op != 1 && op != 2 {
 		panic("ibcgov: op 1 (add) or 2 (migrate)")
 	}
-	mustEthClientID(clientID)
 	if op == 1 {
+		mustCustomEthClientID(clientID)
 		if core.ClientType(counterpartyClientID) == "" {
 			panic("ibcgov: the counterparty " + counterpartyClientID + " is not a gno client")
 		}
-	} else if counterpartyClientID != "" {
-		mustEthClientID(counterpartyClientID)
+	} else {
+		mustEthClientID(clientID)
+		if counterpartyClientID != "" {
+			mustEthClientID(counterpartyClientID)
+		}
 	}
 	var prefix []abi.Value
 	var prefixText []string
@@ -703,7 +718,7 @@ func NewEthHandOverRequest(cur realm, exec, codeHash, migrationCall string) Requ
 // first) and opens IBCAdmin's next epoch over it.
 func NewEthRouteReplacementRequest(cur realm, oldClientID, newClientID string) Request {
 	mustEthClientID(oldClientID)
-	mustEthClientID(newClientID)
+	mustCustomEthClientID(newClientID)
 	if oldClientID == newClientID {
 		panic("ibcgov: the clients differ")
 	}
