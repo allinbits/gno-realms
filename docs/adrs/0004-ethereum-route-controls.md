@@ -137,9 +137,13 @@ a route replacement over that client opens the next epoch over the new one.
 `seq` is bound in the transaction that records and dispatches the decision, so
 numbers are contiguous, never reused or skipped, and their bytes immutable.
 Each send is authorized once (client, epoch, seq, payload hash), consumed in
-`OnSendPacket`; a direct core send on port `gov` is refused. Acks: error ack,
-timeout, malformed ack or `redispatch = 1` → re-dispatchable (current epoch
-only); statuses 1–5 recorded; conflict final. `Redispatch` re-sends identical
+`OnSendPacket`; a direct core send on port `gov` is refused. Acks
+(`ParseAck`): error ack, timeout, malformed ack or `redispatch = 1` whatever
+the status (a cancel beyond IBCAdmin's window is acked buffered with
+`redispatch = 1`) → re-dispatchable (current epoch only); statuses 1–5
+recorded. Router client ids added by governance (kind 6 op 1, kind 10's new
+client) must not start with `client-` and have at least four characters, as
+eureka's router requires. `Redispatch` re-sends identical
 bytes. Envelopes are checked byte for byte against gno-eth-ibc's
 `contracts/test/fixtures/gov-vectors.json` and against viem
 (`ibcgov/filetests/z2b`, `z2c`).
@@ -180,6 +184,9 @@ and supply cap of Ethereum tokens. Recipient meters are cap/4.
    characters; agreed with gno-eth-ibc's `IBCAdmin.PORT`). Source port `gov`.
 2. **Envelope bound 1024**, not 512: kind 6 with gno.land's real merkle prefix
    encodes to 558 bytes (same on the Ethereum side).
+13. **`redispatch = 1` re-sends whatever the status**, and governance-added
+    router client ids cannot start with `client-` (both agreed with the
+    Ethereum side, gno-eth-ibc `docs/controls.md`).
 3. **Undecodable receivers are error-acked**, not swept (§6.8 sweeps "invalid"
    receivers): IBC refunds the sender at the source, which needs no decision.
    Bridge-realm receivers, amounts below the fee and above the free lock are
