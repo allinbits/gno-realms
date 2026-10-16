@@ -740,11 +740,12 @@ func TestBatchLossesNeverWrap(t *testing.T) {
 	}
 	// A settlement's forged refunds are summed the same way.
 	r, rt := newRoute(t)
+	// Records no send could make together any more (InFlight bounds them):
+	// written directly, as a ledger from before that bound would hold them.
 	for i := uint64(1); i <= 4; i++ {
 		rec := sendRec(i, "ibc/WETH", KindMint, 1<<62)
-		rt.RecordSend(rec)
-		rt.send(pk(i)).Refunded = 1 << 62
-		rt.send(pk(i)).Outcome = OutcomeTimeout
+		rec.Refunded, rec.Outcome = 1<<62, OutcomeTimeout
+		rt.sends.Set(rec.Key, &rec)
 	}
 	r.Replace("ethereum-1", "ethereum-2", 0)
 	var items []SettleItem

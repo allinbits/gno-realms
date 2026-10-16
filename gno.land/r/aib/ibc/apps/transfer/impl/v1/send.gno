@@ -2,6 +2,7 @@ package impl
 
 import (
 	"chain"
+	"math"
 	"chain/runtime/unsafe"
 	"strings"
 
@@ -156,6 +157,9 @@ func (l *logic) Transfer(_ int, rlm realm, sent []chain.Coin, clientID, receiver
 		acc := l.mustSendable(rt, denom, amount)
 		checkRecipient(rt, receiver, acc.Config.Remote)
 		fee = acc.Config.Fee
+		if amount > math.MaxInt64-fee {
+			panic("the amount plus the route fee overflows")
+		}
 		if len(sent) != 1 || sent[0].Denom != denom || sent[0].Amount != amount+fee {
 			panic(ufmt.Sprintf("send exactly %d%s: the amount plus the route fee of %d", amount+fee, denom, fee))
 		}

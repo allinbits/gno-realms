@@ -492,3 +492,71 @@ func TestSuspectIntervalBlocksReopen(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// Every aggregate a check reads stays exact or refuses: individually valid
+// amounts never drive one past 2^63 (Codex round 4 #1, class A).
+func TestAggregatesNeverWrap(t *testing.T) {
+	const q = int64(1) << 62
+	// Open sends (and so every refund they may owe, queued or not): the send
+	// that would overflow them is refused.
+	_, rt := newRoute(t)
+	d := rt.Denom("ugnot")
+	for i, want := range []bool{true, false, true} {
+		amount := q
+		if i == 2 {
+			amount = q - 1
+		}
+		rec := sendRec(uint64(i+1), "ugnot", KindUnescrow, amount)
+		if err := rt.RecordSend(rec); (err == nil) != want {
+			t.Fatalf("send %d of %d: %v", i+1, amount, err)
+		}
+	}
+	rt.Settle(t0, 1, pk(1), OutcomeTimeout, true, 0)
+	rt.Settle(t0, 1, pk(3), OutcomeTimeout, true, 0)
+	if d.Totals.QueuedRefunds != q+(q-1) || d.Totals.InFlight != q+(q-1) {
+		t.Fatalf("queued %d in flight %d", d.Totals.QueuedRefunds, d.Totals.InFlight)
+	}
+	// Claims and sweep entries: the credit that would overflow is refused.
+	if _, err := rt.Credit(t0, 10, 0, pk(10), "ugnot", alice, q, ByPacket, "bridge realm", 0); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := rt.Credit(t0, 10, 0, pk(11), "ugnot", alice, q, ByPacket, "bridge realm", 0); err == nil {
+		t.Fatalf("liabilities wrapped")
+	}
+	if err := rt.CreditPending(t0, 10, 0, pk(12), "ugnot", alice, q, q, maxInt64); err == nil {
+		t.Fatalf("liabilities wrapped by a pending credit")
+	}
+	// The reservation of claims and refunds together saturates: nothing is
+	// free, never a wrapped negative reservation freeing escrow.
+	d.Totals.Owed, d.Totals.Swept = q, 0
+	if r := d.Reserved(); r != maxInt64 {
+		t.Fatalf("reserved %d", r)
+	}
+	if swept, err := rt.Credit(t0, 10, 0, pk(13), "ugnot", alice, 100, ByPacket, "", maxInt64); err != nil || !swept {
+		t.Fatalf("a claim took escrow the refunds and claims reserve: %v", err)
+	}
+	// Statistics saturate.
+	d.Totals.Credited = maxInt64 - 1
+	d.Totals.Owed = 0
+	rt.enqueue(d, t0, 10, 0, pk(14), alice, 50, ByVote)
+	if d.Totals.Credited != maxInt64 {
+		t.Fatalf("credited %d", d.Totals.Credited)
+	}
+
+	// The minted supply: a refund paid beyond a released reservation that
+	// would overflow the outstanding supply is refused.
+	r2, rt2 := newRoute(t)
+	w := rt2.Denom("ibc/WETH")
+	rt2.RecordSend(sendRec(1, "ibc/WETH", KindMint, 100))
+	rt2.Settle(t0, 1, pk(1), OutcomeSuccess, false, 0) // releases the reservation
+	w.Totals.Outstanding = maxInt64 - 50
+	r2.Replace("ethereum-1", "ethereum-2", 2)
+	if _, err := rt2.SettleRecords("ethereum-1", []SettleItem{{Seq: 1, Action: SettlePay, Amount: 100}}, "inc", lockOf(0)); err == nil {
+		t.Fatalf("the outstanding supply wrapped")
+	}
+	// Unpaid authorizations saturate: they only bound what is left to
+	// resolve.
+	if n := boundAdd(maxInt64, 1); n != maxInt64 {
+		t.Fatalf("%d", n)
+	}
+}

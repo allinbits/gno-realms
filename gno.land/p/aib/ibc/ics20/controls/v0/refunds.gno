@@ -89,6 +89,11 @@ func (rt *Route) RecordSend(rec SendRecord) error {
 	if rec.Amount <= 0 || rec.Fee < 0 {
 		return errors.New("controls: invalid send amounts")
 	}
+	// Every refund a send may still owe is bounded by the open records'
+	// amounts: a send that would overflow them is refused.
+	if _, ok := checkedAdd(d.Totals.InFlight, rec.Amount); !ok {
+		return errors.New("controls: the route's open sends of " + rec.Denom + " would overflow")
+	}
 	r := rec
 	r.Packet = copyPacket(rec.Packet)
 	r.Commitment = append([]byte{}, rec.Commitment...)
@@ -96,8 +101,8 @@ func (rt *Route) RecordSend(rec SendRecord) error {
 	r.Reservation = 0
 	rt.sends.Set(r.Key, &r)
 	rt.track(&r, false)
-	d.Totals.Sent += r.Amount
-	d.Totals.SendFees += r.Fee
+	d.Totals.Sent = statAdd(d.Totals.Sent, r.Amount)
+	d.Totals.SendFees = statAdd(d.Totals.SendFees, r.Fee)
 	if d.Config.Kind == KindMint {
 		// The burned vouchers leave circulation but stay counted against
 		// the supply cap until the send settles: a refund mints them again.
@@ -107,7 +112,7 @@ func (rt *Route) RecordSend(rec SendRecord) error {
 			d.Totals.Outstanding = 0
 		}
 		r.Reservation = r.Amount
-		d.Totals.Returning += r.Amount
+		d.Totals.Returning = mustAdd(d.Totals.Returning, r.Amount) // at most InFlight
 	}
 	return nil
 }
@@ -139,6 +144,11 @@ func (rt *Route) Backfill(rec SendRecord) error {
 	if rec.Amount <= 0 || rec.Fee != 0 {
 		return errors.New("controls: invalid send amounts")
 	}
+	// Every refund a send may still owe is bounded by the open records'
+	// amounts: a send that would overflow them is refused.
+	if _, ok := checkedAdd(d.Totals.InFlight, rec.Amount); !ok {
+		return errors.New("controls: the route's open sends of " + rec.Denom + " would overflow")
+	}
 	r := rec
 	r.Packet = copyPacket(rec.Packet)
 	r.Commitment = append([]byte{}, rec.Commitment...)
@@ -147,10 +157,10 @@ func (rt *Route) Backfill(rec SendRecord) error {
 	r.Reservation = 0
 	rt.sends.Set(r.Key, &r)
 	rt.track(&r, false)
-	d.Totals.Sent += r.Amount
+	d.Totals.Sent = statAdd(d.Totals.Sent, r.Amount)
 	if d.Config.Kind == KindMint {
 		r.Reservation = r.Amount
-		d.Totals.Returning += r.Amount
+		d.Totals.Returning = mustAdd(d.Totals.Returning, r.Amount) // at most InFlight
 	}
 	return nil
 }
@@ -168,6 +178,12 @@ func (rt *Route) track(r *SendRecord, was bool) {
 	now := isOpen(r)
 	if now == was {
 		return
+	}
+	d := rt.Denom(r.Denom)
+	if now {
+		d.Totals.InFlight = mustAdd(d.Totals.InFlight, r.Amount) // checked when recorded
+	} else {
+		d.Totals.InFlight -= r.Amount
 	}
 	client, _, _ := ParsePacketKey(r.Key)
 	var n int64
@@ -323,21 +339,21 @@ func (rt *Route) Settle(now, height int64, key, outcome string, hold bool, lock 
 	}
 	d.refundSeq++
 	d.refundQueue.Set(seqKey(d.refundSeq), key)
-	d.Totals.QueuedRefunds += owed
+	d.Totals.QueuedRefunds = mustAdd(d.Totals.QueuedRefunds, owed) // at most InFlight
 	r.Payment = PayQueued
 	return 0, nil
 }
 
 // refunded books amount refunded on r.
 func (rt *Route) refunded(d *Denom, r *SendRecord, amount int64) {
-	r.Refunded += amount
-	d.Totals.Refunded += amount
+	r.Refunded += amount // at most the record's amount
+	d.Totals.Refunded = statAdd(d.Totals.Refunded, amount)
 	if d.Config.Kind == KindMint {
 		// The burned vouchers are minted again: back in circulation. They
 		// consume what the send still reserves, and no more: a refund a
 		// reconciliation pays after the reservation was released (a forged
 		// success) mints vouchers no reservation held.
-		d.Totals.Outstanding += amount
+		d.Totals.Outstanding = mustAdd(d.Totals.Outstanding, amount)
 		consumed := amount
 		if consumed > r.Reservation {
 			consumed = r.Reservation
@@ -550,6 +566,11 @@ func (rt *Route) SettleRecords(client string, items []SettleItem, incident strin
 	}
 	for denom, total := range pays {
 		d := rt.Denom(denom)
+		// A minted refund paid beyond what its send still reserves mints
+		// vouchers anew: the outstanding supply must hold them.
+		if _, ok := checkedAdd(d.Totals.Outstanding, total); d.Config.Kind == KindMint && !ok {
+			return nil, errors.New("controls: the settlement's refunds would overflow the outstanding supply of " + denom)
+		}
 		free := lock(denom) - d.Reserved() + queued[denom]
 		if d.Config.Kind == KindUnescrow && total > free {
 			return nil, ufmt.Errorf("controls: %d of %s is above the free lock of %d", total, denom, free)

@@ -262,13 +262,6 @@ func (rt *Route) hasUnresolved() bool {
 	return found
 }
 
-// saturatingAdd is a + b for non-negative terms, maxInt64 when it would wrap.
-func saturatingAdd(a, b int64) int64 {
-	if b > maxInt64-a {
-		return maxInt64
-	}
-	return a + b
-}
 
 // Reopen reopens a route a replacement closed, by decision (the gno
 // analogue of Ethereum's kind 13, ADR pr6375 §5.4): refused while any send
@@ -327,9 +320,10 @@ func (rt *Route) reopenBatch() (int64, bool) {
 		}
 		it := v.(*IncidentTotals)
 		if rest := it.Lost - it.Recapitalized - it.Reduced - it.Accepted; rest > 0 {
-			it.Accepted += rest
-			rt.Denom(k[:strings.Index(k, "|")]).Totals.Accepted += rest
-			accepted += rest
+			it.Accepted = mustAdd(it.Accepted, rest)
+			t := &rt.Denom(k[:strings.Index(k, "|")]).Totals
+			t.Accepted = mustAdd(t.Accepted, rest)
+			accepted = statAdd(accepted, rest)
 		}
 		rt.reopenIncident = k
 		n++
@@ -437,6 +431,7 @@ type Totals struct {
 	SweepPaid     int64 // sweep entries paid by decision
 	Outstanding   int64 // KindMint: vouchers this route has in circulation
 	Returning     int64 // KindMint: vouchers burned by sends not settled yet (in flight, or refund owed)
+	InFlight int64 // the amounts of the open send records: a bound of every refund owed (QueuedRefunds, Returning)
 	Sent          int64 // escrowed (KindUnescrow) or burned (KindMint) by recorded sends
 	SendFees      int64 // fees charged on sends
 	Refunded      int64 // refunds paid
@@ -475,7 +470,7 @@ func (t Totals) Unresolved() int64 {
 // still be refunded (minted again), and every claim and sweep entry not paid
 // yet.
 func (t Totals) booked() int64 {
-	return t.Outstanding + t.Returning + t.Owed + t.Withheld + t.Swept
+	return boundAdd(boundAdd(boundAdd(boundAdd(t.Outstanding, t.Returning), t.Owed), t.Withheld), t.Swept)
 }
 
 // queue is one recipient's open claims, oldest first, and its meter.
@@ -545,7 +540,7 @@ func (rt *Route) Denoms() []string {
 func (rt *Route) Unrecovered() int64 {
 	var u int64
 	rt.denoms.Iterate("", "", func(_ string, v any) bool {
-		u = saturatingAdd(u, v.(*Denom).Totals.Unrecovered())
+		u = boundAdd(u, v.(*Denom).Totals.Unrecovered())
 		return false
 	})
 	return u
@@ -556,7 +551,7 @@ func (rt *Route) Unrecovered() int64 {
 func (rt *Route) Unresolved() int64 {
 	var u int64
 	rt.denoms.Iterate("", "", func(_ string, v any) bool {
-		u = saturatingAdd(u, v.(*Denom).Totals.Unresolved())
+		u = boundAdd(u, v.(*Denom).Totals.Unresolved())
 		return false
 	})
 	return u
@@ -579,7 +574,12 @@ func (d *Denom) DayCap(lock int64) int64 {
 // withheld claim remainders, and every queued (held or not) refund, so
 // voids, credits and payouts never spend it twice (ADR pr6375 §7.9, §7.12:
 // refund liabilities move with the backing).
-func (d *Denom) Reserved() int64 { return d.Totals.Owed + d.Totals.Withheld + d.Totals.QueuedRefunds }
+func (d *Denom) Reserved() int64 {
+	return boundAdd(boundAdd(d.Totals.Owed, d.Totals.Withheld), d.Totals.QueuedRefunds)
+}
+
+// liabilities is what the denom's claims and sweep entries owe, saturating.
+func (t Totals) liabilities() int64 { return boundAdd(boundAdd(t.Owed, t.Withheld), t.Swept) }
 
 // CheckSend is what a send of a gno-native token must satisfy (ADR pr6375
 // §7.8): between the minimum and the maximum. A minted denom's sends are
@@ -717,7 +717,7 @@ func (rt *Route) Credit(now, height, epoch int64, key, denom string, to address,
 		return false, errors.New("controls: packet " + key + " is credited already")
 	}
 	d := rt.Denom(denom)
-	if amount > maxInt64-d.Totals.Owed-d.Totals.Swept {
+	if _, ok := checkedAdd(d.Totals.liabilities(), amount); !ok {
 		return false, errors.New("controls: the amount would overflow what is owed")
 	}
 	reason := sweepReason
@@ -731,7 +731,7 @@ func (rt *Route) Credit(now, height, epoch int64, key, denom string, to address,
 	}
 	if reason != "" {
 		rt.sweeps.Set(key, &SweepEntry{Key: key, Denom: denom, To: string(to), Amount: amount, Reason: reason, Height: height})
-		d.Totals.Swept += amount
+		d.Totals.Swept = mustAdd(d.Totals.Swept, amount)
 		return true, nil
 	}
 	if !to.IsValid() {
@@ -748,8 +748,8 @@ func (rt *Route) enqueue(d *Denom, now, height, epoch int64, key string, to addr
 	rt.claims.Set(key, c)
 	q.items.Set(seqKey(c.Seq), key)
 	d.waiting.Set(string(to), true)
-	d.Totals.Owed += amount
-	d.Totals.Credited += amount
+	d.Totals.Owed = mustAdd(d.Totals.Owed, amount)
+	d.Totals.Credited = statAdd(d.Totals.Credited, amount)
 	return c
 }
 
@@ -894,14 +894,14 @@ func (rt *Route) PayClaims(now, epoch, epochAt int64, denom string, n int, lock 
 			}
 		}
 		total := fee + pay
-		c.Paid += total
+		c.Paid += total // at most the claim's amount
 		d.meter.Take(total)
 		q.meter.Take(total)
 		d.Totals.Owed -= total
-		d.Totals.Paid += pay
-		d.Totals.Fees += fee
+		d.Totals.Paid = statAdd(d.Totals.Paid, pay)
+		d.Totals.Fees = statAdd(d.Totals.Fees, fee)
 		if d.Config.Kind == KindMint {
-			d.Totals.Outstanding += total
+			d.Totals.Outstanding = mustAdd(d.Totals.Outstanding, total)
 		} else {
 			lock -= total
 		}

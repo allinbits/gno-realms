@@ -158,7 +158,7 @@ func (rt *Route) voidClaim(c *Claim, forged bool, incident string) {
 		if forged {
 			c.State = Forged
 		} else {
-			d.Totals.Withheld += rem
+			d.Totals.Withheld = mustAdd(d.Totals.Withheld, rem)
 			c.State = Withheld
 		}
 	case Withheld:
@@ -183,13 +183,6 @@ func (rt *Route) lossFits(denom, incident string, amount int64) error {
 	return nil
 }
 
-// checkedAdd is a + b for non-negative terms, and whether it fits an int64.
-func checkedAdd(a, b int64) (int64, bool) {
-	if a < 0 || b < 0 || b > maxInt64-a {
-		return 0, false
-	}
-	return a + b, true
-}
 
 // addLoss books a loss its caller checked fits (lossFits); an addition that
 // would still overflow is a broken invariant and aborts.
@@ -236,7 +229,7 @@ func (rt *Route) restoreClaim(c *Claim, now, epoch int64) {
 		return
 	}
 	c.State = Open
-	d.Totals.Owed += rem
+	d.Totals.Owed = mustAdd(d.Totals.Owed, rem)
 	q := d.queue(c.To, now, epoch)
 	q.items.Set(seqKey(c.Seq), c.Key)
 	d.waiting.Set(string(c.To), true)
@@ -322,6 +315,9 @@ func (rt *Route) CreditPending(now, height, epoch int64, key, denom string, to a
 	if d.Config.Kind == KindUnescrow && amount > lock-d.Reserved() {
 		return ufmt.Errorf("controls: %d is above the free lock of %d", amount, lock-d.Reserved())
 	}
+	if _, ok := checkedAdd(d.Totals.liabilities(), amount); !ok {
+		return errors.New("controls: the amount would overflow what is owed")
+	}
 	if d.Config.Kind == KindMint && amount > d.Config.SupplyCap-d.Totals.booked() {
 		return ufmt.Errorf("controls: %d would take %s past its supply cap", amount, denom)
 	}
@@ -353,7 +349,10 @@ func (rt *Route) PaySweeps(keys []string, to address, lock int64) ([]Payment, er
 		} else if e.Denom != denom {
 			return nil, errors.New("controls: a sweep payment names entries of one denom")
 		}
-		total += e.Amount
+		var ok bool
+		if total, ok = checkedAdd(total, e.Amount); !ok {
+			return nil, errors.New("controls: the sweep payment's total would overflow")
+		}
 	}
 	d := rt.Denom(denom)
 	if d.Config.Kind == KindUnescrow && total > lock-d.Reserved() {
@@ -364,9 +363,9 @@ func (rt *Route) PaySweeps(keys []string, to address, lock int64) ([]Payment, er
 		e := rt.sweep(k)
 		e.Paid, e.PaidTo = true, string(to)
 		d.Totals.Swept -= e.Amount
-		d.Totals.SweepPaid += e.Amount
+		d.Totals.SweepPaid = statAdd(d.Totals.SweepPaid, e.Amount)
 		if d.Config.Kind == KindMint {
-			d.Totals.Outstanding += e.Amount
+			d.Totals.Outstanding = mustAdd(d.Totals.Outstanding, e.Amount)
 		}
 		out = append(out, Payment{Key: k, Denom: denom, To: to, Amount: e.Amount})
 	}
@@ -433,7 +432,7 @@ func (rt *Route) openRecaps(denom, incident string, skip int64) int64 {
 	rt.recaps.Iterate("", "", func(_ string, v any) bool {
 		r := v.(*Recap)
 		if !r.Paid && !r.Revoked && r.ID != skip && r.Denom == denom && r.Incident == incident {
-			n += r.Amount
+			n = boundAdd(n, r.Amount)
 		}
 		return false
 	})
@@ -510,8 +509,10 @@ func (rt *Route) Recapitalize(id int64, denom string, amount int64, by address) 
 		return ufmt.Errorf("controls: recapitalization %d is above what incident %s still has to resolve", id, r.Incident)
 	}
 	r.Paid, r.PaidBy = true, by
-	rt.Denom(denom).Totals.Recapitalized += amount
-	rt.incident(denom, r.Incident).Recapitalized += amount
+	t := &rt.Denom(denom).Totals
+	t.Recapitalized = mustAdd(t.Recapitalized, amount)
+	it := rt.incident(denom, r.Incident)
+	it.Recapitalized = mustAdd(it.Recapitalized, amount)
 	return nil
 }
 
@@ -537,9 +538,10 @@ func (rt *Route) Reduce(key string, amount int64, incident string) error {
 	}
 	rt.revokeConflicting(c.Denom, incident, amount)
 	c.Amount -= amount
-	c.Reduced += amount
-	d.Totals.Reduced += amount
-	rt.incident(c.Denom, incident).Reduced += amount
+	c.Reduced += amount // at most the claim's amount
+	d.Totals.Reduced = mustAdd(d.Totals.Reduced, amount)
+	it := rt.incident(c.Denom, incident)
+	it.Reduced = mustAdd(it.Reduced, amount)
 	if c.State == Open {
 		d.Totals.Owed -= amount
 		if c.Remaining() == 0 {
@@ -571,10 +573,11 @@ func (rt *Route) reduceSweep(key string, amount int64, incident string) error {
 	rt.revokeConflicting(e.Denom, incident, amount)
 	d := rt.Denom(e.Denom)
 	e.Amount -= amount
-	e.Reduced += amount
+	e.Reduced += amount // at most the entry's amount
 	d.Totals.Swept -= amount
-	d.Totals.Reduced += amount
-	rt.incident(e.Denom, incident).Reduced += amount
+	d.Totals.Reduced = mustAdd(d.Totals.Reduced, amount)
+	it := rt.incident(e.Denom, incident)
+	it.Reduced = mustAdd(it.Reduced, amount)
 	if e.Amount == 0 {
 		e.Paid, e.PaidTo = true, "reduced"
 	}
@@ -597,7 +600,8 @@ func (rt *Route) Accept(denom string, amount int64, incident string) error {
 		return ufmt.Errorf("controls: %d is not within incident %s's unresolved losses", amount, incident)
 	}
 	rt.revokeConflicting(denom, incident, amount)
-	d.Totals.Accepted += amount
-	rt.incident(denom, incident).Accepted += amount
+	d.Totals.Accepted = mustAdd(d.Totals.Accepted, amount)
+	it := rt.incident(denom, incident)
+	it.Accepted = mustAdd(it.Accepted, amount)
 	return nil
 }
