@@ -158,15 +158,23 @@ mapping: [ADR 0004](../../../../../../docs/adrs/0004-ethereum-route-controls.md)
 - **Sends** of a gno-native token: per-message minimum and maximum, the route
   fee charged on top (`-send` the amount plus the fee; the fee goes to the
   route's fee collector), receivers that are valid Ethereum addresses, not
-  zero, not reserved, not a refused bridge contract and not the token; a
-  `sends` flag stops them. A voucher going back is never limited, charged or
-  paused. Every send writes an immutable send record (full packet, commitment,
-  sender, amounts, height) in the same transaction.
+  zero, not reserved, not a refused bridge contract and not the denom's own
+  Ethereum token; a `sends` flag stops them. A voucher going back is never
+  limited, charged or paused, but waits until its denom is enabled on the
+  route. Every send writes an immutable send record (full packet, commitment,
+  sender, amounts, height) in the same transaction; a minted denom keeps the
+  returned vouchers counted against its supply cap until the send settles.
+- **Backfill.** A send made over an Ethereum client before the controls
+  (impl/v0) has no record: its acknowledgement or timeout is refused until
+  anyone calls **`Backfill(packet)`**, which records it from the commitment
+  the core still holds. After activating impl/v1 and enabling the route's
+  denoms, backfill every outstanding send before relaying resumes.
 - **Receives** are refused with an error acknowledgement, before any state
-  change, under a `credits` flag, for a denom not enabled, past a minted
-  denom's supply cap, or for an invalid or blocked receiver. Otherwise they are
-  booked as a claim keyed by the packet (or a sweep entry: below the fee, above
-  the free lock, or to a bridge realm), with a success acknowledgement.
+  change, under a `credits` flag, on a closed route, for a denom not enabled,
+  past a minted denom's supply cap, or for a blocked receiver. Otherwise they
+  are booked as a claim keyed by the packet (or a sweep entry: below the fee,
+  above the free lock, to a bridge realm, or to a receiver that is no gno.land
+  address, kept raw), with a success acknowledgement.
 - **`Claim(clientID, denom, n)`** (anyone, n ≤ 20) pays claims round-robin,
   oldest first per recipient, within the bridge meter (day cap
   `max(capFloor, lock/10)`, or the mint cap) and the recipient's meter (a
@@ -177,11 +185,17 @@ mapping: [ADR 0004](../../../../../../docs/adrs/0004-ethereum-route-controls.md)
   refund meter, queued beyond it or under a `refunds` hold, and paid by
   **`ClaimRefunds(clientID, denom, n)`** (anyone). The outcome, the local
   processing height and the payment state are attached to the send record.
+  Queued refunds are reserved: no receive or claim payout takes their escrow.
+- **Closed routes.** A route replacement closes the route, and so does a loss
+  without a restoring decision: no send, credit, claim payout or refund
+  payout. A replaced route reopens by a governed decision once every send
+  record of its retired clients is settled; the reopening records the
+  remaining losses as an accepted deficit.
 - **Governance** (`GovApply`, ibcgov only): enrolment, denom limits, fee
-  collector, refused recipients, voids and restores, credit by vote, sweep
-  payments, losses, recapitalization authorizations (paid by anyone with
-  **`Recapitalize(route, id)`**), reductions, accepted deficits, refund
-  rejections and payments of a reconciliation, route replacement.
+  collector, refused recipients, voids and restores of withheld claims, credit
+  by vote, sweep payments, losses, recapitalization authorizations (paid by
+  anyone with **`Recapitalize(route, id)`**), reductions, accepted deficits,
+  settlements of a retired client's sends, route replacement and reopening.
 - **Renders**: `routes`, `routes/{route}`, `routes/{route}/claims`,
   `routes/{route}/sweeps`, `routes/{route}/sends`, `routes/{route}/losses`
   (JSON, `?from=<packet key>` to page), and the `route_*` events (`credit`,

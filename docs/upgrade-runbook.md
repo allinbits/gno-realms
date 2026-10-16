@@ -127,9 +127,8 @@ The transfer app is the same with `NewTransferUpdateImplRequest`.
 
 The proxy then builds the candidate against its store, runs `OnInstall`,
 switches, and emits `impl_updated{old_path,new_path,version}`. The builder
-refuses a path that is not registered yet; if the candidate went away before
-`Execute`, the proxy panics, the transaction aborts and the decision stays
-pending.
+refuses a path that is not registered yet; a decision whose candidate is not
+registered when it executes is spent, not left pending.
 
 ### When a migration fails
 
@@ -157,3 +156,20 @@ pending.
 (7 days). The old
 implementation is still registered, so nothing needs redeploying; its
 `OnInstall` runs again.
+
+## 7. Activating the Ethereum route controls (transfer impl/v1)
+
+Switching the transfer app to `impl/v1` puts every Ethereum client under the
+route controls (ADR 0004). Before relaying resumes on an Ethereum client:
+
+1. Enroll the route (`NewEnrollRouteRequest`) and enable every denom it
+   carries (`NewSetDenomRequest`), the Ethereum tokens whose vouchers impl/v0
+   minted included: their outstanding supply is read from the voucher at that
+   moment, and a voucher return waits until its denom is enabled.
+2. Backfill every send impl/v0 made over the client that is still
+   outstanding: for each commitment the core holds
+   (`core.PacketCommitment`), anyone calls `transfer.Backfill(packet)`. An
+   acknowledgement or a timeout of a send without a record is refused, so a
+   missed one only blocks its own relay until it is backfilled.
+3. Credits by vote apply only to receives booked after the enrolment: a
+   receive impl/v0 already paid is never credited again.
