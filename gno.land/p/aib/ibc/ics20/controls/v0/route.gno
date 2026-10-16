@@ -368,18 +368,33 @@ func (rt *Route) Reopen() (int64, bool, error) {
 	if rt.Reopening {
 		return 0, false, errors.New("controls: route " + rt.Key + " is reopening already: continue it")
 	}
-	for _, c := range rt.Replaced {
-		if n := rt.OpenSends(c); n > 0 {
-			return 0, false, ufmt.Errorf("controls: %d send records of retired client %s are still open: settle them first", n, c)
-		}
-		if n := rt.SuspectUnsettled(c); n > 0 {
-			return 0, false, ufmt.Errorf("controls: %d send records retired client %s processed in its suspect interval are not settled: settle them first", n, c)
-		}
+	if err := rt.reopenBlocker(); err != nil {
+		return 0, false, err
 	}
 	rt.Reopening = true
 	rt.reopenIncident, rt.reopenRecap = "", ""
-	accepted, done := rt.reopenBatch()
-	return accepted, done, nil
+	return rt.reopenBatch()
+}
+
+// reopenBlocker is why the route cannot open now, or nil: a send impl/v0
+// made over its client and left outstanding at the enrolment is not
+// backfilled yet (its record does not exist, so nothing below counts it), or
+// a retired client's record is open or was processed in its suspect interval
+// and is not settled. Checked when a reopening starts and again when its last
+// batch would open the route.
+func (rt *Route) reopenBlocker() error {
+	if rt.Unimported > 0 {
+		return ufmt.Errorf("controls: %d sends impl/v0 made over the route's client are not backfilled: backfill and settle them first", rt.Unimported)
+	}
+	for _, c := range rt.Replaced {
+		if n := rt.OpenSends(c); n > 0 {
+			return ufmt.Errorf("controls: %d send records of retired client %s are still open: settle them first", n, c)
+		}
+		if n := rt.SuspectUnsettled(c); n > 0 {
+			return ufmt.Errorf("controls: %d send records retired client %s processed in its suspect interval are not settled: settle them first", n, c)
+		}
+	}
+	return nil
 }
 
 // ContinueReopen runs the next bounded batch of a reopening a decision
@@ -390,15 +405,21 @@ func (rt *Route) ContinueReopen() (int64, bool, error) {
 	if !rt.Reopening {
 		return 0, false, errors.New("controls: route " + rt.Key + " is not reopening")
 	}
-	accepted, done := rt.reopenBatch()
-	return accepted, done, nil
+	return rt.reopenBatch()
 }
 
 // reopenBatch records as accepted deficits the losses of at most
 // ReopenBatch incidents, then revokes at most ReopenBatch unpaid
 // recapitalization authorizations, from where the last batch stopped; when
-// none is left the route opens.
-func (rt *Route) reopenBatch() (int64, bool) {
+// none is left the route opens, unless reopenBlocker refuses it then (a
+// backfill made during the batches opened a retired client's record): the
+// final batch fails, changing nothing, until it is settled.
+func (rt *Route) reopenBatch() (int64, bool, error) {
+	if rt.reopenFinal() {
+		if err := rt.reopenBlocker(); err != nil {
+			return 0, false, err
+		}
+	}
 	var accepted int64
 	n := 0
 	more := rt.incidents.Iterate(after(rt.reopenIncident), "", func(k string, v any) bool {
@@ -417,7 +438,7 @@ func (rt *Route) reopenBatch() (int64, bool) {
 		return false
 	})
 	if more {
-		return accepted, false
+		return accepted, false, nil
 	}
 	n = 0
 	more = rt.recaps.Iterate(after(rt.reopenRecap), "", func(k string, v any) bool {
@@ -432,10 +453,30 @@ func (rt *Route) reopenBatch() (int64, bool) {
 		return false
 	})
 	if more {
-		return accepted, false
+		return accepted, false, nil
 	}
 	rt.Reopening, rt.Closed = false, false
-	return accepted, true
+	return accepted, true, nil
+}
+
+// reopenFinal reports whether the next reopening batch is the last: at most
+// ReopenBatch incidents and ReopenBatch authorizations remain past the
+// cursors.
+func (rt *Route) reopenFinal() bool {
+	n := 0
+	rt.incidents.Iterate(after(rt.reopenIncident), "", func(string, any) bool {
+		n++
+		return n > ReopenBatch
+	})
+	if n > ReopenBatch {
+		return false
+	}
+	n = 0
+	rt.recaps.Iterate(after(rt.reopenRecap), "", func(string, any) bool {
+		n++
+		return n > ReopenBatch
+	})
+	return n <= ReopenBatch
 }
 
 // after is the first key an iteration resumes at, past cursor ("" from the
