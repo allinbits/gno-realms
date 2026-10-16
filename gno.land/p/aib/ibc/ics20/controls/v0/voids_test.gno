@@ -647,7 +647,7 @@ func TestLossesNearMaximum(t *testing.T) {
 	if err := rt.RecordLoss(pk(2), "ibc/WETH", big, ChainEthereum, "inc", "collision"); err != nil {
 		t.Fatal(err)
 	}
-	if !rt.IsClosed() || rt.Unresolved() != maxInt64 || rt.Unrecovered() != maxInt64 {
+	if !rt.ExposureClosed() || rt.Unresolved() != maxInt64 || rt.Unrecovered() != maxInt64 {
 		t.Fatalf("closed %v unresolved %d", rt.IsClosed(), rt.Unresolved())
 	}
 	if err := rt.RecordLoss(pk(3), "ugnot", big, ChainGno, "inc-2", "collision"); err == nil {
@@ -657,7 +657,7 @@ func TestLossesNearMaximum(t *testing.T) {
 	if err := rt.Accept("ugnot", big, "inc"); err != nil {
 		t.Fatal(err)
 	}
-	if !rt.IsClosed() {
-		t.Fatalf("an unresolved denom left the route open")
+	if !rt.ExposureClosed() || rt.IsClosed() {
+		t.Fatalf("an unresolved denom left the route open, or a loss closed it like a replacement")
 	}
 }

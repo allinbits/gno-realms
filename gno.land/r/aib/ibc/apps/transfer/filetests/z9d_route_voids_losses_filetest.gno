@@ -163,7 +163,7 @@ func main(cur realm) {
 	// flags: the guardian clears its own flag, payouts stay closed.
 	clearPayouts(cur, route)
 	advance(24 * time.Hour)
-	println("payouts flagged:", ibcgov.Flagged(route, ibcgov.FnPayouts), "| closed:", controlsView().Closed(route),
+	println("payouts flagged:", ibcgov.Flagged(route, ibcgov.FnPayouts), "| closed:", controlsView().LossClosed(route),
 		"| claims paid:", transfer.Claim(cross(cur), route, "ugnot", 20))
 
 	// A void nobody named waits 7 days; a withheld void is restored at once.
@@ -186,7 +186,7 @@ func main(cur realm) {
 
 	// An accepted deficit closes the rest; the route reopens.
 	execute(cur, govern(cur, ibcgov.NewAcceptDeficitRequest(cross(cur), route, "ugnot", 500, "inc-1")))
-	println(totals(route), "| closed:", controlsView().Closed(route))
+	println(totals(route), "| closed:", controlsView().LossClosed(route))
 
 	// A loss a reconciliation recognized, and a liability reduction against it.
 	execute(cur, govern(cur, ibcgov.NewRecordLossRequest(cross(cur), route, "ethereum-1/00000000000000000099", "ugnot", 100, "ethereum", "inc-2", "refund-for-delivered")))

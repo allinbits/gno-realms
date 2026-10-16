@@ -204,6 +204,9 @@ func (l *logic) mustSendable(rt *controls.Route, denom string, amount int64) *co
 	if acc == nil || acc.Config.Kind != controls.KindUnescrow {
 		panic(ufmt.Sprintf("denom %s is not enabled for sends on route %s", denom, rt.Key))
 	}
+	if rt.ExposureClosed() {
+		panic(ufmt.Sprintf("route %s has a loss without a restoring decision: it takes no gno-native send", rt.Key))
+	}
 	if ibcgov.Flagged(rt.Key, ibcgov.FnSends) {
 		panic(ufmt.Sprintf("sends are paused on route %s", rt.Key))
 	}

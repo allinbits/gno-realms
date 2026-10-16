@@ -62,7 +62,16 @@ func (rd Reader) Client(route string) string {
 	return ""
 }
 
-// Closed reports whether a route is closed (see Route.IsClosed).
+// LossClosed reports whether a route takes no new exposure because a loss
+// has no restoring decision (see Route.ExposureClosed).
+func (rd Reader) LossClosed(route string) bool {
+	if rt := rd.route(route); rt != nil {
+		return rt.LossClosed()
+	}
+	return false
+}
+
+// Closed reports whether a replacement closed a route (see Route.IsClosed).
 func (rd Reader) Closed(route string) bool {
 	if rt := rd.route(route); rt != nil {
 		return rt.IsClosed()
@@ -226,7 +235,7 @@ func (rd Reader) RouteJSON(route string) string {
 	}
 	var b strings.Builder
 	b.WriteString("{\"route\":" + q(rt.Key) + ",\"client\":" + q(rt.Client) + ",\"replaced\":" + strList(rt.Replaced) +
-		",\"enrolled\":" + itoa(rt.Enrolled) + ",\"activated\":" + itoa(rt.Activated) + ",\"closed\":" + strconv.FormatBool(rt.IsClosed()) + ",\"fee_collector\":" + q(string(rt.FeeCollector)) +
+		",\"enrolled\":" + itoa(rt.Enrolled) + ",\"activated\":" + itoa(rt.Activated) + ",\"closed\":" + strconv.FormatBool(rt.IsClosed()) + ",\"loss_closed\":" + strconv.FormatBool(rt.LossClosed()) + ",\"fee_collector\":" + q(string(rt.FeeCollector)) +
 		",\"refused_recipients\":" + strList(rt.Refused()) + ",\"unrecovered\":" + itoa(rt.Unrecovered()) + ",\"unresolved\":" + itoa(rt.Unresolved()) + ",\"denoms\":[")
 	for i, name := range rt.Denoms() {
 		if i > 0 {

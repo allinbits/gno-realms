@@ -222,13 +222,22 @@ type Route struct {
 	nRecaps   int64
 }
 
-// IsClosed reports whether the route is closed: no send, credit, claim
-// payout or refund payout moves on it (ADR pr6375 §7.9, §7.12).
-// Acknowledgements and timeouts still settle its sends, their refunds queued.
-// A route is closed by a replacement until a governed reopening, and while
-// any loss it recorded has no restoring decision: this financial closure is
-// the route's own state, whatever flags the guardians' seats hold or clear.
-func (rt *Route) IsClosed() bool { return rt.Closed || rt.hasUnresolved() }
+// IsClosed reports whether a replacement closed the route until a governed
+// reopening (ADR pr6375 §7.12): nothing moves on it, no send (voucher returns
+// included), credit, claim payout or refund payout; acknowledgements and
+// timeouts still settle its sends, their refunds queued.
+func (rt *Route) IsClosed() bool { return rt.Closed }
+
+// ExposureClosed reports whether the route takes on no new exposure: it is
+// closed, or a loss of any denom has no restoring decision (ADR pr6375 §7.9).
+// A loss stops gno-native sends, credits, claim payouts and sweep payments,
+// whatever the guardians' flags; it never stops voucher returns,
+// acknowledgements, timeouts or refunds, which only the refund meter and the
+// refunds hold govern (§7.3, §7.13).
+func (rt *Route) ExposureClosed() bool { return rt.Closed || rt.hasUnresolved() }
+
+// LossClosed reports whether a loss of any denom has no restoring decision.
+func (rt *Route) LossClosed() bool { return rt.hasUnresolved() }
 
 // hasUnresolved reports whether any denom of the route has a loss without a
 // restoring decision: denom by denom, never through a sum that could wrap.

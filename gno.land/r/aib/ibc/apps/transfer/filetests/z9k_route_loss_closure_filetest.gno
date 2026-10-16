@@ -33,7 +33,28 @@ var (
 	guardian1 = testutils.TestAddress("guardian-1")
 )
 
-const ethReceiver = "0x5f67a5398d91087d1b37a8a43436196a7830867f"
+const (
+	ethReceiver = "0x5f67a5398d91087d1b37a8a43436196a7830867f"
+	weth        = "0x457df1a9866af7b6a78eeba9291fc3e58b4d864b"
+)
+
+func returnVoucher(cur realm, route, voucher string, amount int64) uint64 {
+	testing.SetRealm(testing.NewUserRealm(bob))
+	_, seq := transfer.Transfer(cross(cur), route, ethReceiver, voucher, amount, uint64(time.Now().Add(time.Hour).Unix()), "")
+	testing.SetRealm(testing.NewCodeRealm("gno.land/r/aib/main"))
+	return seq
+}
+
+// errorAck delivers an error acknowledgement of send seq as the core does.
+func errorAck(cur realm, route string, seq uint64) {
+	rec, _ := controlsView().Send(route, controls.PacketKey(route, seq))
+	testing.SetRealm(testing.NewCodeRealm("gno.land/r/aib/ibc/core"))
+	var app transfer.App
+	if err := app.OnAcknowledgementPacket(cross(cur), route, "client-0", seq, types.UniversalErrorAcknowledgement(), rec.Packet.Payloads[0]); err != nil {
+		panic(err)
+	}
+	testing.SetRealm(testing.NewCodeRealm("gno.land/r/aib/main"))
+}
 
 // advance moves the block time on by d.
 func advance(d time.Duration) {
@@ -145,8 +166,14 @@ func decided(id int64) string {
 func main(cur realm) {
 	route := setupRoute(cur)
 	execute(cur, govern(cur, ibcgov.NewSetDenomRequest(cross(cur), route, "ugnot", "unescrow", 10_000, 0, 20, 2, 25_000, 40, 10_000, "0x0000000000000000000000000000000000c0ffee")))
+	execute(cur, govern(cur, ibcgov.NewSetDenomRequest(cross(cur), route, weth, "mint", 4_000, 10_000, 10, 1, 0, 0, 4_000, "")))
 	execute(cur, govern(cur, ibcgov.NewSetSeatsRequest(cross(cur), "0:"+string(guardian)+",1:"+string(guardian1))))
 	send(cur, route, 20_000, 20_020, ethReceiver)
+	pending := send(cur, route, 1_000, 1_020, ethReceiver) // in flight across the loss
+	voucher := ics20.NewDenom(weth, ics20.NewHop("transfer", route)).IBCDenom()
+	recv(cur, route, 9, weth, bob.String(), 500)
+	advance(24 * time.Hour)
+	transfer.Claim(cross(cur), route, voucher, 20)
 	recv(cur, route, 1, "transfer/client-0/ugnot", alice.String(), 3_000)
 	recv(cur, route, 2, "transfer/client-0/ugnot", bob.String(), 2_000)
 	recv(cur, route, 3, "transfer/client-0/ugnot", carol.String(), 2_000)
@@ -165,13 +192,25 @@ func main(cur realm) {
 	unflag(cur, guardian, route)
 	unflag(cur, guardian1, route)
 	advance(25 * time.Hour)
-	println("held:", ibcgov.Held(), "| flagged:", ibcgov.Flagged(route, ibcgov.FnPayouts), "| closed:", controlsView().Closed(route),
+	println("held:", ibcgov.Held(), "| flagged:", ibcgov.Flagged(route, ibcgov.FnPayouts), "| closed:", controlsView().LossClosed(route),
 		"| claims paid:", transfer.Claim(cross(cur), route, "ugnot", 20))
+	// The loss stops new exposure only (Codex round 2 #4): no gno-native send,
+	// but voucher returns and refunds go on, under the refund meter alone.
+	println("gno-native send:", revive(func() { send(cur, route, 100, 120, ethReceiver) }))
+	testing.SetOriginSend(nil) // the aborted send left its envelope set
+	testing.SetRealm(testing.NewCodeRealm("gno.land/r/aib/main"))
+	vouchers := transfer.VoucherBalanceOf(voucher, bob)
+	returnVoucher(cur, route, voucher, 100)
+	println("voucher return: bob's vouchers", vouchers, "->", transfer.VoucherBalanceOf(voucher, bob))
+	before := ugnot(sender)
+	errorAck(cur, route, pending)
+	rec, _ := controlsView().Send(route, controls.PacketKey(route, pending))
+	println("refund:", rec.Payment, "| sender +", ugnot(sender)-before)
 
 	// The restoring decision is no longer deferred.
 	execute(cur, recap)
 	recapitalize(cur, route, 1, 2_500)
-	println("recapitalized | closed:", controlsView().Closed(route), "| claims paid:", transfer.Claim(cross(cur), route, "ugnot", 20))
+	println("recapitalized | closed:", controlsView().LossClosed(route), "| claims paid:", transfer.Claim(cross(cur), route, "ugnot", 20))
 
 	// A second loss; the guardian flagging it leaves its seat: the flag goes,
 	// the route stays closed until the deficit is accepted.
@@ -180,16 +219,19 @@ func main(cur realm) {
 	println("void:", decided(govern(cur, ibcgov.NewVoidRequest(cross(cur), route, controls.PacketKey(route, 2), true, "inc-2"))))
 	println("vacate:", decided(govern(cur, ibcgov.NewSetSeatsRequest(cross(cur), "0:"))))
 	advance(24 * time.Hour)
-	println("flagged:", ibcgov.Flagged(route, ibcgov.FnPayouts), "| closed:", controlsView().Closed(route),
+	println("flagged:", ibcgov.Flagged(route, ibcgov.FnPayouts), "| closed:", controlsView().LossClosed(route),
 		"| claims paid:", transfer.Claim(cross(cur), route, "ugnot", 20))
 	execute(cur, govern(cur, ibcgov.NewAcceptDeficitRequest(cross(cur), route, "ugnot", 2_000, "inc-2")))
-	println("accepted | closed:", controlsView().Closed(route), "| claims paid:", transfer.Claim(cross(cur), route, "ugnot", 20))
+	println("accepted | closed:", controlsView().LossClosed(route), "| claims paid:", transfer.Claim(cross(cur), route, "ugnot", 20))
 }
 
 // Output:
 // held: true
 // void: applied - void
 // held: false | flagged: false | closed: true | claims paid: 0
+// gno-native send: route ethereum-1 has a loss without a restoring decision: it takes no gno-native send
+// voucher return: bob's vouchers 490 -> 390
+// refund: paid | sender + 1000
 // recapitalized | closed: false | claims paid: 2
 // void: applied - void
 // vacate: applied - seats 0
