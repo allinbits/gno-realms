@@ -97,7 +97,7 @@ func (l *logic) OnTimeoutPacket(_ int, rlm realm, sourceClient, destinationClien
 // allows now; the rest is queued (and everything under a refunds hold).
 func (l *logic) settle(_ int, rlm realm, rt *controls.Route, rec controls.SendRecord, outcome string) {
 	hold := ibcgov.Flagged(rt.Key, ibcgov.FnRefunds)
-	pay, err := rt.Settle(now(), chainHeight(), rec.Key, outcome, hold)
+	pay, err := rt.Settle(now(), chainHeight(), rec.Key, outcome, hold, l.lockOf(rt, rec.Denom))
 	if err != nil {
 		panic(err)
 	}

@@ -682,6 +682,17 @@ func (rt *Route) PayClaims(now, epoch, epochAt int64, denom string, n int, lock 
 		if pay > avail-fee {
 			pay = avail - fee
 		}
+		if c.Paid == 0 && pay > 0 {
+			// No sliver after the fee either: the rest of a first installment
+			// is paid only if it is at least min(what remains, the fee).
+			need := d.Config.Fee
+			if need > rem-fee {
+				need = rem - fee
+			}
+			if pay < need {
+				pay = 0
+			}
+		}
 		total := fee + pay
 		c.Paid += total
 		d.meter.Take(total)

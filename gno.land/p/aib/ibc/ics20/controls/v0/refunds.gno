@@ -124,12 +124,13 @@ func (rt *Route) send(key string) *SendRecord {
 
 // Settle attaches an acknowledgement's or a timeout's outcome to a send record
 // at the local processing height. A success owes nothing. An error or a
-// timeout owes a refund of the amount (the fee is not refunded): paid at once
-// when no refunds hold stands, no refund of the denom is queued ahead and the
-// refund meter holds the amount (the meter then pays it); queued otherwise,
-// to be paid by ClaimRefunds as the meter refills. It returns what to refund
-// now (0 when queued). A record is settled once.
-func (rt *Route) Settle(now, height int64, key, outcome string, hold bool) (int64, error) {
+// timeout owes a refund of the amount minus what a reconciliation already
+// paid on it (the fee is not refunded): paid at once when no refunds hold
+// stands, no refund of the denom is queued ahead, the refund meter holds it
+// and, for an unescrowed denom, the lock (the escrow) covers it; queued
+// otherwise, to be paid by PayRefunds. lock is ignored for a minted denom. It
+// returns what to refund now (0 when queued). A record is settled once.
+func (rt *Route) Settle(now, height int64, key, outcome string, hold bool, lock int64) (int64, error) {
 	r := rt.send(key)
 	if r == nil {
 		return 0, errors.New("controls: no send record for " + key)
@@ -142,19 +143,21 @@ func (rt *Route) Settle(now, height int64, key, outcome string, hold bool) (int6
 	}
 	d := rt.Denom(r.Denom)
 	r.Outcome, r.ProcessedHeight, r.ProcessedAt = outcome, height, now
-	if outcome == OutcomeSuccess {
+	owed := r.Amount - r.Refunded
+	if outcome == OutcomeSuccess || owed <= 0 {
 		return 0, nil
 	}
+	covered := d.Config.Kind == KindMint || lock >= owed
 	d.refundMeter.Refill(now, d.Config.RefundCap, d.Config.RefundCap, 0, 0)
-	if !hold && d.refundQueue.Size() == 0 && d.refundMeter.Level >= r.Amount {
-		d.refundMeter.Take(r.Amount)
-		rt.refunded(d, r, r.Amount)
+	if !hold && covered && d.refundQueue.Size() == 0 && d.refundMeter.Level >= owed {
+		d.refundMeter.Take(owed)
+		rt.refunded(d, r, owed)
 		r.Payment = PayPaid
-		return r.Amount, nil
+		return owed, nil
 	}
 	d.refundSeq++
 	d.refundQueue.Set(seqKey(d.refundSeq), key)
-	d.Totals.QueuedRefunds += r.Amount
+	d.Totals.QueuedRefunds += owed
 	r.Payment = PayQueued
 	return 0, nil
 }
@@ -180,9 +183,9 @@ type RefundPayment struct {
 // PayRefunds pays up to n queued refunds of a denom, oldest first, as the
 // refund meter allows (ADR pr6375 §7.13): a refund is paid in installments,
 // each at least min(what it still owes, an hour of the refund cap), and the
-// queue stops at the first refund the meter cannot serve. A refunds hold pays
-// nothing. It books the payments and returns them.
-func (rt *Route) PayRefunds(now int64, denom string, n int, hold bool) ([]RefundPayment, error) {
+// queue stops at the first refund the meter, or for an unescrowed denom the
+// lock (the escrow), cannot serve. A refunds hold pays nothing. It books the payments and returns them.
+func (rt *Route) PayRefunds(now int64, denom string, n int, hold bool, lock int64) ([]RefundPayment, error) {
 	d := rt.Denom(denom)
 	if d == nil {
 		return nil, errors.New("controls: denom " + denom + " is not enabled on route " + rt.Key)
@@ -218,6 +221,15 @@ func (rt *Route) PayRefunds(now int64, denom string, n int, hold bool) ([]Refund
 		pay := rem
 		if pay > d.refundMeter.Level {
 			pay = d.refundMeter.Level
+		}
+		if d.Config.Kind == KindUnescrow {
+			if pay > lock {
+				pay = lock
+			}
+			if pay < need {
+				break
+			}
+			lock -= pay
 		}
 		d.refundMeter.Take(pay)
 		rt.refunded(d, r, pay)
@@ -278,9 +290,11 @@ func (rt *Route) RejectRefund(key, incident string) error {
 
 // PayEntitlement pays by decision what a reconciliation found a sender is
 // owed on a send (ADR pr6375 §7.12): the packet's amount minus what was
-// already refunded, never more. A queued refund it settles leaves the queue.
+// already refunded, never more, and for an unescrowed denom never out of the
+// escrow open claims reserve. A queued refund it settles leaves the queue; a
+// send settled later refunds only what is still owed.
 // It returns the payment to make.
-func (rt *Route) PayEntitlement(key string, amount int64, incident string) (RefundPayment, error) {
+func (rt *Route) PayEntitlement(key string, amount int64, incident string, lock int64) (RefundPayment, error) {
 	r := rt.send(key)
 	if r == nil {
 		return RefundPayment{}, errors.New("controls: no send record for " + key)
@@ -293,6 +307,9 @@ func (rt *Route) PayEntitlement(key string, amount int64, incident string) (Refu
 		return RefundPayment{}, ufmt.Errorf("controls: %d is not within what send %s is still owed (%d)", amount, key, rem)
 	}
 	d := rt.Denom(r.Denom)
+	if d.Config.Kind == KindUnescrow && amount > lock-d.Reserved() {
+		return RefundPayment{}, ufmt.Errorf("controls: %d is above the free lock of %d", amount, lock-d.Reserved())
+	}
 	if r.Payment == PayQueued {
 		d.Totals.QueuedRefunds -= amount
 		if amount == rem {

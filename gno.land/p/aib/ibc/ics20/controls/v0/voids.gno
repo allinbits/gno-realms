@@ -135,16 +135,28 @@ func (rt *Route) Restore(keys []string, now, epoch int64) error {
 	if err := parseKeys(keys); err != nil {
 		return err
 	}
+	restoredLoss := map[string]int64{}
 	for _, k := range keys {
 		if c := rt.claim(k); c != nil {
 			if c.State != Withheld && c.State != Forged {
 				return errors.New("controls: " + k + " is not voided")
+			}
+			if v := rt.losses.Get(lossKey(c.Key, "forged payout")); c.State == Forged && v != nil && !v.(*Loss).Restored {
+				restoredLoss[c.Denom] += v.(*Loss).Amount
 			}
 			continue
 		}
 		e := rt.sweep(k)
 		if e == nil || !e.Voided {
 			return errors.New("controls: " + k + " is not voided")
+		}
+	}
+	// A loss already recapitalized, reduced or accepted cannot be restored:
+	// the surplus would silently cancel the next real loss.
+	for denom, amount := range restoredLoss {
+		t := rt.Denom(denom).Totals
+		if t.Lost-amount < t.Recapitalized+t.Reduced+t.Accepted {
+			return errors.New("controls: restoring would undo a loss already recapitalized, reduced or accepted")
 		}
 	}
 	for _, k := range keys {
@@ -235,7 +247,8 @@ func (rt *Route) CreditByVote(now, height, epoch int64, key, denom string, to ad
 
 // PaySweeps pays live sweep entries of one denom to an address by decision
 // (ADR pr6375 §7.1: owed, paid only by a 7-day decision). For an unescrowed
-// denom the total never exceeds the lock. It books them and returns the
+// denom the total never exceeds the free lock (what open claims do not
+// reserve). It books them and returns the
 // payments.
 func (rt *Route) PaySweeps(keys []string, to address, lock int64) ([]Payment, error) {
 	if err := parseKeys(keys); err != nil {
@@ -259,8 +272,8 @@ func (rt *Route) PaySweeps(keys []string, to address, lock int64) ([]Payment, er
 		total += e.Amount
 	}
 	d := rt.Denom(denom)
-	if d.Config.Kind == KindUnescrow && total > lock {
-		return nil, ufmt.Errorf("controls: %d is above the lock of %d", total, lock)
+	if d.Config.Kind == KindUnescrow && total > lock-d.Reserved() {
+		return nil, ufmt.Errorf("controls: %d is above the free lock of %d", total, lock-d.Reserved())
 	}
 	var out []Payment
 	for _, k := range keys {

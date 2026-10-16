@@ -386,12 +386,14 @@ func TestClaimSmallRemainderNotASliver(t *testing.T) {
 	if len(ps) != 0 {
 		t.Fatalf("paid with 14 for a fee of 20: %+v", ps)
 	}
-	ps, _ = rt.PayClaims(t0+864, 0, t0, "ugnot", 20, lock) // 25: fee 20 + 5
-	if len(ps) != 1 || ps[0].Fee != 20 || ps[0].Amount != 5 {
+	// 25 in the meter: the fee whole, and not 5 of the remaining 10 (a sliver
+	// after the fee is refused too).
+	ps, _ = rt.PayClaims(t0+864, 0, t0, "ugnot", 20, lock)
+	if len(ps) != 1 || ps[0].Fee != 20 || ps[0].Amount != 0 {
 		t.Fatalf("%+v", ps)
 	}
-	ps, _ = rt.PayClaims(t0+864+174, 0, t0, "ugnot", 20, lock) // 5 more: the remainder exactly
-	if len(ps) != 1 || ps[0].Amount != 5 {
+	ps, _ = rt.PayClaims(t0+864+174, 0, t0, "ugnot", 20, lock) // 5 + 5: the remainder exactly
+	if len(ps) != 1 || ps[0].Amount != 10 {
 		t.Fatalf("remainder %+v", ps)
 	}
 	c, _ := rt.Claim(pk(1))

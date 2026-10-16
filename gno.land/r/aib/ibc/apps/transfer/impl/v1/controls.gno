@@ -3,6 +3,7 @@ package impl
 import (
 	"bytes"
 	"chain"
+	"errors"
 	"strconv"
 	"strings"
 
@@ -62,7 +63,7 @@ func (l *logic) Claim(_ int, rlm realm, clientID, denom string, n int) int {
 func (l *logic) ClaimRefunds(_ int, rlm realm, clientID, denom string, n int) int {
 	rt := l.routeFor(0, rlm, clientID)
 	hold := ibcgov.Flagged(rt.Key, ibcgov.FnRefunds)
-	ps, err := rt.PayRefunds(now(), denom, n, hold)
+	ps, err := rt.PayRefunds(now(), denom, n, hold, l.lockOf(rt, denom))
 	if err != nil {
 		panic(err)
 	}
@@ -210,7 +211,11 @@ func (l *logic) GovApply(_ int, rlm realm, op string, params []byte) string {
 		err = rt.RejectRefund(p.Key, p.Incident)
 	case controls.OpPayEntitlement:
 		var pay controls.RefundPayment
-		pay, err = rt.PayEntitlement(p.Key, p.Amount, p.Incident)
+		if rec, ok := rt.Send(p.Key); ok {
+			pay, err = rt.PayEntitlement(p.Key, p.Amount, p.Incident, l.lockOf(rt, rec.Denom))
+		} else {
+			err = errors.New("no send record for " + p.Key)
+		}
 		if err == nil {
 			l.payOut(0, rlm, rt, pay.Denom, pay.To, pay.Amount)
 		}

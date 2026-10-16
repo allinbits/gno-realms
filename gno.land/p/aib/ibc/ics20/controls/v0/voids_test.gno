@@ -404,3 +404,21 @@ func TestReaderJSON(t *testing.T) {
 		t.Fatalf("escaping: %s", rd.SweepsJSON("ethereum-1", ""))
 	}
 }
+
+// A forged void whose loss was since accepted (or recapitalized, or reduced)
+// cannot be restored: the surplus would hide the next real loss.
+func TestRestoreRefusedAfterRecovery(t *testing.T) {
+	rt, _ := setupClaims(t)
+	c1, _ := rt.Claim(pk(1))
+	rt.Void([]string{pk(1)}, true, "inc")
+	if err := rt.Accept("ugnot", c1.Paid, "inc"); err != nil {
+		t.Fatal(err)
+	}
+	if err := rt.Restore([]string{pk(1)}, t0+2*Day, 0); err == nil || !strings.Contains(err.Error(), "already recapitalized") {
+		t.Fatalf("restored a recovered loss: %v", err)
+	}
+	c, _ := rt.Claim(pk(1))
+	if c.State != Forged {
+		t.Fatalf("%+v", c)
+	}
+}
