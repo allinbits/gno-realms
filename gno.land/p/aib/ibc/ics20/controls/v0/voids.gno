@@ -186,7 +186,6 @@ func (rt *Route) lossFits(denom, incident string, amount int64) error {
 	return nil
 }
 
-
 // addLoss books a loss its caller checked fits (lossFits); an addition that
 // would still overflow is a broken invariant and aborts.
 func (rt *Route) addLoss(d *Denom, l Loss) {

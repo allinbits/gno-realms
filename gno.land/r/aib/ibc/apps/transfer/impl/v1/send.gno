@@ -2,8 +2,8 @@ package impl
 
 import (
 	"chain"
-	"math"
 	"chain/runtime/unsafe"
+	"math"
 	"strings"
 
 	"gno.land/p/aib/encoding/ethaddr/v0"

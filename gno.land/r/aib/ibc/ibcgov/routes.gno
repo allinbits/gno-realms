@@ -365,8 +365,8 @@ func NewSweepRequest(cur realm, route, keys, to string) Request {
 
 // Reconciliation causes a recorded loss may name (ADR pr6375 §7.12).
 var lossCauses = map[string]bool{
-	"forged-delivery":      true, // a delivery the honest source never sent
-	"collision":            true, // a forged receipt occupied an honest packet's sequence
+	"forged-delivery": true, // a delivery the honest source never sent
+	"collision":       true, // a forged receipt occupied an honest packet's sequence
 }
 
 // NewRecordLossRequest records a loss a reconciliation recognized, after 7
@@ -584,8 +584,8 @@ const maxActivationDenoms = 16
 type activateParams struct {
 	path            string
 	legacyRefundCap int64
-	enroll controls.Params
-	denoms []controls.Params
+	enroll          controls.Params
+	denoms          []controls.Params
 }
 
 func (p *activateParams) apply(cur realm, t int64) (string, string) {

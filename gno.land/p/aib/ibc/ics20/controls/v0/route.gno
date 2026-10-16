@@ -266,11 +266,11 @@ type Route struct {
 	Enrolled     int64    // block time of the enrolment
 	Activated    int64    // block height of the enrolment: the controls' cutoff
 	FeeCollector address
-	Closed       bool // closed by a replacement until a governed reopening
-	Legacy bool // made by the legacy path; no decision enrolled it yet
-	Unimported int64 // sends of its client impl/v0 made, outstanding at the enrolment and not backfilled yet: credits wait for 0
-	Reopening bool // a reopening decision runs in batches (ContinueReopen)
-	ReplacedAt int64 // the block height of the last replacement
+	Closed       bool  // closed by a replacement until a governed reopening
+	Legacy       bool  // made by the legacy path; no decision enrolled it yet
+	Unimported   int64 // sends of its client impl/v0 made, outstanding at the enrolment and not backfilled yet: credits wait for 0
+	Reopening    bool  // a reopening decision runs in batches (ContinueReopen)
+	ReplacedAt   int64 // the block height of the last replacement
 
 	refused   avl.Tree // lower-case Ethereum address -> true: refused send recipients
 	denoms    avl.Tree // denom -> *Denom
@@ -278,15 +278,15 @@ type Route struct {
 	sweeps    avl.Tree // packet key -> *SweepEntry
 	sends     avl.Tree // packet key -> *SendRecord
 	openSends avl.Tree // client id -> int64: its open send records
-	pending avl.Tree // client id -> int64: its send records with no outcome yet
+	pending   avl.Tree // client id -> int64: its send records with no outcome yet
 	processed avl.Tree // client id -> *processedSet: its processed, unsettled send records by height
 	suspect   avl.Tree // retired client id -> int64: the height its suspect interval starts at
 
-	reopenIncident, reopenRecap string // where a batched reopening stopped
-	losses    avl.Tree // loss key -> *Loss
-	incidents avl.Tree // denom|incident -> *IncidentTotals
-	recaps    avl.Tree // seqKey(id) -> *Recap
-	nRecaps   int64
+	reopenIncident, reopenRecap string   // where a batched reopening stopped
+	losses                      avl.Tree // loss key -> *Loss
+	incidents                   avl.Tree // denom|incident -> *IncidentTotals
+	recaps                      avl.Tree // seqKey(id) -> *Recap
+	nRecaps                     int64
 }
 
 // StartImport sets, at the enrolment, how many sends of the route's client
@@ -345,7 +345,6 @@ func (rt *Route) hasUnresolved() bool {
 	})
 	return found
 }
-
 
 // Reopen reopens a route a replacement closed, by decision (the gno
 // analogue of Ethereum's kind 13, ADR pr6375 §5.4): refused while any send
@@ -516,7 +515,7 @@ type Totals struct {
 	SweepPaid     int64 // sweep entries paid by decision
 	Outstanding   int64 // KindMint: vouchers this route has in circulation
 	Returning     int64 // KindMint: vouchers burned by sends not settled yet (in flight, or refund owed)
-	InFlight int64 // the amounts of the open send records: a bound of every refund owed (QueuedRefunds, Returning)
+	InFlight      int64 // the amounts of the open send records: a bound of every refund owed (QueuedRefunds, Returning)
 	Sent          int64 // escrowed (KindUnescrow) or burned (KindMint) by recorded sends
 	SendFees      int64 // fees charged on sends
 	Refunded      int64 // refunds paid
@@ -735,16 +734,16 @@ func (c *Claim) Remaining() int64 { return c.Amount - c.Paid }
 // pr6375 §7.1): an amount below the fee, above the free lock, or to a bridge
 // realm.
 type SweepEntry struct {
-	Key    string
-	Denom  string
-	To     string // the receiver the packet named
-	Amount int64
-	Reason string
+	Key     string
+	Denom   string
+	To      string // the receiver the packet named
+	Amount  int64
+	Reason  string
 	Reduced int64 // cut by liability reductions
-	Height int64
-	Voided bool   // voided as forged
-	Paid   bool   // paid by a sweep decision, or replaced by a credit by vote
-	PaidTo string // where a sweep decision paid it
+	Height  int64
+	Voided  bool   // voided as forged
+	Paid    bool   // paid by a sweep decision, or replaced by a credit by vote
+	PaidTo  string // where a sweep decision paid it
 }
 
 // Payment is what a claim payout or a sweep payment moves: Amount to To and

@@ -28,7 +28,7 @@ type logic struct {
 }
 
 var (
-	_ core.Logic          = (*logic)(nil)
+	_ core.Logic                  = (*logic)(nil)
 	_ core.ClientMigrator         = (*logic)(nil)
 	_ core.ClientMigrationChecker = (*logic)(nil)
 )
