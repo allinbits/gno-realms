@@ -167,12 +167,16 @@ route controls (ADR 0004). Before relaying resumes on an Ethereum client:
    route and enables every denom it carries, the Ethereum tokens whose
    vouchers impl/v0 minted included (their outstanding supply is read from
    the voucher at that moment), in one transaction, so voucher returns work
-   at once. Further routes are enrolled later (`NewEnrollRouteRequest`,
-   `NewSetDenomRequest`).
+   at once. Every other Ethereum client and denom impl/v0 used keeps its
+   voucher returns through the legacy path (recorded, refunds queued) until
+   later decisions enrol and enable them (`NewEnrollRouteRequest`,
+   `NewSetDenomRequest`, which adopt the records).
 2. Backfill every send impl/v0 made over the client that is still
    outstanding: for each commitment the core holds
    (`core.PacketCommitment`), anyone calls `transfer.Backfill(packet)`. An
    acknowledgement or a timeout of a send without a record is refused, so a
-   missed one only blocks its own relay until it is backfilled.
+   missed one only blocks its own relay until it is backfilled; and the
+   route takes no credit until every send impl/v0 left outstanding on its
+   client is backfilled (the count is taken at the enrolment).
 3. Credits by vote apply only to receives booked after the enrolment: a
    receive impl/v0 already paid is never credited again.
