@@ -49,7 +49,7 @@ func setupRoute(cur realm) string {
 }
 
 func payload(body []byte) types.Payload {
-	return types.Payload{SourcePort: ibcgov.GovPort, DestinationPort: ibcgov.GovPort, Version: ibcgov.GovVersion, Encoding: ibcgov.GovEncoding, Value: body}
+	return types.Payload{SourcePort: ibcgov.GovPort, DestinationPort: ibcgov.GovDestPort, Version: ibcgov.GovVersion, Encoding: ibcgov.GovEncoding, Value: body}
 }
 
 // appAck is IBCAdmin's acknowledgement: epoch u32 ‖ seq u64 ‖ status u8 ‖ redispatch u8.

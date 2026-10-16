@@ -74,8 +74,8 @@ func setupRoute(cur realm) string {
 
 // Every Ethereum-bound kind (ADR pr6375 §5.4): its envelope, bound to the next
 // seq of the epoch and dispatched at once, is byte for byte the expected
-// encoding. A kind 6 decision with gno.land's two-item merkle prefix does not
-// fit the 512-byte envelope and is refused when it is built.
+// encoding. A kind 6 decision with gno.land's two-item merkle prefix fits the
+// 1024-byte envelope; a longer envelope is refused when it is built.
 func main(cur realm) {
 	client := core.CreateClient(cross(cur), ethtesting.ClientState(), ethtesting.ConsensusState())
 	core.RegisterCounterparty(cross(cur), client, [][]byte{{}}, "client-0")
@@ -103,10 +103,14 @@ func main(cur realm) {
 	}
 	println("last seq:", ibcgov.LastSeq(1))
 
-	println("full gno prefix:", revive(func() {
-		govern(cur, ibcgov.NewEthClientRequest(cross(cur), 1, "client-1", client, "6d61696e,2f70762f766d3a676e6f2e6c616e642f722f6169622f6962632f636f72653a", a1, hash))
-	}))
-	println("cancel beyond the last seq:", revive(func() { govern(cur, ibcgov.NewEthCancelRequest(cross(cur), "12")) }))
+	govern(cur, ibcgov.NewEthClientRequest(cross(cur), 1, "client-1", client, "6d61696e,2f70762f766d3a676e6f2e6c616e642f722f6169622f6962632f636f72653a", a1, hash))
+	println("full gno prefix:", len(ibcgov.DispatchBody(1, 12)), "bytes")
+	long := ""
+	for i := 0; i < 900; i++ {
+		long += "cd"
+	}
+	println("too long:", revive(func() { govern(cur, ibcgov.NewEthUpgradeRequest(cross(cur), a1, a2, hash, long)) }))
+	println("cancel beyond the last seq:", revive(func() { govern(cur, ibcgov.NewEthCancelRequest(cross(cur), "13")) }))
 	println("ADMIN_ROLE:", revive(func() { govern(cur, ibcgov.NewEthRoleRequest(cross(cur), true, 0, a1)) }))
 	println("three guardian seats:", revive(func() {
 		govern(cur, ibcgov.NewEthSeatsRequest(cross(cur), "0:"+a1+",1:"+a1+",2:"+a2))
@@ -129,10 +133,11 @@ func main(cur realm) {
 // seq 10 matches: true 142 bytes
 // seq 11 matches: true 206 bytes
 // last seq: 11
-// full gno prefix: ibcgov: the envelope would be 558 bytes, above 512
-// cancel beyond the last seq: ibcgov: not a range of dispatched numbers (1-11): 12
+// full gno prefix: 558 bytes
+// too long: ibcgov: the envelope would be 1102 bytes, above 1024
+// cancel beyond the last seq: ibcgov: not a range of dispatched numbers (1-12): 13
 // ADMIN_ROLE: ibcgov: kind 8 never names ADMIN_ROLE or PUBLIC_ROLE
 // three guardian seats: ibcgov: a decision changes at most two guardian seats
 // unpause object 2 with a client: ibcgov: object 2 (IBCAdmin) names no client
 // bad address: ibcgov: not an Ethereum address: want 0x and 40 hex digits
-// last seq after the refusals: 11
+// last seq after the refusals: 12

@@ -22,11 +22,12 @@ import (
 // IBC app on port gov of the gno core, and sends every Ethereum-bound decision
 // to IBCAdmin as one packet over the governance epoch's client:
 //
-//	payload: source and destination port "gov", version "ibcgov-1",
-//	         encoding "application/x-ibcgov"
+//	payload: source port "gov" (this realm's port on the gno core),
+//	         destination port "ibcgov" (IBCAdmin's on the Ethereum router),
+//	         version "ibcgov-1", encoding "application/x-ibcgov"
 //	value:   version u8 (= 1) ‖ epoch u32 ‖ seq u64 ‖ kind u8 ‖ params
 //
-// big-endian, at most 512 bytes, params the Solidity ABI encoding of the
+// big-endian, at most 1024 bytes, params the Solidity ABI encoding of the
 // kind's tuple (abi.encode of its fields; see the New…Request builders). seq
 // is the epoch's own contiguous sequence of Ethereum-bound decisions, from 1,
 // separate from the ledger's numbers; a number is bound to its bytes in the
@@ -49,13 +50,23 @@ import (
 // past epoch is never sent again.
 
 const (
-	GovPort     = "gov"
+	// GovPort is this realm's port on the gno core: the packets' source port.
+	GovPort = "gov"
+	// GovDestPort is IBCAdmin's port on the Ethereum router: the packets'
+	// destination port. ADR pr6375 §5.4 names it "gov" on both sides, but
+	// eureka v3.0.2's router refuses a custom port id shorter than four
+	// characters, so IBCAdmin registers "ibcgov" (gno-eth-ibc IBCAdmin.PORT).
+	GovDestPort = "ibcgov"
 	GovVersion  = "ibcgov-1"
 	GovEncoding = "application/x-ibcgov"
 
 	EnvelopeVersion = uint8(1)
 	envelopeHeader  = 14
-	MaxEnvelope     = 512
+	// MaxEnvelope bounds an envelope. ADR pr6375 §5.4 says 512 bytes, but a
+	// kind 6 carrying gno.land's two-item merkle prefix ("main",
+	// "/pv/vm:gno.land/r/aib/ibc/core:") encodes to 558 bytes, so both sides
+	// bound it at 1024 (gno-eth-ibc IBCAdminStorage.MAX_ENVELOPE).
+	MaxEnvelope = 1024
 
 	// GovPacketTimeout is how far ahead a governance packet times out, in
 	// seconds (the core accepts up to 24 hours).
@@ -267,7 +278,7 @@ func send(cur realm, d *dispatch) {
 		TimeoutTimestamp: uint64(now() + GovPacketTimeout),
 		Payloads: []types.Payload{{
 			SourcePort:      GovPort,
-			DestinationPort: GovPort,
+			DestinationPort: GovDestPort,
 			Version:         GovVersion,
 			Encoding:        GovEncoding,
 			Value:           append([]byte{}, d.body...),
@@ -325,7 +336,7 @@ func (a *App) OnSendPacket(cur realm, sourceClient, destinationClient string, se
 	if auth == nil {
 		return ufmt.Errorf("ibcgov: governance packets are sent by ibcgov's decisions only")
 	}
-	if payload.SourcePort != GovPort || payload.DestinationPort != GovPort || payload.Version != GovVersion || payload.Encoding != GovEncoding {
+	if payload.SourcePort != GovPort || payload.DestinationPort != GovDestPort || payload.Version != GovVersion || payload.Encoding != GovEncoding {
 		return ufmt.Errorf("ibcgov: not a governance payload")
 	}
 	if sourceClient != auth.client {
