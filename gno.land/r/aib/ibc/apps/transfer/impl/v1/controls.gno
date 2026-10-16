@@ -17,8 +17,9 @@ import (
 	"gno.land/r/aib/ibc/ibcgov"
 )
 
-// routeFor is the route a Claim names: by its current client id, or by its
-// route key.
+// routeFor is the route a permissionless call names (Claim, ClaimRefunds,
+// ContinueReopen, Recapitalize): by its current client id, or by its route
+// key.
 func (l *logic) routeFor(_ int, rlm realm, clientOrRoute string) *controls.Route {
 	reg := l.registry(0, rlm)
 	if rt := reg.RouteOf(clientOrRoute); rt != nil {
@@ -227,10 +228,7 @@ func isZero(b []byte) bool {
 // ContinueReopen runs the next bounded batch of a route's reopening (ADR
 // pr6375 §5.4 kind 13); anyone may.
 func (l *logic) ContinueReopen(_ int, rlm realm, route string) bool {
-	rt := l.registry(0, rlm).Route(route)
-	if rt == nil {
-		panic("no route " + route)
-	}
+	rt := l.routeFor(0, rlm, route)
 	accepted, done, err := rt.ContinueReopen()
 	if err != nil {
 		panic(err)
@@ -244,10 +242,7 @@ func (l *logic) ContinueReopen(_ int, rlm realm, route string) bool {
 // and debited from the unrecovered losses. A plain transfer to the escrow
 // address stays surplus and repairs nothing.
 func (l *logic) Recapitalize(_ int, rlm realm, sent []chain.Coin, route string, id int64) {
-	rt := l.registry(0, rlm).Route(route)
-	if rt == nil {
-		panic("no route " + route)
-	}
+	rt := l.routeFor(0, rlm, route)
 	r, ok := rt.Recap(id)
 	if !ok || r.Paid || r.Revoked {
 		panic(ufmt.Sprintf("no unpaid recapitalization %d on route %s", id, route))
