@@ -447,13 +447,15 @@ func (rt *Route) Recapitalize(id int64, denom string, amount int64, by address) 
 	return nil
 }
 
-// Reduce cuts an open or withheld claim by amount against an incident: an
-// explicit liability reduction (ADR pr6375 §7.9). The claims term and the
-// unrecovered losses fall by the same amount; refunds are never reduced.
+// Reduce cuts an open or withheld claim, or an unpaid owed sweep entry, by
+// amount against an incident: an explicit liability reduction (ADR pr6375
+// §7.9, the claims term of §7.11 includes the sweep entries owed). The claims
+// term and the unrecovered losses fall by the same amount; refunds are never
+// reduced.
 func (rt *Route) Reduce(key string, amount int64, incident string) error {
 	c := rt.claim(key)
 	if c == nil {
-		return errors.New("controls: no claim " + key)
+		return rt.reduceSweep(key, amount, incident)
 	}
 	if c.State != Open && c.State != Withheld {
 		return errors.New("controls: claim " + key + " is " + c.State)
@@ -477,6 +479,34 @@ func (rt *Route) Reduce(key string, amount int64, incident string) error {
 		}
 	} else {
 		d.Totals.Withheld -= amount
+	}
+	return nil
+}
+
+// reduceSweep cuts a live sweep entry: its payable amount and the swept
+// term fall, and an entry cut to nothing is closed as paid by the reduction.
+func (rt *Route) reduceSweep(key string, amount int64, incident string) error {
+	e := rt.sweep(key)
+	if e == nil {
+		return errors.New("controls: no claim or sweep entry " + key)
+	}
+	if e.Voided || e.Paid {
+		return errors.New("controls: sweep entry " + key + " is voided or paid")
+	}
+	if incident == "" {
+		return errors.New("controls: a reduction names its incident")
+	}
+	if amount <= 0 || amount > e.Amount || amount > rt.resolvable(e.Denom, incident, 0) {
+		return ufmt.Errorf("controls: %d is not within the sweep entry's amount and incident %s's losses not yet resolved or authorized", amount, incident)
+	}
+	d := rt.Denom(e.Denom)
+	e.Amount -= amount
+	e.Reduced += amount
+	d.Totals.Swept -= amount
+	d.Totals.Reduced += amount
+	rt.incident(e.Denom, incident).Reduced += amount
+	if e.Amount == 0 {
+		e.Paid, e.PaidTo = true, "reduced"
 	}
 	return nil
 }

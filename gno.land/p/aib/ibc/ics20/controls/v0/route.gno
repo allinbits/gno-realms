@@ -552,6 +552,7 @@ type SweepEntry struct {
 	To     string // the receiver the packet named
 	Amount int64
 	Reason string
+	Reduced int64 // cut by liability reductions
 	Height int64
 	Voided bool   // voided as forged
 	Paid   bool   // paid by a sweep decision, or replaced by a credit by vote

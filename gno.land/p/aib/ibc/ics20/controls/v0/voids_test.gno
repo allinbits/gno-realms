@@ -317,8 +317,38 @@ func TestReduceWithheld(t *testing.T) {
 	if d.Totals.Withheld != 0 || c.Remaining() != 0 || c.State != Withheld {
 		t.Fatalf("%+v %+v", c, d.Totals)
 	}
-	if err := rt.Reduce(pk(3), 1, "inc"); err == nil {
-		t.Fatalf("reduced a sweep entry")
+}
+
+// An unpaid owed sweep entry is reduced like a claim: partly, never beyond
+// its amount, and to nothing (Codex round 2 #5).
+func TestReduceSweep(t *testing.T) {
+	rt, _ := setupClaims(t)
+	d := rt.Denom("ugnot")
+	rt.Credit(t0, 10, 0, pk(20), "ugnot", alice, 500, ByPacket, "bridge realm", big)
+	rt.RecordLoss(pk(30), "ugnot", 1_000, ChainGno, "inc", "collision")
+	swept := d.Totals.Swept
+	if err := rt.Reduce(pk(20), 501, "inc"); err == nil {
+		t.Fatalf("reduced a sweep entry beyond its amount")
+	}
+	if err := rt.Reduce(pk(20), 100, "inc"); err != nil {
+		t.Fatal(err)
+	}
+	e, _ := rt.Sweep(pk(20))
+	if e.Amount != 400 || e.Reduced != 100 || d.Totals.Swept != swept-100 || d.Totals.Unrecovered() != 900 || rt.Incident("ugnot", "inc").Reduced != 100 {
+		t.Fatalf("%+v %+v", e, d.Totals)
+	}
+	if err := rt.Reduce(pk(20), 400, "inc"); err != nil {
+		t.Fatal(err)
+	}
+	e, _ = rt.Sweep(pk(20))
+	if !e.Paid || e.Amount != 0 || d.Totals.Swept != swept-500 {
+		t.Fatalf("%+v", e)
+	}
+	if err := rt.Reduce(pk(20), 1, "inc"); err == nil {
+		t.Fatalf("reduced a closed sweep entry")
+	}
+	if err := rt.Reduce(pk(3), 1, "inc"); err != nil { // the live sweep entry below the fee
+		t.Fatal(err)
 	}
 }
 

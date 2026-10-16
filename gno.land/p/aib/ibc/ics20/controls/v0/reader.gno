@@ -274,7 +274,7 @@ func ClaimJSON(c Claim) string {
 
 // SweepJSON is a sweep entry's JSON.
 func SweepJSON(e SweepEntry) string {
-	return "{\"key\":" + q(e.Key) + ",\"denom\":" + q(e.Denom) + ",\"to\":" + q(e.To) + ",\"amount\":" + itoa(e.Amount) +
+	return "{\"key\":" + q(e.Key) + ",\"denom\":" + q(e.Denom) + ",\"to\":" + q(e.To) + ",\"amount\":" + itoa(e.Amount) + ",\"reduced\":" + itoa(e.Reduced) +
 		",\"reason\":" + q(e.Reason) + ",\"height\":" + itoa(e.Height) + ",\"voided\":" + strconv.FormatBool(e.Voided) +
 		",\"paid\":" + strconv.FormatBool(e.Paid) + ",\"paid_to\":" + q(e.PaidTo) + "}"
 }

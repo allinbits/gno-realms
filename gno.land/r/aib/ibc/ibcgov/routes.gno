@@ -360,16 +360,16 @@ func NewRecapitalizeRequest(cur realm, route, denom string, amount int64, incide
 		controls.Params{Route: route, Denom: denom, Amount: amount, Incident: incident}, true)
 }
 
-// NewReduceRequest cuts an open or withheld claim by amount against an
-// incident after 7 days (a published liability reduction; refunds are never
-// reduced).
+// NewReduceRequest cuts an open or withheld claim, or an unpaid owed sweep
+// entry, by amount against an incident after 7 days (a published liability
+// reduction; refunds are never reduced).
 func NewReduceRequest(cur realm, route, key string, amount int64, incident string) Request {
 	mustRoute(route)
 	mustIncident(incident)
 	if _, _, ok := controls.ParsePacketKey(key); !ok || amount <= 0 {
 		panic("ibcgov: a reduction names a packet key and a positive amount")
 	}
-	return routeRequest(cur, controls.OpReduce, "reduce", "reduce claim "+key+" on route "+route+" by "+itoa(amount)+" (incident "+incident+")",
+	return routeRequest(cur, controls.OpReduce, "reduce", "reduce the liability of "+key+" on route "+route+" by "+itoa(amount)+" (incident "+incident+")",
 		controls.Params{Route: route, Key: key, Amount: amount, Incident: incident}, true)
 }
 
