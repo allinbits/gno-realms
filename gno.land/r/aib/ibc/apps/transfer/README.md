@@ -186,11 +186,13 @@ mapping: [ADR 0004](../../../../../../docs/adrs/0004-ethereum-route-controls.md)
   **`ClaimRefunds(clientID, denom, n)`** (anyone). The outcome, the local
   processing height and the payment state are attached to the send record.
   Queued refunds are reserved: no receive or claim payout takes their escrow.
-- **Closed routes.** A route replacement closes the route, and so does a loss
-  without a restoring decision: no send, credit, claim payout or refund
-  payout. A replaced route reopens by a governed decision once every send
-  record of its retired clients is settled; the reopening records the
-  remaining losses as an accepted deficit.
+- **Closed routes.** A route replacement closes the route: no send, credit,
+  claim payout or refund payout. It reopens by a governed decision once every
+  send record of its retired clients is settled; the reopening records the
+  remaining losses as an accepted deficit. A loss of any denom without a
+  restoring decision stops new exposure only (gno-native sends, credits,
+  claim payouts, sweep payments): voucher returns, acknowledgements, timeouts
+  and refunds go on.
 - **Governance** (`GovApply`, ibcgov only): enrolment, denom limits, fee
   collector, refused recipients, voids and restores of withheld claims, credit
   by vote, sweep payments, losses, recapitalization authorizations (paid by

@@ -72,7 +72,8 @@ still change; once deployed they freeze (ADR 0001, 0002).
     returning vouchers, sent, refunded, queued refunds, lost, recapitalized,
     reduced, accepted).
   - `SendRecord`: the packet, its commitment, metadata, outcome, payment
-    state, refunded amount, reconciliation settlement (once), backfilled.
+    state, refunded amount, remaining supply reservation (minted sends,
+    released or consumed once), reconciliation settlement (once), backfilled.
   - Escrow stays in the proxy's existing per-key accounting, keyed by the
     route key (= the first client id, so pre-existing escrow carries over).
 - **ibcgov**: `ledger`, `yielded`, `seats[6]`, `flags` (route|fn|seat),
@@ -103,8 +104,10 @@ restore of withheld claims, seat vacating, every Ethereum-bound decision
 new denoms and any loosening, fee collector, unrefusing, credits, sweeps,
 losses, recapitalizations, reductions, accepted deficits, reconciliation
 settlements, route replacement and reopening, channel binding, seat
-additions). A decision whose call fails on the live state when it applies is
-spent, never left pending. Proposals
+additions); revoking a recapitalization authorization applies at once. A
+decision whose call would fail on the live state when it applies (the light
+client's recovery and migration checks and the core's send checks included)
+is refused and spent, never left pending. Proposals
 expire 14 days after they are built. A hold defers every queued decision,
 except a seat change from day 21 of the hold.
 
@@ -118,7 +121,8 @@ except a seat change from day 21 of the hold.
   `NewRefuseRecipientsRequest`, `NewUnrefuseRecipientsRequest`,
   `NewVoidRequest`, `NewRestoreRequest`, `NewCreditRequest`,
   `NewSweepRequest`, `NewRecordLossRequest`, `NewRecapitalizeRequest`,
-  `NewReduceRequest`, `NewAcceptDeficitRequest`, `NewSettleRequest`,
+  `NewRevokeRecapRequest`, `NewReduceRequest`, `NewAcceptDeficitRequest`,
+  `NewSettleRequest`,
   `NewReplaceRouteRequest`, `NewReopenRouteRequest`,
   `NewBindGovernanceRequest`) and Ethereum-bound builders `NewEth*Request`
   for kinds 1–13 (`NewEthSettleRequest`, `NewEthReopenRequest`); reads `Flagged`, `PayoutsEpoch`, `NamedSuspect`, `Held`,
@@ -130,7 +134,9 @@ except a seat change from day 21 of the hold.
   `GovApply`, `ExtView`; renders `routes…` (README).
 - **core**: `RetireClient`, `IsClientRetired`, `MigrateClient`, `ClientType`,
   `CounterpartyClientID`, `PacketCommitment`, `PacketReceipt`,
-  `PacketAcknowledgement`, `HasPendingAsyncAck`, `PendingAsyncAck`.
+  `PacketAcknowledgement`, `HasPendingAsyncAck`, `PendingAsyncAck`,
+  `CheckRecoverClient`, `CheckMigrateClient` (read-only dry runs, including
+  the light client's `CheckRecovery` and `CheckForkParameters`).
 - **types**: `IsValidCustomClientID`, `IsValidRouterClientID` (eureka's
   identifier grammar for the Ethereum router's client ids).
 
@@ -155,8 +161,8 @@ custom ids (4 to 128 characters of eureka's alphabet, not starting with
 `client-` or `channel-`). `Redispatch` re-sends identical bytes. Envelopes are
 checked byte for byte against gno-eth-ibc's
 `contracts/test/fixtures/gov-vectors.json` and against viem
-(`ibcgov/filetests/z2b`, `z2c`; kinds 12 and 13, which gov-vectors.json does
-not cover yet, in `z2e`).
+(`ibcgov/filetests/z2b`, `z2c` at gno-eth-ibc 8dad3f9, kinds 12 and 13
+included; `z2e` adds viem vectors and the builders' bounds).
 
 ### ADR pr6375 rule → code
 
@@ -168,7 +174,7 @@ not cover yet, in `z2e`).
 | R10, §7.4 seats, flags, holds, day 21, naming suspects | `ibcgov/guardians.gno` |
 | R11, §5.4 gov sender | `ibcgov/ethereum.gno` |
 | R12, §7.8 send limits, fee, recipient filters (the token itself, a gno-native denom's Ethereum token included) | `controls.DenomConfig`, `transfer/impl/v1/send.gno` |
-| R13, §7.9 voids, restores of withheld claims, credit by vote (receives booked after the activation; pending asynchronous acknowledgements completed), loss ledger by incident, recapitalize, reduce, accept; a route with unresolved losses closed whatever the flags | `controls/voids.gno`, `route.gno` (`IsClosed`), `transfer/impl/v1/controls.gno` (`GovApply`), ibcgov route builders |
+| R13, §7.9 voids, restores of withheld claims, credit by vote (receives booked after the activation; pending asynchronous acknowledgements completed), loss ledger by incident with checked totals, recapitalize (authorizations revocable, superseded by a later reduction or accepted deficit), reduce claims and owed sweep entries, accept; a route with a loss of any denom unresolved takes no new exposure, whatever the flags | `controls/voids.gno`, `route.gno` (`ExposureClosed`), `transfer/impl/v1/controls.gno` (`GovApply`), ibcgov route builders |
 | R14 authorities | `core/admin.gno`, `app.gno`, `upgrade.gno`, `proposals.gno`; `transfer/admin.gno`, `upgrade.gno`, `proposals.gno`; `authority.NewWithMembers` |
 | R16 fork migration | `ethereum/v0/migrate.gno`, `core/client.gno` (`MigrateClient`), `core/impl/v1` |
 | R17 flags keep returns open; public Ethereum relaying | `transfer/impl/v1` (flags never touch burns, acks, timeouts), `core/admin.gno` `ensureRelayerFor` |
@@ -215,8 +221,10 @@ vouchers in circulation when it is enabled.
 9. **Ethereum-bound decisions are not deferred by gno-side holds**: their delay
    and deferral run on Ethereum (§6.6).
 10. **Conservative choices where the ADR is silent**:
-    - a route with a loss that has no restoring decision is closed (no send,
-      credit, claim payout or refund payout), not only kept flagged;
+    - a route with a loss of any denom that has no restoring decision takes
+      no new exposure (no gno-native send, credit, claim payout or sweep
+      payment), not only kept flagged; voucher returns, acknowledgements,
+      timeouts and refunds go on, under the refund meter and refunds hold;
     - a credit by vote only replaces a sweep entry booked at the receipt
       after the route's activation (or completes a pending asynchronous
       acknowledgement), for at most what the packet carried;
@@ -249,9 +257,9 @@ vouchers in circulation when it is enabled.
   flagging guardians and end a hold 24 hours later; the day-21 rule only
   governs replacements. A route with unresolved losses stays closed all the
   same.
-- **A recapitalization authorized and not paid when a route reopens** finds
-  nothing left to recapitalize: the reopening records every unrecovered loss
-  as an accepted deficit, and the payment re-checks the incident's losses.
+- **A recapitalization authorized and not paid when a route reopens** is
+  revoked: the reopening records every unrecovered loss as an accepted
+  deficit.
 - **The pending asynchronous acknowledgement path of a credit by vote** cannot
   be exercised end to end: the transfer app never answers asynchronously, so
   no transfer packet waits for one. The core side (retired clients taking the
