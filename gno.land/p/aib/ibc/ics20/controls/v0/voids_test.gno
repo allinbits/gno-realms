@@ -356,6 +356,10 @@ func TestRegistryReplace(t *testing.T) {
 	if len(rt.Replaced) != 2 || r.RetiredRouteOf("ethereum-2") != "ethereum-1" {
 		t.Fatalf("%+v", rt.Replaced)
 	}
+	// A retired client id is final: never migrated back to.
+	if err := r.Replace("ethereum-1", "ethereum-2"); err == nil {
+		t.Fatalf("migrated back to a retired client")
+	}
 }
 
 func TestRefusedRecipients(t *testing.T) {
@@ -564,30 +568,69 @@ func TestCreditPending(t *testing.T) {
 	checkClaimTotals(t, rt, "ugnot")
 }
 
-// A replacement closes the route; it reopens by decision only once every
-// recorded loss has a restoring decision (Codex review #3).
+// A replacement closes the route; a governed reopening is refused while a
+// send record of the retired client is open, and records every loss not
+// recapitalized or reduced as an accepted deficit (Codex review #3, ADR
+// pr6375 §5.4 kind 13).
 func TestReplaceClosesUntilReopened(t *testing.T) {
 	r, rt := newRoute(t)
 	if rt.IsClosed() {
 		t.Fatalf("closed at enrolment")
 	}
-	if err := rt.Reopen(); err == nil {
+	if _, err := rt.Reopen(); err == nil {
 		t.Fatalf("reopened an open route")
 	}
+	rt.RecordSend(sendRec(1, "ugnot", KindUnescrow, 1_000)) // in flight
+	rt.RecordSend(sendRec(2, "ugnot", KindUnescrow, 1_000))
+	rt.Settle(t0, 1, pk(2), OutcomeSuccess, false, big) // closed
 	if err := r.Replace("ethereum-1", "ethereum-2"); err != nil {
 		t.Fatal(err)
 	}
-	if !rt.IsClosed() || !(Reader{r: r}).Closed("ethereum-1") {
-		t.Fatalf("a replacement left the route open")
+	if !rt.IsClosed() || !(Reader{r: r}).Closed("ethereum-1") || rt.OpenSends("ethereum-1") != 1 {
+		t.Fatalf("a replacement left the route open, or miscounted: %d", rt.OpenSends("ethereum-1"))
 	}
-	rt.RecordLoss(pk(1), "ugnot", 100, ChainGno, "inc", "collision")
-	if err := rt.Reopen(); err == nil {
-		t.Fatalf("reopened with an unresolved loss")
+	if _, err := rt.Reopen(); err == nil || !strings.Contains(err.Error(), "still open") {
+		t.Fatalf("reopened with an open send record: %v", err)
 	}
-	if err := rt.Accept("ugnot", 100, "inc"); err != nil {
+	if _, err := rt.SettleRecords("ethereum-1", []SettleItem{{Seq: 1, Action: SettleDelivered}}, "inc", lockOf(big)); err != nil {
 		t.Fatal(err)
 	}
-	if err := rt.Reopen(); err != nil || rt.IsClosed() {
-		t.Fatalf("%v", err)
+	rt.RecordLoss(pk(9), "ugnot", 100, ChainGno, "inc", "collision")
+	rt.RecordLoss(pk(10), "ugnot", 50, ChainGno, "inc-2", "collision")
+	id, _ := rt.AuthorizeRecap("ugnot", 30, "inc")
+	rt.Recapitalize(id, "ugnot", 30, alice)
+	accepted, err := rt.Reopen()
+	if err != nil || rt.IsClosed() || accepted != 120 {
+		t.Fatalf("%d %v", accepted, err)
+	}
+	d := rt.Denom("ugnot")
+	if d.Totals.Accepted != 120 || d.Totals.Unrecovered() != 120 || d.Totals.Unresolved() != 0 {
+		t.Fatalf("%+v", d.Totals)
+	}
+}
+
+// Every owed refund is reserved: a receive's free lock and a claim payout
+// never take the escrow a queued refund, held or not, needs (ADR pr6375
+// §7.12).
+func TestQueuedRefundsReserved(t *testing.T) {
+	_, rt := newRoute(t)
+	lock := int64(10_000)
+	rt.RecordSend(sendRec(1, "ugnot", KindUnescrow, 8_000))
+	rt.Settle(t0, 1, pk(1), OutcomeTimeout, true, lock) // held
+	if !mustCredit(t, rt, t0, 5, "ugnot", alice, 3_000, lock) {
+		t.Fatalf("a credit took the escrow a held refund needs")
+	}
+	if mustCredit(t, rt, t0, 6, "ugnot", bob, 2_000, lock) {
+		t.Fatalf("swept a credit within the free lock")
+	}
+	// The claim pays only from what the refund leaves: 2000.
+	paid := int64(0)
+	for day := int64(1); day < 10; day++ {
+		ps, _ := rt.PayClaims(t0+day*Day, 0, t0, "ugnot", 20, lock-paid)
+		a, f := sumPay(ps)
+		paid += a + f
+	}
+	if paid != 2_000 || lock-paid < rt.Denom("ugnot").Totals.QueuedRefunds {
+		t.Fatalf("claims took %d of the refunds' reserve", paid)
 	}
 }

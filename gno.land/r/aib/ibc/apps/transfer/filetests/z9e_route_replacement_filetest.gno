@@ -190,24 +190,30 @@ func main(cur realm) {
 	println("receive over the new client:", recvOn(cur, "client-1", newClient, 1, weth, bob.String(), 300).Status)
 	println("claims paid:", transfer.Claim(cross(cur), newClient, voucher, 20))
 
-	// The reconciliation: the old client's send was delivered, but a refund
-	// overpaid on it is a loss; carol's claim is genuine and restored.
-	settle := govern(cur, ibcgov.NewSettleRequest(cross(cur), route, route, "1:4:20", "inc-1"))
+	// The old client's send is still open: no reopening before it is settled.
+	early := govern(cur, ibcgov.NewReopenRouteRequest(cross(cur), route))
+	execute(cur, early)
+	println("reopen with a send open:", decided(early))
+
+	// The reconciliation: the old client's send was delivered; a collision
+	// is a loss; carol's claim is genuine and restored.
+	settle := govern(cur, ibcgov.NewSettleRequest(cross(cur), route, route, "1:3:0", "inc-1"))
 	execute(cur, settle)
 	println("settle:", decided(settle))
 	rec, _ := controlsView().Send(route, controls.PacketKey(route, 1))
-	println("send 1 settled as", rec.Settlement, "| unresolved:", controlsView().Unresolved(route))
+	println("send 1 settled as", rec.Settlement)
 	again := govern(cur, ibcgov.NewSettleRequest(cross(cur), route, route, "1:3:0", "inc-1"))
 	execute(cur, again)
 	println("settle again:", decided(again))
+	execute(cur, govern(cur, ibcgov.NewRecordLossRequest(cross(cur), route, "ethereum-1/00000000000000000009", "ugnot", 20, "gno", "inc-1", "collision")))
 	println("restore:", decided(govern(cur, ibcgov.NewRestoreRequest(cross(cur), route, controls.PacketKey(route, 2)))))
-	early := govern(cur, ibcgov.NewReopenRouteRequest(cross(cur), route))
-	execute(cur, early)
-	println("reopen with the loss unresolved:", decided(early))
-	execute(cur, govern(cur, ibcgov.NewAcceptDeficitRequest(cross(cur), route, "ugnot", 20, "inc-1")))
+	println("unresolved:", controlsView().Unresolved(route))
+
+	// The reopening records the loss as an accepted deficit.
 	reopen := govern(cur, ibcgov.NewReopenRouteRequest(cross(cur), route))
 	execute(cur, reopen)
-	println("reopen:", decided(reopen), "| closed:", controlsView().Closed(route))
+	t, _ := controlsView().Totals(route, "ugnot")
+	println("reopen:", decided(reopen), "| closed:", controlsView().Closed(route), "| accepted", t.Accepted, "unrecovered", t.Unrecovered())
 
 	// Reopened, the new client carries the route: same escrow, same vouchers.
 	seq := send(cur, newClient, 1_000, 1_020, ethReceiver)
@@ -240,12 +246,13 @@ func main(cur realm) {
 // send over the new client: route ethereum-1 is closed until a governed reopening: it carries no send
 // receive over the new client: (2 gno.land/p/aib/ibc/types/v0.PacketStatus)
 // claims paid: 0
+// reopen with a send open: spent - spent: controls: 1 send records of retired client ethereum-1 are still open: settle them first
 // settle: applied - settle
-// send 1 settled as 4 | unresolved: 20
+// send 1 settled as 3
 // settle again: spent - spent: controls: item 0: send ethereum-1/00000000000000000001 is settled already
 // restore: applied - restore
-// reopen with the loss unresolved: spent - spent: controls: route ethereum-1 has 20 of losses without a restoring decision (recapitalization, reduction or accepted deficit)
-// reopen: applied - reopen | closed: false
+// unresolved: 20
+// reopen: applied - reopen | closed: false | accepted 20 unrecovered 20
 // {"denom":"ugnot","amount":2000,"clients":[{"client":"ethereum-1","amount":2000}]}
 // voucher back: wire denom transfer/ethereum-2/0x457df1a9866af7b6a78eeba9291fc3e58b4d864b | bob's vouchers: 390
 // ugnot send on the wire: ugnot

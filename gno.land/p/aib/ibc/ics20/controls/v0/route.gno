@@ -215,6 +215,7 @@ type Route struct {
 	claims    avl.Tree // packet key -> *Claim
 	sweeps    avl.Tree // packet key -> *SweepEntry
 	sends     avl.Tree // packet key -> *SendRecord
+	openSends avl.Tree // client id -> int64: its open send records
 	losses    avl.Tree // loss key -> *Loss
 	incidents avl.Tree // denom|incident -> *IncidentTotals
 	recaps    avl.Tree // seqKey(id) -> *Recap
@@ -230,18 +231,34 @@ type Route struct {
 func (rt *Route) IsClosed() bool { return rt.Closed || rt.Unresolved() > 0 }
 
 // Reopen reopens a route a replacement closed, by decision (the gno
-// analogue of Ethereum's kind 13): only once every loss the route recorded
-// has a restoring decision, recapitalized, reduced or accepted (ADR pr6375
-// §7.9).
-func (rt *Route) Reopen() error {
+// analogue of Ethereum's kind 13, ADR pr6375 §5.4): refused while any send
+// record of a retired client is still open (its commitment outstanding or
+// its refund queued, not settled by reconciliation). Every loss not
+// recapitalized or reduced is recorded as an accepted deficit by the reopening
+// itself (§7.9); a recapitalization authorized and not paid yet then finds
+// nothing left to recapitalize. It returns the deficit it accepted.
+func (rt *Route) Reopen() (int64, error) {
 	if !rt.Closed {
-		return errors.New("controls: route " + rt.Key + " is not closed")
+		return 0, errors.New("controls: route " + rt.Key + " is not closed")
 	}
-	if u := rt.Unresolved(); u > 0 {
-		return ufmt.Errorf("controls: route %s has %d of losses without a restoring decision (recapitalization, reduction or accepted deficit)", rt.Key, u)
+	for _, c := range rt.Replaced {
+		if n := rt.OpenSends(c); n > 0 {
+			return 0, ufmt.Errorf("controls: %d send records of retired client %s are still open: settle them first", n, c)
+		}
 	}
+	var accepted int64
+	rt.incidents.Iterate("", "", func(k string, v any) bool {
+		it := v.(*IncidentTotals)
+		rest := it.Lost - it.Recapitalized - it.Reduced - it.Accepted
+		if rest > 0 {
+			it.Accepted += rest
+			rt.Denom(k[:strings.Index(k, "|")]).Totals.Accepted += rest
+			accepted += rest
+		}
+		return false
+	})
 	rt.Closed = false
-	return nil
+	return accepted, nil
 }
 
 // SetFeeCollector replaces the fee collector.
@@ -452,9 +469,11 @@ func (d *Denom) DayCap(lock int64) int64 {
 	return c
 }
 
-// Reserved is the escrow the denom's claims hold: open and withheld
-// remainders, so voids and payouts never spend it twice (ADR pr6375 §7.9).
-func (d *Denom) Reserved() int64 { return d.Totals.Owed + d.Totals.Withheld }
+// Reserved is the escrow the denom's claims and owed refunds hold: open and
+// withheld claim remainders, and every queued (held or not) refund, so
+// voids, credits and payouts never spend it twice (ADR pr6375 §7.9, §7.12:
+// refund liabilities move with the backing).
+func (d *Denom) Reserved() int64 { return d.Totals.Owed + d.Totals.Withheld + d.Totals.QueuedRefunds }
 
 // CheckSend is what a send of a gno-native token must satisfy (ADR pr6375
 // §7.8): between the minimum and the maximum. A minted denom's sends are
@@ -729,8 +748,9 @@ func (rt *Route) PayClaims(now, epoch, epochAt int64, denom string, n int, lock 
 		if q.meter.Level < avail {
 			avail = q.meter.Level
 		}
-		if d.Config.Kind == KindUnescrow && avail > lock {
-			avail = lock
+		// A claim payout never takes the escrow owed refunds reserve.
+		if d.Config.Kind == KindUnescrow && avail > lock-d.Totals.QueuedRefunds {
+			avail = lock - d.Totals.QueuedRefunds
 		}
 		rem := c.Remaining()
 		fee := int64(0)

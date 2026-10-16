@@ -91,6 +91,7 @@ func (rt *Route) RecordSend(rec SendRecord) error {
 	r.Commitment = append([]byte{}, rec.Commitment...)
 	r.Outcome, r.ProcessedHeight, r.ProcessedAt, r.Payment, r.Refunded, r.Settlement, r.Incident = OutcomePending, 0, 0, PayNone, 0, 0, ""
 	rt.sends.Set(r.Key, &r)
+	rt.track(&r, false)
 	d.Totals.Sent += r.Amount
 	d.Totals.SendFees += r.Fee
 	if d.Config.Kind == KindMint {
@@ -139,11 +140,51 @@ func (rt *Route) Backfill(rec SendRecord) error {
 	r.Backfilled = true
 	r.Outcome, r.ProcessedHeight, r.ProcessedAt, r.Payment, r.Refunded, r.Settlement, r.Incident = OutcomePending, 0, 0, PayNone, 0, 0, ""
 	rt.sends.Set(r.Key, &r)
+	rt.track(&r, false)
 	d.Totals.Sent += r.Amount
 	if d.Config.Kind == KindMint {
 		d.Totals.Returning += r.Amount
 	}
 	return nil
+}
+
+// isOpen reports whether a send record is still open (ADR pr6375 §5.4 kind
+// 13): no reconciliation settled it, and its outcome is pending (the
+// commitment outstanding) or its refund is queued.
+func isOpen(r *SendRecord) bool {
+	return r.Settlement == 0 && (r.Outcome == OutcomePending || r.Payment == PayQueued)
+}
+
+// track updates the count of open records of r's client after a change to r,
+// which was open (was) before it.
+func (rt *Route) track(r *SendRecord, was bool) {
+	now := isOpen(r)
+	if now == was {
+		return
+	}
+	client, _, _ := ParsePacketKey(r.Key)
+	var n int64
+	if v := rt.openSends.Get(client); v != nil {
+		n = v.(int64)
+	}
+	if now {
+		n++
+	} else {
+		n--
+	}
+	if n == 0 {
+		rt.openSends.Remove(client)
+		return
+	}
+	rt.openSends.Set(client, n)
+}
+
+// OpenSends is how many send records of clientID are still open.
+func (rt *Route) OpenSends(clientID string) int64 {
+	if v := rt.openSends.Get(clientID); v != nil {
+		return v.(int64)
+	}
+	return 0
 }
 
 // release ends a minted send's supply reservation: the record owes no more
@@ -196,9 +237,10 @@ func (rt *Route) Settle(now, height int64, key, outcome string, hold bool, lock 
 		return 0, errors.New("controls: unknown outcome " + outcome)
 	}
 	d := rt.Denom(r.Denom)
+	defer rt.track(r, isOpen(r))
 	r.Outcome, r.ProcessedHeight, r.ProcessedAt = outcome, height, now
 	if r.Settlement != 0 {
-		return 0, nil // a reconciliation settled it: nothing more moves
+		return 0, nil // a reconciliation settled it: nothing more moves, nothing is paid
 	}
 	owed := r.Amount - r.Refunded
 	if outcome == OutcomeSuccess {
@@ -300,6 +342,7 @@ func (rt *Route) PayRefunds(now int64, denom string, n int, hold bool, lock int6
 		if r.Refunded == r.Amount {
 			d.refundQueue.Remove(k)
 			r.Payment = PayClaimed
+			rt.track(r, true)
 		}
 		out = append(out, RefundPayment{Key: key, Denom: denom, To: r.Sender, Amount: pay})
 	}
@@ -328,10 +371,10 @@ func (rt *Route) QueuedRefundCount(denom string) int {
 // Settlement actions of a reconciliation (ADR pr6375 §5.4 kind 12, §7.12),
 // one per send record, the same numbers as on Ethereum.
 const (
-	SettlePay       = uint8(1) // pay a refund of Amount (at most what the packet carried minus what was refunded)
+	SettlePay       = uint8(1) // pay the refund's whole remainder: Amount equals what the packet carried minus what was refunded
 	SettleReject    = uint8(2) // reject a queued refund: the packet was delivered
 	SettleDelivered = uint8(3) // the packet was delivered: settled, nothing owed (a queued refund is rejected)
-	SettleLoss      = uint8(4) // record a loss of Amount on the send (a refund paid for a delivered packet)
+	SettleLoss      = uint8(4) // a forged refund: the unpaid remainder rejected, what was paid (Amount) recorded as a loss
 )
 
 // SettleItem is one reconciliation outcome: the send at Seq of the settled
@@ -367,6 +410,7 @@ func (rt *Route) SettleRecords(client string, items []SettleItem, incident strin
 	}
 	seen := map[uint64]bool{}
 	pays := map[string]int64{}
+	queued := map[string]int64{} // the queued remainders the payments settle: their own reserve
 	for i, it := range items {
 		key := PacketKey(client, it.Seq)
 		r := rt.send(key)
@@ -381,10 +425,15 @@ func (rt *Route) SettleRecords(client string, items []SettleItem, incident strin
 		seen[it.Seq] = true
 		switch it.Action {
 		case SettlePay:
-			if it.Amount <= 0 || it.Amount > r.Amount-r.Refunded {
-				return nil, ufmt.Errorf("controls: item %d: %d is not within what send %s is still owed (%d)", i, it.Amount, key, r.Amount-r.Refunded)
+			// A refund is never cut short (ADR pr6375 §7.9): its whole
+			// remainder.
+			if it.Amount <= 0 || it.Amount != r.Amount-r.Refunded {
+				return nil, ufmt.Errorf("controls: item %d: a refund pays send %s's whole remainder (%d), not %d", i, key, r.Amount-r.Refunded, it.Amount)
 			}
 			pays[r.Denom] += it.Amount
+			if r.Payment == PayQueued {
+				queued[r.Denom] += r.Amount - r.Refunded
+			}
 		case SettleReject:
 			if r.Payment != PayQueued || it.Amount != 0 {
 				return nil, ufmt.Errorf("controls: item %d: send %s has no queued refund, or names an amount", i, key)
@@ -394,8 +443,10 @@ func (rt *Route) SettleRecords(client string, items []SettleItem, incident strin
 				return nil, ufmt.Errorf("controls: item %d: a delivered send names no amount", i)
 			}
 		case SettleLoss:
-			if it.Amount <= 0 {
-				return nil, ufmt.Errorf("controls: item %d: a loss is positive", i)
+			// A forged refund: what was paid is the loss, the remainder is
+			// rejected.
+			if r.Refunded <= 0 || it.Amount != r.Refunded {
+				return nil, ufmt.Errorf("controls: item %d: a forged refund's loss is what send %s was refunded (%d), not %d", i, key, r.Refunded, it.Amount)
 			}
 			if rt.losses.Has(lossKey(key, CauseRefundForDelivered)) {
 				return nil, ufmt.Errorf("controls: item %d: the loss of %s is recorded already", i, key)
@@ -406,8 +457,9 @@ func (rt *Route) SettleRecords(client string, items []SettleItem, incident strin
 	}
 	for denom, total := range pays {
 		d := rt.Denom(denom)
-		if d.Config.Kind == KindUnescrow && total > lock(denom)-d.Reserved() {
-			return nil, ufmt.Errorf("controls: %d of %s is above the free lock of %d", total, denom, lock(denom)-d.Reserved())
+		free := lock(denom) - d.Reserved() + queued[denom]
+		if d.Config.Kind == KindUnescrow && total > free {
+			return nil, ufmt.Errorf("controls: %d of %s is above the free lock of %d", total, denom, free)
 		}
 	}
 	var out []RefundPayment
@@ -415,6 +467,7 @@ func (rt *Route) SettleRecords(client string, items []SettleItem, incident strin
 		key := PacketKey(client, it.Seq)
 		r := rt.send(key)
 		d := rt.Denom(r.Denom)
+		was := isOpen(r)
 		if r.Payment == PayQueued {
 			rt.unqueue(d, r)
 			r.Payment = PayRejected
@@ -430,6 +483,7 @@ func (rt *Route) SettleRecords(client string, items []SettleItem, incident strin
 		rt.release(d, r)
 		r.Settlement = it.Action
 		r.Incident = incident
+		rt.track(r, was)
 	}
 	return out, nil
 }

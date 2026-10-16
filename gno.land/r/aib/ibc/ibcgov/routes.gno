@@ -379,11 +379,13 @@ func NewAcceptDeficitRequest(cur realm, route, denom string, amount int64, incid
 // NewSettleRequest applies a reconciliation's outcomes to the sends of
 // client, a client a replacement retired from route, after 7 days (ADR pr6375
 // §7.12, the gno analogue of Ethereum's kind 12): items is a comma-separated
-// list of "sequence:action:amount", action 1 pay a refund of amount (at most
-// what the send carried minus what was refunded), 2 reject a queued refund
-// (amount 0), 3 settled as delivered (amount 0), 4 record a loss of amount
-// (a refund paid for a delivered packet); at most 64 items. Each send is
-// settled exactly once; a queued refund leaves the queue under any action.
+// list of "sequence:action:amount", action 1 pay the refund's whole
+// remainder (amount equals what the send carried minus what was refunded: a
+// refund is never cut short), 2 reject a queued refund (amount 0), 3 settled
+// as delivered (amount 0), 4 a forged refund: the unpaid remainder rejected
+// and what was paid (amount, equal to it) recorded as a loss; at most 64
+// items. Each send is settled exactly once; a queued refund leaves the queue
+// under any action.
 func NewSettleRequest(cur realm, route, client, items, incident string) Request {
 	mustRoute(route)
 	mustIncident(incident)
@@ -442,9 +444,11 @@ func NewReplaceRouteRequest(cur realm, route, newClientID string) Request {
 }
 
 // NewReopenRouteRequest reopens a route a replacement closed, after 7 days
-// (ADR pr6375 §7.12, the gno analogue of Ethereum's kind 13): transfer
-// refuses it while any loss the route recorded has no restoring decision
-// (recapitalized, reduced or accepted).
+// (ADR pr6375 §5.4, §7.12, the gno analogue of Ethereum's kind 13): transfer
+// refuses it while any send record of a retired client of the route is
+// still open (its commitment outstanding or its refund queued, not settled by
+// NewSettleRequest), and records every loss not recapitalized or reduced as
+// an accepted deficit.
 func NewReopenRouteRequest(cur realm, route string) Request {
 	mustRoute(route)
 	if !view().Closed(route) {

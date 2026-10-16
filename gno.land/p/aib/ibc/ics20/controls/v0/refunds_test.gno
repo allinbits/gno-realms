@@ -180,21 +180,30 @@ func TestMintRefundRestoresOutstanding(t *testing.T) {
 
 func lockOf(l int64) func(string) int64 { return func(string) int64 { return l } }
 
-// A reconciliation settles the sends of a retired client once each: it pays,
-// rejects, marks delivered or records a loss, and a queued refund leaves the
-// queue under any action (Codex review #13).
+// A reconciliation settles the sends of a retired client once each: it pays
+// a refund's whole remainder, rejects, marks delivered or settles a forged
+// refund, and a queued refund leaves the queue under any action (Codex
+// review #13, ADR pr6375 §5.4 kind 12).
 func TestSettleRecords(t *testing.T) {
 	r, rt := newRoute(t)
-	for i := uint64(1); i <= 5; i++ {
+	for i := uint64(1); i <= 6; i++ {
 		rt.RecordSend(sendRec(i, "ugnot", KindUnescrow, 3_000))
 	}
 	rt.Settle(t0, 1, pk(1), OutcomeTimeout, false, big) // queued (empty meter)
 	rt.Settle(t0, 1, pk(2), OutcomeTimeout, false, big) // queued
 	rt.Settle(t0, 1, pk(3), OutcomeSuccess, false, big)
+	// pk(6) was partly refunded from the queue, then the rest stays queued.
+	rt.Settle(t0, 1, pk(6), OutcomeTimeout, false, big)
+	rt.PayRefunds(t0+Day/4, "ugnot", 1, false, big) // pays pk(1) only partly
+	r1, _ := rt.Send(pk(1))
+	if r1.Refunded == 0 || r1.Refunded == r1.Amount {
+		t.Fatalf("setup: %+v", r1)
+	}
 	// pk(4) and pk(5) never got an outcome: the client is retired.
 	d := rt.Denom("ugnot")
-	items := []SettleItem{{Seq: 1, Action: SettleReject}, {Seq: 2, Action: SettlePay, Amount: 3_000}, {Seq: 3, Action: SettleLoss, Amount: 100},
-		{Seq: 4, Action: SettleDelivered}, {Seq: 5, Action: SettlePay, Amount: 1_000}}
+	items := []SettleItem{{Seq: 1, Action: SettleLoss, Amount: r1.Refunded}, {Seq: 2, Action: SettlePay, Amount: 3_000},
+		{Seq: 3, Action: SettleDelivered}, {Seq: 4, Action: SettleDelivered}, {Seq: 5, Action: SettlePay, Amount: 3_000},
+		{Seq: 6, Action: SettleReject}}
 	if _, err := rt.SettleRecords("ethereum-1", items, "inc-1", lockOf(big)); err == nil {
 		t.Fatalf("settled the sends of a live client")
 	}
@@ -204,15 +213,18 @@ func TestSettleRecords(t *testing.T) {
 	before := d.Totals
 	bad := [][]SettleItem{
 		{{Seq: 3, Action: SettleReject}},                                                         // no queued refund
-		{{Seq: 1, Action: SettlePay, Amount: 3_001}},                                             // more than owed
+		{{Seq: 2, Action: SettlePay, Amount: 1_000}},                                             // cut short
+		{{Seq: 2, Action: SettlePay, Amount: 3_001}},                                             // more than owed
+		{{Seq: 1, Action: SettleLoss, Amount: 1}},                                                // not what was paid
+		{{Seq: 2, Action: SettleLoss, Amount: 0}},                                                // nothing was paid
 		{{Seq: 1, Action: SettleDelivered, Amount: 1}},                                           // an amount
 		{{Seq: 1, Action: 5}},                                                                    // unknown
 		{{Seq: 9, Action: SettleDelivered}},                                                      // no record
-		{{Seq: 1, Action: SettleDelivered}, {Seq: 1, Action: SettleReject}},                      // twice
-		{{Seq: 2, Action: SettlePay, Amount: 3_000}, {Seq: 5, Action: SettlePay, Amount: 1_000}}, // above the free lock below
+		{{Seq: 3, Action: SettleDelivered}, {Seq: 3, Action: SettleDelivered}},                   // twice
+		{{Seq: 4, Action: SettlePay, Amount: 3_000}, {Seq: 5, Action: SettlePay, Amount: 3_000}}, // above the free lock below
 	}
 	for i, b := range bad {
-		if _, err := rt.SettleRecords("ethereum-1", b, "inc-1", lockOf(3_500)); err == nil {
+		if _, err := rt.SettleRecords("ethereum-1", b, "inc-1", lockOf(5_000+d.Reserved())); err == nil {
 			t.Fatalf("bad settlement %d applied", i)
 		}
 	}
@@ -222,28 +234,29 @@ func TestSettleRecords(t *testing.T) {
 	if d.Totals != before {
 		t.Fatalf("a refused settlement changed state")
 	}
+	refundedBefore := d.Totals.Refunded
 	ps, err := rt.SettleRecords("ethereum-1", items, "inc-1", lockOf(big))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(ps) != 2 || ps[0].Amount+ps[1].Amount != 4_000 || ps[0].To != alice {
+	if len(ps) != 2 || ps[0].Amount+ps[1].Amount != 6_000 || ps[0].To != alice {
 		t.Fatalf("%+v", ps)
 	}
-	if rt.QueuedRefundCount("ugnot") != 0 || d.Totals.QueuedRefunds != 0 || d.Totals.Lost != 100 || d.Totals.Refunded != 4_000 {
+	if rt.QueuedRefundCount("ugnot") != 0 || d.Totals.QueuedRefunds != 0 || d.Totals.Lost != r1.Refunded || d.Totals.Refunded != refundedBefore+6_000 {
 		t.Fatalf("%+v", d.Totals)
 	}
-	r1, _ := rt.Send(pk(1))
+	r1, _ = rt.Send(pk(1))
 	r4, _ := rt.Send(pk(4))
-	if r1.Payment != PayRejected || r1.Settlement != SettleReject || r4.Settlement != SettleDelivered {
-		t.Fatalf("%+v %+v", r1, r4)
+	if r1.Payment != PayRejected || r1.Settlement != SettleLoss || r4.Settlement != SettleDelivered || rt.OpenSends("ethereum-1") != 0 {
+		t.Fatalf("%+v %+v %d", r1, r4, rt.OpenSends("ethereum-1"))
 	}
-	// Exactly once: no item settles again, and no later outcome refunds.
-	for seq := uint64(1); seq <= 5; seq++ {
+	// Exactly once: no item settles again, and no later outcome pays.
+	for seq := uint64(1); seq <= 6; seq++ {
 		if _, err := rt.SettleRecords("ethereum-1", []SettleItem{{Seq: seq, Action: SettleDelivered}}, "inc-1", lockOf(big)); err == nil {
 			t.Fatalf("settled %d twice", seq)
 		}
 	}
-	if pay, err := rt.Settle(t0+Day, 2, pk(5), OutcomeTimeout, false, big); err != nil || pay != 0 {
+	if pay, err := rt.Settle(t0+Day, 2, pk(4), OutcomeTimeout, false, big); err != nil || pay != 0 {
 		t.Fatalf("a settled send refunded again: %d %v", pay, err)
 	}
 	if ps, _ := rt.PayRefunds(t0+5*Day, "ugnot", 20, false, big); len(ps) != 0 {

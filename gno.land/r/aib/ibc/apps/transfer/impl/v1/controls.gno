@@ -330,7 +330,9 @@ func (l *logic) GovApply(_ int, rlm realm, op string, params []byte) string {
 			l.payOut(0, rlm, rt, x.Denom, x.To, x.Amount)
 		}
 	case controls.OpReopen:
-		err = rt.Reopen()
+		var accepted int64
+		accepted, err = rt.Reopen()
+		note = "accepted deficit " + strconv.FormatInt(accepted, 10)
 	case controls.OpReplace:
 		if !isEthereum(p.Client) || core.IsClientRetired(p.Client) {
 			return p.Client + " is no usable Ethereum client"
