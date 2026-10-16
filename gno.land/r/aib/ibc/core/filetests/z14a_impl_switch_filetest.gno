@@ -84,7 +84,7 @@ func main(cur realm) {
 // Output:
 // at genesis: gno.land/r/aib/ibc/core/impl/v0 v0
 // after register: gno.land/r/aib/ibc/core/impl/v0 v0
-// registered: slice[("gno.land/r/aib/ibc/core/impl/v0" string),("gno.land/r/aib/ibc/core/impl/v99" string)]
+// registered: slice[("gno.land/r/aib/ibc/core/impl/v0" string),("gno.land/r/aib/ibc/core/impl/v1" string),("gno.land/r/aib/ibc/core/impl/v99" string)]
 // after update: gno.land/r/aib/ibc/core/impl/v99 v99
 // client before switch: 07-tendermint-1 Active
 // client after switch: 07-tendermint-2 Active
@@ -105,6 +105,7 @@ func main(cur realm) {
 // - **Implementation**: [`gno.land/r/aib/ibc/core/impl/v0`](/r/aib/ibc/core/impl/v0) (version v0)
 // - **Registered implementations**:
 //   - [`gno.land/r/aib/ibc/core/impl/v0`](/r/aib/ibc/core/impl/v0)
+//   - [`gno.land/r/aib/ibc/core/impl/v1`](/r/aib/ibc/core/impl/v1)
 //   - [`gno.land/r/aib/ibc/core/impl/v99`](/r/aib/ibc/core/impl/v99)
 // - **Relayers**: any (whitelist empty)
 

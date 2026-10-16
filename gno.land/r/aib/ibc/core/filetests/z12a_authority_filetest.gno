@@ -51,6 +51,7 @@ func main(cur realm) {
 // - **Implementation**: [`gno.land/r/aib/ibc/core/impl/v0`](/r/aib/ibc/core/impl/v0) (version v0)
 // - **Registered implementations**:
 //   - [`gno.land/r/aib/ibc/core/impl/v0`](/r/aib/ibc/core/impl/v0)
+//   - [`gno.land/r/aib/ibc/core/impl/v1`](/r/aib/ibc/core/impl/v1)
 // - **Relayers**:
 //   - [g1rela…0000](/u/g1relayer000000000000000000000000000000)
 //
