@@ -395,6 +395,13 @@ func (rt *Route) RecordLoss(key, denom string, amount int64, chain, incident, ca
 	if incident == "" || cause == "" || cause == "forged payout" {
 		return errors.New("controls: a loss names its incident and a reconciliation cause")
 	}
+	// A refund paid for a delivered packet, and a forged receive, are booked
+	// by the settlement of their record (kind 12 actions 4 and 5), which
+	// also settles it: recording one on its own would leave the record
+	// unsettled and block the reopening.
+	if cause == CauseRefundForDelivered || cause == CauseForgedReceive {
+		return errors.New("controls: a " + cause + " loss is booked by settling its record")
+	}
 	if rt.losses.Has(lossKey(key, cause)) {
 		return errors.New("controls: this loss is recorded already")
 	}

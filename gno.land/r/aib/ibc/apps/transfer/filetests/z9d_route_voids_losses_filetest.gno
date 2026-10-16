@@ -197,7 +197,7 @@ func main(cur realm) {
 	println(totals(route), "| closed:", controlsView().LossClosed(route))
 
 	// A loss a reconciliation recognized, and a liability reduction against it.
-	execute(cur, govern(cur, ibcgov.NewRecordLossRequest(cross(cur), route, "ethereum-1/00000000000000000099", "ugnot", 100, "ethereum", "inc-2", "refund-for-delivered")))
+	execute(cur, govern(cur, ibcgov.NewRecordLossRequest(cross(cur), route, "ethereum-1/00000000000000000099", "ugnot", 100, "ethereum", "inc-2", "forged-delivery")))
 	println(totals(route))
 	execute(cur, govern(cur, ibcgov.NewReduceRequest(cross(cur), route, controls.PacketKey(route, 4), 100, "inc-2")))
 	println("carol:", state(route, 4), "|", totals(route))

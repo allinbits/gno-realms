@@ -689,3 +689,22 @@ func TestSettlementReserveBeyondMaxInt64(t *testing.T) {
 		t.Fatalf("paid a refund out of the escrow the claims reserve")
 	}
 }
+
+// A refund paid for a delivered packet is booked only by settling its record
+// (action 4), never recorded on its own, which would leave the record
+// unsettled and the route closed (Codex round 5 #7).
+func TestRefundForDeliveredOnlyBySettlement(t *testing.T) {
+	r, rt := newRoute(t)
+	rt.RecordSend(sendRec(1, "ugnot", KindUnescrow, 1_000))
+	rt.Settle(t0+Day, 1, pk(1), OutcomeTimeout, false, big) // refunded
+	if err := rt.RecordLoss(pk(1), "ugnot", 1_000, ChainGno, "inc", CauseRefundForDelivered); err == nil {
+		t.Fatalf("recorded a refund-for-delivered loss outside its settlement")
+	}
+	r.Replace("ethereum-1", "ethereum-2", 0, 1000)
+	if _, err := settleProven(rt, "ethereum-1", []SettleItem{{Seq: 1, Action: SettleLoss, Amount: 1_000}}, "inc", lockOf(big)); err != nil {
+		t.Fatal(err)
+	}
+	if _, done, err := rt.Reopen(); err != nil || !done || rt.Denom("ugnot").Totals.Lost != 1_000 {
+		t.Fatalf("%v %+v", err, rt.Denom("ugnot").Totals)
+	}
+}

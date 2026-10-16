@@ -346,19 +346,18 @@ func NewSweepRequest(cur realm, route, keys, to string) Request {
 
 // Reconciliation causes a recorded loss may name (ADR pr6375 §7.12).
 var lossCauses = map[string]bool{
-	"refund-for-delivered": true, // a refund paid for a packet the destination delivered
 	"forged-delivery":      true, // a delivery the honest source never sent
 	"collision":            true, // a forged receipt occupied an honest packet's sequence
 }
 
 // NewRecordLossRequest records a loss a reconciliation recognized, after 7
-// days: chain "gno" or "ethereum", cause one of refund-for-delivered,
+// days: chain "gno" or "ethereum", cause one of
 // forged-delivery, collision.
 func NewRecordLossRequest(cur realm, route, key, denom string, amount int64, chain, incident, cause string) Request {
 	mustRoute(route)
 	mustIncident(incident)
 	if !lossCauses[cause] {
-		panic("ibcgov: a loss cause is refund-for-delivered, forged-delivery or collision")
+		panic("ibcgov: a loss cause is forged-delivery or collision (a refund paid for a delivered packet is settled with NewSettleRequest action 4)")
 	}
 	if chain != controls.ChainGno && chain != controls.ChainEthereum {
 		panic("ibcgov: a loss happens on gno or ethereum")
