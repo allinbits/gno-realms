@@ -661,6 +661,18 @@ func TestProvenOutcomes(t *testing.T) {
 	if _, err := rt2.SettleRecords("ethereum-1", []SettleItem{{Seq: 7, Action: SettleForgedReceive, Amount: 1}}, "inc", lockOf(big)); err == nil {
 		t.Fatalf("booked a receive that paid nothing")
 	}
+	// The forged claim's remainder is gone: through the reopening, no later
+	// claim payout pays it (Codex round 5 #2).
+	c5, _ := rt2.Claim(pk(5))
+	if c5.State != Forged || rt2.Denom("ugnot").Totals.Owed != 0 {
+		t.Fatalf("%+v %+v", c5, rt2.Denom("ugnot").Totals)
+	}
+	if _, done, err := rt2.Reopen(); err != nil || !done {
+		t.Fatalf("reopen: %v", err)
+	}
+	if ps, _ := rt2.PayClaims(t0+10*Day, 0, t0, "ugnot", 20, big); len(ps) != 0 {
+		t.Fatalf("paid a forged receive's remainder: %+v", ps)
+	}
 }
 
 // A settlement's refund never takes the escrow the claims reserve, even when

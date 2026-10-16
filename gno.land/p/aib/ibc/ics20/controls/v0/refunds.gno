@@ -470,7 +470,7 @@ const (
 	SettleReject    = uint8(2) // reject a queued refund, none of it paid: the packet was delivered
 	SettleDelivered = uint8(3) // the packet was delivered, no refund paid: settled, nothing owed (a queued refund is rejected)
 	SettleLoss      = uint8(4) // a forged refund: the unpaid remainder rejected, what was paid (Amount) recorded as a loss
-	SettleForgedReceive = uint8(5) // a forged receive: Seq is an inbound sequence; what its receive paid out (Amount) is a loss, once
+	SettleForgedReceive = uint8(5) // a forged receive: Seq is an inbound sequence; its claim is forged (remainder dropped), what it paid out (Amount) a loss, once
 )
 
 // Proven outcomes of a send, read from its destination through the route's
@@ -636,7 +636,21 @@ func (rt *Route) SettleRecords(client string, items []SettleItem, incident strin
 		key := PacketKey(client, it.Seq)
 		if it.Action == SettleForgedReceive {
 			denom, _, _ := rt.forgedReceive(key)
-			rt.addLoss(rt.Denom(denom), Loss{Key: key, Denom: denom, Amount: it.Amount, Chain: ChainGno, Incident: incident, Cause: CauseForgedReceive})
+			d := rt.Denom(denom)
+			if c := rt.claim(key); c != nil {
+				// The claim is forged: its unpaid remainder is dropped and
+				// it leaves its queue, so nothing more of it is paid.
+				rem := c.Remaining()
+				switch c.State {
+				case Open:
+					d.Totals.Owed -= rem
+					rt.dequeue(d, c, d.queues.Get(string(c.To)).(*queue))
+				case Withheld:
+					d.Totals.Withheld -= rem
+				}
+				c.State = Forged
+			}
+			rt.addLoss(d, Loss{Key: key, Denom: denom, Amount: it.Amount, Chain: ChainGno, Incident: incident, Cause: CauseForgedReceive})
 			continue
 		}
 		r := rt.send(key)
