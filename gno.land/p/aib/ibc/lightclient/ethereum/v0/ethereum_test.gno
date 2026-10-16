@@ -139,6 +139,53 @@ func TestUpdateFromOlderTrustedStateRejected(t *testing.T) {
 	urequire.ErrorContains(t, c.VerifyClientMessage(hdr), "updates must build on the latest trusted slot")
 }
 
+// The client keeps copies of every byte slice it is given: changing the
+// caller's input after Initialize or a verified update changes nothing trusted.
+func TestStateDoesNotAliasInput(t *testing.T) {
+	f := fixtureErc20()
+	cons := f.consensusState
+	cons.StateRoot = append([]byte{}, cons.StateRoot...)
+	cons.CurrentSyncCommittee.PubkeysHash = append([]byte{}, cons.CurrentSyncCommittee.PubkeysHash...)
+	cs := f.clientState
+	cs.IBCContractAddress = append([]byte{}, cs.IBCContractAddress...)
+	c := NewEthLightClient()
+	urequire.NoError(t, c.Initialize(cs, cons))
+	cons.StateRoot[0] ^= 1
+	cons.CurrentSyncCommittee.PubkeysHash[0] ^= 1
+	cs.IBCContractAddress[0] ^= 1
+	stored, ok := c.GetConsensusState(heightAtSlot(cons.Slot))
+	urequire.True(t, ok)
+	urequire.False(t, bytesEqual(stored.StateRoot, cons.StateRoot), "stored state root aliases the input")
+	urequire.False(t, bytesEqual(stored.CurrentSyncCommittee.PubkeysHash, cons.CurrentSyncCommittee.PubkeysHash), "stored committee aliases the input")
+	urequire.False(t, bytesEqual(c.ClientState.IBCContractAddress, cs.IBCContractAddress), "client state aliases the input")
+
+	c2, hdr := firstUpdate(t, f)
+	c2.UpdateState(hdr)
+	finalized := hdr.ConsensusUpdate.FinalizedHeader.Beacon.Slot
+	before, ok := c2.GetConsensusState(heightAtSlot(finalized))
+	urequire.True(t, ok)
+	root := append([]byte{}, before.StateRoot...)
+	var next []byte
+	if before.NextSyncCommittee != nil {
+		next = append([]byte{}, before.NextSyncCommittee.AggregatePubkey...)
+	}
+	u := &hdr.ConsensusUpdate
+	if u.FinalizedHeader.Execution.StateRoot != nil {
+		u.FinalizedHeader.Execution.StateRoot[0] ^= 1
+	}
+	for i := range u.FinalizedExecutionHeader {
+		u.FinalizedExecutionHeader[i] ^= 1
+	}
+	if u.NextSyncCommittee != nil {
+		u.NextSyncCommittee.AggregatePubkey[0] ^= 1
+	}
+	after, _ := c2.GetConsensusState(heightAtSlot(finalized))
+	urequire.True(t, bytesEqual(root, after.StateRoot), "trusted state root changed with the update's input")
+	if next != nil {
+		urequire.True(t, bytesEqual(next, after.NextSyncCommittee.AggregatePubkey), "trusted next committee changed with the update's input")
+	}
+}
+
 // The client expires exactly TrustingPeriods sync committee periods' worth of
 // slots after its latest trusted slot, wherever that slot falls in its period:
 // it reports Expired and refuses updates until recovered.

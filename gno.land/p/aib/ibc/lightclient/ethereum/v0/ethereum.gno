@@ -67,21 +67,43 @@ func (c *EthLightClient) Initialize(clientState lightclient.ClientState, consens
 		return ufmt.Errorf("consensus state slot %d differs from client latest slot %d", in.Slot, cs.LatestSlot)
 	}
 	// Copy into values allocated here, see the tendermint client's Initialize.
+	cs.GenesisValidatorsRoot = cloneBytes(cs.GenesisValidatorsRoot)
+	cs.IBCContractAddress = cloneBytes(cs.IBCContractAddress)
+	cs.IBCCommitmentSlot = cloneBytes(cs.IBCCommitmentSlot)
 	c.ClientState = &cs
 	cons := copyConsensusState(in)
 	c.setConsensusState(&cons)
 	return nil
 }
 
+// cloneBytes copies b into an array allocated by the running realm. Every
+// byte slice the client keeps goes through it: a slice taken from the caller
+// stays owned by the caller's realm, which could change it after a verified
+// update and so rewrite a trusted state root or committee.
+func cloneBytes(b []byte) []byte {
+	if b == nil {
+		return nil
+	}
+	return append([]byte{}, b...)
+}
+
+func cloneSummary(in SummarizedSyncCommittee) SummarizedSyncCommittee {
+	return SummarizedSyncCommittee{
+		PubkeysHash:     cloneBytes(in.PubkeysHash),
+		AggregatePubkey: cloneBytes(in.AggregatePubkey),
+	}
+}
+
+// copyConsensusState returns a deep copy of in: no byte slice is shared.
 func copyConsensusState(in ConsensusState) ConsensusState {
 	out := ConsensusState{
 		Slot:                 in.Slot,
-		StateRoot:            in.StateRoot,
+		StateRoot:            cloneBytes(in.StateRoot),
 		Timestamp:            in.Timestamp,
-		CurrentSyncCommittee: in.CurrentSyncCommittee,
+		CurrentSyncCommittee: cloneSummary(in.CurrentSyncCommittee),
 	}
 	if in.NextSyncCommittee != nil {
-		next := *in.NextSyncCommittee
+		next := cloneSummary(*in.NextSyncCommittee)
 		out.NextSyncCommittee = &next
 	}
 	return out
@@ -416,7 +438,7 @@ func (c *EthLightClient) UpdateState(clientMsg lightclient.ClientMessage) []type
 		// A next-committee-only update (see verifyHeader): record the
 		// committee in the trusted state and change nothing else.
 		next := copyConsensusState(*trusted)
-		s := *u.NextSyncCommittee
+		s := cloneSummary(*u.NextSyncCommittee)
 		next.NextSyncCommittee = &s
 		c.setConsensusState(&next)
 		return []types.Height{heightAtSlot(trusted.Slot)}
@@ -428,7 +450,7 @@ func (c *EthLightClient) UpdateState(clientMsg lightclient.ClientMessage) []type
 	next := copyConsensusState(*trusted)
 	var updateNext *SummarizedSyncCommittee
 	if u.NextSyncCommittee != nil {
-		s := *u.NextSyncCommittee
+		s := cloneSummary(*u.NextSyncCommittee)
 		updateNext = &s
 	}
 	if trusted.NextSyncCommittee != nil {
@@ -447,7 +469,7 @@ func (c *EthLightClient) UpdateState(clientMsg lightclient.ClientMessage) []type
 		panic(err) // checked by VerifyClientMessage
 	}
 	next.Slot = finalizedSlot
-	next.StateRoot = exec.stateRoot
+	next.StateRoot = cloneBytes(exec.stateRoot)
 	next.Timestamp = exec.timestamp
 	c.setConsensusState(&next)
 
