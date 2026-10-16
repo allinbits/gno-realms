@@ -2,7 +2,6 @@ package controls
 
 import (
 	"errors"
-	"strings"
 
 	"gno.land/p/nt/ufmt/v0"
 )
@@ -23,7 +22,6 @@ type Loss struct {
 	Chain    string
 	Incident string
 	Cause    string // "forged payout", or the reconciliation outcome's words
-	Restored bool   // its forged void was restored: no longer a loss
 }
 
 // Recap is a recapitalization a decision authorized: Amount of Denom to be
@@ -157,60 +155,29 @@ func (rt *Route) voidClaim(c *Claim, forged bool, incident string) {
 }
 
 func (rt *Route) addLoss(d *Denom, l Loss) {
-	k := lossKey(l.Key, l.Cause)
-	if v := rt.losses.Get(k); v != nil {
-		old := v.(*Loss)
-		if !old.Restored {
-			d.Totals.Lost -= old.Amount
-			rt.incident(old.Denom, old.Incident).Lost -= old.Amount
-		}
-	}
-	rt.losses.Set(k, &l)
+	rt.losses.Set(lossKey(l.Key, l.Cause), &l)
 	d.Totals.Lost += l.Amount
 	rt.incident(l.Denom, l.Incident).Lost += l.Amount
 }
 
-// Restore restores voided claims and sweep entries: the full inverse of the
-// void. A claim with a remainder goes back into its recipient's queue at its
-// place, opening one for it if it has none (as of now in epoch). A forged
-// claim's loss leaves the ledger.
+// Restore restores withheld claims (ADR pr6375 §7.9: a withheld void can be
+// restored): each goes back into its recipient's queue at its place, opening
+// one for it if it has none (as of now in epoch). A withheld claim's
+// remainder stayed booked (reserved escrow, or counted against the supply
+// cap), so restoring it books nothing new. A forged void and a voided sweep
+// entry are final: their remainders were released, and other credits may
+// hold that escrow or supply since.
 func (rt *Route) Restore(keys []string, now, epoch int64) error {
 	if err := parseKeys(keys); err != nil {
 		return err
 	}
-	restoredLoss := map[string]int64{}
 	for _, k := range keys {
-		if c := rt.claim(k); c != nil {
-			if c.State != Withheld && c.State != Forged {
-				return errors.New("controls: " + k + " is not voided")
-			}
-			if v := rt.losses.Get(lossKey(c.Key, "forged payout")); c.State == Forged && v != nil && !v.(*Loss).Restored {
-				l := v.(*Loss)
-				restoredLoss[incidentKey(l.Denom, l.Incident)] += l.Amount
-			}
-			continue
-		}
-		e := rt.sweep(k)
-		if e == nil || !e.Voided {
-			return errors.New("controls: " + k + " is not voided")
-		}
-	}
-	// A loss already recapitalized, reduced or accepted cannot be restored:
-	// the surplus would silently cancel the next real loss.
-	for k, amount := range restoredLoss {
-		i := strings.Index(k, "|")
-		if rt.resolvable(k[:i], k[i+1:], 0) < amount {
-			return errors.New("controls: restoring would undo a loss already recapitalized, reduced, accepted or authorized for recapitalization")
+		if c := rt.claim(k); c == nil || c.State != Withheld {
+			return errors.New("controls: " + k + " is no withheld claim (only a withheld void is restored)")
 		}
 	}
 	for _, k := range keys {
-		if c := rt.claim(k); c != nil {
-			rt.restoreClaim(c, now, epoch)
-			continue
-		}
-		e := rt.sweep(k)
-		e.Voided = false
-		rt.Denom(e.Denom).Totals.Swept += e.Amount
+		rt.restoreClaim(rt.claim(k), now, epoch)
 	}
 	return nil
 }
@@ -218,16 +185,7 @@ func (rt *Route) Restore(keys []string, now, epoch int64) error {
 func (rt *Route) restoreClaim(c *Claim, now, epoch int64) {
 	d := rt.Denom(c.Denom)
 	rem := c.Remaining()
-	if c.State == Withheld {
-		d.Totals.Withheld -= rem
-	} else if v := rt.losses.Get(lossKey(c.Key, "forged payout")); v != nil {
-		l := v.(*Loss)
-		if !l.Restored {
-			l.Restored = true
-			d.Totals.Lost -= l.Amount
-			rt.incident(l.Denom, l.Incident).Lost -= l.Amount
-		}
-	}
+	d.Totals.Withheld -= rem
 	if rem == 0 {
 		c.State = Done
 		return
@@ -354,7 +312,7 @@ func (rt *Route) RecordLoss(key, denom string, amount int64, chain, incident, ca
 	if incident == "" || cause == "" || cause == "forged payout" {
 		return errors.New("controls: a loss names its incident and a reconciliation cause")
 	}
-	if v := rt.losses.Get(lossKey(key, cause)); v != nil && !v.(*Loss).Restored {
+	if rt.losses.Has(lossKey(key, cause)) {
 		return errors.New("controls: this loss is recorded already")
 	}
 	rt.addLoss(d, Loss{Key: key, Denom: denom, Amount: amount, Chain: chain, Incident: incident, Cause: cause})

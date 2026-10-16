@@ -273,7 +273,7 @@ func hexs(b []byte) string {
 // LossJSON is a loss's JSON.
 func LossJSON(l Loss) string {
 	return "{\"key\":" + q(l.Key) + ",\"denom\":" + q(l.Denom) + ",\"amount\":" + itoa(l.Amount) + ",\"chain\":" + q(l.Chain) +
-		",\"incident\":" + q(l.Incident) + ",\"cause\":" + q(l.Cause) + ",\"restored\":" + strconv.FormatBool(l.Restored) + "}"
+		",\"incident\":" + q(l.Incident) + ",\"cause\":" + q(l.Cause) + "}"
 }
 
 // page walks a tree from the first key at or after from, up to PageLines.

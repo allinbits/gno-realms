@@ -74,12 +74,15 @@ func TestVoidForgedBooksPaidPartAsLoss(t *testing.T) {
 	if lj != "[]" {
 		t.Fatalf("%s", lj)
 	}
-	// Restoring a forged void removes the loss.
-	if err := rt.Restore([]string{pk(1), pk(3)}, t0+2*Day, 0); err != nil {
-		t.Fatal(err)
+	// A forged void and a voided sweep entry are final.
+	after := d.Totals
+	for _, k := range []string{pk(1), pk(3)} {
+		if err := rt.Restore([]string{k}, t0+2*Day, 0); err == nil {
+			t.Fatalf("restored the forged void of %s", k)
+		}
 	}
-	if d.Totals != before {
-		t.Fatalf("restore after forged:\n%+v\n%+v", d.Totals, before)
+	if d.Totals != after {
+		t.Fatalf("a refused restore changed state")
 	}
 }
 
@@ -413,19 +416,46 @@ func TestReaderJSON(t *testing.T) {
 
 // A forged void whose loss was since accepted (or recapitalized, or reduced)
 // cannot be restored: the surplus would hide the next real loss.
-func TestRestoreRefusedAfterRecovery(t *testing.T) {
+func TestRestoreOnlyWithheld(t *testing.T) {
 	rt, _ := setupClaims(t)
-	c1, _ := rt.Claim(pk(1))
 	rt.Void([]string{pk(1)}, true, "inc")
-	if err := rt.Accept("ugnot", c1.Paid, "inc"); err != nil {
-		t.Fatal(err)
-	}
-	if err := rt.Restore([]string{pk(1)}, t0+2*Day, 0); err == nil || !strings.Contains(err.Error(), "already recapitalized") {
-		t.Fatalf("restored a recovered loss: %v", err)
+	if err := rt.Restore([]string{pk(1)}, t0+2*Day, 0); err == nil || !strings.Contains(err.Error(), "no withheld claim") {
+		t.Fatalf("restored a forged void: %v", err)
 	}
 	c, _ := rt.Claim(pk(1))
 	if c.State != Forged {
 		t.Fatalf("%+v", c)
+	}
+}
+
+// Restoring a forged void of a minted claim after another credit took its
+// supply would book both (Codex review #9): voided claims are restored only
+// from withheld, whose remainder stays counted against the cap meanwhile.
+func TestRestoreNeverOverbooksSupply(t *testing.T) {
+	_, rt := newRoute(t)
+	d := rt.Denom("ibc/WETH")
+	supplyCap := d.Config.SupplyCap
+	mustCredit(t, rt, t0, 1, "ibc/WETH", alice, supplyCap, 0)
+	// Forged: the remainder is released, another credit takes the supply.
+	if err := rt.Void([]string{pk(1)}, true, "inc"); err != nil {
+		t.Fatal(err)
+	}
+	mustCredit(t, rt, t0, 2, "ibc/WETH", bob, supplyCap, 0)
+	if err := rt.Restore([]string{pk(1)}, t0, 0); err == nil {
+		t.Fatalf("restored a forged mint claim past the supply cap")
+	}
+	// Withheld: the remainder stays booked, so no other credit takes it.
+	if err := rt.Void([]string{pk(2)}, false, "inc"); err != nil {
+		t.Fatal(err)
+	}
+	if err := rt.CheckCredit("ibc/WETH", 1); err == nil {
+		t.Fatalf("a withheld remainder freed the supply")
+	}
+	if err := rt.Restore([]string{pk(2)}, t0, 0); err != nil {
+		t.Fatal(err)
+	}
+	if b := d.Totals.Owed + d.Totals.Withheld + d.Totals.Outstanding; b != supplyCap {
+		t.Fatalf("booked %d of a cap of %d", b, supplyCap)
 	}
 }
 

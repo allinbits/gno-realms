@@ -266,35 +266,20 @@ func NewVoidRequest(cur realm, route, keys string, forged bool, incident string)
 	})
 }
 
-// NewRestoreRequest restores voided claims or sweep entries: at once when
-// every key is a withheld claim, after 7 days otherwise (a forged void).
+// NewRestoreRequest restores withheld claims, at once (ADR pr6375 §7.9: a
+// withheld void can be restored). A forged void and a voided sweep entry are
+// final; transfer re-checks every key when the decision applies.
 func NewRestoreRequest(cur realm, route, keys string) Request {
 	mustRoute(route)
 	list := mustKeys(keys)
 	rd := view()
 	for _, k := range list {
-		c, ok := rd.Claim(route, k)
-		e, eok := rd.Sweep(route, k)
-		if !(ok && (c.State == controls.Withheld || c.State == controls.Forged)) && !(eok && e.Voided) {
-			panic("ibcgov: " + k + " is not voided")
+		if c, ok := rd.Claim(route, k); !ok || c.State != controls.Withheld {
+			panic("ibcgov: " + k + " is no withheld claim")
 		}
-	}
-	// At once only if every key is a withheld claim when the decision is
-	// recorded: a forged void may have landed since the request was built.
-	withheldOnly := func() bool {
-		rd := view()
-		for _, k := range list {
-			if c, ok := rd.Claim(route, k); !ok || c.State != controls.Withheld {
-				return false
-			}
-		}
-		return true
 	}
 	text := "restore on route " + route + ": " + strings.Join(list, ",")
-	rp := &routeParams{op: controls.OpRestore, p: controls.Params{Route: route, Keys: list}}
-	return propose(cur, "restore", text, func(cur realm, made, t int64) {
-		decide(cur, "restore", text, rp, made, t, !withheldOnly())
-	})
+	return routeRequest(cur, controls.OpRestore, "restore", text, controls.Params{Route: route, Keys: list}, false)
 }
 
 // NewCreditRequest credits a packet by vote after 7 days (ADR pr6375 §7.9):

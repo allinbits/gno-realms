@@ -154,6 +154,10 @@ func main(cur realm) {
 	println("void named:", decided(voidA))
 	println("alice:", state(route, 1), "|", totals(route))
 	println(transfer.Render("routes/" + route + "/losses"))
+	// A forged void is final: only a withheld void is restored.
+	println("restore forged:", revive(func() {
+		ibcgov.NewRestoreRequest(cross(cur), route, controls.PacketKey(route, 1))
+	}))
 
 	// Unrecovered losses keep the route flagged.
 	println("guardian clears:", revive(func() { clearPayouts(cur, route) }))
@@ -204,7 +208,8 @@ func main(cur realm) {
 // alice: open paid 2500 of 3000 | bob: done paid 2000 of 2000 | carol: open paid 2500 of 4000
 // void named: applied - void
 // alice: forged paid 2500 of 3000 | owed 1500 withheld 0 swept 10 lost 2500 unrecovered 2500
-// [{"key":"ethereum-1/00000000000000000001","denom":"ugnot","amount":2500,"chain":"gno","incident":"inc-1","cause":"forged payout","restored":false}]
+// [{"key":"ethereum-1/00000000000000000001","denom":"ugnot","amount":2500,"chain":"gno","incident":"inc-1","cause":"forged payout"}]
+// restore forged: ibcgov: ethereum-1/00000000000000000001 is no withheld claim
 // guardian clears: ibcgov: route ethereum-1 has 2500 of unrecovered losses: it reopens only after a recapitalization, a reduction or an accepted deficit is decided
 // unpause: spent - spent: route ethereum-1 has 2500 of unrecovered losses
 // void not named: pending - queued 7 days
