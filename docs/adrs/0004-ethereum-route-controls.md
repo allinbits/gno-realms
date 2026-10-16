@@ -229,3 +229,18 @@ and supply cap of Ethereum tokens. Recipient meters are cap/4.
   call `Redispatch`. Receipt values changed from `0x02` to a hash.
 - Payouts to a recipient blocked after its credit are still paid (the
   blocklist is checked at receive).
+
+## Known limits
+
+- **Vouchers minted before a route was controlled** are not in its
+  outstanding count (it clamps at zero when they are burned), so the supply cap
+  can admit somewhat more than intended on such a route.
+- **Vacating seats is immediate** (§7.5 removals), so a decision can remove the
+  flagging guardians and end a hold 24 hours later; the day-21 rule only
+  governs replacements.
+- **Credit by vote** checks the receipt and the success acknowledgement on
+  gno.land; a packet received before the route was controlled (paid at once
+  by impl/v0) also has both, so governance must not credit one.
+- **The e2e upgrade tests** (`e2e/upgrade_test.go`) and `e2e/gno/whitelist.sh`
+  use the removed immediate authority; they need a devnet governor and clock
+  factor to follow the ibcgov flow.
