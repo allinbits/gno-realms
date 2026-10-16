@@ -92,13 +92,25 @@ func (rt *Route) RecordSend(rec SendRecord) error {
 	d.Totals.Sent += r.Amount
 	d.Totals.SendFees += r.Fee
 	if d.Config.Kind == KindMint {
+		// The burned vouchers leave circulation but stay counted against
+		// the supply cap until the send settles: a refund mints them again.
 		d.Totals.Outstanding -= r.Amount
 		if d.Totals.Outstanding < 0 {
 			// vouchers minted before the route was controlled
 			d.Totals.Outstanding = 0
 		}
+		d.Totals.Returning += r.Amount
 	}
 	return nil
+}
+
+// release ends a minted send's supply reservation: the record owes no more
+// refund (a success, a rejected refund, a reconciliation's settlement), so
+// what was not refunded stays burned.
+func (rt *Route) release(d *Denom, r *SendRecord) {
+	if d.Config.Kind == KindMint {
+		d.Totals.Returning -= r.Amount - r.Refunded
+	}
 }
 
 // Send is the send record of a packet key, by value (the packet copied), and
@@ -144,7 +156,11 @@ func (rt *Route) Settle(now, height int64, key, outcome string, hold bool, lock 
 	d := rt.Denom(r.Denom)
 	r.Outcome, r.ProcessedHeight, r.ProcessedAt = outcome, height, now
 	owed := r.Amount - r.Refunded
-	if outcome == OutcomeSuccess || owed <= 0 {
+	if outcome == OutcomeSuccess {
+		rt.release(d, r)
+		return 0, nil
+	}
+	if owed <= 0 {
 		return 0, nil
 	}
 	covered := d.Config.Kind == KindMint || lock >= owed
@@ -167,7 +183,9 @@ func (rt *Route) refunded(d *Denom, r *SendRecord, amount int64) {
 	r.Refunded += amount
 	d.Totals.Refunded += amount
 	if d.Config.Kind == KindMint {
-		d.Totals.Outstanding += amount // the burned vouchers are minted again
+		// the burned vouchers are minted again: back in circulation
+		d.Totals.Outstanding += amount
+		d.Totals.Returning -= amount
 	}
 }
 
@@ -283,6 +301,7 @@ func (rt *Route) RejectRefund(key, incident string) error {
 		return false
 	})
 	d.Totals.QueuedRefunds -= r.Amount - r.Refunded
+	rt.release(d, r)
 	r.Payment = PayRejected
 	r.Incident = incident
 	return nil

@@ -273,3 +273,50 @@ func TestEntitlementThenTimeout(t *testing.T) {
 		t.Fatalf("paid out of reserved escrow")
 	}
 }
+
+// A voucher return keeps its supply reserved until it settles: a receive
+// cannot take the burned supply while the refund may still mint it again,
+// queued under a hold or not (Codex review #7).
+func TestPendingReturnReservesSupply(t *testing.T) {
+	_, rt := newRoute(t)
+	d := rt.Denom("ibc/WETH")
+	supplyCap := d.Config.SupplyCap
+	d.Totals.Outstanding = supplyCap
+	rt.RecordSend(sendRec(1, "ibc/WETH", KindMint, supplyCap))
+	if err := rt.CheckCredit("ibc/WETH", 1); err == nil {
+		t.Fatalf("a receive took the supply of a return in flight")
+	}
+	// The error ack's refund is queued under a hold: still reserved.
+	if pay, _ := rt.Settle(t0+Day, 1, pk(1), OutcomeError, true, 0); pay != 0 {
+		t.Fatalf("paid under a hold")
+	}
+	if err := rt.CheckCredit("ibc/WETH", 1); err == nil {
+		t.Fatalf("a receive took the supply of a queued refund")
+	}
+	// Paid: the vouchers circulate again, the supply is full.
+	for day := int64(2); day < 40 && rt.QueuedRefundCount("ibc/WETH") > 0; day++ {
+		rt.PayRefunds(t0+day*Day, "ibc/WETH", 20, false, 0)
+	}
+	if d.Totals.Outstanding != supplyCap || d.Totals.Returning != 0 {
+		t.Fatalf("%+v", d.Totals)
+	}
+	if err := rt.CheckCredit("ibc/WETH", 1); err == nil {
+		t.Fatalf("over the cap")
+	}
+	// A return that succeeds frees its supply.
+	rt.RecordSend(sendRec(2, "ibc/WETH", KindMint, 400))
+	if err := rt.CheckCredit("ibc/WETH", 1); err == nil {
+		t.Fatalf("freed before the ack")
+	}
+	rt.Settle(t0+50*Day, 1, pk(2), OutcomeSuccess, false, 0)
+	if err := rt.CheckCredit("ibc/WETH", 400); err != nil {
+		t.Fatal(err)
+	}
+	// A rejected refund frees what it did not refund.
+	rt.RecordSend(sendRec(3, "ibc/WETH", KindMint, 300))
+	rt.Settle(t0+50*Day, 1, pk(3), OutcomeTimeout, true, 0)
+	rt.RejectRefund(pk(3), "inc")
+	if err := rt.CheckCredit("ibc/WETH", 700); err != nil || d.Totals.Returning != 0 {
+		t.Fatalf("%v %+v", err, d.Totals)
+	}
+}

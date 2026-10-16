@@ -283,6 +283,7 @@ type Totals struct {
 	Fees          int64 // claim fee installments paid to the collector
 	SweepPaid     int64 // sweep entries paid by decision
 	Outstanding   int64 // KindMint: vouchers this route has in circulation
+	Returning     int64 // KindMint: vouchers burned by sends not settled yet (in flight, or refund owed)
 	Sent          int64 // escrowed (KindUnescrow) or burned (KindMint) by recorded sends
 	SendFees      int64 // fees charged on sends
 	Refunded      int64 // refunds paid
@@ -314,6 +315,14 @@ func (t Totals) Unresolved() int64 {
 		return 0
 	}
 	return u
+}
+
+// booked is what a minted denom counts against its supply cap (ADR pr6375
+// §6.8): the vouchers in circulation, the vouchers burned by sends that may
+// still be refunded (minted again), and every claim and sweep entry not paid
+// yet.
+func (t Totals) booked() int64 {
+	return t.Outstanding + t.Returning + t.Owed + t.Withheld + t.Swept
 }
 
 // queue is one recipient's open claims, oldest first, and its meter.
@@ -521,7 +530,7 @@ func (rt *Route) CheckCredit(denom string, amount int64) error {
 		return errors.New("controls: the amount must be positive")
 	}
 	if d.Config.Kind == KindMint {
-		booked := d.Totals.Outstanding + d.Totals.Owed + d.Totals.Withheld + d.Totals.Swept
+		booked := d.Totals.booked()
 		if amount > d.Config.SupplyCap-booked {
 			return ufmt.Errorf("controls: %d would take %s past its supply cap of %d (%d outstanding or booked)", amount, denom, d.Config.SupplyCap, booked)
 		}

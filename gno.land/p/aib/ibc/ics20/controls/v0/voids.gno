@@ -234,7 +234,7 @@ func (rt *Route) CreditByVote(now, height, epoch int64, key, denom string, to ad
 		return ufmt.Errorf("controls: %d is above the free lock of %d", amount, lock-d.Reserved())
 	}
 	if d.Config.Kind == KindMint {
-		booked := d.Totals.Outstanding + d.Totals.Owed + d.Totals.Withheld + d.Totals.Swept - swept
+		booked := d.Totals.booked() - swept
 		if amount > d.Config.SupplyCap-booked {
 			return ufmt.Errorf("controls: %d would take %s past its supply cap", amount, denom)
 		}
