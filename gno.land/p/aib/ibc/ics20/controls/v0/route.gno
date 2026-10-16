@@ -228,7 +228,26 @@ type Route struct {
 // A route is closed by a replacement until a governed reopening, and while
 // any loss it recorded has no restoring decision: this financial closure is
 // the route's own state, whatever flags the guardians' seats hold or clear.
-func (rt *Route) IsClosed() bool { return rt.Closed || rt.Unresolved() > 0 }
+func (rt *Route) IsClosed() bool { return rt.Closed || rt.hasUnresolved() }
+
+// hasUnresolved reports whether any denom of the route has a loss without a
+// restoring decision: denom by denom, never through a sum that could wrap.
+func (rt *Route) hasUnresolved() bool {
+	found := false
+	rt.denoms.Iterate("", "", func(_ string, v any) bool {
+		found = v.(*Denom).Totals.Unresolved() > 0
+		return found
+	})
+	return found
+}
+
+// saturatingAdd is a + b for non-negative terms, maxInt64 when it would wrap.
+func saturatingAdd(a, b int64) int64 {
+	if b > maxInt64-a {
+		return maxInt64
+	}
+	return a + b
+}
 
 // Reopen reopens a route a replacement closed, by decision (the gno
 // analogue of Ethereum's kind 13, ADR pr6375 §5.4): refused while any send
@@ -435,22 +454,23 @@ func (rt *Route) Denoms() []string {
 	return out
 }
 
-// Unrecovered is the economic open loss total over the route's denoms.
+// Unrecovered is the economic open loss total over the route's denoms,
+// saturating at the int64 maximum.
 func (rt *Route) Unrecovered() int64 {
 	var u int64
 	rt.denoms.Iterate("", "", func(_ string, v any) bool {
-		u += v.(*Denom).Totals.Unrecovered()
+		u = saturatingAdd(u, v.(*Denom).Totals.Unrecovered())
 		return false
 	})
 	return u
 }
 
 // Unresolved is the loss total over the route's denoms that still waits for
-// a restoring decision.
+// a restoring decision, saturating at the int64 maximum.
 func (rt *Route) Unresolved() int64 {
 	var u int64
 	rt.denoms.Iterate("", "", func(_ string, v any) bool {
-		u += v.(*Denom).Totals.Unresolved()
+		u = saturatingAdd(u, v.(*Denom).Totals.Unresolved())
 		return false
 	})
 	return u

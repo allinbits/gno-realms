@@ -424,6 +424,7 @@ func (rt *Route) SettleRecords(client string, items []SettleItem, incident strin
 	seen := map[uint64]bool{}
 	pays := map[string]int64{}
 	queued := map[string]int64{} // the queued remainders the payments settle: their own reserve
+	lossTotals := map[string]int64{}
 	for i, it := range items {
 		key := PacketKey(client, it.Seq)
 		r := rt.send(key)
@@ -464,8 +465,14 @@ func (rt *Route) SettleRecords(client string, items []SettleItem, incident strin
 			if rt.losses.Has(lossKey(key, CauseRefundForDelivered)) {
 				return nil, ufmt.Errorf("controls: item %d: the loss of %s is recorded already", i, key)
 			}
+			lossTotals[r.Denom] += it.Amount // each at most a send's amount
 		default:
 			return nil, ufmt.Errorf("controls: item %d: unknown action %d", i, it.Action)
+		}
+	}
+	for denom, total := range lossTotals {
+		if err := rt.lossFits(denom, incident, total); err != nil {
+			return nil, err
 		}
 	}
 	for denom, total := range pays {

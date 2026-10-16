@@ -110,9 +110,18 @@ func (rt *Route) Void(keys []string, forged bool, incident string) error {
 	if err := parseKeys(keys); err != nil {
 		return err
 	}
+	losses := map[string]int64{}
 	for _, k := range keys {
 		if !rt.Voidable(k, forged) {
 			return errors.New("controls: " + k + " cannot be voided " + voidWord(forged) + " as it stands")
+		}
+		if c := rt.claim(k); c != nil && forged {
+			losses[c.Denom] += c.Paid // each at most a claim's amount: no overflow per key
+		}
+	}
+	for denom, amount := range losses {
+		if err := rt.lossFits(denom, incident, amount); err != nil {
+			return err
 		}
 	}
 	for _, k := range keys {
@@ -156,6 +165,17 @@ func (rt *Route) voidClaim(c *Claim, forged bool, incident string) {
 	if forged && c.Paid > 0 {
 		rt.addLoss(d, Loss{Key: c.Key, Denom: c.Denom, Amount: c.Paid, Chain: ChainGno, Incident: incident, Cause: "forged payout"})
 	}
+}
+
+// lossFits refuses a loss the ledger's cumulative totals (the denom's and
+// the incident's) could not hold without overflowing: a total that wrapped
+// would read as no loss at all.
+func (rt *Route) lossFits(denom, incident string, amount int64) error {
+	d := rt.Denom(denom)
+	if amount < 0 || amount > maxInt64-d.Totals.Lost || amount > maxInt64-rt.Incident(denom, incident).Lost {
+		return errors.New("controls: the loss would overflow the loss ledger of " + denom)
+	}
+	return nil
 }
 
 func (rt *Route) addLoss(d *Denom, l Loss) {
@@ -348,6 +368,9 @@ func (rt *Route) RecordLoss(key, denom string, amount int64, chain, incident, ca
 	}
 	if rt.losses.Has(lossKey(key, cause)) {
 		return errors.New("controls: this loss is recorded already")
+	}
+	if err := rt.lossFits(denom, incident, amount); err != nil {
+		return err
 	}
 	rt.addLoss(d, Loss{Key: key, Denom: denom, Amount: amount, Chain: chain, Incident: incident, Cause: cause})
 	return nil

@@ -634,3 +634,30 @@ func TestQueuedRefundsReserved(t *testing.T) {
 		t.Fatalf("claims took %d of the refunds' reserve", paid)
 	}
 }
+
+// Losses near the int64 maximum on two denoms never wrap the route's
+// closure: it is decided denom by denom, sums saturate, and a loss the
+// ledger could not hold is refused (Codex round 2 #2).
+func TestLossesNearMaximum(t *testing.T) {
+	_, rt := newRoute(t)
+	big := int64(5_000_000_000_000_000_000)
+	if err := rt.RecordLoss(pk(1), "ugnot", big, ChainGno, "inc", "collision"); err != nil {
+		t.Fatal(err)
+	}
+	if err := rt.RecordLoss(pk(2), "ibc/WETH", big, ChainEthereum, "inc", "collision"); err != nil {
+		t.Fatal(err)
+	}
+	if !rt.IsClosed() || rt.Unresolved() != maxInt64 || rt.Unrecovered() != maxInt64 {
+		t.Fatalf("closed %v unresolved %d", rt.IsClosed(), rt.Unresolved())
+	}
+	if err := rt.RecordLoss(pk(3), "ugnot", big, ChainGno, "inc-2", "collision"); err == nil {
+		t.Fatalf("recorded a loss the ledger cannot hold")
+	}
+	// One denom resolved: the other still closes the route.
+	if err := rt.Accept("ugnot", big, "inc"); err != nil {
+		t.Fatal(err)
+	}
+	if !rt.IsClosed() {
+		t.Fatalf("an unresolved denom left the route open")
+	}
+}
