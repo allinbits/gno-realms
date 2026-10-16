@@ -221,6 +221,22 @@ func PacketAcknowledgement(clientID string, sequence uint64) []byte {
 	return cloneBytes(c.PacketAcknowledgement(sequence))
 }
 
+// ClientLatestTimestamp is the counterparty time (unix seconds) of
+// clientID's latest consensus state, and whether it is known: a packet sent
+// over the client must time out after it.
+func ClientLatestTimestamp(clientID string) (uint64, bool) {
+	c := store.getClient(clientID)
+	if c == nil {
+		return 0, false
+	}
+	lc := c.LightClient()
+	t, err := lc.TimestampAtHeight(lc.LatestHeight())
+	if err != nil {
+		return 0, false
+	}
+	return t, true
+}
+
 // OutstandingSends is how many packets an app on port sent over clientID
 // whose commitment is still outstanding: the transfer app compares it with
 // its own records to know every send is accounted for (ADR pr6375 §7.13).

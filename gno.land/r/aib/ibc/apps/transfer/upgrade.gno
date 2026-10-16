@@ -174,6 +174,45 @@ func install(_ int, rlm realm, path string) {
 	)
 }
 
+// InstallChecker is implemented by an implementation that tells, without a
+// change, why its OnInstall would refuse to install over the active
+// implementation (prevPath, prevVersion), or nil.
+type InstallChecker interface {
+	CheckInstall(prevPath, prevVersion string) error
+}
+
+// CheckUpdateImpl is why UpdateImpl(path) would fail now, or "", with no
+// change: path is not registered, or its implementation refuses the active
+// one as its predecessor. A governed switch that would fail is refused (and
+// its decision spent) instead of aborting and staying pending.
+func CheckUpdateImpl(path string) string {
+	v := implCtors.Get(path)
+	if v == nil {
+		return "no implementation registered at " + path
+	}
+	l := v.(func(Store) Logic)(store)
+	if l == nil {
+		return "implementation " + path + " returned a nil Logic"
+	}
+	if ic, ok := l.(InstallChecker); ok {
+		if err := ic.CheckInstall(implPath, implVersion); err != nil {
+			return err.Error()
+		}
+	}
+	return ""
+}
+
+// KeepsControls reports whether the implementation registered at path keeps
+// the route controls (ControlsLogic), without installing it.
+func KeepsControls(path string) bool {
+	v := implCtors.Get(path)
+	if v == nil {
+		return false
+	}
+	_, ok := v.(func(Store) Logic)(store).(ControlsLogic)
+	return ok
+}
+
 // ImplPath returns the realm path of the active implementation, "" if none.
 func ImplPath() string {
 	return implPath

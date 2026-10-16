@@ -32,9 +32,7 @@ func (p *adminParams) check() string {
 	a := p.args
 	switch p.op {
 	case "core update impl":
-		if !contains(core.RegisteredImplPaths(), a[0]) {
-			return "no core implementation is registered at " + a[0]
-		}
+		return core.CheckUpdateImpl(a[0])
 	case "core add relayer":
 		if isRelayer(address(a[0])) {
 			return a[0] + " is a listed relayer already"
@@ -73,6 +71,9 @@ func (p *adminParams) check() string {
 			return a[0] + " is a member already"
 		}
 	case "core remove member":
+		if address(a[0]) == chain.PackageAddress(PkgPath) {
+			return "this realm stays a member of the core's authority"
+		}
 		if !core.IsAuthorityMember(address(a[0])) {
 			return a[0] + " is not a member"
 		}
@@ -86,9 +87,7 @@ func (p *adminParams) check() string {
 		}
 		return core.CheckMigrateClient(a[0], a[1], bz)
 	case "transfer update impl":
-		if !contains(transfer.RegisteredImplPaths(), a[0]) {
-			return "no transfer implementation is registered at " + a[0]
-		}
+		return transfer.CheckUpdateImpl(a[0])
 	case "transfer block":
 		if transfer.IsBlocked(address(a[0])) {
 			return a[0] + " is blocked already"
@@ -102,6 +101,9 @@ func (p *adminParams) check() string {
 			return a[0] + " is a member already"
 		}
 	case "transfer remove member":
+		if address(a[0]) == chain.PackageAddress(PkgPath) {
+			return "this realm stays a member of the transfer app's authority"
+		}
 		if !transfer.IsAuthorityMember(address(a[0])) {
 			return a[0] + " is not a member"
 		}

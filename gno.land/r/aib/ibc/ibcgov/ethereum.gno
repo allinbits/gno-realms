@@ -270,6 +270,11 @@ func bind(cur realm, decision int64, kind uint8, params []byte) (uint64, string)
 		return 0, "the epoch's client " + rec.client + " is retired"
 	case core.ClientStatus(rec.client) != "Active":
 		return 0, "the epoch's client " + rec.client + " is " + core.ClientStatus(rec.client) + ", not Active"
+	case core.CounterpartyClientID(rec.client) == "":
+		return 0, "the epoch's client " + rec.client + " has no counterparty"
+	}
+	if latest, ok := core.ClientLatestTimestamp(rec.client); !ok || latest >= uint64(now()+GovPacketTimeout) {
+		return 0, "the epoch's client " + rec.client + " is ahead of the packet's timeout"
 	}
 	seq := rec.last + 1
 	body := Envelope(epoch, seq, kind, params)

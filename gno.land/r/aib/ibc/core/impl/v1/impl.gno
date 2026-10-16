@@ -50,11 +50,18 @@ func (l *logic) Version() string {
 // over v0 or nothing (bootstrap), and re-installs over itself; anything else
 // is refused.
 func (l *logic) OnInstall(_ int, rlm realm, prevPath, prevVersion string) {
+	if err := l.CheckInstall(prevPath, prevVersion); err != nil {
+		panic(err)
+	}
+}
+
+// CheckInstall is core.InstallChecker: v1 installs over v0, nothing or itself.
+func (l *logic) CheckInstall(prevPath, prevVersion string) error {
 	switch prevVersion {
 	case "", "v0", version:
-		return
+		return nil
 	}
-	panic(ufmt.Sprintf("core impl %s cannot install over version %s", version, prevVersion))
+	return ufmt.Errorf("core impl %s cannot install over version %s", version, prevVersion)
 }
 
 // MigrateClient implements core.ClientMigrator. The proxy has checked that

@@ -569,8 +569,18 @@ type activateParams struct {
 func (p *activateParams) apply(cur realm, t int64) (string, string) {
 	// Every refusal the staged steps could meet is checked first, so the
 	// switch never lands without its route (it would abort instead).
-	if !contains(transfer.RegisteredImplPaths(), p.path) {
-		return "", "no transfer implementation is registered at " + p.path
+	if refusal := transfer.CheckUpdateImpl(p.path); refusal != "" {
+		return "", refusal
+	}
+	if !transfer.KeepsControls(p.path) {
+		return "", p.path + " keeps no route controls"
+	}
+	if rd, ok := transfer.ExtView("controls").(controls.Reader); ok {
+		for _, d := range p.denoms {
+			if old, ok := rd.DenomConfig(p.enroll.Route, d.Denom); ok && old.Kind != d.Config.Kind {
+				return "", "denom " + d.Denom + " is accounted as " + old.Kind + " on " + p.enroll.Route + " already"
+			}
+		}
 	}
 	if routes.Has(p.enroll.Route) {
 		return "", p.enroll.Route + " is a route already"

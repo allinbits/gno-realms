@@ -76,12 +76,20 @@ func (l *logic) Version() string { return version }
 // starts empty (ADR pr6375 §7.1). It installs over v0 or nothing, and
 // re-installs over itself; anything else is refused.
 func (l *logic) OnInstall(_ int, rlm realm, prevPath, prevVersion string) {
-	switch prevVersion {
-	case "", "v0", version:
-	default:
-		panic(ufmt.Sprintf("transfer impl %s cannot install over version %s", version, prevVersion))
+	if err := l.CheckInstall(prevPath, prevVersion); err != nil {
+		panic(err)
 	}
 	l.store.InitExt(0, rlm, extKey, controls.NewRegistryAny)
+}
+
+// CheckInstall is transfer.InstallChecker: v1 installs over v0, nothing or
+// itself.
+func (l *logic) CheckInstall(prevPath, prevVersion string) error {
+	switch prevVersion {
+	case "", "v0", version:
+		return nil
+	}
+	return ufmt.Errorf("transfer impl %s cannot install over version %s", version, prevVersion)
 }
 
 // registry is the controls state, mutable: only for the proxy's live rlm.
