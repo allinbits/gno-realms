@@ -114,8 +114,10 @@ func NewRegistry() *Registry { return &Registry{} }
 // NewRegistryAny is NewRegistry for a constructor slot typed func() any.
 func NewRegistryAny() any { return NewRegistry() }
 
-// Enroll creates the route key, whose current client is key itself.
-func (r *Registry) Enroll(key string, collector address, now int64) (*Route, error) {
+// Enroll creates the route key, whose current client is key itself, at block
+// time now and height: the route's activation, before which no receive was
+// booked under its controls.
+func (r *Registry) Enroll(key string, collector address, now, height int64) (*Route, error) {
 	if key == "" {
 		return nil, errors.New("controls: empty route key")
 	}
@@ -125,7 +127,7 @@ func (r *Registry) Enroll(key string, collector address, now int64) (*Route, err
 	if !collector.IsValid() {
 		return nil, errors.New("controls: invalid fee collector " + string(collector))
 	}
-	rt := &Route{Key: key, Client: key, Enrolled: now, FeeCollector: collector}
+	rt := &Route{Key: key, Client: key, Enrolled: now, Activated: height, FeeCollector: collector}
 	r.routes.Set(key, rt)
 	r.aliases.Set(key, key)
 	return rt, nil
@@ -199,7 +201,8 @@ type Route struct {
 	Key          string
 	Client       string   // the current client id
 	Replaced     []string // the client ids replacements retired, oldest first
-	Enrolled     int64
+	Enrolled     int64 // block time of the enrolment
+	Activated    int64 // block height of the enrolment: the controls' cutoff
 	FeeCollector address
 
 	refused   avl.Tree // lower-case Ethereum address -> true: refused send recipients

@@ -150,32 +150,55 @@ func TestVoidableRules(t *testing.T) {
 func TestCreditByVote(t *testing.T) {
 	rt, lock := setupClaims(t)
 	d := rt.Denom("ugnot")
-	// Packet 3 was swept (below the fee); a vote may credit it, replacing the
-	// entry, but not below the fee.
-	if err := rt.CreditByVote(t0, 20, 0, pk(3), "ugnot", carol, 10, lock); err == nil {
-		t.Fatalf("credited below the fee")
+	// Packet 4 is swept above the free lock; a vote credits it once the lock
+	// allows, replacing the entry, never above what the packet carried.
+	if !mustCredit(t, rt, t0, 4, "ugnot", carol, lock, lock) {
+		t.Fatalf("setup: not swept")
 	}
 	swept := d.Totals.Swept
-	if err := rt.CreditByVote(t0, 20, 0, pk(3), "ugnot", carol, 25, lock); err != nil {
-		t.Fatal(err)
+	if err := rt.CreditByVote(t0, 20, 0, pk(4), "ugnot", carol, 10, 2*lock); err == nil {
+		t.Fatalf("credited below the fee")
 	}
-	e, _ := rt.Sweep(pk(3))
-	c, _ := rt.Claim(pk(3))
-	if !e.Paid || c.By != ByVote || c.Amount != 25 || d.Totals.Swept != swept-10 {
-		t.Fatalf("%+v %+v %+v", e, c, d.Totals)
+	if err := rt.CreditByVote(t0, 20, 0, pk(4), "ugnot", carol, lock+1, 3*lock); err == nil {
+		t.Fatalf("credited more than the packet carried")
 	}
-	// Deduplicated against every claim of the packet.
-	if err := rt.CreditByVote(t0, 20, 0, pk(1), "ugnot", alice, 50, lock); err == nil {
-		t.Fatalf("credited a packet with a claim")
-	}
-	// Never above the free lock.
-	if err := rt.CreditByVote(t0, 20, 0, pk(50), "ugnot", alice, lock, lock); err == nil {
+	if err := rt.CreditByVote(t0, 20, 0, pk(4), "ugnot", carol, lock, lock); err == nil {
 		t.Fatalf("credited above the free lock")
 	}
-	if err := rt.CreditByVote(t0, 20, 0, pk(51), "ugnot", alice, 100, lock); err != nil {
+	if err := rt.CreditByVote(t0, 20, 0, pk(4), "ugnot", carol, lock, 2*lock); err != nil {
 		t.Fatal(err)
 	}
+	e, _ := rt.Sweep(pk(4))
+	c, _ := rt.Claim(pk(4))
+	if !e.Paid || c.By != ByVote || c.Amount != lock || d.Totals.Swept != swept-lock {
+		t.Fatalf("%+v %+v %+v", e, c, d.Totals)
+	}
+	// Deduplicated against every claim and payment of the packet.
+	if err := rt.CreditByVote(t0, 20, 0, pk(1), "ugnot", alice, 50, 2*lock); err == nil {
+		t.Fatalf("credited a packet with a claim")
+	}
+	if err := rt.CreditByVote(t0, 20, 0, pk(4), "ugnot", alice, 50, 2*lock); err == nil {
+		t.Fatalf("credited a packet twice")
+	}
 	checkClaimTotals(t, rt, "ugnot")
+}
+
+// A receive these controls never booked was paid at once by impl/v0 (it
+// predates the activation): a credit by vote of it would pay it twice
+// (Codex review #2).
+func TestCreditByVoteOnlyAfterActivation(t *testing.T) {
+	rt, lock := setupClaims(t)
+	if err := rt.CreditByVote(t0, 20, 0, pk(50), "ugnot", alice, 100, lock); err == nil {
+		t.Fatalf("credited a packet the controls never booked")
+	}
+	// A sweep entry from before the activation height is not one either.
+	r := NewRegistry()
+	late, _ := r.Enroll("ethereum-1", collector, t0, 50)
+	late.SetDenom("ugnot", gnot(), t0, 0, 0)
+	late.Credit(t0, 10, 0, pk(1), "ugnot", alice, 100, ByPacket, "bridge realm", lock) // swept at height 10
+	if err := late.CreditByVote(t0, 60, 0, pk(1), "ugnot", alice, 100, lock); err == nil || !strings.Contains(err.Error(), "not received under") {
+		t.Fatalf("credited a receive from before the activation: %v", err)
+	}
 }
 
 func TestPaySweeps(t *testing.T) {
@@ -321,7 +344,7 @@ func TestRegistryReplace(t *testing.T) {
 		t.Fatalf("route key")
 	}
 	// A retired or current client cannot be enrolled or re-used.
-	if _, err := r.Enroll("ethereum-2", collector, t0); err == nil {
+	if _, err := r.Enroll("ethereum-2", collector, t0, 1); err == nil {
 		t.Fatalf("enrolled a route's client")
 	}
 	if err := r.Replace("ethereum-1", "ethereum-1"); err == nil {

@@ -117,6 +117,11 @@ func successAckCommitment() []byte {
 	return types.CommitAcknowledgement(types.Acknowledgement{AppAcknowledgements: [][]byte{ack.MarshalJSON()}})
 }
 
+// isLegacyReceipt reports whether a receipt is the constant 0x02 that cores
+// before this one stored for every packet (it identifies no packet): such a
+// receive predates the controls.
+func isLegacyReceipt(r []byte) bool { return len(r) == 1 && r[0] == 0x02 }
+
 // clientOfRoute reports whether clientID is or was a client of rt.
 func clientOfRoute(rt *controls.Route, clientID string) bool {
 	if clientID == rt.Client {
@@ -144,7 +149,7 @@ func (l *logic) GovApply(_ int, rlm realm, op string, params []byte) string {
 		if !isEthereum(p.Route) || core.IsClientRetired(p.Route) {
 			return p.Route + " is no usable Ethereum client"
 		}
-		if _, err := reg.Enroll(p.Route, p.To, t); err != nil {
+		if _, err := reg.Enroll(p.Route, p.To, t, chainHeight()); err != nil {
 			return err.Error()
 		}
 		transfer.EmitRoute(0, rlm, "gov", "op", op, "route", p.Route)
@@ -186,6 +191,8 @@ func (l *logic) GovApply(_ int, rlm realm, op string, params []byte) string {
 			return "packet " + p.Key + " was not received on route " + rt.Key
 		case len(core.PacketReceipt(client, seq)) == 0:
 			return "packet " + p.Key + " was never received"
+		case isLegacyReceipt(core.PacketReceipt(client, seq)):
+			return "packet " + p.Key + "'s receipt is the legacy constant: it was received before the route's controls"
 		case !bytes.Equal(core.PacketAcknowledgement(client, seq), successAckCommitment()):
 			return "packet " + p.Key + " has no success acknowledgement: an error-acknowledged packet is refunded at its source"
 		}

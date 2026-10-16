@@ -194,7 +194,7 @@ func (rd Reader) RouteJSON(route string) string {
 	}
 	var b strings.Builder
 	b.WriteString("{\"route\":" + q(rt.Key) + ",\"client\":" + q(rt.Client) + ",\"replaced\":" + strList(rt.Replaced) +
-		",\"enrolled\":" + itoa(rt.Enrolled) + ",\"fee_collector\":" + q(string(rt.FeeCollector)) +
+		",\"enrolled\":" + itoa(rt.Enrolled) + ",\"activated\":" + itoa(rt.Activated) + ",\"fee_collector\":" + q(string(rt.FeeCollector)) +
 		",\"refused_recipients\":" + strList(rt.Refused()) + ",\"unrecovered\":" + itoa(rt.Unrecovered()) + ",\"unresolved\":" + itoa(rt.Unresolved()) + ",\"denoms\":[")
 	for i, name := range rt.Denoms() {
 		if i > 0 {

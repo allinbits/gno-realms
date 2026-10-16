@@ -199,12 +199,14 @@ func (rt *Route) restoreClaim(c *Claim, now, epoch int64) {
 
 // CreditByVote credits a packet by decision, the manual fallback for a
 // griefed transfer (ADR pr6375 §7.9). The caller checked that the packet's
-// acknowledgement on this chain is a success (or an asynchronous one still
-// unwritten, which it completes as a success): an error-acknowledged packet
-// is refunded at its source and never credited. Credits are deduplicated
-// against every claim of the packet; a live sweep entry of the packet is
-// replaced by the claim. The amount is at least the fee and, for an
-// unescrowed denom, never above the free lock.
+// acknowledgement on this chain is a success: an error-acknowledged packet is
+// refunded at its source and never credited. Credits are deduplicated
+// against every claim and payment of the packet: only a receive these
+// controls booked, a live sweep entry recorded at its receipt after the
+// route's activation, is credited, which replaces the entry. A receive from
+// before the activation was paid at once by impl/v0 and is never credited
+// again. The amount is at least the fee, at most what the packet carried,
+// and for an unescrowed denom never above the free lock.
 func (rt *Route) CreditByVote(now, height, epoch int64, key, denom string, to address, amount, lock int64) error {
 	if _, _, ok := ParsePacketKey(key); !ok {
 		return errors.New("controls: not a packet key: " + key)
@@ -220,30 +222,23 @@ func (rt *Route) CreditByVote(now, height, epoch int64, key, denom string, to ad
 		return errors.New("controls: invalid recipient " + string(to))
 	}
 	e := rt.sweep(key)
-	if e != nil && (e.Voided || e.Paid || e.Denom != denom) {
+	if e == nil || e.Height < rt.Activated {
+		return errors.New("controls: packet " + key + " was not received under the route's controls (no sweep entry booked at its receipt): a receive from before the activation was paid already")
+	}
+	if e.Voided || e.Paid || e.Denom != denom {
 		return errors.New("controls: packet " + key + "'s sweep entry is voided, paid or of another denom")
 	}
-	if amount < d.Config.Fee {
-		return ufmt.Errorf("controls: %d is below the fee of %d", amount, d.Config.Fee)
-	}
-	swept := int64(0)
-	if e != nil {
-		swept = e.Amount
+	if amount < d.Config.Fee || amount > e.Amount {
+		return ufmt.Errorf("controls: %d is not between the fee (%d) and what the packet carried (%d)", amount, d.Config.Fee, e.Amount)
 	}
 	if d.Config.Kind == KindUnescrow && amount > lock-d.Reserved() {
 		return ufmt.Errorf("controls: %d is above the free lock of %d", amount, lock-d.Reserved())
 	}
-	if d.Config.Kind == KindMint {
-		booked := d.Totals.booked() - swept
-		if amount > d.Config.SupplyCap-booked {
-			return ufmt.Errorf("controls: %d would take %s past its supply cap", amount, denom)
-		}
-	}
-	if e != nil {
-		e.Paid = true
-		e.PaidTo = "credit by vote"
-		d.Totals.Swept -= e.Amount
-	}
+	// A minted credit replaces its sweep entry within the supply already
+	// booked for it: amount never exceeds the entry.
+	e.Paid = true
+	e.PaidTo = "credit by vote"
+	d.Totals.Swept -= e.Amount
 	rt.enqueue(d, now, height, epoch, key, to, amount, ByVote)
 	return nil
 }

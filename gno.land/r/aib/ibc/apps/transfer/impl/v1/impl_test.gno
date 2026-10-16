@@ -12,7 +12,7 @@ import (
 
 func replacedRoute(t *testing.T) *controls.Route {
 	reg := controls.NewRegistry()
-	rt, err := reg.Enroll("ethereum-1", testutils.TestAddress("collector"), 1)
+	rt, err := reg.Enroll("ethereum-1", testutils.TestAddress("collector"), 1, 1)
 	if err != nil {
 		t.Fatal(err)
 	}

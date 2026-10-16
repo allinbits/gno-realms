@@ -26,7 +26,7 @@ func mintCfg() DenomConfig {
 
 func newRoute(t *testing.T) (*Registry, *Route) {
 	r := NewRegistry()
-	rt, err := r.Enroll("ethereum-1", collector, t0)
+	rt, err := r.Enroll("ethereum-1", collector, t0, 1)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -113,10 +113,10 @@ func TestPacketKey(t *testing.T) {
 
 func TestEnrollAndDenoms(t *testing.T) {
 	r, rt := newRoute(t)
-	if _, err := r.Enroll("ethereum-1", collector, t0); err == nil {
+	if _, err := r.Enroll("ethereum-1", collector, t0, 1); err == nil {
 		t.Fatalf("enrolled twice")
 	}
-	if _, err := r.Enroll("ethereum-2", "bad", t0); err == nil {
+	if _, err := r.Enroll("ethereum-2", "bad", t0, 1); err == nil {
 		t.Fatalf("bad collector")
 	}
 	if r.RouteOf("ethereum-1") != rt || r.Route("ethereum-1") != rt {
@@ -578,7 +578,7 @@ func TestClaimsRandomized(t *testing.T) {
 // against its supply cap from the start (Codex review #8).
 func TestMintStartsAtExistingSupply(t *testing.T) {
 	r := NewRegistry()
-	rt, _ := r.Enroll("ethereum-1", collector, t0)
+	rt, _ := r.Enroll("ethereum-1", collector, t0, 1)
 	if err := rt.SetDenom("ibc/WETH", mintCfg(), t0, 0, -1); err == nil {
 		t.Fatalf("negative supply")
 	}
