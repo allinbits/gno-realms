@@ -97,6 +97,9 @@ const (
 	KindHandOver        = uint8(9)
 	KindRouteReplace    = uint8(10)
 	KindRouteSettings   = uint8(11)
+	KindSettle          = uint8(12)
+	KindReopen          = uint8(13)
+	maxSettleItems      = 8 // what a 1024-byte envelope holds with a 64-byte client id
 	maxCancelRanges     = 16
 	adminRoleID         = uint64(0)  // AccessManager's ADMIN_ROLE: never granted or revoked by kind 8
 	publicRoleID        = ^uint64(0) // AccessManager's PUBLIC_ROLE
@@ -753,4 +756,59 @@ func NewEthRouteSettingsRequest(cur realm, clientID string, quarantineSeconds ui
 	mustEthClientID(clientID)
 	return ethRequest(cur, "route settings", KindRouteSettings, "quarantine of "+clientID+": "+u64s(quarantineSeconds)+" s",
 		abi.Encode(abi.String(clientID), abi.Uint64(quarantineSeconds)))
+}
+
+// NewEthSettleRequest (kind 12) applies a reconciliation's outcomes to the
+// send records of clientId, the router client a route replacement retired
+// (ADR pr6375 §5.4, §7.12): items is a comma-separated list of
+// "sequence:action:amount" (amount in base units as decimal digits), at most
+// 8, each sequence once:
+//
+//   - 1 pay the refund's remainder: amount is exactly the entitlement minus
+//     what was already refunded (a refund is never cut short);
+//   - 2 reject a queued refund, amount 0;
+//   - 3 settled as delivered, amount 0;
+//   - 4 a forged refund: the unpaid remainder is rejected and what was
+//     already paid is recorded as a loss, atomically; amount is exactly what
+//     was paid.
+//
+// IBCAdmin applies it after 7 days; each send record is settled at most once.
+func NewEthSettleRequest(cur realm, clientID, items string) Request {
+	mustEthClientID(clientID)
+	list := splitList(items)
+	if len(list) == 0 || len(list) > maxSettleItems {
+		panic("ibcgov: name 1 to " + strconv.Itoa(maxSettleItems) + " settlement items")
+	}
+	seen := map[uint64]bool{}
+	var vals []abi.Value
+	for _, it := range list {
+		parts := strings.Split(it, ":")
+		if len(parts) != 3 {
+			panic("ibcgov: a settlement item is sequence:action:amount, not " + it)
+		}
+		seq, err1 := strconv.ParseUint(parts[0], 10, 64)
+		action, err2 := strconv.ParseUint(parts[1], 10, 8)
+		if err1 != nil || err2 != nil || seq == 0 || seen[seq] || action < 1 || action > 4 {
+			panic("ibcgov: not a settlement item, or a sequence named twice: " + it)
+		}
+		amount := mustUint256("amount", parts[2])
+		zero := strings.TrimLeft(parts[2], "0") == ""
+		if (action == 1 || action == 4) == zero {
+			panic("ibcgov: a payment or a forged refund names its positive amount, a rejection or a delivery 0: " + it)
+		}
+		seen[seq] = true
+		vals = append(vals, abi.Tuple(abi.Uint64(seq), abi.Uint64(action), amount))
+	}
+	return ethRequest(cur, "settle", KindSettle, "settle sends of "+clientID+": "+strings.Join(list, ","),
+		abi.Encode(abi.String(clientID), abi.Array(vals...)))
+}
+
+// NewEthReopenRequest (kind 13) reopens the route of clientID that a route
+// replacement or the emergency recovery closed (ADR pr6375 §5.4). IBCAdmin
+// applies it after 7 days; Ethereum refuses it while any send record of the
+// route's retired client ids is open, and records every loss not
+// recapitalized as an accepted deficit.
+func NewEthReopenRequest(cur realm, clientID string) Request {
+	mustEthClientID(clientID)
+	return ethRequest(cur, "reopen", KindReopen, "reopen the route of "+clientID, abi.Encode(abi.String(clientID)))
 }
