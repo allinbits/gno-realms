@@ -144,6 +144,13 @@ func main(cur realm) {
 		}
 	}
 
+	// Every acknowledgement IBCAdmin wrote parses to its epoch, seq, status
+	// and redispatch flag.
+	for _, v := range ethVectors {
+		e, seq, status, redispatch, ok := ibcgov.ParseAck(mustHex(v.ack))
+		println(v.name, ": ack parsed", ok, e == v.epoch, seq == v.seq, "status", status, "redispatch", redispatch)
+	}
+
 	// IBCAdmin's acknowledgements, delivered to our decisions with those numbers.
 	for _, v := range ethVectors {
 		if v.seq > 13 {
@@ -172,6 +179,22 @@ func main(cur realm) {
 // buffered-seq-13 : envelope equal true
 // spent-unknown-kind : not ours (another sender's bytes, an unknown kind, or seq 12 )
 // cancel-beyond-window : not ours (another sender's bytes, an unknown kind, or seq 200 )
+// kind2-unpause-route : ack parsed true true true status 1 redispatch false
+// kind3-seats : ack parsed true true true status 1 redispatch false
+// kind4-limits : ack parsed true true true status 1 redispatch false
+// kind5-voucher : ack parsed true true true status 1 redispatch false
+// kind6-client-add : ack parsed true true true status 1 redispatch false
+// kind7-upgrade : ack parsed true true true status 1 redispatch false
+// kind8-role-grant-relayer : ack parsed true true true status 1 redispatch false
+// kind9-handover : ack parsed true true true status 1 redispatch false
+// kind10-route : ack parsed true true true status 1 redispatch false
+// kind11-settings-lengthen : ack parsed true true true status 1 redispatch false
+// kind1-cancel : ack parsed true true true status 1 redispatch false
+// duplicate-of-seq-1 : ack parsed true true true status 3 redispatch false
+// conflict-at-seq-1 : ack parsed true true true status 4 redispatch false
+// buffered-seq-13 : ack parsed true true true status 2 redispatch false
+// spent-unknown-kind : ack parsed true true true status 5 redispatch false
+// cancel-beyond-window : ack parsed true true true status 2 redispatch true
 // kind2-unpause-route : seq 1 status 1 redispatch false - acknowledged: recorded
 // kind3-seats : seq 2 status 1 redispatch false - acknowledged: recorded
 // kind4-limits : seq 3 status 1 redispatch false - acknowledged: recorded

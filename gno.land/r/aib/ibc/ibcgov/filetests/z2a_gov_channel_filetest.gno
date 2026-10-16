@@ -150,12 +150,13 @@ func main(cur realm) {
 	show(4)
 
 	// Seq 5: a malformed acknowledgement (wrong seq) leaves it re-dispatchable;
-	// a conflict is final.
+	// a conflict without redispatch is final, with redispatch = 1 it is sent
+	// again (redispatch = 1 means re-send, whatever the status).
 	govern(cur, ibcgov.NewEthRouteSettingsRequest(cross(cur), "client-0", 7200))
 	ackAsCore(cur, client, 5, appAck(1, 6, ibcgov.StatusRecorded, 0))
 	show(5)
 	ibcgov.Redispatch(cross(cur), 1, 5)
-	ackAsCore(cur, client, 5, appAck(1, 5, ibcgov.StatusConflict, 1))
+	ackAsCore(cur, client, 5, appAck(1, 5, ibcgov.StatusConflict, 0))
 	show(5)
 	println("redispatch after a conflict:", revive(func() { ibcgov.Redispatch(cross(cur), 1, 5) }))
 
@@ -183,7 +184,7 @@ func main(cur realm) {
 //   seq 3 status 0 redispatch true in flight false sends 1 - error acknowledgement
 //   seq 4 status 1 redispatch true in flight false sends 1 - acknowledged: recorded, redispatch
 //   seq 5 status 0 redispatch true in flight false sends 1 - malformed acknowledgement
-//   seq 5 status 4 redispatch false in flight false sends 2 - acknowledged: conflict, redispatch
-// redispatch after a conflict: ibcgov: decision 5 is not re-dispatchable (acknowledged: conflict, redispatch)
+//   seq 5 status 4 redispatch false in flight false sends 2 - acknowledged: conflict
+// redispatch after a conflict: ibcgov: decision 5 is not re-dispatchable (acknowledged: conflict)
 //   seq 6 status 2 redispatch false in flight false sends 1 - acknowledged: buffered
 // unknown decision: ibcgov: no dispatched decision 1/99

@@ -394,20 +394,19 @@ func (a *App) OnAcknowledgementPacket(cur realm, sourceClient, destinationClient
 		chain.Emit("GovAck", "epoch", strconv.FormatUint(uint64(d.epoch), 10), "seq", u64s(d.seq), "status", "error")
 		return nil
 	}
-	if len(acknowledgement) != ackLen ||
-		binary.BigEndian.Uint32(acknowledgement[0:4]) != d.epoch ||
-		binary.BigEndian.Uint64(acknowledgement[4:12]) != d.seq ||
-		acknowledgement[12] < StatusRecorded || acknowledgement[12] > StatusSpent ||
-		acknowledgement[13] > 1 {
+	e, seq, status, redispatch, ok := ParseAck(acknowledgement)
+	if !ok || e != d.epoch || seq != d.seq {
 		d.redispatch = current
 		d.event = "malformed acknowledgement"
 		chain.Emit("GovAck", "epoch", strconv.FormatUint(uint64(d.epoch), 10), "seq", u64s(d.seq), "status", "malformed")
 		return nil
 	}
-	d.status = acknowledgement[12]
-	d.redispatch = current && acknowledgement[13] == 1 && d.status != StatusConflict
+	d.status = status
+	// redispatch = 1 means: send the same bytes again, whatever the status
+	// (a cancel beyond IBCAdmin's window is acknowledged buffered with it).
+	d.redispatch = current && redispatch
 	d.event = "acknowledged: " + statusWord(d.status)
-	if acknowledgement[13] == 1 {
+	if redispatch {
 		d.event += ", redispatch"
 	}
 	chain.Emit("GovAck", "epoch", strconv.FormatUint(uint64(d.epoch), 10), "seq", u64s(d.seq), "status", statusWord(d.status))
@@ -428,6 +427,17 @@ func (a *App) OnTimeoutPacket(cur realm, sourceClient, destinationClient string,
 	d.event = "timed out"
 	chain.Emit("GovTimeout", "epoch", strconv.FormatUint(uint64(d.epoch), 10), "seq", u64s(d.seq))
 	return nil
+}
+
+// ParseAck reads IBCAdmin's app acknowledgement
+// epoch u32 ‖ seq u64 ‖ status u8 ‖ redispatch u8 (big-endian, 14 bytes);
+// ok is false for any other length, a status outside 1–5 or a redispatch byte
+// other than 0 or 1.
+func ParseAck(b []byte) (e uint32, seq uint64, status uint8, redispatch bool, ok bool) {
+	if len(b) != ackLen || b[12] < StatusRecorded || b[12] > StatusSpent || b[13] > 1 {
+		return 0, 0, 0, false, false
+	}
+	return binary.BigEndian.Uint32(b[0:4]), binary.BigEndian.Uint64(b[4:12]), b[12], b[13] == 1, true
 }
 
 func statusWord(s uint8) string {
