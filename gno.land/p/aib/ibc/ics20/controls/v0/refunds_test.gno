@@ -560,3 +560,24 @@ func TestAggregatesNeverWrap(t *testing.T) {
 		t.Fatalf("%d", n)
 	}
 }
+
+// A zero settlement moves nothing, so the escrow's capacity does not gate it:
+// with the escrow short of what claims owe (free escrow negative) and the
+// incident's deficit accepted, a genuine refund paid in full still settles
+// (Codex round 4 #5).
+func TestZeroSettlementIgnoresCapacity(t *testing.T) {
+	r, rt := newRoute(t)
+	rt.RecordSend(sendRec(1, "ugnot", KindUnescrow, 1_000))
+	rt.Settle(t0+Day, 1, pk(1), OutcomeTimeout, false, big) // refunded in full
+	mustCredit(t, rt, t0, 5, "ugnot", alice, 1_000, big)     // a claim owes 1000
+	rt.RecordLoss(pk(9), "ugnot", 1_000, ChainGno, "inc", "collision")
+	rt.Accept("ugnot", 1_000, "inc")
+	r.Replace("ethereum-1", "ethereum-2", 0)
+	// The escrow is empty: free escrow is -1000.
+	if _, err := rt.SettleRecords("ethereum-1", []SettleItem{{Seq: 1, Action: SettlePay}}, "inc", lockOf(0)); err != nil {
+		t.Fatal(err)
+	}
+	if rec, _ := rt.Send(pk(1)); rec.Settlement != SettlePay {
+		t.Fatalf("%+v", rec)
+	}
+}

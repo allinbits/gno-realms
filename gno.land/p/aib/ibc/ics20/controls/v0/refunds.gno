@@ -519,6 +519,9 @@ func (rt *Route) SettleRecords(client string, items []SettleItem, incident strin
 			if it.Amount != r.Amount-r.Refunded {
 				return nil, ufmt.Errorf("controls: item %d: a refund pays send %s's whole remainder (%d), not %d", i, key, r.Amount-r.Refunded, it.Amount)
 			}
+			if it.Amount == 0 {
+				break // paid in full already: settles the record, moves nothing
+			}
 			var ok bool
 			if pays[r.Denom], ok = checkedAdd(pays[r.Denom], it.Amount); !ok {
 				return nil, ufmt.Errorf("controls: item %d: the settlement's payments overflow", i)
