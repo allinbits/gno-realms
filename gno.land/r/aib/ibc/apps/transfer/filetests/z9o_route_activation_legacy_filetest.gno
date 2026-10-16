@@ -138,8 +138,8 @@ func timeoutAsCore(cur realm, client string, seq uint64, p types.Payload) error 
 // every denom of their vouchers (Codex round 4 #3, #4): the staged
 // activation enables one route and one denom; the other 17 denoms of that
 // route, and the vouchers of a second client no decision enrolled, go back
-// through the legacy path, recorded, their refunds queued until a decision
-// enables them. The activated route takes no credit until the return impl/v0
+// through the legacy path, recorded, their refunds metered at the
+// activation's legacy refund cap. The activated route takes no credit until the return impl/v0
 // left outstanding is backfilled; the backfilled return's refund is metered.
 func main(cur realm) {
 	a := core.CreateClient(cross(cur), ethtesting.ClientState(), ethtesting.ConsensusState())
@@ -158,7 +158,7 @@ func main(cur realm) {
 	legacy := types.NewPacket(legacySeq, a, "client-0", msg.TimeoutTimestamp, msg.Payloads[0])
 
 	execute(cur, govern(cur, ibcgov.NewTransferActivateControlsRequest(cross(cur), "gno.land/r/aib/ibc/apps/transfer/impl/v1",
-		a, string(collector), token(1)+" mint 4000 10000 10 1 0 0 4000 -")))
+		a, string(collector), token(1)+" mint 4000 10000 10 1 0 0 4000 -", 4000)))
 	println("impl:", transfer.ImplVersion(), "| denoms enabled on", a, ":", len(controlsView().Denoms(a)))
 
 	// Every voucher goes back at once, the 17 denoms no decision enabled and
@@ -194,10 +194,8 @@ func main(cur realm) {
 	transfer.ClaimRefunds(cross(cur), a, vouchers[0], 20)
 	transfer.ClaimRefunds(cross(cur), a, vouchers[1], 20)
 	println("enabled denom's refund:", refundState(a, legacySeq), "| legacy denom's:", refundState(a, seqs[0]))
-	execute(cur, govern(cur, ibcgov.NewSetDenomRequest(cross(cur), a, token(2), "mint", 4000, 10000, 10, 1, 0, 0, 4000, "")))
-	advance(24 * time.Hour)
-	transfer.ClaimRefunds(cross(cur), a, vouchers[1], 20)
-	println("once enabled:", refundState(a, seqs[0]))
+	// The legacy denom's refund is paid by its meter, at the activation's
+	// legacy refund cap, with no further decision (Codex round 5 #6).
 }
 
 // Output:
@@ -205,5 +203,4 @@ func main(cur realm) {
 // legacy returns recorded: 17 of 17 | on ethereum-2 : true | legacy route: true
 // credit before the backfill: (2 gno.land/p/aib/ibc/types/v0.PacketStatus)
 // credit after it: (1 gno.land/p/aib/ibc/types/v0.PacketStatus)
-// enabled denom's refund: outcome timeout, payment claimed, refunded 40, backfilled true | legacy denom's: outcome timeout, payment queued, refunded 0, backfilled false
-// once enabled: outcome timeout, payment claimed, refunded 10, backfilled false
+// enabled denom's refund: outcome timeout, payment claimed, refunded 40, backfilled true | legacy denom's: outcome timeout, payment claimed, refunded 10, backfilled false

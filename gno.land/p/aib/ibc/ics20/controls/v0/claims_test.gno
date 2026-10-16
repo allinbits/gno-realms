@@ -626,7 +626,7 @@ func TestLegacyRouteAdopted(t *testing.T) {
 	if r.Legacy("ethereum-7") != rt || !rt.Legacy {
 		t.Fatalf("legacy route")
 	}
-	d := rt.LegacyDenom("ibc/WETH", KindMint, 900, t0)
+	d := rt.LegacyDenom("ibc/WETH", KindMint, 900, t0, 0)
 	if err := rt.RecordSend(sendRec7(1, 400)); err != nil {
 		t.Fatal(err)
 	}

@@ -142,7 +142,7 @@ func main(cur realm) {
 	// One decision switches to impl/v1 with the route and its denom staged
 	// (Codex round 3 #6): the controls and the route take effect together.
 	execute(cur, govern(cur, ibcgov.NewTransferActivateControlsRequest(cross(cur), "gno.land/r/aib/ibc/apps/transfer/impl/v1",
-		client, string(collector), weth+" mint 4000 10000 10 1 0 0 4000 -")))
+		client, string(collector), weth+" mint 4000 10000 10 1 0 0 4000 -", 4000)))
 	t, _ := controlsView().Totals(client, voucher)
 	println("impl:", transfer.ImplVersion(), "| denoms on the route:", len(controlsView().Denoms(client)), "| outstanding at enable:", t.Outstanding)
 

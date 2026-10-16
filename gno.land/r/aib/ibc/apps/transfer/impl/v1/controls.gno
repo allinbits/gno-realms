@@ -132,7 +132,7 @@ func (l *logic) Backfill(_ int, rlm realm, packet types.Packet) {
 		if tok := l.store.VoucherToken(accDenom); kind == controls.KindMint && tok != nil {
 			supply = tok.TotalSupply()
 		}
-		rt.LegacyDenom(accDenom, kind, supply, now())
+		rt.LegacyDenom(accDenom, kind, supply, now(), reg.LegacyRefundCap())
 	}
 	key := controls.PacketKey(packet.SourceClient, packet.Sequence)
 	err = rt.Backfill(controls.SendRecord{
@@ -349,6 +349,13 @@ func (l *logic) GovApply(_ int, rlm realm, op string, params []byte) string {
 	}
 	reg := l.registry(0, rlm)
 	t := now()
+	if op == controls.OpLegacyRefundCap {
+		if err := reg.SetLegacyRefundCap(p.Amount); err != nil {
+			return err.Error()
+		}
+		transfer.EmitRoute(0, rlm, "gov", "op", op, "cap", strconv.FormatInt(p.Amount, 10))
+		return ""
+	}
 	if op == controls.OpEnroll {
 		if !isEthereum(p.Route) || core.IsClientRetired(p.Route) {
 			return p.Route + " is no usable Ethereum client"

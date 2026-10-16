@@ -563,7 +563,8 @@ const maxActivationDenoms = 16
 // no moment exists in which an Ethereum client is under the controls but its
 // vouchers cannot go back.
 type activateParams struct {
-	path   string
+	path            string
+	legacyRefundCap int64
 	enroll controls.Params
 	denoms []controls.Params
 }
@@ -591,6 +592,9 @@ func (p *activateParams) apply(cur realm, t int64) (string, string) {
 		return "", refusal
 	}
 	transfer.UpdateImpl(cross(cur), p.path)
+	if refusal := transfer.GovApply(cross(cur), controls.OpLegacyRefundCap, controls.Params{Amount: p.legacyRefundCap}.Encode()); refusal != "" {
+		panic("ibcgov: the legacy refund cap could not be set: " + refusal)
+	}
 	if refusal := transfer.GovApply(cross(cur), controls.OpEnroll, p.enroll.Encode()); refusal != "" {
 		panic("ibcgov: the staged route could not be enrolled: " + refusal)
 	}
@@ -611,8 +615,11 @@ func (p *activateParams) apply(cur realm, t int64) (string, string) {
 // the switch, recorded and metered, with no later decision. denoms is a
 // ";"-separated list of "denom kind capFloor supplyCap fee feeFloor sendMax
 // sendMin refundCap remoteToken" (space-separated, as NewSetDenomRequest
-// takes them; remoteToken "-" for none), at most 16.
-func NewTransferActivateControlsRequest(cur realm, path, clientID, feeCollector, denoms string) Request {
+// takes them; remoteToken "-" for none), at most 16. legacyRefundCap, positive,
+// is the refund meter's day cap of every legacy denom: impl/v0's returns over
+// clients and denoms no decision enabled yet go back through the legacy path,
+// and their genuine refunds are paid as that meter refills.
+func NewTransferActivateControlsRequest(cur realm, path, clientID, feeCollector, denoms string, legacyRefundCap int64) Request {
 	mustImplPath(TransferPath, path)
 	if refusal := checkNewRouteClient(clientID); refusal != "" {
 		panic("ibcgov: " + refusal)
@@ -621,7 +628,10 @@ func NewTransferActivateControlsRequest(cur realm, path, clientID, feeCollector,
 		panic("ibcgov: " + clientID + " is a route already")
 	}
 	fc := mustAddr(feeCollector)
-	p := &activateParams{path: path, enroll: controls.Params{Route: clientID, To: fc}}
+	if legacyRefundCap <= 0 {
+		panic("ibcgov: the legacy refund cap is positive")
+	}
+	p := &activateParams{path: path, legacyRefundCap: legacyRefundCap, enroll: controls.Params{Route: clientID, To: fc}}
 	var names []string
 	seen := map[string]bool{}
 	for _, spec := range strings.Split(denoms, ";") {
@@ -655,7 +665,8 @@ func NewTransferActivateControlsRequest(cur realm, path, clientID, feeCollector,
 	if len(p.denoms) == 0 || len(p.denoms) > maxActivationDenoms {
 		panic("ibcgov: stage 1 to " + strconv.Itoa(maxActivationDenoms) + " denoms")
 	}
-	text := "transfer: activate " + path + " with route " + clientID + " (fee collector " + string(fc) + ") and denoms " + strings.Join(names, "; ")
+	text := "transfer: activate " + path + " with route " + clientID + " (fee collector " + string(fc) + "), legacy refund cap " +
+		itoa(legacyRefundCap) + " a day, and denoms " + strings.Join(names, "; ")
 	return propose(cur, "transfer activate controls", text, func(cur realm, made, t int64) {
 		decide(cur, "transfer activate controls", text, p, made, t, true)
 	})

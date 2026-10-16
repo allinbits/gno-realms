@@ -134,7 +134,7 @@ func (l *logic) Transfer(_ int, rlm realm, sent []chain.Coin, clientID, receiver
 		// recorded, its refund queued until the denom is enabled.
 		acc := rt.Denom(denom)
 		if acc == nil {
-			acc = rt.LegacyDenom(denom, controls.KindMint, l.store.VoucherToken(denom).TotalSupply(), now())
+			acc = rt.LegacyDenom(denom, controls.KindMint, l.store.VoucherToken(denom).TotalSupply(), now(), l.registry(0, rlm).LegacyRefundCap())
 		}
 		if acc.Config.Kind != controls.KindMint {
 			panic(ufmt.Sprintf("denom %s is accounted as %s on route %s", denom, acc.Config.Kind, rt.Key))

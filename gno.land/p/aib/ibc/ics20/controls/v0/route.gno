@@ -109,6 +109,8 @@ type Registry struct {
 	routes  avl.Tree // route key -> *Route
 	aliases avl.Tree // current client id -> route key
 	retired avl.Tree // retired client id -> route key
+
+	legacyRefundCap int64 // the refund cap of the legacy denoms, set by the activation
 }
 
 // NewRegistry is an empty registry.
@@ -142,6 +144,22 @@ func (r *Registry) Enroll(key string, collector address, now, height int64) (*Ro
 	r.aliases.Set(key, key)
 	return rt, nil
 }
+
+// SetLegacyRefundCap sets the refund meter's day cap of every legacy denom
+// the legacy path makes from now on: the activation decision's approved
+// budget, so the genuine refunds of legacy returns are paid as the meter
+// refills, with no further decision (ADR pr6375 R17, §7.13).
+func (r *Registry) SetLegacyRefundCap(n int64) error {
+	if n <= 0 {
+		return errors.New("controls: the legacy refund cap must be positive")
+	}
+	r.legacyRefundCap = n
+	return nil
+}
+
+// LegacyRefundCap is the refund cap of the legacy denoms (0 before an
+// activation approved one).
+func (r *Registry) LegacyRefundCap() int64 { return r.legacyRefundCap }
 
 // Legacy is the route of an Ethereum client no decision enrolled, made on
 // first use: the legacy path that keeps impl/v0's vouchers going back after
@@ -550,14 +568,14 @@ type queue struct {
 // LegacyDenom is a denom the legacy path made: a voucher (KindMint) of
 // impl/v0 going back, or a gno-native token whose send impl/v0 made, before a
 // decision enabled the denom. It starts with outstanding (the voucher supply
-// impl/v0 left) and a refund cap of zero: its records are kept and their
-// refunds wait in the refund queue until a decision enables the denom
-// (SetDenom keeps them). It takes no credit.
-func (rt *Route) LegacyDenom(name, kind string, outstanding, now int64) *Denom {
+// impl/v0 left) and refundCap, the activation's legacy refund cap: its
+// refunds are paid as its refund meter refills (none while the cap is 0). A
+// decision enabling the denom keeps its records. It takes no credit.
+func (rt *Route) LegacyDenom(name, kind string, outstanding, now, refundCap int64) *Denom {
 	if d := rt.Denom(name); d != nil {
 		return d
 	}
-	d := &Denom{Name: name, Config: DenomConfig{Kind: kind}, Legacy: true}
+	d := &Denom{Name: name, Config: DenomConfig{Kind: kind, RefundCap: refundCap}, Legacy: true}
 	if kind == KindMint && outstanding > 0 {
 		d.Totals.Outstanding = outstanding
 	}

@@ -28,6 +28,7 @@ const (
 	OpSettle       = "settle"       // Route, Client (the retired client), Items, Incident
 	OpReplace      = "replace"      // Route, Client (the new client), Height (the suspect interval start)
 	OpReopen       = "reopen"       // Route
+	OpLegacyRefundCap = "legacy refund cap" // Amount
 )
 
 // Params are the parameters of a governance operation; each operation reads

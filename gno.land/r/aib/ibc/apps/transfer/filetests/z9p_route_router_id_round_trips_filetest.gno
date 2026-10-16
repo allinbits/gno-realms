@@ -138,7 +138,7 @@ func main(cur realm) {
 		core.RegisterCounterparty(cross(cur), client, [][]byte{{}}, remote)
 		if i == 0 {
 			execute(cur, govern(cur, ibcgov.NewTransferActivateControlsRequest(cross(cur), "gno.land/r/aib/ibc/apps/transfer/impl/v1",
-				client, string(collector), denoms)))
+				client, string(collector), denoms, 4000)))
 		} else {
 			execute(cur, govern(cur, ibcgov.NewEnrollRouteRequest(cross(cur), client, string(collector))))
 			for _, spec := range strings.Split(denoms, ";") {
