@@ -622,7 +622,11 @@ func (rt *Route) SettleRecords(client string, items []SettleItem, incident strin
 		if _, ok := checkedAdd(d.Totals.Outstanding, total); d.Config.Kind == KindMint && !ok {
 			return nil, errors.New("controls: the settlement's refunds would overflow the outstanding supply of " + denom)
 		}
-		free := lock(denom) - d.Reserved() + queued[denom]
+		// The escrow the other liabilities reserve: claims, and the queued
+		// refunds this settlement does not pay (never adding back to a
+		// saturated total).
+		reserved := boundAdd(boundAdd(d.Totals.Owed, d.Totals.Withheld), d.Totals.QueuedRefunds-queued[denom])
+		free := lock(denom) - reserved
 		if d.Config.Kind == KindUnescrow && total > free {
 			return nil, ufmt.Errorf("controls: %d of %s is above the free lock of %d", total, denom, free)
 		}

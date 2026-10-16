@@ -662,3 +662,18 @@ func TestProvenOutcomes(t *testing.T) {
 		t.Fatalf("booked a receive that paid nothing")
 	}
 }
+
+// A settlement's refund never takes the escrow the claims reserve, even when
+// claims and refunds together exceed what an int64 holds (Codex round 5 #3).
+func TestSettlementReserveBeyondMaxInt64(t *testing.T) {
+	r, rt := newRoute(t)
+	d := rt.Denom("ugnot")
+	const big5 = int64(5_000_000_000_000_000_000)
+	rt.RecordSend(sendRec(1, "ugnot", KindUnescrow, big5))
+	rt.Settle(t0, 1, pk(1), OutcomeTimeout, true, 0) // queued under a hold
+	d.Totals.Owed = big5                             // claims owe 5e18 too
+	r.Replace("ethereum-1", "ethereum-2", 0, 1000)
+	if _, err := settleProven(rt, "ethereum-1", []SettleItem{{Seq: 1, Action: SettlePay, Amount: big5}}, "inc", lockOf(maxInt64)); err == nil {
+		t.Fatalf("paid a refund out of the escrow the claims reserve")
+	}
+}
