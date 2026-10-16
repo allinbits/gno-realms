@@ -275,4 +275,3 @@ func main(cur realm) {
 // ----------- receiver balance (100ugnot released)
 // 100ugnot
 // ----------- transfer realm balance (escrow emptied)
-

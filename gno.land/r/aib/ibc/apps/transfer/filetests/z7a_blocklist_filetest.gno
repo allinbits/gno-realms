@@ -34,6 +34,7 @@ func main(cur realm) {
 // - **Implementation**: [`gno.land/r/aib/ibc/apps/transfer/impl/v0`](/r/aib/ibc/apps/transfer/impl/v0) (version v0)
 // - **Registered implementations**:
 //   - gno.land/r/aib/ibc/apps/transfer/impl/v0
+//   - gno.land/r/aib/ibc/apps/transfer/impl/v1
 // - **Blocked addresses**:
 //   - g1wdhk6et0w35x2ujlta047h6lta047h6l82cvgx
 //
@@ -47,6 +48,7 @@ func main(cur realm) {
 // - **Implementation**: [`gno.land/r/aib/ibc/apps/transfer/impl/v0`](/r/aib/ibc/apps/transfer/impl/v0) (version v0)
 // - **Registered implementations**:
 //   - gno.land/r/aib/ibc/apps/transfer/impl/v0
+//   - gno.land/r/aib/ibc/apps/transfer/impl/v1
 // - **Blocked addresses**: none
 
 // Events:

@@ -32,4 +32,4 @@ func main(cur realm) {
 
 // Output:
 // ----------- assert render apps
-// [{"port_id":"transfer","pkg_path":"gno.land/r/aib/ibc/apps/transfer","address":"g1tp3gk4quumurav4858hjfdy6hxtyffwmnxyr00","paused":false}]
+// [{"port_id":"transfer","pkg_path":"gno.land/r/aib/ibc/apps/transfer","address":"g1tp3gk4quumurav4858hjfdy6hxtyffwmnxyr00","paused":false},{"port_id":"gov","pkg_path":"gno.land/r/aib/ibc/ibcgov","address":"g12l3du5z70zzq9rkc82asre09srefve7p5mfay4","paused":false}]
