@@ -179,3 +179,22 @@ func TestExtractDenomFromPath(t *testing.T) {
 		})
 	}
 }
+
+// Ethereum router client ids are hops on an Ethereum route: suffixless and
+// up to 128 characters (Codex round 4 #2, class C).
+func TestRouterHops(t *testing.T) {
+	long := "gnoland." + strings.Repeat("x", 120)
+	for _, id := range []string{"gnoland", "gnoland." + strings.Repeat("x", 57), long} {
+		d := ics20.ExtractDenomFromPathFunc("transfer/"+id+"/ugnot", ics20.IsHopClientID)
+		urequire.Equal(t, 1, len(d.Trace), id)
+		urequire.Equal(t, id, d.Trace[0].ClientId)
+		urequire.Equal(t, "ugnot", d.Base)
+		urequire.NoError(t, d.ValidateBasic(), id)
+	}
+	// The SDK parser keeps its rule.
+	d := ics20.ExtractDenomFromPath("transfer/gnoland/ugnot")
+	urequire.Equal(t, 0, len(d.Trace))
+	// 129 characters is no router id.
+	bad := ics20.ExtractDenomFromPathFunc("transfer/"+long+"x/ugnot", ics20.IsHopClientID)
+	urequire.Equal(t, 0, len(bad.Trace))
+}

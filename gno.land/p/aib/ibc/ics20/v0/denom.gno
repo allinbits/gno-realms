@@ -121,8 +121,23 @@ func (d Denom) MarshalJSON() []byte {
 	return []byte(d.RenderJSON().String())
 }
 
-// ExtractDenomFromPath returns the denom from the full path.
+// ExtractDenomFromPath returns the denom from the full path, its hops'
+// client ids in the SDK's {type}-{N} format.
 func ExtractDenomFromPath(fullPath string) Denom {
+	return ExtractDenomFromPathFunc(fullPath, types.IsValidClientID)
+}
+
+// IsHopClientID reports whether id can be a hop's client id: an SDK client
+// id, or an Ethereum ICS26 router's ("client-N", or a custom id of up to 128
+// characters such as "gnoland").
+func IsHopClientID(id string) bool {
+	return types.IsValidClientID(id) || types.IsValidRouterClientID(id)
+}
+
+// ExtractDenomFromPathFunc is ExtractDenomFromPath with the client ids of the
+// hops recognized by isClientID: on an Ethereum route, IsHopClientID, so a
+// gno-native token returning as "transfer/gnoland/ugnot" has its hop.
+func ExtractDenomFromPathFunc(fullPath string, isClientID func(string) bool) Denom {
 	denomSplit := strings.Split(fullPath, "/")
 
 	if denomSplit[0] == fullPath {
@@ -148,7 +163,7 @@ func ExtractDenomFromPath(fullPath string) Denom {
 		// parsed, but the token will continue to be treated correctly as an IBC
 		// denomination. The hash used to store the token internally on our chain
 		// will be the same value as the base denomination being correctly parsed.
-		if i < length-1 && length > 2 && types.IsValidClientID(denomSplit[i+1]) {
+		if i < length-1 && length > 2 && isClientID(denomSplit[i+1]) {
 			trace = append(trace, NewHop(denomSplit[i], denomSplit[i+1]))
 		} else {
 			baseDenomSlice = denomSplit[i:]
@@ -180,7 +195,7 @@ func (h Hop) ValidateBasic() error {
 	if err := host.PortIdentifierValidator(h.PortId); err != nil {
 		return ufmt.Errorf("invalid hop source port ID %s", h.PortId)
 	}
-	if err := host.ClientIdentifierValidator(h.ClientId); err != nil {
+	if err := host.ClientIdentifierValidator(h.ClientId); err != nil && !types.IsValidRouterClientID(h.ClientId) {
 		return ufmt.Errorf("invalid hop source client ID %s", h.ClientId)
 	}
 

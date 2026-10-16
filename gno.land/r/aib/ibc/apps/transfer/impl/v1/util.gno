@@ -71,7 +71,7 @@ func unmarshalPayload(payload types.Payload) (ics20.FungibleTokenPacketData, ics
 	if err := data.ValidateBasic(); err != nil {
 		return data, ics20.Token{}, ufmt.Errorf("invalid FungibleTokenPacketData: %v", err)
 	}
-	denom := ics20.ExtractDenomFromPath(data.Denom)
+	denom := ics20.ExtractDenomFromPathFunc(data.Denom, ics20.IsHopClientID)
 	token := ics20.Token{Denom: denom, Amount: data.Amount}
 	return data, token, nil
 }
