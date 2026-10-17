@@ -780,3 +780,31 @@ func TestOneLossPerPacket(t *testing.T) {
 		}
 	}
 }
+
+// The ledger keeps a loss per packet and direction (Codex round 10 #2): the
+// inbound and the outbound packet of one client and sequence are two
+// entries, in either order, and the entries sum to the totals.
+func TestLossesByDirection(t *testing.T) {
+	for _, gnoFirst := range []bool{true, false} {
+		r, rt := newRoute(t)
+		in := func() error { return rt.RecordLoss(pk(9), "ugnot", 100, ChainGno, "inc", "forged-delivery") }
+		out := func() error { return rt.RecordLoss(pk(9), "ugnot", 200, ChainEthereum, "inc", "forged-delivery") }
+		first, second := out, in
+		if gnoFirst {
+			first, second = in, out
+		}
+		if err := first(); err != nil {
+			t.Fatal(err)
+		}
+		if err := second(); err != nil {
+			t.Fatal(err)
+		}
+		js := (Reader{r: r}).LossesJSON("ethereum-1", "")
+		if strings.Count(js, `"key":`) != 2 || !strings.Contains(js, `"amount":100`) || !strings.Contains(js, `"amount":200`) {
+			t.Fatalf("ledger: %s", js)
+		}
+		if rt.Denom("ugnot").Totals.Lost != 300 || rt.Incident("ugnot", "inc").Lost != 300 {
+			t.Fatalf("totals: %+v", rt.Denom("ugnot").Totals)
+		}
+	}
+}

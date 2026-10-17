@@ -42,8 +42,6 @@ type Recap struct {
 	Revoked  bool // revoked by decision, or by an alternative resolution of its loss
 }
 
-func lossKey(key, cause string) string { return key + "|" + cause }
-
 // Packet directions of a loss: a packet received on gno.land (its claim or
 // sweep entry), or one gno.land sent (its send record). A client's inbound
 // and outbound sequences are distinct spaces, so the direction is part of a
@@ -53,14 +51,16 @@ const (
 	DirSend = "send"
 )
 
-// lossID is a packet's economic-loss identity: one loss per packet and
-// direction, whatever its cause, so no payout is booked twice through two
-// paths (a void, a settlement, a recorded loss).
+// lossID is a packet's economic-loss identity, and the key of its entry in
+// the ledger: one loss per packet and direction, whatever its cause (kept as
+// the entry's metadata), so no payout is booked twice through two paths (a
+// void, a settlement, a recorded loss), and the two directions of one client
+// and sequence are two entries.
 func lossID(dir, key string) string { return dir + "|" + key }
 
 // LossBooked reports whether a loss of the packet key in direction dir is in
 // the ledger.
-func (rt *Route) LossBooked(dir, key string) bool { return rt.lossIDs.Has(lossID(dir, key)) }
+func (rt *Route) LossBooked(dir, key string) bool { return rt.losses.Has(lossID(dir, key)) }
 
 // IncidentTotals is the loss ledger of one incident on one denom: what it
 // lost and how much of that each restoring decision resolved. Resolutions of
@@ -214,11 +214,10 @@ func (rt *Route) addLoss(d *Denom, l Loss) {
 	if !ok1 || !ok2 {
 		panic("controls: the loss ledger would overflow")
 	}
-	if l.Direction != DirRecv && l.Direction != DirSend || rt.lossIDs.Has(lossID(l.Direction, l.Key)) {
+	if l.Direction != DirRecv && l.Direction != DirSend || rt.losses.Has(lossID(l.Direction, l.Key)) {
 		panic("controls: a packet's loss is booked once")
 	}
-	rt.losses.Set(lossKey(l.Key, l.Cause), &l)
-	rt.lossIDs.Set(lossID(l.Direction, l.Key), lossKey(l.Key, l.Cause))
+	rt.losses.Set(lossID(l.Direction, l.Key), &l)
 	d.Totals.Lost = lost
 	it.Lost = itLost
 	rt.lossesBooked++
