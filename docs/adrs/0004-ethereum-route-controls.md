@@ -302,7 +302,16 @@ gno client governance approves to carry the epoch over the new router
 client: `NewEthRouteReplacementRequest(old, new, suspectFrom, localClient)`
 dispatches the kind 10 at once and records its transition as a decision of
 its own ("expect transition", 7 days, deferred by a hold: approving a local
-verifier loosens; a notice before it applies is refused and sent again),
+verifier loosens; a notice before it applies is refused and sent again).
+From the dispatch (or the recording of a recovery expectation) the
+transition is an intent: it counts against the old client's four
+successors at once (a fifth competing kind 10 is refused when built or
+dispatched, and a refused, spent or cancelled expectation releases its
+place) and keeps its clients open for governance, but it grants notice
+authority only once its expectation applies (z9zzb: the losers'
+expectations applied first never crowd out the winner's; z9zzc: a client on
+a pending path, its route replacement executed, stays open for governance
+and its expectation, executed last, applies),
 and
 `NewExpectRecoveryRequest(old, new, localClient)` (7 days, deferred by a
 hold: approving a local verifier loosens, and it fits within Ethereum's
@@ -477,8 +486,8 @@ is installed, so the decision is spent:
 | core/transfer add/remove member | member already / not a member / ibcgov itself |
 | transfer block/unblock | blocked already / not blocked |
 | route operations (`GovApply`) | every refusal returned, including no controls installed; a sweep payment or settlement refund that its token or the banker would refuse (`payable`, checked per denom before anything changes: a valid recipient other than the transfer realm, the voucher token and its supply room, the registered GRC20 and this realm's balance, the escrow accounting and the bank balance; z9zr), the entitlement kept; a sweep payment under a payouts flag, or a settlement paying refunds under a refunds hold, is deferred (stays pending) rather than spent |
-| route enrollment | as `GovApply`; the client no longer usable (`checkRouteClient` again at execution: not Active, retired, not Ethereum, no counterparty, a route's already), or naming no route identity, or reading another router than the bridge's (z9zt), before either realm changes |
-| route replacement | as `GovApply`; the new client unusable; the route's client moved; the new client no longer authenticating the route's identity (z9zt) |
+| route enrollment | as `GovApply`; the client no longer usable (`checkRouteClient` again at execution: not Active, retired on any port (governance's included: a client an epoch notice moved past, `core.IsClientRetiredAny`), not Ethereum, no counterparty, a route's already), or naming no route identity, or reading another router than the bridge's (z9zt), before either realm changes |
+| route replacement | as `GovApply`; the new client unusable (retired on any port: a stale replacement to a client governance moved past, z9zzb); the route's client moved; the new client no longer authenticating the route's identity (z9zt) |
 | bind governance | bound already; not Active, or not the current client of an enrolled route |
 | seats | an address in two seats; nothing to change |
 | unpause route | spent under a hold; no flag |
