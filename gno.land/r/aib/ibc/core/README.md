@@ -418,8 +418,11 @@ and packet state; its trust generation advances, and ibcgov empties its
 route's payout meters.
 
 `ethereum-fork-schedule` (params `ethereum.EncodeForkParameters(...)`)
-changes the fork schedule of the existing Ethereum verifier in place. The
-new schedule is checked
+changes the fork schedule of the client's verifier in place, through the
+`CheckForkParameters` and `MigrateForkParameters` methods the verifier
+implements: ethereum/v0's verifier, and a later version embedding it. A
+verifier without them is refused when the decision is checked, and the
+decision is spent. The new schedule is checked
 (`ethereum.CheckForkParameters`, through `CheckMigrateClient`) when the
 decision executes, before anything changes: the client must be Active, the schedule must differ from the current
 one, the genesis fork version and slot never change, every fork already
