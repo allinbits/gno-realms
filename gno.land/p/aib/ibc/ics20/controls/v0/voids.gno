@@ -72,9 +72,24 @@ type IncidentTotals struct {
 	Recapitalized int64
 	Reduced       int64
 	Accepted      int64
-	// The outstanding balances, exact and checked (see Totals).
+	// The outstanding balances, exact beyond int64, their views saturating
+	// (see Totals).
 	OpenUnrecovered int64
 	OpenUnresolved  int64
+
+	w [2]wide // the exact OpenUnrecovered and OpenUnresolved
+}
+
+// The wide counters of IncidentTotals.
+const (
+	iUnrec = iota
+	iUnres
+)
+
+func (it *IncidentTotals) add(f int, x int64) { it.w[f].add(x); it.sync() }
+func (it *IncidentTotals) sub(f int, x int64) { it.w[f].sub(x); it.sync() }
+func (it *IncidentTotals) sync() {
+	it.OpenUnrecovered, it.OpenUnresolved = it.w[iUnrec].sat(), it.w[iUnres].sat()
 }
 
 func incidentKey(denom, incident string) string { return denom + "|" + incident }
@@ -143,28 +158,11 @@ func (rt *Route) Void(keys []string, forged bool, incident string) error {
 	if err := parseKeys(keys); err != nil {
 		return err
 	}
-	losses := map[string]int64{}
+	// Each void books its own loss, an int64; the ledger's balances are
+	// wide, so no sum of them is refused.
 	for _, k := range keys {
 		if !rt.Voidable(k, forged) {
 			return errors.New("controls: " + k + " cannot be voided " + voidWord(forged) + " as it stands")
-		}
-		denom, paid := "", int64(0)
-		if c := rt.claim(k); c != nil && forged {
-			denom, paid = c.Denom, c.Paid
-		} else if e := rt.sweep(k); e != nil {
-			denom, paid = e.Denom, e.paidOut()
-		}
-		if paid > 0 {
-			sum, ok := checkedAdd(losses[denom], paid)
-			if !ok {
-				return errors.New("controls: the void's losses would overflow the loss ledger of " + denom)
-			}
-			losses[denom] = sum
-		}
-	}
-	for denom, amount := range losses {
-		if err := rt.lossFits(denom, incident, amount); err != nil {
-			return err
 		}
 	}
 	for _, k := range keys {
@@ -237,9 +235,25 @@ func (rt *Route) accept(denom, incident string, amount int64) {
 		panic("controls: an acceptance beyond the unresolved losses")
 	}
 	defer rt.noteUnresolved(d, t.OpenUnresolved)
-	t.OpenUnresolved -= amount
-	it.OpenUnresolved -= amount
+	t.sub(wUnres, amount)
+	it.sub(iUnres, amount)
 	t.Accepted, it.Accepted = statAdd(t.Accepted, amount), statAdd(it.Accepted, amount)
+}
+
+// acceptAll records the whole of an incident's unresolved losses on denom,
+// exact however far past int64 they are, as an accepted deficit (a
+// reopening's batch).
+func (rt *Route) acceptAll(denom, incident string) {
+	d := rt.Denom(denom)
+	t := &d.Totals
+	it := rt.incident(denom, incident)
+	defer rt.noteUnresolved(d, t.OpenUnresolved)
+	stat := it.OpenUnresolved
+	t.w[wUnres] = wideMinus(t.w[wUnres], it.w[iUnres])
+	t.sync(wUnres)
+	it.w[iUnres] = wide{}
+	it.sync()
+	t.Accepted, it.Accepted = statAdd(t.Accepted, stat), statAdd(it.Accepted, stat)
 }
 
 // recover takes a paid recapitalization or a reduction off the outstanding
@@ -255,13 +269,13 @@ func (rt *Route) recover(denom, incident string, amount int64) {
 	}
 	defer rt.noteUnresolved(d, t.OpenUnresolved)
 	x := amount
-	if x > it.OpenUnresolved {
+	if x > it.OpenUnresolved { // a saturated view is exact here: amount fits int64
 		x = it.OpenUnresolved
 	}
-	t.OpenUnrecovered -= amount
-	it.OpenUnrecovered -= amount
-	t.OpenUnresolved -= x // the incident's unresolved part is within the denom's
-	it.OpenUnresolved -= x
+	t.sub(wUnrec, amount)
+	it.sub(iUnrec, amount)
+	t.sub(wUnres, x) // the incident's unresolved part is within the denom's
+	it.sub(iUnres, x)
 }
 
 // lossFits refuses a loss the ledger's outstanding balances (the denom's and
@@ -270,30 +284,26 @@ func (rt *Route) recover(denom, incident string, amount int64) {
 // resolved loss frees its capacity.
 func (rt *Route) lossFits(denom, incident string, amount int64) error {
 	d := rt.Denom(denom)
-	if amount < 0 || amount > maxInt64-d.Totals.OpenUnrecovered || amount > maxInt64-rt.Incident(denom, incident).OpenUnrecovered {
-		return errors.New("controls: the loss would overflow the loss ledger of " + denom)
+	if d == nil || amount < 0 {
+		return errors.New("controls: a loss of " + denom + " is a positive amount of an enabled denom")
 	}
-	return nil
+	return nil // the outstanding balances are wide: a loss never overflows them
 }
 
 // addLoss books a loss its caller checked fits (lossFits); an addition that
 // would still overflow is a broken invariant and aborts.
 func (rt *Route) addLoss(d *Denom, l Loss) {
 	it := rt.incident(l.Denom, l.Incident)
-	unrec, ok1 := checkedAdd(d.Totals.OpenUnrecovered, l.Amount)
-	itUnrec, ok2 := checkedAdd(it.OpenUnrecovered, l.Amount)
-	if !ok1 || !ok2 {
-		panic("controls: the loss ledger would overflow")
-	}
 	if l.Direction != DirRecv && l.Direction != DirSend || rt.losses.Has(lossID(l.Direction, l.Key)) {
 		panic("controls: a packet's loss is booked once")
 	}
 	rt.losses.Set(lossID(l.Direction, l.Key), &l)
-	d.Totals.OpenUnrecovered, it.OpenUnrecovered = unrec, itUnrec
 	was := d.Totals.OpenUnresolved
-	d.Totals.OpenUnresolved = mustAdd(d.Totals.OpenUnresolved, l.Amount) // at most OpenUnrecovered
+	d.Totals.add(wUnrec, l.Amount)
+	it.add(iUnrec, l.Amount)
+	d.Totals.add(wUnres, l.Amount)
+	it.add(iUnres, l.Amount)
 	rt.noteUnresolved(d, was)
-	it.OpenUnresolved = mustAdd(it.OpenUnresolved, l.Amount)
 	d.Totals.Lost, it.Lost = statAdd(d.Totals.Lost, l.Amount), statAdd(it.Lost, l.Amount)
 	rt.lossesBooked++
 }

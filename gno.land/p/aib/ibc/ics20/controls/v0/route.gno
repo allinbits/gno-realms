@@ -403,7 +403,7 @@ func (rt *Route) reopenBatch() (int64, bool, error) {
 		it := v.(*IncidentTotals)
 		if rest := it.OpenUnresolved; rest > 0 {
 			i := strings.Index(k, "|")
-			rt.accept(k[:i], k[i+1:], rest)
+			rt.acceptAll(k[:i], k[i+1:])
 			accepted = statAdd(accepted, rest)
 		}
 		rt.reopenIncident = k
@@ -602,16 +602,18 @@ type Totals struct {
 	Recapitalized int64
 	Reduced       int64
 	Accepted      int64
-	// The outstanding balances, exact and checked: losses neither
-	// recapitalized nor reduced (OpenUnrecovered), and of those, the ones
-	// not accepted as a deficit either (OpenUnresolved). A loss is admitted
-	// when it fits these, so resolved losses free their capacity.
+	// The outstanding balances: losses neither recapitalized nor reduced
+	// (OpenUnrecovered), and of those, the ones not accepted as a deficit
+	// either (OpenUnresolved). Kept exact beyond int64 (wide: refunds paid
+	// and forged can pass 2^63 in total), their int64 views saturating; a
+	// loss is never refused for them.
 	OpenUnrecovered int64
 	OpenUnresolved  int64
 
-	// The exact counters behind InFlight, Returning, QueuedRefunds, Parked
-	// and ProvenOwed, whose int64 views saturate (see arith.gno).
-	w [5]wide
+	// The exact counters behind InFlight, Returning, QueuedRefunds, Parked,
+	// ProvenOwed, OpenUnrecovered and OpenUnresolved, whose int64 views
+	// saturate (see arith.gno).
+	w [7]wide
 }
 
 // The wide counters of Totals.
@@ -621,6 +623,8 @@ const (
 	wQueued
 	wParked
 	wProven
+	wUnrec
+	wUnres
 )
 
 func (t *Totals) add(f int, x int64) { t.w[f].add(x); t.sync(f) }
@@ -645,6 +649,10 @@ func (t *Totals) sync(f int) {
 		t.Parked = v
 	case wProven:
 		t.ProvenOwed = v
+	case wUnrec:
+		t.OpenUnrecovered = v
+	case wUnres:
+		t.OpenUnresolved = v
 	}
 }
 

@@ -567,9 +567,8 @@ func (rt *Route) PlanSettlement(client string, items []SettleItem, incident stri
 	// owe at most Owed, or Withheld, each an int64 checked at every credit.
 	relQueued, relProven := map[string]wide{}, map[string]wide{}
 	relOwed, relWithheld := map[string]int64{}, map[string]int64{}
-	// A batch's losses must fit the loss ledger (lossFits refuses them
-	// otherwise): their int64 sum is checked, a sum past it refused.
-	lossTotals := map[string]int64{}
+	// A batch's losses are booked one by one, each an int64; the ledger's
+	// outstanding balances are wide, so no sum of them is refused.
 	for i, it := range items {
 		key := PacketKey(client, it.Seq)
 		if it.Action == SettleForgedReceive {
@@ -583,10 +582,6 @@ func (rt *Route) PlanSettlement(client string, items []SettleItem, incident stri
 			}
 			if it.Amount <= 0 || it.Amount != paid {
 				return nil, ufmt.Errorf("controls: item %d: the receive %s paid out %d, not %d", i, key, paid, it.Amount)
-			}
-			var ok bool
-			if lossTotals[denom], ok = checkedAdd(lossTotals[denom], it.Amount); !ok {
-				return nil, ufmt.Errorf("controls: item %d: the settlement's losses overflow", i)
 			}
 			if c := rt.claim(key); c != nil {
 				switch c.State {
@@ -659,17 +654,8 @@ func (rt *Route) PlanSettlement(client string, items []SettleItem, incident stri
 			if rt.LossBooked(DirSend, key) {
 				return nil, ufmt.Errorf("controls: item %d: the loss of %s is recorded already", i, key)
 			}
-			var ok bool
-			if lossTotals[r.Denom], ok = checkedAdd(lossTotals[r.Denom], it.Amount); !ok {
-				return nil, ufmt.Errorf("controls: item %d: the settlement's losses overflow", i)
-			}
 		default:
 			return nil, ufmt.Errorf("controls: item %d: unknown action %d", i, it.Action)
-		}
-	}
-	for denom, total := range lossTotals {
-		if err := rt.lossFits(denom, incident, total); err != nil {
-			return nil, err
 		}
 	}
 	plan := &SettlePlan{client: client, incident: incident, items: items, parked: map[uint64]bool{}}

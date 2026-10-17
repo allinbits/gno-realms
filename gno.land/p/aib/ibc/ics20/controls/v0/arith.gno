@@ -116,3 +116,17 @@ func (w wide) minusWideSat(o wide) int64 {
 	}
 	return w.sat()
 }
+
+// wideMinus is w less o (at most w), exact.
+func wideMinus(w, o wide) wide {
+	w.hi -= o.hi
+	w.lo -= o.lo
+	if w.lo < 0 {
+		w.lo += wideBase
+		w.hi--
+	}
+	if w.hi < 0 {
+		panic("controls: a wide counter went negative")
+	}
+	return w
+}
