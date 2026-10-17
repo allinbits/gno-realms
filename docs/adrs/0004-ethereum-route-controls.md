@@ -332,7 +332,11 @@ naming each step's router client and local client, verified step by step in
 O(k): no search of the expected graph, however it branches, ever refuses an
 authentic notice (z9zy: k = 4 over a branching graph, other branches and
 local clients refused). Recording first keeps the authentication with the
-core's proof, and lets the path come from whoever knows it. A notice names
+core's proof, and lets the path come from whoever knows it. A recorded
+notice keeps the trust generation of the client that proved it, and applies
+only while that client is Active, not retired and at the same generation:
+after a freeze, an expiry, a recovery, an upgrade or a verifier replacement
+the notice must be relayed again (z9zz). A notice names
 the client it came from, its proof verified by the core through that local
 client (Active, its counterparty the
 notice's source); the epoch then opens there, past any step in between (a
@@ -342,11 +346,17 @@ own, or one whose counterparty is reached within 16 steps) is never retired
 for the gov port: when its route replacement executes here the core retires
 it for the transfer port only (`RetireClientPort`), so a decision in flight,
 the kind 10 among them, can still be re-sent and a later step's notice can
-still arrive. When a notice moves the epoch, the old epoch's client is
-retired for governance (for good if its route replacement executed here,
-otherwise for the gov port, the replacement retiring the rest), and every
-client retired for transfers while on a path is retired for good once no
-path from the new epoch's client goes through it (`awaitingGov`). z9zx:
+still arrive. When a notice moves the epoch, the old epoch's client and
+the local clients of the path's intermediate steps (at most 16) are retired
+for governance (for good if their route replacement executed here,
+otherwise for the gov port, the replacement retiring the rest): the switch
+does bounded work. Every other client retired for transfers while on a path
+(`awaitingGov`) is retired for good by the permissionless
+`PruneGovRetirements(n)` (1 to 64 a call) once no path from the epoch's
+client goes through it; a client whose paths cannot be told within the
+search's bounds (more than 64 router clients at a step) is kept for a later
+call, never on the switch's path (z9zza: such a backlog, a switch retiring
+only the old epoch client, then batches). z9zx:
 A→B and B→C executed here before any notice, B's notice moves the epoch to
 2 and C's to 3, C's for epoch 2 refused; competing kind 10s C→D and C→F,
 gno.land's C→F replacement cancelled, D's notice accepted; an emergency

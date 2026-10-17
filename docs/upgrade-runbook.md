@@ -280,7 +280,11 @@ Ethereum client carries nothing until a decision makes it a route.
    (7 days, deferred by a hold) before relaying its notice. A notice more
    than one epoch on is recorded as proven when relayed; then call
    `ApplyEpochNotice(epoch, localClient, "router1/local1,...,routerK/localK")`
-   with its path of expected transitions from the current epoch client. The local client is the new gno
+   with its path of expected transitions from the current epoch client
+   (the client that proved it must still be Active, at the same trust
+   generation, or the notice is relayed again). After switches, anyone
+   calls `ibcgov.PruneGovRetirements(64)` until `AwaitingGovRetirement()`
+   is 0 to retire the replaced clients for good. The local client is the new gno
    client tracking the new router client, Active, its counterparty set. A notice that
    arrives before the replacement executes here moves the epoch all the
    same.
