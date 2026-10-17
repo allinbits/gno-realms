@@ -163,6 +163,30 @@ filetest z7z mutates a client's initialization inputs and a verified
 header after the calls, and a proof against the substituted root is
 refused.
 
+No exported entry point runs caller-supplied code (Codex round 19): before
+any method of a caller-supplied interface value runs, or any caller-supplied
+func is called, its dynamic type is established as one of our own concrete
+types. The exported functions of core, transfer, ibcgov, ethrelay and the
+light-client, types and ics23 packages that take an interface, `any` or a
+func, and what guards each:
+
+| Entry point | Parameter | Guard |
+|---|---|---|
+| core `RecvPacket`, `Acknowledgement`, `Timeout` (and `types.Msg*.ValidateBasic`) | `[]ics23.CommitmentProof` | `ics23.CheckProofs` first in `ValidateBasic`: `CommitmentProof_Exist` or `_Nonexist` by value |
+| same | `Ext any` | `extproof.FromExt`: a type switch to `extproof.Proof` / `*extproof.Proof`, else ignored; its `Data any` reaches only the Ethereum client's type switch to `MembershipProof` / `*MembershipProof` |
+| core `CreateClient` | `lightclient.ClientState`, `ConsensusState` | `checkStates`: `tendermint.ClientState` with `tendermint.ConsensusState`, or `ethereum.ClientState` with `ethereum.ConsensusState`, by value |
+| core `UpdateClient` | `lightclient.ClientMessage` | `checkClientMessage`: `*tendermint.MsgHeader`, `*tendermint.Misbehaviour`, `*ethereum.Header`, `*ethereum.Misbehaviour` |
+| core `UpgradeClient` | four `any` | the Tendermint client asserts `tendermint.ClientState`, `tendermint.ConsensusState` and `[]ics23.CommitmentProof` before any method, and its `VerifyMembership` runs `ics23.CheckProofs`; the Ethereum client refuses |
+| core `CounterpartyValue`, transfer `ProveOutcome` | `proof any` | the Ethereum client's type switch to `MembershipProof` |
+| core `RegisterApp` | `app.IBCApp` | no method runs at registration; callbacks are crossing calls (`cross(rlm)`), so they run in the app's own realm, and a non-trusted app needs a governed approval |
+| core and transfer `RegisterImpl` | constructor func | runs only in an authorized installation (store-free manifest, round 17) |
+| core store `AddClient`, `SetLightClient`; transfer store `InitExt`, `IterateEscrow` | func | only through the store, held by the installed implementation; mutators guarded by `assertProxyRealm` |
+| light clients `Initialize`, `VerifyClientMessage`, `CheckForMisbehaviour`, `UpdateState`, `UpdateStateOnMisbehaviour`, `RecoverClient`, `CheckRecovery`, `VerifyUpgradeAndUpdateState` | `lightclient.*` interfaces | type assertion or switch to the package's own concrete types before any method; reached only from the core's guarded paths |
+| tendermint `VerifyMembership`, `VerifyNonMembership` | `[]ics23.CommitmentProof` | `ics23.CheckProofs` |
+| ethereum `VerifyMembershipProof`, `VerifyNonMembershipProof`, `ProvenValue` | `proof any` | type switch to `MembershipProof` / `*MembershipProof` |
+| ibcgov `Govern` | `Request` | a struct with unexported fields, only built by ibcgov's own builders |
+| ethrelay | wire bytes | decoded internally to concrete types |
+
 ### Delays (§7.5, §9)
 
 At once: tightening (pause, pause app, reject app, block, remove relayer while
@@ -398,6 +422,8 @@ protection or a governance rule, and each has a test documenting the base
 | The core keeps its own copy of a counterparty's merkle prefix | the core kept the caller's slice, so its later change moved the client's proof namespace | core `z16g` (Tendermint), `z16f` (Ethereum) |
 | The core keeps its own copy of the packet it holds for an asynchronous acknowledgement | the core kept the relayer's payload slices, so their later change changed the packet the acknowledgement is written for | core `z10a` (Tendermint) |
 | `VoucherSend` and `VoucherApprove` (and the authority membership calls) canonicalize their address | an uppercase recipient or spender got a balance or allowance under that string, which the canonical address cannot use | transfer `z4aaaa` (Tendermint), `z9w` |
+| A Tendermint light client keeps copies of what it trusts: `Initialize` deep-copies the client state (proof specifications, upgrade path) and the consensus state's root and next validators hash, `UpdateState` the header's app hash and next validators hash, `RecoverClient` the substitute's consensus state, `VerifyUpgradeAndUpdateState` the upgraded proof specifications, upgrade path and next validators hash; `NewMerkleRoot` copies its input; `Initialize` runs once | the client kept the caller's slices, so writing them after `CreateClient` or a verified `UpdateClient` moved the trusted root and state without verification | core `z7z` (Tendermint), tendermint `TestInitializeOnce` |
+| No entry point runs a caller-supplied implementation: commitment proofs must be `ics23.CommitmentProof_Exist` or `_Nonexist` by value (`ics23.CheckProofs`, in every message's `ValidateBasic` and the Tendermint client's membership and absence checks), client and consensus states and client messages the light clients' own types (core `checkStates`, `checkClientMessage`) | the core called `GetExist`, `ClientType` and `ValidateBasic` on whatever the caller passed, running its code in the core's realm context | core `z16e`, `z1b`, `z1f`, `z1i`, `z1j`, `z2d`, `z2f`; ics23 `TestCheckProofs`; tendermint `TestVerifyRefusesOwnProofTypes` |
 | Every JSON render passes through `jsonmd.Inert`, Markdown-active characters in strings written as escapes; the Markdown pages escape user strings | strings were JSON-quoted only, or written raw | transfer `z9v`, ibcgov `z2d`, `z1k` |
 
 Identifier validation is not among them: `Packet.ValidateBasic` and
