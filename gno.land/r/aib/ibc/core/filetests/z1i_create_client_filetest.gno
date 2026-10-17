@@ -2,30 +2,18 @@
 package main
 
 import (
-	"errors"
 	"time"
 
 	"gno.land/p/aib/ibc/lightclient/tendermint/testing/v0"
 	tmtesting "gno.land/p/aib/ibc/lightclient/tendermint/testing/v0"
-	"gno.land/p/aib/ibc/lightclient/v0"
+	"gno.land/p/aib/ibc/lightclient/tendermint/v0"
 	"gno.land/p/aib/ibc/types/v0"
 	"gno.land/r/aib/ibc/core"
 	_ "gno.land/r/aib/ibc/core/impl/v0"
 )
 
-// validateError implements ClientState or ConsensusState in order to returns
-// an error when ValidateBasic() is invoked.
-type validateError struct{}
-
-func (validateError) ValidateBasic() error {
-	return errors.New("validate error")
-}
-
-func (validateError) ClientType() string {
-	return lightclient.Tendermint
-}
-
-// Assert calls to clientState.ValidateBasic and consensusState.ValidateBasic
+// Assert calls to clientState.ValidateBasic and consensusState.ValidateBasic,
+// each with a real Tendermint state that fails it.
 // NOTE: We don't want to test ValidateBasic() checks in filetest because it
 // has too many cases, hence ValidateBasic is tested in unittests and we only
 // ensure that the ValidateBasic() method are properly invoked.
@@ -37,18 +25,22 @@ func main(cur realm) {
 		trustedValset  = testing.GenValset()
 		consensusState = testing.GenConsensusState(time.Now(), apphash, trustedValset.Hash())
 	)
+	noChainID := clientState
+	noChainID.ChainID = ""
+	noRoot := consensusState
+	noRoot.Root = tendermint.MerkleRoot{}
 
 	println("clientState.ValidateBasic:",
 		// NOTE: panics in explicit cross realm can only be caught by revive.
 		revive(func() {
-			core.CreateClient(cross(cur), validateError{}, consensusState)
+			core.CreateClient(cross(cur), noChainID, consensusState)
 		}))
 	println("consensusState.ValidateBasic:",
 		revive(func() {
-			core.CreateClient(cross(cur), clientState, validateError{})
+			core.CreateClient(cross(cur), clientState, noRoot)
 		}))
 }
 
 // Output:
-// clientState.ValidateBasic: the client and consensus states must be a light client's own types
-// consensusState.ValidateBasic: the client and consensus states must be a light client's own types
+// clientState.ValidateBasic: chainID cannot be empty string
+// consensusState.ValidateBasic: root cannot be empty

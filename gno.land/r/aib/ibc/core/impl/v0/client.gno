@@ -24,19 +24,20 @@ func (l *logic) mustClient(clientID string) core.Client {
 // checkStates refuses client and consensus states that are not the light
 // client packages' own concrete types, by value, before any of their methods
 // runs: a caller-supplied implementation would run its own code in the
-// core's realm context.
+// core's realm context. Whether the two belong to the same client type is
+// CreateClient's next check, on our own types' methods.
 func checkStates(cs lightclient.ClientState, cons lightclient.ConsensusState) error {
 	switch cs.(type) {
-	case tendermint.ClientState:
-		if _, ok := cons.(tendermint.ConsensusState); ok {
-			return nil
-		}
-	case ethereum.ClientState:
-		if _, ok := cons.(ethereum.ConsensusState); ok {
-			return nil
-		}
+	case tendermint.ClientState, ethereum.ClientState:
+	default:
+		return errors.New("the client state must be a light client's own type")
 	}
-	return errors.New("the client and consensus states must be a light client's own types")
+	switch cons.(type) {
+	case tendermint.ConsensusState, ethereum.ConsensusState:
+	default:
+		return errors.New("the consensus state must be a light client's own type")
+	}
+	return nil
 }
 
 // checkClientMessage refuses a client message that is not a light client

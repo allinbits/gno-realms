@@ -16,10 +16,13 @@ func (X) ValidateBasic() error {
 	return nil
 }
 
-// CreateClient w/ invalid client type
+// CreateClient w/ invalid client type: a client state of the caller's own
+// type is refused before any of its methods runs (Codex round 19). Our own
+// states name valid client types, so the naming check the base reached here
+// is no longer reachable.
 func main(cur realm) {
 	core.CreateClient(cross(cur), X{}, X{})
 }
 
 // Error:
-// the client and consensus states must be a light client's own types
+// the client state must be a light client's own type
