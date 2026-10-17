@@ -232,8 +232,11 @@ which parameters a Tendermint recovery can adjust.
 
 Recovery is a governed decision (7 days). The subject must be Frozen or
 Expired, the substitute Active, the two of the same client type, and neither
-retired. For an Ethereum client (`ethereum.CheckRecovery`) the substitute must
-track the same chain and router: the same chain id, genesis validators root,
+retired. For an Ethereum client (`ethereum.CheckRecovery`) the substitute is
+read through its `Ethereum()` state, so it may be the v0 verifier or a
+verifier version that wraps it (as after a verifier replacement), and so may
+the subject; a verifier type without that state needs recovery support of
+its own. The substitute must track the same chain and router: the same chain id, genesis validators root,
 genesis time and slot, fork schedule, sync committee size, seconds per slot,
 slots per epoch, epochs per sync committee period, router (IBC contract)
 address and commitment slot; its latest slot must be strictly ahead of the
@@ -289,7 +292,7 @@ Emitted event:
     },
     {
       "key": "consensus_height",
-      "value": "1-100"
+      "value": "1/100"
     }
   ],
   "pkg_path": "gno.land/r/aib/ibc/core"
@@ -392,8 +395,11 @@ commitment to the sequence, the source client and the packet's IBC v2
 commitment, stored at the ICS24 receipt path (ADR pr6375 R19). It says which
 packet occupies a sequence, so a reconciliation can recompute it from the
 authenticated packet; counterparties only prove a receipt's absence. The same
-packet relayed again is a no-op; a different packet at a received sequence is
-refused.
+packet relayed again is a no-op once the checks that come before the
+receipt's pass (the destination client known, not retired and Active, the
+counterparty registered and matching the source, the packet not timed out):
+an identical retry at or after its timeout is refused like any late packet.
+A different packet at a received sequence is refused.
 
 ## Client migration and retirement
 
@@ -410,10 +416,13 @@ from, convert)`: `convert` is a function of the new verifier's /p/ package.
 `CheckVerifierReplacement(clientID, path)` answers from the registration's
 declared values and the client's state alone (known, not retired, of the
 registration's type, Active, its `VerifierVersion` among `from` and not the
-target); the conversion runs only when the governed migration executes,
-through `Client.SetLightClient`, and the new verifier must name the
-registered version, be Active and keep the latest height, or the whole
-execution rolls back. The client keeps its id, client and consensus states
+target, and a verifier that gives a snapshot). The conversion runs only
+when the governed migration executes, on a detached snapshot of the live
+verifier (`Snapshot`, a deep copy of the client state and every consensus
+state), a panic in it recovered; the converted verifier must name the
+registered version, be Active and keep the latest height. If it fails, the
+migration is refused with nothing changed and the decision is spent;
+otherwise it is installed through `Client.SetLightClient`. The client keeps its id, client and consensus states
 and packet state; its trust generation advances, and ibcgov empties its
 route's payout meters.
 
