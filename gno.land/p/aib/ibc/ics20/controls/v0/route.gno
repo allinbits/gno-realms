@@ -52,6 +52,9 @@ const (
 	MaxKeys = 64
 	// PageLines is how many entries a page lists.
 	PageLines = 100
+	// MaxOpenRecaps is the most unpaid recapitalization authorizations an
+	// incident holds on a denom at once: a reduction revokes among them.
+	MaxOpenRecaps = 64
 
 	maxInt64 = int64(1<<63 - 1)
 )
@@ -254,6 +257,7 @@ type Route struct {
 	losses                      avl.Tree // lossID(direction, packet key) -> *Loss: one per packet and direction
 	incidents                   avl.Tree // denom|incident -> *IncidentTotals
 	recaps                      avl.Tree // seqKey(id) -> *Recap
+	openRecapIdx                avl.Tree // incidentKey(denom, incident) + "|" + seqKey(id) -> *Recap, unpaid and unrevoked
 	nRecaps                     int64
 }
 
@@ -386,7 +390,8 @@ func (rt *Route) reopenBatch() (int64, bool, error) {
 		if n == ReopenBatch {
 			return true
 		}
-		if r := v.(*Recap); !r.Paid {
+		if r := v.(*Recap); !r.Paid && !r.Revoked {
+			rt.closeRecap(r)
 			r.Revoked = true
 		}
 		rt.reopenRecap = k

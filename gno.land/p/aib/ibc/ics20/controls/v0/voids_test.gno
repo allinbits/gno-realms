@@ -1177,3 +1177,46 @@ func TestPayClaimsSweepsBridgeRealm(t *testing.T) {
 		t.Fatalf("a sweep decision cannot pay the moved entry: %v", err)
 	}
 }
+
+// An incident holds at most MaxOpenRecaps unpaid authorizations on a denom,
+// so a reduction's revocation walks a bounded list once; paying or revoking
+// one frees a place, and a reduction revokes the newest first, in one pass
+// (docs-vs-code review round 4 #3).
+func TestOpenRecapsBounded(t *testing.T) {
+	_, rt := newRoute(t)
+	lock := int64(100_000)
+	mustCredit(t, rt, t0, 1, "ugnot", alice, 50_000, lock)
+	if err := rt.RecordLoss(pk(10), "ugnot", 1_000, ChainGno, "inc", "collision"); err != nil {
+		t.Fatal(err)
+	}
+	var ids []int64
+	for i := 0; i < MaxOpenRecaps; i++ {
+		id, err := rt.AuthorizeRecap("ugnot", 10, "inc")
+		if err != nil {
+			t.Fatalf("authorization %d: %v", i, err)
+		}
+		ids = append(ids, id)
+	}
+	if _, err := rt.AuthorizeRecap("ugnot", 10, "inc"); err == nil {
+		t.Fatalf("authorized beyond %d open authorizations", MaxOpenRecaps)
+	}
+	if err := rt.RevokeRecap(ids[0]); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := rt.AuthorizeRecap("ugnot", 10, "inc"); err != nil {
+		t.Fatalf("a revocation frees a place: %v", err)
+	}
+	// 64 open authorizations of 10 (640) against 1,000 unrecovered: a
+	// reduction of 700 leaves 300, so the newest 34 are revoked.
+	if err := rt.Reduce(pk(1), 700, "inc"); err != nil {
+		t.Fatal(err)
+	}
+	if got := rt.openRecaps("ugnot", "inc", 0); got != 300 {
+		t.Fatalf("open after the reduction: %d", got)
+	}
+	r, _ := rt.Recap(ids[1])
+	last, _ := rt.Recap(rt.nRecaps)
+	if r.Revoked || !last.Revoked {
+		t.Fatalf("the newest are revoked first: %+v %+v", r, last)
+	}
+}

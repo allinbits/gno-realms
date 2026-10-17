@@ -537,24 +537,44 @@ func (rt *Route) AuthorizeRecap(denom string, amount int64, incident string) (in
 	if amount <= 0 || amount > rt.recapitalizable(denom, incident, 0) {
 		return 0, ufmt.Errorf("controls: %d is not within incident %s's unrecovered losses not yet authorized", amount, incident)
 	}
+	p := openRecapPrefix(denom, incident)
+	open := 0
+	rt.openRecapIdx.Iterate(p, p+"~", func(string, any) bool {
+		open++
+		return open == MaxOpenRecaps
+	})
+	if open >= MaxOpenRecaps {
+		return 0, ufmt.Errorf("controls: incident %s holds %d unpaid authorizations on %s already: pay or revoke one first", incident, MaxOpenRecaps, denom)
+	}
 	rt.nRecaps++
-	rt.recaps.Set(seqKey(rt.nRecaps), &Recap{ID: rt.nRecaps, Denom: denom, Amount: amount, Incident: incident})
+	r := &Recap{ID: rt.nRecaps, Denom: denom, Amount: amount, Incident: incident}
+	rt.recaps.Set(seqKey(rt.nRecaps), r)
+	rt.openRecapIdx.Set(openRecapKey(r), r)
 	return rt.nRecaps, nil
 }
 
 // openRecaps is what the unpaid recapitalizations of an incident on denom
-// hold, the authorization skip aside.
+// hold, the authorization skip aside: a walk of that incident's open
+// authorizations only (at most MaxOpenRecaps).
 func (rt *Route) openRecaps(denom, incident string, skip int64) int64 {
 	var n int64
-	rt.recaps.Iterate("", "", func(_ string, v any) bool {
-		r := v.(*Recap)
-		if !r.Paid && !r.Revoked && r.ID != skip && r.Denom == denom && r.Incident == incident {
+	p := openRecapPrefix(denom, incident)
+	rt.openRecapIdx.Iterate(p, p+"~", func(_ string, v any) bool {
+		if r := v.(*Recap); r.ID != skip {
 			n = boundAdd(n, r.Amount)
 		}
 		return false
 	})
 	return n
 }
+
+func openRecapPrefix(denom, incident string) string { return incidentKey(denom, incident) + "|" }
+
+func openRecapKey(r *Recap) string { return openRecapPrefix(r.Denom, r.Incident) + seqKey(r.ID) }
+
+// closeRecap takes an authorization out of the open index, as it is paid or
+// revoked.
+func (rt *Route) closeRecap(r *Recap) { rt.openRecapIdx.Remove(openRecapKey(r)) }
 
 // unresolvedOf is what of an incident's losses on denom no decision resolved
 // (recapitalized, reduced or accepted), unpaid authorizations aside: what an
@@ -574,17 +594,23 @@ func (rt *Route) unrecoveredOf(denom, incident string) int64 {
 // of an incident until a reduction of amount leaves them within what the
 // incident still has unrecovered: a reduction decided later supersedes them
 // (ADR pr6375 §7.9). An accepted deficit supersedes none: a recapitalization
-// may still restore it. The caller checked amount fits unrecoveredOf.
+// may still restore it. The caller checked amount fits unrecoveredOf. One
+// pass over the incident's open authorizations (at most MaxOpenRecaps): their
+// total once, then the newest revoked first while it exceeds what remains.
 func (rt *Route) revokeConflicting(denom, incident string, amount int64) {
 	var open []*Recap
-	rt.recaps.Iterate("", "", func(_ string, v any) bool {
+	var total int64
+	p := openRecapPrefix(denom, incident)
+	rt.openRecapIdx.Iterate(p, p+"~", func(_ string, v any) bool {
 		r := v.(*Recap)
-		if !r.Paid && !r.Revoked && r.Denom == denom && r.Incident == incident {
-			open = append(open, r)
-		}
+		open = append(open, r)
+		total = boundAdd(total, r.Amount)
 		return false
 	})
-	for i := len(open) - 1; i >= 0 && rt.recapitalizable(denom, incident, 0) < amount; i-- {
+	room := rt.unrecoveredOf(denom, incident) - amount
+	for i := len(open) - 1; i >= 0 && total > room; i-- {
+		total -= open[i].Amount
+		rt.closeRecap(open[i])
 		open[i].Revoked = true
 	}
 }
@@ -601,6 +627,7 @@ func (rt *Route) RevokeRecap(id int64) error {
 	if r.Paid || r.Revoked {
 		return ufmt.Errorf("controls: recapitalization %d is paid or revoked already", id)
 	}
+	rt.closeRecap(r)
 	r.Revoked = true
 	return nil
 }
@@ -633,6 +660,7 @@ func (rt *Route) Recapitalize(id int64, denom string, amount int64, by address) 
 	if amount > rt.recapitalizable(denom, r.Incident, id) {
 		return ufmt.Errorf("controls: recapitalization %d is above what incident %s still has unrecovered", id, r.Incident)
 	}
+	rt.closeRecap(r)
 	r.Paid, r.PaidBy = true, by
 	rt.recover(denom, r.Incident, amount)
 	t := &rt.Denom(denom).Totals
