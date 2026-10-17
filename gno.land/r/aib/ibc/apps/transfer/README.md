@@ -201,21 +201,28 @@ mapping: [ADR 0004](../../../../../../docs/adrs/0004-ethereum-route-controls.md)
   are booked as a claim keyed by the packet (or a sweep entry: below the fee,
   above the free lock, to a bridge realm, or to a receiver that is no gno.land
   address, kept raw), with a success acknowledgement.
-- **`Claim(clientID, denom, n)`** (anyone, n ≤ 20) pays claims round-robin,
-  oldest first per recipient, within the bridge meter (day cap
+- **`Claim(clientID, denom, n)`** (anyone; a positive `n` above 20 is taken
+  as 20) pays up to `n` claims round-robin, looking at no more than `4n`
+  recipients, and returns how many it paid (claims it moved to the owed
+  sweep, their recipient having become a bridge realm, are not counted). A
+  zero return does not mean every remaining claim is unpayable: the
+  recipients it looked at may have had empty meters while others wait. It
+  pays the oldest claim first per recipient, within the bridge meter (day cap
   `max(capFloor, lock/10)`, or the mint cap) and the recipient's meter (a
   quarter of it), the fee as the first installment, no slivers (a later
   installment needs at least `min(remainder, fee)` in both meters). A claim's
-  fee is the denom's fee when the claim was credited, recorded on it (`fee`
-  in the claims JSON): a fee changed by a later decision never applies to a
-  claim already credited. Meters start empty and restart empty when a
-  `payouts` flag is cleared; nothing is paid under one.
+  fee is locked when it is credited (`fee` in the claims JSON), and the fee
+  it pays is the lower of that and the denom's fee now: a raise by a later
+  decision never applies to a claim already credited, a cut always does.
+  Meters start empty and restart empty when a `payouts` flag is cleared;
+  nothing is paid under one.
 - **Refunds** (error acknowledgement, timeout) are paid at once only when the
   whole refund fits: no `refunds` hold and the route not closed, no older
   refund of the denom waiting, the refund meter (`RefundCap` a day) holding
   the whole amount, and, for an `unescrow` denom, the escrow holding it.
   Otherwise the refund is queued. Queued refunds are paid first in, first
-  out by **`ClaimRefunds(clientID, denom, n)`** (anyone, n ≤ 20; nothing
+  out by **`ClaimRefunds(clientID, denom, n)`** (anyone; a positive `n`
+  above 20 is taken as 20; nothing
   under a `refunds` hold or on a closed route), in installments: each takes
   what the meter (and, for `unescrow`, the escrow) allows of the head
   refund's remainder, at least `min(remainder, max(1, RefundCap/24))`, and
@@ -474,8 +481,11 @@ queued refund, in each later `route_refund` event of `ClaimRefunds`. The same
    acknowledgement; the value moves later, when `Claim` pays the claim
    within the meters or a governed decision pays the sweep entry.
 
-3. **Acknowledgement** -- On success, only a `fungible_token_packet` event is
-   emitted. On failure, the sender is refunded (re-mint vouchers, unescrow
+3. **Acknowledgement** -- On success, a non-Ethereum client emits only a
+   `fungible_token_packet` event; on an Ethereum route the send record is
+   settled as delivered (its supply reservation released) and a
+   `route_settle` event (`outcome`, `payment`, `refunded` 0) follows. On
+   failure, the sender is refunded (re-mint vouchers, unescrow
    native/GRC20): at once on a non-Ethereum client; on an Ethereum route,
    at once only when the whole refund fits, otherwise queued and paid by
    `ClaimRefunds` (see the route controls section).
