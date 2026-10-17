@@ -374,7 +374,7 @@ Administration is split by direction (ADR pr6375 R14):
   `gno.land/r/aib/ibc/ibcgov` (`IBCGovPath`). There is no deployer member.
 - **Governed operations** (`Unpause`, `UnpauseApp`, `ApproveApp`,
   `AddRelayer`, `RemoveRelayer`, `RecoverClient`, `UpdateImpl`,
-  `MigrateClient`, `RetireClient`, `AddAuthorityMember`,
+  `MigrateClient`, `RetireClient`, `RetireClientPort`, `AddAuthorityMember`,
   `RemoveAuthorityMember`) are decisions of `gno.land/r/aib/ibc/ibcgov` alone,
   under its decision ledger, the governor's one-way yield to GovDAO and the
   guardians' holds. The loosening ones wait 7 days: `ApproveApp`,
@@ -383,8 +383,10 @@ Administration is split by direction (ADR pr6375 R14):
   empty whitelist lets anyone relay). The others apply at once: `Unpause` and
   `UnpauseApp` (spent under a guardian hold), `RemoveAuthorityMember`, and
   `RemoveRelayer` while other relayers stay listed (the whitelist is read
-  when the decision is recorded). `RetireClient` is not a decision of its
-  own: a route replacement retires the route's old client. A call from anyone
+  when the decision is recorded). `RetireClient` and `RetireClientPort` are
+  not decisions of their own: a route replacement retires the route's old
+  client, and ibcgov's acceptance of IBCAdmin's epoch notice finishes the
+  retirement (see below). A call from anyone
   else, GovDAO's proxy included, panics with
   `only gno.land/r/aib/ibc/ibcgov decides this`.
 
@@ -408,7 +410,8 @@ then members vote (`MustVoteOnProposalSimple`) and anyone executes
 (`ExecuteProposal`), both plain `MsgCall`s on `gno.land/r/gov/dao`.
 
 Emitted events: `authority_member_added` and `authority_member_removed`, with an
-`address` attribute; `client_retired`, with a `client_id` attribute.
+`address` attribute; `client_retired`, with a `client_id` attribute (and a
+`port` attribute when the client is retired for one port only).
 
 ## Relaying for Ethereum clients
 
@@ -450,12 +453,14 @@ cannot write to it), and
 is installed by the governed, manifest-checked implementation upgrade;
 `impl/v1` itself declares none. No other code converts a verifier. The
 active implementation's preflight reads its declared pairs and the client's
-state (an Ethereum client, Active, its `VerifierVersion` the declared
-source, and a verifier exposing its ethereum/v0 state through
+state (an Ethereum client, Active or Expired, never Frozen, its
+`VerifierVersion` the declared source, and a verifier exposing its ethereum/v0 state through
 `Ethereum() *ethereum.EthLightClient`, which the read-only view is built
 from: a verifier keeping its state otherwise needs migration support of its
 own, and is refused, the decision spent); the conversion and every check on its result (it names the target
-version, is Active, keeps the latest height) run inside one recovered
+version, keeps the live verifier's status, Active or Expired, its latest
+height and, when it exposes ethereum/v0 state, the slot it trusts consensus
+states from) run inside one recovered
 boundary in the core's realm: a panic or a mismatch refuses the migration
 with nothing changed, and the decision is spent; otherwise the verifier is
 installed through `Client.SetLightClient`. The new verifier keeps the
@@ -464,7 +469,11 @@ read-only view of the retired verifier and serves every consensus state at
 or below the retired verifier's latest slot from it, storing its own apart,
 so every pre-replacement trusted height stays provable; nothing writes to
 the retired verifier again. The client keeps its id and packet state; its
-trust generation advances, and ibcgov empties its route's payout meters.
+trust generation advances, and ibcgov empties its route's payout meters. An
+Expired client is converted too and stays Expired, so a client whose updates
+stopped long enough to expire is repaired by the conversion, then an
+ordinary recovery (`RecoverClient`, with a substitute ahead of it); a Frozen
+client is recovered first (transfer filetest `z9zu`).
 
 `ethereum-fork-schedule` (params `ethereum.EncodeForkParameters(...)`)
 changes the fork schedule of the client's verifier in place, through the
@@ -492,7 +501,25 @@ filetest reports `retired: true status: Active`), and `IsClientRetired`, not
 the status, tells a retired client apart. Both are governance decisions; the
 retirement happens inside a route replacement.
 
+`RetireClientPort(clientID, port)` retires a client for one port only: every
+packet message naming the client with a payload on that port (its source
+port when sent from here, its destination port when received) is refused,
+while its other ports, its updates and its counterparty stay
+(`IsClientRetiredFor(clientID, port)`). A route replacement retires the old
+client for the `transfer` port only while ibcgov's governance epoch runs
+over it, so governance packets in flight can still be re-sent over it;
+ibcgov retires it for good when IBCAdmin's epoch notice moves the epoch to
+the new client (ADR 0004, Governance channel; transfer filetest `z9zv`).
+
+`ClientRouteIdentity(clientID)` is the history a client's verifier
+authenticates, and the router it reads: for an Ethereum client its chain
+id, genesis validators root, ICS26 router and commitments slot, all fixed at
+creation (`IdentifiedVerifier`; `""` for a client whose verifier names
+none). A route records it at its enrolment, and a replacement client must
+name the same one.
+
 The read accessors `ClientType`, `CounterpartyClientID`, `IsClientRetired`,
+`IsClientRetiredFor`, `ClientRouteIdentity`,
 `PacketCommitment`, `PacketReceipt`, `PacketAcknowledgement` and
 `HasPendingAsyncAck` return copies, for realms (the transfer app, ibcgov) that
 must check a packet's state.
