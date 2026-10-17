@@ -148,7 +148,9 @@ unchanged.
   (`core/impl/v1` adds the client migrations: a fork schedule, or a verifier
   replacement by a conversion a later core implementation compiles in, the
   new verifier continuing the retired one's history read only through
-  `ethereum.NewFrom`), and the transfer
+  `ethereum.NewFrom`: an index of the retired verifiers' own stores, read
+  in O(log replacements) however many replacements there were), and the
+  transfer
   app starts with `impl/v1`, the first implementation its proxy registers;
   the new `p/` packages deploy beside them.
 - Tests replay the four recorded devnet runs of the eureka client (11 updates,
