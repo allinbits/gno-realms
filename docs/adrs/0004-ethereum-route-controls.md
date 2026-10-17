@@ -353,7 +353,9 @@ preflight before crossing, or a refusal returned by the callee). An
 implementation installation is the exception: the candidate's constructor
 and `OnInstall` run without panic recovery, so a panic there rolls back the
 whole execution and a queued decision stays pending. A verifier replacement
-is not: its conversion runs on a detached snapshot, a panic in it recovered,
+is not: its conversion runs on a read-only view of the live verifier that
+returns copied states (a retired verifier's consensus states included), a
+panic in it recovered,
 and a converted verifier that fails its checks is refused before anything
 is installed, so the decision is spent:
 
@@ -368,7 +370,7 @@ is installed, so the decision is spent:
 | core pause / pause app / unpause / unpause app | paused already / no app / not paused |
 | core/transfer add/remove member | member already / not a member / ibcgov itself |
 | transfer block/unblock | blocked already / not blocked |
-| route operations (`GovApply`) | every refusal returned, including no controls installed; a sweep payment under a payouts flag, or a settlement paying refunds under a refunds hold, is deferred (stays pending) rather than spent |
+| route operations (`GovApply`) | every refusal returned, including no controls installed; a sweep payment or settlement refund that its token or the banker would refuse (`payable`, checked per denom before anything changes: a valid recipient other than the transfer realm, the voucher token and its supply room, the registered GRC20 and this realm's balance, the escrow accounting and the bank balance; z9zr), the entitlement kept; a sweep payment under a payouts flag, or a settlement paying refunds under a refunds hold, is deferred (stays pending) rather than spent |
 | route enrollment | as `GovApply`; the client no longer usable (`checkRouteClient` again at execution: not Active, retired, not Ethereum, no counterparty, a route's already), before either realm changes |
 | route replacement | as `GovApply`; the new client unusable; the route's client moved |
 | bind governance | bound already; not Active, or not the current client of an enrolled route |
@@ -402,7 +404,14 @@ lock-derived day cap); the refund cap is positive; an `unescrow` denom has
 token (`Remote`); a `mint` denom has a positive supply cap, no send limits
 and no `Remote` (its base is its token). A denom's accounting never changes,
 and its cap floor never goes below the value it was enabled with
-(`LaunchCapFloor`).
+(`LaunchCapFloor`). A minted denom's supply cap bounds what is booked
+against it, `Outstanding + Returning + Owed + Withheld + Swept` (vouchers in
+circulation, returning sends' reservations, and every claim and sweep
+entry owed): a credit is admitted only within it. It governs admission
+only: lowering it below what is already booked refuses new credits until
+the booked total falls under it, and keeps every booked obligation and its
+payouts (claims and sweep payments are checked against the int64 headroom,
+not the cap).
 
 The rendered route JSON (`routes/<route>`) shows each meter as stored: its
 level and time as of its last refill (`meter`, `refund_meter`), not what it
@@ -596,4 +605,5 @@ does not list before it.
   those paths.
 - **The e2e suite** (`e2e/`) needs the Docker devnet; its build makes the test
   key ibcgov's launch governor and divides the delays by 60480. The guardians'
-  holds need an Ethereum route and are covered by filetests only.
+  holds, which flags on any Ethereum client suffice for (no enrolled route
+  needed), are covered by filetests only.
