@@ -136,6 +136,7 @@ func main(cur realm) {
 	client(cur, "ethereum-5", "gnoland-e")
 	client(cur, "ethereum-6", "gnoland-f")
 	client(cur, "ethereum-7", "gnoland-g")
+	client(cur, "ethereum-8", "gnoland-x")
 	execute(cur, govern(cur, ibcgov.NewEnrollRouteRequest(cross(cur), "ethereum-1", string(collector), bridge)))
 	execute(cur, govern(cur, ibcgov.NewBindGovernanceRequest(cross(cur), "ethereum-1")))
 	dispatch := func(from, to, local string) int64 {
@@ -163,6 +164,20 @@ func main(cur realm) {
 	execute(cur, byRecovery)
 	println("the recovery's expectation:", decided(byRecovery))
 	println("c's notice:", deliver(cur, c, 0), "|", epochNow())
+
+	// One recovery Request governed twice records two decisions, each owning
+	// its own place (Codex round 42 #2): cancelling both frees it.
+	req := ibcgov.NewExpectRecoveryRequest(cross(cur), "gnoland-c", "gnoland-x", "ethereum-8")
+	r1 := govern(cur, req)
+	r2 := govern(cur, req)
+	dispatch("gnoland-c", "gnoland-d", "ethereum-4")
+	dispatch("gnoland-c", "gnoland-e", "ethereum-5")
+	dispatch("gnoland-c", "gnoland-f", "ethereum-6")
+	println("a fourth while the recovery holds its place:", revive(func() { dispatch("gnoland-c", "gnoland-g", "ethereum-7") }))
+	govern(cur, ibcgov.NewCancelRequest(cross(cur), r1))
+	govern(cur, ibcgov.NewCancelRequest(cross(cur), r2))
+	dispatch("gnoland-c", "gnoland-g", "ethereum-7")
+	println("after both are cancelled:", decided(ibcgov.LastDecision()-1))
 }
 
 // Output:
@@ -171,3 +186,5 @@ func main(cur realm) {
 // b's notice: acknowledged | epoch 2 over ethereum-2
 // the recovery's expectation: applied - expect the governance epoch to move from gnoland-b to gnoland-c over ethereum-3
 // c's notice: acknowledged | epoch 3 over ethereum-3
+// a fourth while the recovery holds its place: ibcgov: router client gnoland-c has 4 expected successors already, intents included
+// after both are cancelled: applied - dispatched as epoch 3 seq 4; its transition is expected from decision 29

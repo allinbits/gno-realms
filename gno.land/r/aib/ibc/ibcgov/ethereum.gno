@@ -295,6 +295,12 @@ var liveEdges int
 // a new transition must fit the old client's successors and the graph's
 // maxLive transitions, intents included.
 func checkExpect(old, next, local string) string {
+	if epoch == 0 {
+		return "the governance channel is not bound"
+	}
+	if !reachableRemotes()[old] {
+		return "router client " + old + " is not reachable from the governance epoch's client: Ethereum is past it"
+	}
 	if refusal := checkLocal(local, next); refusal != "" {
 		return refusal
 	}
@@ -357,6 +363,46 @@ func expect(old, next, local string) {
 	chain.Emit("GovExpect", "from", old, "to", next, "client", local)
 }
 
+// ownsIntent reports whether the intent old → next over local is still
+// pending and owned by the decision owner: an epoch switch that left it
+// behind, or a release, dropped it otherwise.
+func ownsIntent(old, next, local string, owner int64) bool {
+	for _, x := range expectedOf(old) {
+		if x.to == next && x.local == local && !x.active {
+			for _, o := range x.owners {
+				if o == owner {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
+// reachableRemotes is every router client reachable from the epoch client's
+// counterparty, itself included: an exact walk of at most maxLive edges.
+func reachableRemotes() map[string]bool {
+	if epoch == 0 {
+		return nil
+	}
+	start := core.CounterpartyClientID(EpochClient())
+	seen := map[string]bool{start: true}
+	front := []string{start}
+	for len(front) > 0 {
+		var next []string
+		for _, c := range front {
+			for _, x := range expectedOf(c) {
+				if !seen[x.to] {
+					seen[x.to] = true
+					next = append(next, x.to)
+				}
+			}
+		}
+		front = next
+	}
+	return seen
+}
+
 // release drops owner from the intent old → next over local: the intent
 // goes with its last owner, unless it is active.
 func release(old, next, local string, owner int64) {
@@ -416,20 +462,7 @@ func reachable() map[string]int {
 // client's counterparty no longer reaches (an epoch switch left it behind):
 // bounded by maxLive edges.
 func pruneUnreachable() {
-	seen := map[string]bool{core.CounterpartyClientID(EpochClient()): true}
-	front := []string{core.CounterpartyClientID(EpochClient())}
-	for len(front) > 0 {
-		var next []string
-		for _, c := range front {
-			for _, x := range expectedOf(c) {
-				if !seen[x.to] {
-					seen[x.to] = true
-					next = append(next, x.to)
-				}
-			}
-		}
-		front = next
-	}
+	seen := reachableRemotes()
 	var drop []string
 	expected.Iterate("", "", func(old string, v any) bool {
 		if !seen[old] {
@@ -444,9 +477,10 @@ func pruneUnreachable() {
 }
 
 // onExpectedPath reports whether the gno client c carries the governance
-// epoch or is the approved client of a transition, pending or active, within
-// maxNoticeSteps of it: such a client is never retired for the gov port, so
-// a notice over it can still arrive and the epoch's decisions still be
+// epoch or is the approved client of a transition, pending or active,
+// reachable from it at any distance (a later notice may bring it within a
+// notice's 16 steps): such a client is never retired for the gov port, so a
+// notice over it can still arrive and the epoch's decisions still be
 // re-sent. Exact: the graph holds at most maxLive transitions.
 func onExpectedPath(c string) bool {
 	if epoch == 0 {
@@ -455,8 +489,8 @@ func onExpectedPath(c string) bool {
 	if c == EpochClient() {
 		return true
 	}
-	k, ok := reachable()[c]
-	return ok && k <= maxNoticeSteps
+	_, ok := reachable()[c]
+	return ok
 }
 
 // awaitGov notes a gno client retired for transfers only, to retire for good
@@ -1341,6 +1375,12 @@ type expectParams struct {
 }
 
 func (p *expectParams) apply(cur realm, t int64) (string, string) {
+	// It applies only to its own intent, still pending: an epoch switch
+	// that left the transition behind dropped it, and an approval of it is
+	// then stale.
+	if !ownsIntent(p.from, p.to, p.local, p.owner) {
+		return "", "its intent is gone (an epoch switch left the transition behind, or it was released)"
+	}
 	if refusal := checkExpect(p.from, p.to, p.local); refusal != "" {
 		release(p.from, p.to, p.local, p.owner)
 		return "", refusal
@@ -1369,8 +1409,10 @@ func NewExpectRecoveryRequest(cur realm, oldClientID, newClientID, localClientID
 		panic("ibcgov: " + refusal)
 	}
 	text := "expect the emergency recovery of " + oldClientID + " by " + newClientID + ", carried here by " + localClientID
-	p := &expectParams{from: oldClientID, to: newClientID, local: localClientID}
 	return propose(cur, "expect recovery", text, func(cur realm, made, t int64) {
+		// Fresh parameters for every recording: a Request governed twice
+		// makes two decisions, each owning its own place in the intent.
+		p := &expectParams{from: oldClientID, to: newClientID, local: localClientID}
 		// An intent from the recording on: it holds the successor's place
 		// and keeps its clients open for governance.
 		if refusal := checkExpect(oldClientID, newClientID, localClientID); refusal != "" {
