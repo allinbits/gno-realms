@@ -230,11 +230,13 @@ func (rt *Route) voidClaim(c *Claim, forged bool, incident string) {
 // unresolved losses, as an accepted deficit: off the unresolved balances of
 // the denom and the incident only.
 func (rt *Route) accept(denom, incident string, amount int64) {
-	t := &rt.Denom(denom).Totals
+	d := rt.Denom(denom)
+	t := &d.Totals
 	it := rt.incident(denom, incident)
 	if amount > it.OpenUnresolved || amount > t.OpenUnresolved {
 		panic("controls: an acceptance beyond the unresolved losses")
 	}
+	defer rt.noteUnresolved(d, t.OpenUnresolved)
 	t.OpenUnresolved -= amount
 	it.OpenUnresolved -= amount
 	t.Accepted, it.Accepted = statAdd(t.Accepted, amount), statAdd(it.Accepted, amount)
@@ -245,11 +247,13 @@ func (rt *Route) accept(denom, incident string, amount int64) {
 // as they go (an accepted deficit it repairs is resolved already). Its
 // caller checked amount is within the incident's unrecovered losses.
 func (rt *Route) recover(denom, incident string, amount int64) {
-	t := &rt.Denom(denom).Totals
+	d := rt.Denom(denom)
+	t := &d.Totals
 	it := rt.incident(denom, incident)
 	if amount > it.OpenUnrecovered || amount > t.OpenUnrecovered {
 		panic("controls: a recovery beyond the unrecovered losses")
 	}
+	defer rt.noteUnresolved(d, t.OpenUnresolved)
 	x := amount
 	if x > it.OpenUnresolved {
 		x = it.OpenUnresolved
@@ -286,7 +290,9 @@ func (rt *Route) addLoss(d *Denom, l Loss) {
 	}
 	rt.losses.Set(lossID(l.Direction, l.Key), &l)
 	d.Totals.OpenUnrecovered, it.OpenUnrecovered = unrec, itUnrec
+	was := d.Totals.OpenUnresolved
 	d.Totals.OpenUnresolved = mustAdd(d.Totals.OpenUnresolved, l.Amount) // at most OpenUnrecovered
+	rt.noteUnresolved(d, was)
 	it.OpenUnresolved = mustAdd(it.OpenUnresolved, l.Amount)
 	d.Totals.Lost, it.Lost = statAdd(d.Totals.Lost, l.Amount), statAdd(it.Lost, l.Amount)
 	rt.lossesBooked++

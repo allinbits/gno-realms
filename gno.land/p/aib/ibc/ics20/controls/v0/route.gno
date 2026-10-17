@@ -207,6 +207,7 @@ func (r *Registry) Replace(key, newClient string, suspectFrom, height int64) err
 	rt.Client = newClient
 	rt.Replaced = append(rt.Replaced, old)
 	rt.suspect.Set(old, suspectFrom)
+	rt.reblock(old)
 	rt.ReplacedAt = height
 	rt.Closed = true
 	return nil
@@ -250,6 +251,9 @@ type Route struct {
 	pending   avl.Tree // client id -> int64: its send records with no outcome yet
 	processed avl.Tree // client id -> *processedSet: its processed, unsettled send records by height
 	suspect   avl.Tree // retired client id -> int64: the height its suspect interval starts at
+	blocking  avl.Tree // retired client id -> true while it blocks a reopening (an open record, or an unsettled suspect one)
+
+	unresolvedDenoms int64 // denoms with an unresolved loss: ExposureClosed in constant work
 
 	reopenIncident, reopenRecap string   // where a batched reopening stopped
 	lossesBooked                int64    // every loss booked: a reopening restarts its scan when it changes
@@ -281,9 +285,9 @@ func (rt *Route) addPending(key string, delta int64) {
 }
 
 // IsClosed reports whether a replacement closed the route until a governed
-// reopening (ADR pr6375 §7.12): nothing moves on it, no send (voucher returns
-// included), credit, claim payout or refund payout; acknowledgements and
-// timeouts still settle its sends, their refunds queued.
+// reopening (ADR pr6375 §7.12): nothing moves on it but voucher returns (exit
+// only): no gno-native send, credit, claim payout or refund payout;
+// acknowledgements and timeouts still settle its sends, their refunds queued.
 func (rt *Route) IsClosed() bool { return rt.Closed }
 
 // ExposureClosed reports whether the route takes on no new exposure: it is
@@ -299,13 +303,17 @@ func (rt *Route) LossClosed() bool { return rt.hasUnresolved() }
 
 // hasUnresolved reports whether any denom of the route has a loss without a
 // restoring decision: denom by denom, never through a sum that could wrap.
-func (rt *Route) hasUnresolved() bool {
-	found := false
-	rt.denoms.Iterate("", "", func(_ string, v any) bool {
-		found = v.(*Denom).Totals.Unresolved() > 0
-		return found
-	})
-	return found
+func (rt *Route) hasUnresolved() bool { return rt.unresolvedDenoms > 0 }
+
+// noteUnresolved keeps the count of denoms with an unresolved loss after
+// d's unresolved balance changed from was.
+func (rt *Route) noteUnresolved(d *Denom, was int64) {
+	switch now := d.Totals.OpenUnresolved; {
+	case was == 0 && now > 0:
+		rt.unresolvedDenoms++
+	case was > 0 && now == 0:
+		rt.unresolvedDenoms--
+	}
 }
 
 // Reopen reopens a route a replacement closed, by decision (the gno
@@ -337,17 +345,32 @@ func (rt *Route) Reopen() (int64, bool, error) {
 
 // reopenBlocker is why the route cannot open now, or nil: a retired
 // client's record is open or was processed in its suspect interval and is
-// not settled.
+// not settled. It reads the index of blocking clients, in logarithmic work
+// whatever the number of replacements.
 func (rt *Route) reopenBlocker() error {
-	for _, c := range rt.Replaced {
-		if n := rt.OpenSends(c); n > 0 {
-			return ufmt.Errorf("controls: %d send records of retired client %s are still open: settle them first", n, c)
-		}
-		if n := rt.SuspectUnsettled(c); n > 0 {
-			return ufmt.Errorf("controls: %d send records retired client %s processed in its suspect interval are not settled: settle them first", n, c)
-		}
+	c := ""
+	rt.blocking.Iterate("", "", func(k string, _ any) bool {
+		c = k
+		return true
+	})
+	if c == "" {
+		return nil
 	}
-	return nil
+	if n := rt.OpenSends(c); n > 0 {
+		return ufmt.Errorf("controls: %d send records of retired client %s are still open: settle them first", n, c)
+	}
+	return ufmt.Errorf("controls: %d send records retired client %s processed in its suspect interval are not settled: settle them first", rt.SuspectUnsettled(c), c)
+}
+
+// reblock updates the index of retired clients blocking a reopening after a
+// change to client's records: a retired client blocks while a record of it
+// is open, or one processed in its suspect interval is not settled.
+func (rt *Route) reblock(client string) {
+	if rt.suspect.Has(client) && (rt.OpenSends(client) > 0 || rt.SuspectUnsettled(client) > 0) {
+		rt.blocking.Set(client, true)
+		return
+	}
+	rt.blocking.Remove(client)
 }
 
 // ContinueReopen runs the next bounded batch of a reopening a decision
@@ -543,6 +566,7 @@ type Denom struct {
 	cursor      string   // the last recipient served
 	refundMeter Meter
 	refundQueue avl.Tree // seqKey(n) -> send key, oldest first
+	refundIdx   avl.Tree // send key -> its seqKey in refundQueue
 	refundSeq   int64
 
 	Totals Totals

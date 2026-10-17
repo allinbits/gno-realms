@@ -1040,3 +1040,66 @@ func TestParkedSettlementRefund(t *testing.T) {
 		t.Fatalf("open sends %d", rt.OpenSends("ethereum-1"))
 	}
 }
+
+// The checks on every path keep their indexes in step instead of scanning
+// (design review #5): whether a denom has an unresolved loss is a counter
+// (ExposureClosed reads it in constant work, however many denoms the route
+// enables), a queued refund leaves the queue by its key (a settlement of the
+// last of many queued refunds reads no other), and the retired clients that
+// block a reopening are indexed (however many replacements the route saw).
+func TestBoundedIndexes(t *testing.T) {
+	r, rt := newRoute(t)
+	for i := 0; i < 40; i++ {
+		c := gnot()
+		c.Remote = "0x0000000000000000000000000000000000c0" + strconv.Itoa(1000+i)
+		if err := rt.SetDenom("u"+strconv.Itoa(i), c, t0, 0, 0); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// A loss of the last denom closes exposure; accepting it reopens.
+	if err := rt.RecordLoss("ethereum-1/00000000000000000901", "u39", 10, ChainEthereum, "inc", "collision"); err != nil {
+		t.Fatal(err)
+	}
+	if !rt.ExposureClosed() || rt.unresolvedDenoms != 1 {
+		t.Fatalf("closed %v count %d", rt.ExposureClosed(), rt.unresolvedDenoms)
+	}
+	if err := rt.Accept("u39", 10, "inc"); err != nil || rt.ExposureClosed() || rt.unresolvedDenoms != 0 {
+		t.Fatalf("after accepting: %v closed %v count %d", err, rt.ExposureClosed(), rt.unresolvedDenoms)
+	}
+
+	// 60 queued refunds; the last leaves the queue by its key.
+	for i := uint64(1); i <= 60; i++ {
+		rt.RecordSend(sendRec(i, "ugnot", KindUnescrow, 100))
+		rt.Settle(t0, 1, pk(i), OutcomeTimeout, true, big) // queued under a hold
+	}
+	d := rt.Denom("ugnot")
+	if d.refundQueue.Size() != 60 || d.refundIdx.Size() != 60 {
+		t.Fatalf("queue %d index %d", d.refundQueue.Size(), d.refundIdx.Size())
+	}
+
+	// Many replacements: only the client with an open record blocks.
+	for i := 2; i <= 30; i++ {
+		if err := r.Replace("ethereum-1", "ethereum-"+strconv.Itoa(i), 0, int64(1000+i)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if rt.blocking.Size() != 1 || rt.reopenBlocker() == nil || !strings.Contains(rt.reopenBlocker().Error(), "retired client ethereum-1 ") {
+		t.Fatalf("blocking %d: %v", rt.blocking.Size(), rt.reopenBlocker())
+	}
+	var items []SettleItem
+	for i := uint64(1); i <= 60; i++ {
+		items = append(items, SettleItem{Seq: i, Action: SettlePay, Amount: 100})
+		if len(items) == MaxKeys || i == 60 {
+			if _, err := settleProven(rt, "ethereum-1", items, "inc", lockOf(big)); err != nil {
+				t.Fatal(err)
+			}
+			items = nil
+		}
+	}
+	if d.refundQueue.Size() != 0 || d.refundIdx.Size() != 0 || d.Totals.QueuedRefunds != 0 {
+		t.Fatalf("queue %d index %d queued %d", d.refundQueue.Size(), d.refundIdx.Size(), d.Totals.QueuedRefunds)
+	}
+	if rt.blocking.Size() != 0 || rt.reopenBlocker() != nil {
+		t.Fatalf("still blocking: %v", rt.reopenBlocker())
+	}
+}

@@ -153,9 +153,10 @@ func (rt *Route) track(r *SendRecord, was bool) {
 	}
 	if n == 0 {
 		rt.openSends.Remove(client)
-		return
+	} else {
+		rt.openSends.Set(client, n)
 	}
-	rt.openSends.Set(client, n)
+	rt.reblock(client)
 }
 
 // processedSet is a client's send records that were processed (an
@@ -185,6 +186,7 @@ func (rt *Route) markProcessed(r *SendRecord) {
 	client, _, _ := ParsePacketKey(r.Key)
 	ps := rt.processedOf(client, true)
 	ps.root, _ = ps.root.Set(processedKey(r.ProcessedHeight, r.Key), true)
+	rt.reblock(client)
 }
 
 // unmarkProcessed removes a record a reconciliation settled.
@@ -196,6 +198,7 @@ func (rt *Route) unmarkProcessed(r *SendRecord) {
 	if ps := rt.processedOf(client, false); ps != nil {
 		ps.root, _, _, _ = ps.root.Remove(processedKey(r.ProcessedHeight, r.Key))
 	}
+	rt.reblock(client)
 }
 
 // SuspectUnsettled is how many send records of a retired client were
@@ -297,11 +300,19 @@ func (rt *Route) Settle(now, height int64, key, outcome string, hold bool, lock 
 		r.Payment = PayPaid
 		return owed, nil
 	}
-	d.refundSeq++
-	d.refundQueue.Set(seqKey(d.refundSeq), key)
-	d.Totals.QueuedRefunds = mustAdd(d.Totals.QueuedRefunds, owed) // at most InFlight
+	d.queueRefund(key, owed)
 	r.Payment = PayQueued
 	return 0, nil
+}
+
+// queueRefund appends the refund of the send key, amount owed, to the denom's
+// refund queue, indexed by key so it leaves the queue in logarithmic work.
+func (d *Denom) queueRefund(key string, amount int64) {
+	d.refundSeq++
+	k := seqKey(d.refundSeq)
+	d.refundQueue.Set(k, key)
+	d.refundIdx.Set(key, k)
+	d.Totals.QueuedRefunds = mustAdd(d.Totals.QueuedRefunds, amount) // at most InFlight, or reserved by a settlement
 }
 
 // refunded books amount refunded on r.
@@ -397,6 +408,7 @@ func (rt *Route) PayRefunds(now int64, denom string, n int, hold bool, lock int6
 		d.Totals.QueuedRefunds -= pay
 		if r.Refunded == r.Amount {
 			d.refundQueue.Remove(k)
+			d.refundIdx.Remove(key)
 			r.Payment = PayClaimed
 			if r.Settlement != 0 {
 				r.Payment = PayReconciled // a settlement's parked refund
@@ -684,9 +696,7 @@ func (rt *Route) SettleRecords(client string, items []SettleItem, incident strin
 // so it counts against the supply cap: no credit admitted meanwhile takes the
 // capacity the refund needs.
 func (rt *Route) park(d *Denom, r *SendRecord, amount int64) {
-	d.refundSeq++
-	d.refundQueue.Set(seqKey(d.refundSeq), r.Key)
-	d.Totals.QueuedRefunds = mustAdd(d.Totals.QueuedRefunds, amount)
+	d.queueRefund(r.Key, amount)
 	r.Payment = PayQueued
 	r.Reservation = amount
 	d.Totals.Returning = mustAdd(d.Totals.Returning, amount) // checked by SettleRecords
@@ -757,14 +767,12 @@ func (rt *Route) ProveOutcome(key string, packet types.Packet, outcome uint8, he
 	return nil
 }
 
-// unqueue takes a record's queued refund out of the queue, unpaid.
+// unqueue takes a record's queued refund out of the queue, unpaid, found by
+// its key in logarithmic work.
 func (rt *Route) unqueue(d *Denom, r *SendRecord) {
-	d.refundQueue.Iterate("", "", func(k string, v any) bool {
-		if v.(string) == r.Key {
-			d.refundQueue.Remove(k)
-			return true
-		}
-		return false
-	})
+	if v := d.refundIdx.Get(r.Key); v != nil {
+		d.refundQueue.Remove(v.(string))
+		d.refundIdx.Remove(r.Key)
+	}
 	d.Totals.QueuedRefunds -= r.Amount - r.Refunded
 }
