@@ -1118,3 +1118,62 @@ func TestRemedyOrder(t *testing.T) {
 		}
 	}
 }
+
+// A claim whose recipient became a bridge realm after its credit is moved to
+// the owed sweep at payout, exactly: its remainder leaves what is owed for
+// what is swept, it carries what the claim paid, a forged void books that
+// paid part as the loss, and only a sweep decision pays the rest.
+func TestPayClaimsSweepsBridgeRealm(t *testing.T) {
+	rt, lock := setupClaims(t) // claim 1 to alice paid in part, 2 to bob open
+	d := rt.Denom("ugnot")
+	mustCredit(t, rt, t0, 4, "ugnot", alice, 1_000, lock)
+	c1, _ := rt.Claim(pk(1))
+	if c1.Paid == 0 {
+		t.Fatalf("setup: claim 1 unpaid")
+	}
+	owed, swept := d.Totals.Owed, d.Totals.Swept
+	isAlice := func(a address) bool { return a == alice }
+	ps, moved, err := rt.PayClaimsSweeping(t0+2*Day, 0, t0, "ugnot", 10, lock, isAlice)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range ps {
+		if p.To == alice {
+			t.Fatalf("paid a bridge realm: %+v", p)
+		}
+	}
+	if len(moved) != 2 || moved[0] != pk(1) || moved[1] != pk(4) {
+		t.Fatalf("moved %v", moved)
+	}
+	paidBob, feeBob := sumPay(ps)
+	rem := c1.Remaining() + 1_000
+	if d.Totals.Owed != owed-rem-paidBob-feeBob || d.Totals.Swept != swept+rem {
+		t.Fatalf("owed %d swept %d, want %d %d", d.Totals.Owed, d.Totals.Swept, owed-rem-paidBob-feeBob, swept+rem)
+	}
+	if _, ok := rt.Claim(pk(1)); ok {
+		t.Fatalf("the moved claim stayed")
+	}
+	e, _ := rt.Sweep(pk(1))
+	if !e.FromClaim || e.ClaimPaid != c1.Paid || e.Amount != c1.Remaining() || e.Reason != "bridge realm" || e.Paid {
+		t.Fatalf("%+v", e)
+	}
+	if rt.Waiting("ugnot") > 1 {
+		t.Fatalf("alice still waiting")
+	}
+	if err := rt.CreditByVote(t0, 10, 0, pk(4), "ugnot", bob, 1_000, lock); err == nil {
+		t.Fatalf("credited by vote a receive credited as a claim already")
+	}
+	if !rt.Voidable(pk(1), true) || rt.Voidable(pk(1), false) {
+		t.Fatalf("a moved entry is voidable as forged only")
+	}
+	swept = d.Totals.Swept
+	if err := rt.Void([]string{pk(1)}, true, "inc"); err != nil {
+		t.Fatal(err)
+	}
+	if d.Totals.Swept != swept-c1.Remaining() || d.Totals.Unrecovered() != c1.Paid {
+		t.Fatalf("void: swept %d unrecovered %d", d.Totals.Swept, d.Totals.Unrecovered())
+	}
+	if _, err := rt.PaySweeps([]string{pk(4)}, carol, lock); err != nil {
+		t.Fatalf("a sweep decision cannot pay the moved entry: %v", err)
+	}
+}

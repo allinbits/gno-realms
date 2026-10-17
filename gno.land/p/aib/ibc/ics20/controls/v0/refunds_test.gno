@@ -891,3 +891,33 @@ func TestSettlementCountsEveryRelease(t *testing.T) {
 		t.Fatalf("paid beyond the escrow")
 	}
 }
+
+// A forged-receive settlement of a claim moved to the sweep books what the
+// claim paid and drops the live remainder, so no decision pays it.
+func TestSettleForgedReceiveOfMovedClaim(t *testing.T) {
+	r, rt := newRoute(t)
+	lock := int64(100_000) // a recipient 2500 a day: paid in part
+	mustCredit(t, rt, t0, 5, "ugnot", alice, 3_000, lock)
+	rt.PayClaims(t0+Day, 0, t0, "ugnot", 1, lock)
+	c, _ := rt.Claim(pk(5))
+	if c.Paid == 0 || c.Remaining() == 0 {
+		t.Fatalf("setup: %+v", c)
+	}
+	isAlice := func(a address) bool { return a == alice }
+	if _, moved, err := rt.PayClaimsSweeping(t0+2*Day, 0, t0, "ugnot", 1, lock, isAlice); err != nil || len(moved) != 1 {
+		t.Fatalf("%v %v", moved, err)
+	}
+	d := rt.Denom("ugnot")
+	swept := d.Totals.Swept
+	r.Replace("ethereum-1", "ethereum-2", 0, 1000)
+	if _, err := rt.SettleRecords("ethereum-1", []SettleItem{{Seq: 5, Action: SettleForgedReceive, Amount: c.Paid}}, "inc", lockOf(big), activeAll); err != nil {
+		t.Fatal(err)
+	}
+	e, _ := rt.Sweep(pk(5))
+	if !e.Voided || d.Totals.Swept != swept-c.Remaining() || d.Totals.Lost != c.Paid {
+		t.Fatalf("%+v %+v", e, d.Totals)
+	}
+	if _, err := rt.PaySweeps([]string{pk(5)}, bob, big); err == nil {
+		t.Fatalf("paid a forged receive's remainder")
+	}
+}

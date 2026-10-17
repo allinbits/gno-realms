@@ -151,8 +151,8 @@ func (rt *Route) Void(keys []string, forged bool, incident string) error {
 		denom, paid := "", int64(0)
 		if c := rt.claim(k); c != nil && forged {
 			denom, paid = c.Denom, c.Paid
-		} else if e := rt.sweep(k); e != nil && e.Paid {
-			denom, paid = e.Denom, e.Amount
+		} else if e := rt.sweep(k); e != nil {
+			denom, paid = e.Denom, e.paidOut()
 		}
 		if paid > 0 {
 			sum, ok := checkedAdd(losses[denom], paid)
@@ -175,13 +175,15 @@ func (rt *Route) Void(keys []string, forged bool, incident string) error {
 		e := rt.sweep(k)
 		e.Voided = true
 		d := rt.Denom(e.Denom)
-		if e.Paid {
-			// Its payout left the swept total when it was paid: what the
-			// sweep decision paid is the loss, booked once.
-			rt.addLoss(d, Loss{Key: k, Direction: DirRecv, Denom: e.Denom, Amount: e.Amount, Chain: ChainGno, Incident: incident, Cause: "forged payout"})
-			continue
+		if !e.Paid {
+			d.Totals.Swept -= e.Amount
 		}
-		d.Totals.Swept -= e.Amount
+		// A paid entry's payout left the swept total when it was paid: what
+		// the sweep decision paid, and what a claim moved here had paid, is
+		// the loss, booked once.
+		if paid := e.paidOut(); paid > 0 {
+			rt.addLoss(d, Loss{Key: k, Direction: DirRecv, Denom: e.Denom, Amount: paid, Chain: ChainGno, Incident: incident, Cause: "forged payout"})
+		}
 	}
 	return nil
 }
@@ -358,6 +360,9 @@ func (rt *Route) CreditByVote(now, height, epoch int64, key, denom string, to ad
 	}
 	if e.Voided || e.Paid || e.Denom != denom {
 		return errors.New("controls: packet " + key + "'s sweep entry is voided, paid or of another denom")
+	}
+	if e.FromClaim {
+		return errors.New("controls: packet " + key + " was credited as a claim already, moved to the sweep queue: a sweep decision pays it")
 	}
 	// The full payable amount: a credit never drops part of an entitlement
 	// (a haircut goes through Reduce, against an incident).

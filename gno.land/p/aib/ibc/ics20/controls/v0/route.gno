@@ -756,6 +756,23 @@ type SweepEntry struct {
 	Voided  bool   // voided as forged
 	Paid    bool   // paid by a sweep decision, or replaced by a credit by vote
 	PaidTo  string // where a sweep decision paid it
+	// FromClaim marks an entry an open claim was moved to, its recipient
+	// having become a bridge realm after the credit; ClaimPaid is what the
+	// claim had paid out (fee included) before: part of what the receive
+	// paid out, should it prove forged.
+	FromClaim bool
+	ClaimPaid int64
+}
+
+// paidOut is what the receive of a sweep entry paid out: what its claim paid
+// before it was moved here, and what a sweep decision paid (a credit by vote
+// replacing it pays through its claim instead).
+func (e *SweepEntry) paidOut() int64 {
+	paid := e.ClaimPaid
+	if e.Paid && e.PaidTo != PaidByVote {
+		paid += e.Amount
+	}
+	return paid
 }
 
 // Payment is what a claim payout or a sweep payment moves: Amount to To and
@@ -952,17 +969,28 @@ func (rt *Route) MeterLevels(now, epoch, epochAt int64, denom string, to address
 // and returns them for the caller to make; at most n claims are paid and at
 // most 4n recipients looked at.
 func (rt *Route) PayClaims(now, epoch, epochAt int64, denom string, n int, lock int64) ([]Payment, error) {
+	ps, _, err := rt.PayClaimsSweeping(now, epoch, epochAt, denom, n, lock, nil)
+	return ps, err
+}
+
+// PayClaimsSweeping is PayClaims checking each claim's recipient at payout
+// time: a claim whose recipient sweep reports (a bridge realm, which became
+// one after the credit) is not paid but moved to the sweep queue, owed until
+// a decision directs it, and its key is returned with the moved ones. A move
+// takes the recipient's turn.
+func (rt *Route) PayClaimsSweeping(now, epoch, epochAt int64, denom string, n int, lock int64, sweep func(address) bool) ([]Payment, []string, error) {
 	d := rt.Denom(denom)
 	if d == nil {
-		return nil, errors.New("controls: denom " + denom + " is not enabled on route " + rt.Key)
+		return nil, nil, errors.New("controls: denom " + denom + " is not enabled on route " + rt.Key)
 	}
 	if n < 1 {
-		return nil, errors.New("controls: n must be positive")
+		return nil, nil, errors.New("controls: n must be positive")
 	}
 	if n > MaxClaims {
 		n = MaxClaims
 	}
 	var out []Payment
+	var moved []string
 	for visits := 0; len(out) < n && visits < 4*n && d.waiting.Size() > 0; visits++ {
 		addr := d.nextRecipient()
 		d.cursor = addr
@@ -970,6 +998,11 @@ func (rt *Route) PayClaims(now, epoch, epochAt int64, denom string, n int, lock 
 		c := rt.oldestOpen(q)
 		if c == nil {
 			d.waiting.Remove(addr)
+			continue
+		}
+		if sweep != nil && sweep(c.To) {
+			rt.sweepClaim(d, c, q, "bridge realm")
+			moved = append(moved, c.Key)
 			continue
 		}
 		dayCap := d.DayCap(lock)
@@ -1035,7 +1068,21 @@ func (rt *Route) PayClaims(now, epoch, epochAt int64, denom string, n int, lock 
 		}
 		out = append(out, Payment{Key: c.Key, Denom: denom, To: c.To, Amount: pay, Fee: fee})
 	}
-	return out, nil
+	return out, moved, nil
+}
+
+// sweepClaim moves an open claim to the sweep queue under its packet key:
+// its remainder leaves what is owed and becomes a live sweep entry, exactly,
+// carrying what the claim paid out already; the claim leaves its queue and
+// the claims. The credited statistic keeps it: it was credited.
+func (rt *Route) sweepClaim(d *Denom, c *Claim, q *queue, reason string) {
+	rem := c.Remaining()
+	rt.dequeue(d, c, q)
+	rt.claims.Remove(c.Key)
+	d.Totals.Owed -= rem
+	d.Totals.Swept = mustAdd(d.Totals.Swept, rem) // within the liabilities already
+	rt.sweeps.Set(c.Key, &SweepEntry{Key: c.Key, Denom: c.Denom, To: string(c.To), Amount: rem, Reason: reason, Reduced: c.Reduced,
+		Height: c.Height, FromClaim: true, ClaimPaid: c.Paid})
 }
 
 // dequeue takes a claim out of its queue; a queue left with no open claim

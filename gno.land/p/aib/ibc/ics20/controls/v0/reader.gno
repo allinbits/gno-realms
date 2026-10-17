@@ -289,7 +289,15 @@ func ClaimJSON(c Claim) string {
 func SweepJSON(e SweepEntry) string {
 	return "{\"key\":" + q(e.Key) + ",\"denom\":" + q(e.Denom) + ",\"to\":" + q(e.To) + ",\"amount\":" + itoa(e.Amount) + ",\"reduced\":" + itoa(e.Reduced) +
 		",\"reason\":" + q(e.Reason) + ",\"height\":" + itoa(e.Height) + ",\"voided\":" + strconv.FormatBool(e.Voided) +
-		",\"paid\":" + strconv.FormatBool(e.Paid) + ",\"paid_to\":" + q(e.PaidTo) + "}"
+		",\"paid\":" + strconv.FormatBool(e.Paid) + ",\"paid_to\":" + q(e.PaidTo) + fromClaimJSON(e) + "}"
+}
+
+// fromClaimJSON is what a sweep entry moved from a claim adds to its JSON.
+func fromClaimJSON(e SweepEntry) string {
+	if !e.FromClaim {
+		return ""
+	}
+	return ",\"from_claim\":true,\"claim_paid\":" + itoa(e.ClaimPaid)
 }
 
 // SendJSON is a send record's JSON: the full packet (hex payload values), its

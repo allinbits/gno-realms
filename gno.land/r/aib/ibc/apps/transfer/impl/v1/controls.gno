@@ -39,7 +39,8 @@ func (l *logic) lockOf(rt *controls.Route, denom string) int64 {
 	return l.store.Escrowed(rt.Key, denom)
 }
 
-// Claim pays up to n claims of denom on the route (ADR pr6375 §7.1). Under a
+// Claim pays up to n claims of denom on the route (ADR pr6375 §7.1); a claim
+// whose recipient has become a bridge realm is swept instead. Under a
 // payouts flag, on a closed route, or while a loss has no restoring decision,
 // it pays nothing.
 func (l *logic) Claim(_ int, rlm realm, clientID, denom string, n int) int {
@@ -48,9 +49,15 @@ func (l *logic) Claim(_ int, rlm realm, clientID, denom string, n int) int {
 		return 0
 	}
 	epoch, epochAt := ibcgov.PayoutsEpoch(rt.Key)
-	ps, err := rt.PayClaims(now(), epoch, epochAt, denom, n, l.lockOf(rt, denom))
+	// The recipient is checked again at payout: one that became a bridge
+	// realm after its credit (an implementation registered since) is not
+	// paid; its claim moves to the owed sweep.
+	ps, moved, err := rt.PayClaimsSweeping(now(), epoch, epochAt, denom, n, l.lockOf(rt, denom), isBridgeRealm)
 	if err != nil {
 		panic(err)
+	}
+	for _, k := range moved {
+		transfer.EmitRoute(0, rlm, "claim_swept", "route", rt.Key, "packet", k, "denom", denom, "reason", "bridge realm")
 	}
 	for _, p := range ps {
 		l.payOut(0, rlm, rt, denom, p.To, p.Amount)

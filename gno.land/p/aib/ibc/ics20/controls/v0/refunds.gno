@@ -613,6 +613,11 @@ func (rt *Route) SettleRecords(client string, items []SettleItem, incident strin
 					d.Totals.Withheld -= rem
 				}
 				c.State = Forged
+			} else if e := rt.sweep(key); e != nil && !e.Paid {
+				// A claim moved to the sweep queue: its live remainder is
+				// dropped, so no decision pays it.
+				d.Totals.Swept -= e.Amount
+				e.Voided = true
 			}
 			rt.addLoss(d, Loss{Key: key, Direction: DirRecv, Denom: denom, Amount: it.Amount, Chain: ChainGno, Incident: incident, Cause: CauseForgedReceive})
 			continue
@@ -660,8 +665,10 @@ func (rt *Route) forgedReceive(key string) (string, int64, error) {
 		}
 		return c.Denom, c.Paid, nil
 	}
-	if e := rt.sweep(key); e != nil && e.Paid && e.PaidTo != PaidByVote && !e.Voided {
-		return e.Denom, e.Amount, nil
+	if e := rt.sweep(key); e != nil && !e.Voided {
+		if paid := e.paidOut(); paid > 0 {
+			return e.Denom, paid, nil
+		}
 	}
 	return "", 0, errors.New("no receive of " + key + " paid anything out")
 }
