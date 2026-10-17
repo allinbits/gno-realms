@@ -75,24 +75,27 @@ type ethState interface {
 	Ethereum() *EthLightClient
 }
 
-// Snapshot is a detached deep copy of the verifier: its client state and
-// every consensus state copied, no slice, pointer or tree shared, so a
-// verifier replacement converts the copy and validates the result before
-// anything live changes. It walks every stored consensus state.
+// Snapshot is a detached deep copy of what a verifier replacement carries
+// over, in constant work whatever the client's history: its client state and
+// its latest trusted consensus state, no slice, pointer or tree shared. The
+// converted verifier starts from that state: consensus states below it are
+// not carried over (TrustedFromSlot is set to it), so proofs at heights from
+// before the replacement are no longer available.
 func (c *EthLightClient) Snapshot() lightclient.Interface {
-	out := &EthLightClient{ConsensusStateByHeight: bptree.NewBPTree32(), TrustedFromSlot: c.TrustedFromSlot}
-	if c.ClientState != nil {
-		cs := *c.ClientState
-		cs.GenesisValidatorsRoot = cloneBytes(cs.GenesisValidatorsRoot)
-		cs.IBCContractAddress = cloneBytes(cs.IBCContractAddress)
-		cs.IBCCommitmentSlot = cloneBytes(cs.IBCCommitmentSlot)
-		out.ClientState = &cs
+	out := &EthLightClient{ConsensusStateByHeight: bptree.NewBPTree32()}
+	if c.ClientState == nil {
+		return out
 	}
-	c.ConsensusStateByHeight.Iterate("", "", func(k string, v any) bool {
-		cons := copyConsensusState(*v.(*ConsensusState))
-		out.ConsensusStateByHeight.Set(k, &cons)
-		return false
-	})
+	cs := *c.ClientState
+	cs.GenesisValidatorsRoot = cloneBytes(cs.GenesisValidatorsRoot)
+	cs.IBCContractAddress = cloneBytes(cs.IBCContractAddress)
+	cs.IBCCommitmentSlot = cloneBytes(cs.IBCCommitmentSlot)
+	out.ClientState = &cs
+	if latest, ok := c.GetConsensusState(c.LatestHeight()); ok {
+		cons := copyConsensusState(*latest)
+		out.setConsensusState(&cons)
+		out.TrustedFromSlot = cons.Slot
+	}
 	return out
 }
 

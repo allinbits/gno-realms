@@ -343,3 +343,41 @@ func TestInitializeOnce(t *testing.T) {
 		t.Fatalf("trusted state moved: %v", c.LatestHeight())
 	}
 }
+
+// A replacement's snapshot is constant-size whatever the client's history:
+// the client state and the latest trusted consensus state, no older one
+// (Codex round 25 #2).
+func TestSnapshotLatestOnly(t *testing.T) {
+	f := fixtureNative()
+	c := NewEthLightClient()
+	urequire.NoError(t, c.Initialize(f.clientState, f.consensusState))
+	base := f.consensusState
+	for i := uint64(1); i <= 250; i++ {
+		cons := copyConsensusState(base)
+		cons.Slot = base.Slot + i
+		cons.StateRoot = []byte{byte(i), 1, 2, 3}
+		c.setConsensusState(&cons)
+	}
+	cs := *c.ClientState
+	cs.LatestSlot = base.Slot + 250
+	c.ClientState = &cs
+	if n := c.ConsensusStateByHeight.Size(); n != 251 {
+		t.Fatalf("history: %d", n)
+	}
+	snap := c.Snapshot().(*EthLightClient)
+	if n := snap.ConsensusStateByHeight.Size(); n != 1 {
+		t.Fatalf("snapshot holds %d consensus states", n)
+	}
+	got, ok := snap.GetConsensusState(snap.LatestHeight())
+	want, _ := c.GetConsensusState(c.LatestHeight())
+	if !ok || !bytesEqual(got.StateRoot, want.StateRoot) || got == want || snap.TrustedFromSlot != cs.LatestSlot {
+		t.Fatalf("latest state: %+v", got)
+	}
+	if _, ok := snap.GetConsensusState(heightAtSlot(base.Slot)); ok {
+		t.Fatalf("an older consensus state was carried over")
+	}
+	got.StateRoot[0] = 0xff
+	if want.StateRoot[0] == 0xff {
+		t.Fatalf("the snapshot shares the live state root")
+	}
+}
