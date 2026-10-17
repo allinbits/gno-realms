@@ -98,7 +98,8 @@ func (p *routeParams) apply(cur realm, t int64) (string, string) {
 		// transfers only, until IBCAdmin's epoch notice moves the epoch.
 		retired := " retired"
 		switch {
-		case EpochClient() == p.replace:
+		case onEpochChain(p.replace):
+			// The epoch runs over it, or is still to move through it.
 			core.RetireClientPort(cross(cur), p.replace, transfer.PortID)
 			retired = " retired for transfers"
 		case !core.IsClientRetired(p.replace):
@@ -113,8 +114,8 @@ func (p *routeParams) apply(cur realm, t int64) (string, string) {
 		if n := foldFlags(p.p.Client, p.p.Route, t); n > 0 {
 			note += ", " + strconv.Itoa(n) + " flags of " + p.p.Client + " moved to the route"
 		}
-		if EpochClient() == p.replace {
-			note += "; governance epoch " + strconv.FormatUint(uint64(epoch), 10) + " stays over " + p.replace + " until IBCAdmin's epoch notice arrives over " + p.p.Client
+		if onEpochChain(p.replace) {
+			note += "; governance epoch " + strconv.FormatUint(uint64(epoch), 10) + " stays over " + EpochClient() + " until IBCAdmin's epoch notices arrive"
 		}
 	}
 	return note, ""

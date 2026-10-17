@@ -215,5 +215,5 @@ func main(cur realm) {
 // bind over an expired client: spent - spent: ethereum-2 is not Active | epoch 0
 // bind over the route's current client: applied - governance epoch 1 over ethereum-3 | epoch 1 over true
 // bound client: Expired
-// replace the bound route: applied - replace: client ethereum-3 retired for transfers, meters emptied; governance epoch 1 stays over ethereum-3 until IBCAdmin's epoch notice arrives over ethereum-4
+// replace the bound route: applied - replace: client ethereum-3 retired for transfers, meters emptied; governance epoch 1 stays over ethereum-3 until IBCAdmin's epoch notices arrive
 // route client is c: true | epoch 1 over c: false

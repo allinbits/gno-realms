@@ -64,12 +64,16 @@ import (
 //
 // big-endian, newClient the router's client id the notice comes from (the
 // kind 10's new client), the rest of the bytes. It is the only packet this
-// realm receives. It is accepted only over the new client of a route
-// replacement recorded here whose old client carries the current epoch, for
-// exactly the current epoch plus one, its proof verified by the core through
-// that new client (Active, its counterparty the notice's source): the epoch
-// then moves to the new client, and the old client is retired for the gov
-// port (for good once the route's replacement has executed here too). The
+// realm receives. Ethereum raises its epoch by one per kind 10 or emergency
+// recovery it executes, and sends a notice over each step's new client; the
+// replacements recorded here chain the same steps from the epoch's client
+// (govSucc, kept apart from the transfer aliases). A notice of epoch
+// current + k is accepted only over the k-th recorded successor of the
+// epoch's client, its proof verified by the core through that client
+// (Active, its counterparty the notice's source): the epoch then moves
+// there, past any step in between, and every client passed is retired for
+// the gov port (for good once its route replacement has executed here too).
+// A client on that chain is never retired for the gov port before. The
 // app acknowledgement is epoch u32 ‖ seq u64 (0) ‖ status u8 ‖ redispatch u8
 // (0): status 1 when it switches, 3 for the notice of the epoch already
 // switched to. Anything else is refused with an error acknowledgement.
@@ -192,14 +196,44 @@ var (
 	epochs      avl.Tree // epochKey -> *epochRec
 	dispatches  avl.Tree // dispatchKey -> *dispatch
 	pendingAuth *authorization
-	// replacements names, for the new client of every route replacement
-	// recorded here, the client it replaces: an epoch notice is accepted
-	// only over one of them (see OnRecvPacket).
-	replacements avl.Tree // new client -> old client
+	// govSucc is the governance transitions, kept apart from the transfer
+	// app's route aliases: for the old client of every route replacement
+	// recorded here, the client replacing it. From the epoch's client it
+	// chains the clients the epoch is to move through, one epoch each, as
+	// Ethereum raises its epoch by one per kind 10 or emergency recovery it
+	// executes (see OnRecvPacket).
+	govSucc avl.Tree // old client -> new client
 )
 
+// maxNoticeSteps bounds how many recorded replacements an epoch notice may
+// move the epoch through at once (a walk of the chain).
+const maxNoticeSteps = 16
+
 // recordReplacement notes a route replacement decision of old by client.
-func recordReplacement(client, old string) { replacements.Set(client, old) }
+func recordReplacement(client, old string) { govSucc.Set(old, client) }
+
+// successor is the client recorded to replace c, "" if none.
+func successor(c string) string {
+	if v := govSucc.Get(c); v != nil {
+		return v.(string)
+	}
+	return ""
+}
+
+// onEpochChain reports whether c carries the governance epoch or is a client
+// the epoch is still to move through (a recorded successor, step by step,
+// of the epoch's client): such a client is never retired for the gov port,
+// so its epoch notice can still arrive and its decisions still be re-sent.
+func onEpochChain(c string) bool {
+	x := EpochClient()
+	for i := 0; x != "" && i <= maxNoticeSteps; i++ {
+		if x == c {
+			return true
+		}
+		x = successor(x)
+	}
+	return false
+}
 
 func epochKey(e uint32) string {
 	s := strconv.FormatUint(uint64(e), 10)
@@ -300,10 +334,10 @@ func bindChannel(client string) {
 	chain.Emit("GovEpoch", "epoch", "1", "client", client)
 }
 
-// nextEpoch opens the next epoch over client (IBCAdmin's epoch notice): the old
-// epoch's unacknowledged decisions are never sent again.
-func nextEpoch(client string) {
-	epoch++
+// setEpoch opens epoch e over client (IBCAdmin's epoch notice): the earlier
+// epochs' unacknowledged decisions are never sent again.
+func setEpoch(e uint32, client string) {
+	epoch = e
 	epochs.Set(epochKey(epoch), &epochRec{client: client, opened: chainHeight()})
 	chain.Emit("GovEpoch", "epoch", strconv.FormatUint(uint64(epoch), 10), "client", client)
 }
@@ -458,25 +492,40 @@ func takeNotice(cur realm, source, client string, payload types.Payload) (uint32
 	case epoch != 0 && e == epoch && client == EpochClient():
 		return e, StatusDuplicate, "" // the switch happened already: acknowledged again
 	}
-	v := replacements.Get(client)
-	if v == nil {
-		return 0, 0, "no route replacement recorded here has " + client + " for its new client"
+	if epoch == 0 || e <= epoch || e-epoch > maxNoticeSteps {
+		return 0, 0, "the notice is of epoch " + strconv.FormatUint(uint64(e), 10) + ", not one of the next " + strconv.Itoa(maxNoticeSteps) + " after " + strconv.FormatUint(uint64(epoch), 10)
 	}
-	old := v.(string)
-	switch {
-	case epoch == 0 || old != EpochClient():
-		return 0, 0, "the replacement by " + client + " retires " + old + ", which carries no current epoch"
-	case e != epoch+1:
-		return 0, 0, "the notice is of epoch " + strconv.FormatUint(uint64(e), 10) + ", not " + strconv.FormatUint(uint64(epoch+1), 10)
+	// The k-th recorded successor of the epoch's client takes epoch + k:
+	// Ethereum raised its epoch once per replacement it executed, and sent a
+	// notice over each step's new client. A later notice moves the epoch
+	// past the steps in between, whose notices may never come (a client
+	// that failed meanwhile).
+	k := int(e - epoch)
+	passed := []string{EpochClient()}
+	x := EpochClient()
+	for i := 0; i < k; i++ {
+		x = successor(x)
+		if x == "" {
+			break
+		}
+		passed = append(passed, x)
 	}
-	nextEpoch(client)
-	// The old client is retired for governance: for good once the route's
-	// replacement executed here (it is retired for transfers already),
-	// otherwise for the gov port, the replacement retiring the rest.
-	if rd, ok := transfer.ExtView("controls").(controls.Reader); ok && rd.RetiredRouteOf(old) != "" {
-		core.RetireClient(cross(cur), old)
-	} else {
-		core.RetireClientPort(cross(cur), old, GovPort)
+	if x != client {
+		return 0, 0, "epoch " + strconv.FormatUint(uint64(e), 10) + " goes over the " + strconv.Itoa(k) + "-th recorded successor of " + EpochClient() + ", not " + client
+	}
+	setEpoch(e, client)
+	// The clients passed are retired for governance: for good each one whose
+	// route replacement executed here (it is retired for transfers already),
+	// otherwise for the gov port, its replacement retiring the rest.
+	rd, _ := transfer.ExtView("controls").(controls.Reader)
+	for _, c := range passed[:len(passed)-1] {
+		switch {
+		case core.IsClientRetired(c):
+		case rd.Valid() && rd.RetiredRouteOf(c) != "":
+			core.RetireClient(cross(cur), c)
+		case !core.IsClientRetiredFor(c, GovPort):
+			core.RetireClientPort(cross(cur), c, GovPort)
+		}
 	}
 	return e, StatusRecorded, ""
 }
