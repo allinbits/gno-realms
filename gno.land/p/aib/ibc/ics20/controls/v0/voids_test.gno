@@ -385,10 +385,8 @@ func TestRegistryReplace(t *testing.T) {
 	if err := r.Replace("ethereum-1", "ethereum-1", 0, 1000); err == nil {
 		t.Fatalf("re-used a retired client")
 	}
-	if err := r.Replace("ethereum-1", "ethereum-3", 0, 2000); err == nil {
-		t.Fatalf("replaced a route still closed from its previous replacement")
-	}
-	rt.Closed = false // reopened
+	// The route's current client is replaced while the route is still
+	// closed from the previous replacement (Codex round 13 #2).
 	if err := r.Replace("ethereum-1", "ethereum-3", 0, 2000); err != nil {
 		t.Fatal(err)
 	}
@@ -912,5 +910,37 @@ func TestLossCapacityFreedByRecovery(t *testing.T) {
 	// The outstanding balance itself still refuses to wrap.
 	if rt.RecordLoss(pk(200), "ugnot", big5, ChainGno, "inc-9", "collision") == nil {
 		t.Fatalf("booked past the outstanding balance's range")
+	}
+}
+
+// A replacement during a batched reopening aborts it (Codex round 13 #2):
+// the route stays closed, the new incident's client must be settled, and the
+// reopening starts again from a decision.
+func TestReplacementAbortsReopening(t *testing.T) {
+	r, rt := newRoute(t)
+	r.Replace("ethereum-1", "ethereum-2", 0, 1000)
+	for i := 0; i < ReopenBatch+5; i++ {
+		rt.RecordLoss(pk(uint64(1000+i)), "ugnot", 1, ChainGno, "inc-"+itoa(int64(i)), "collision")
+	}
+	if _, done, err := rt.Reopen(); err != nil || done || !rt.Reopening {
+		t.Fatalf("%v %v", done, err)
+	}
+	if err := r.Replace("ethereum-1", "ethereum-3", 0, 2000); err != nil {
+		t.Fatal(err)
+	}
+	if rt.Reopening || !rt.IsClosed() || rt.Client != "ethereum-3" || len(rt.Replaced) != 2 {
+		t.Fatalf("%+v", rt)
+	}
+	if _, _, err := rt.ContinueReopen(); err == nil {
+		t.Fatalf("continued an aborted reopening")
+	}
+	total, done, err := rt.Reopen()
+	for err == nil && !done {
+		var a int64
+		a, done, err = rt.ContinueReopen()
+		total += a
+	}
+	if err != nil || rt.IsClosed() || rt.Denom("ugnot").Totals.Unresolved() != 0 {
+		t.Fatalf("%v %d", err, total)
 	}
 }

@@ -180,10 +180,14 @@ func (r *Registry) Replace(key, newClient string, suspectFrom, height int64) err
 	if suspectFrom < 0 {
 		return errors.New("controls: a negative suspect height")
 	}
-	// One replacement at a time, as on Ethereum: the previous one's
-	// reconciliation and reopening come first.
-	if rt.Closed || rt.Reopening {
-		return errors.New("controls: route " + key + " is still closed from its previous replacement")
+	// A replacement replaces the route's current client, open or closed,
+	// as on Ethereum: each is an incident of its own covering the client it
+	// retires, and the earlier ones keep their records, suspect intervals
+	// and counters. A reopening under way is aborted: the route reopens only
+	// once every retired client is settled.
+	if rt.Reopening {
+		rt.Reopening = false
+		rt.reopenIncident, rt.reopenRecap = "", ""
 	}
 	// The old client became current at the previous replacement: its suspect
 	// interval never starts before it (records before were reconciled then).
