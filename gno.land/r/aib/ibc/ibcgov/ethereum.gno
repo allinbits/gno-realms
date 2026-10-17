@@ -222,6 +222,7 @@ var (
 	approvedLocal avl.Tree // gno client id -> true
 	govPruneAfter string   // where PruneGovRetirements stopped
 	proven        avl.Tree // provenKey(epoch, client) -> *provenNotice
+	provenTop     avl.Tree // client -> the highest epoch a notice was recorded as proven over it
 )
 
 const (
@@ -778,6 +779,9 @@ func takeNotice(cur realm, source, client string, payload types.Payload) (uint32
 			return 0, 0, client + " is no client approved to carry a governance epoch"
 		}
 		proven.Set(provenKey(e, client), &provenNotice{source: source, gen: core.ClientTrustGeneration(client)})
+		if v := provenTop.Get(client); v == nil || v.(uint32) < e {
+			provenTop.Set(client, e)
+		}
 		chain.Emit("GovNotice", "client", client, "epoch", strconv.FormatUint(uint64(e), 10), "status", "proven")
 		return 0, 0, "epoch " + strconv.FormatUint(uint64(e), 10) + " is " + strconv.Itoa(k) + " steps on: recorded as proven, applied by ApplyEpochNotice with its path"
 	}
@@ -1387,6 +1391,89 @@ func (p *expectParams) apply(cur realm, t int64) (string, string) {
 	}
 	expect(p.from, p.to, p.local)
 	return "expect the governance epoch to move from " + p.from + " to " + p.to + " over " + p.local, ""
+}
+
+// removeParams removes an active expected transition.
+type removeParams struct{ from, to, local string }
+
+func (p *removeParams) apply(cur realm, t int64) (string, string) {
+	if refusal := checkRemove(p.from, p.to, p.local); refusal != "" {
+		return "", refusal
+	}
+	var kept []expEdge
+	for _, x := range expectedOf(p.from) {
+		if !(x.active && x.to == p.to && x.local == p.local) {
+			kept = append(kept, x)
+		}
+	}
+	setEdges(p.from, kept)
+	liveEdges--
+	chain.Emit("GovUnexpect", "from", p.from, "to", p.to, "client", p.local)
+	return "no longer expect the governance epoch to move from " + p.from + " to " + p.to + " over " + p.local, ""
+}
+
+// checkRemove is why the active transition from → to over local cannot be
+// removed, or "": it must be active (a pending one goes with its
+// expectations, cancelled), not lead to the epoch's own client, and lead to
+// no client a notice was recorded as proven over for a later epoch (its path
+// may need it).
+func checkRemove(from, to, local string) string {
+	found := false
+	for _, x := range expectedOf(from) {
+		if x.active && x.to == to && x.local == local {
+			found = true
+		}
+	}
+	if !found {
+		return "no active expected transition from " + from + " to " + to + " over " + local
+	}
+	if local == EpochClient() {
+		return local + " carries the governance epoch"
+	}
+	// The local clients this transition leads to, itself included: an exact
+	// walk of at most maxLive edges.
+	locals := []string{local}
+	seen := map[string]bool{to: true}
+	front := []string{to}
+	for len(front) > 0 {
+		var next []string
+		for _, c := range front {
+			for _, x := range expectedOf(c) {
+				locals = append(locals, x.local)
+				if !seen[x.to] {
+					seen[x.to] = true
+					next = append(next, x.to)
+				}
+			}
+		}
+		front = next
+	}
+	for _, c := range locals {
+		if v := provenTop.Get(c); v != nil && v.(uint32) > epoch {
+			return "a notice proven over " + c + " may need the transition: apply it or let it lapse first"
+		}
+	}
+	return ""
+}
+
+// NewRemoveExpectationRequest removes, at once, the active expected
+// transition from the router client oldClientID to newClientID over the gno
+// client localClientID (ADR 0004: a deliberate addition to ADR pr6375
+// §7.12). It tightens: it narrows what a notice may authorize, and frees its
+// place among the old client's successors and the graph's 64, so
+// governance can drop a transition Ethereum cancelled or never executed. A
+// transition Ethereum did execute costs only liveness if removed: it is
+// expected again through the 7-day expectation. Refused for the transition
+// to the epoch's own client, and while a notice recorded as proven over a
+// client it leads to may still need it.
+func NewRemoveExpectationRequest(cur realm, oldClientID, newClientID, localClientID string) Request {
+	if refusal := checkRemove(oldClientID, newClientID, localClientID); refusal != "" {
+		panic("ibcgov: " + refusal)
+	}
+	text := "remove the expected transition from " + oldClientID + " to " + newClientID + " over " + localClientID
+	return propose(cur, "remove expectation", text, func(cur realm, made, t int64) {
+		decide(cur, "remove expectation", text, &removeParams{from: oldClientID, to: newClientID, local: localClientID}, made, t, false)
+	})
 }
 
 // NewExpectRecoveryRequest records, after 7 days, that Ethereum's emergency
