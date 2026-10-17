@@ -399,18 +399,34 @@ refused.
 
 `MigrateClient(clientID, migration, params)` migrates a live client while
 keeping its id, consensus states and packet state, through an implementation
-that implements `core.ClientMigrator`. This covers ADR pr6375 R16 in part:
-the only migration is `impl/v1`'s `ethereum-fork-schedule` (params
-`ethereum.EncodeForkParameters(...)`), which changes the fork schedule of the
-existing Ethereum verifier in place; the verifier is not replaced, and ibcgov
-refuses any other migration name. The new schedule is checked
+that implements `core.ClientMigrator` (ADR pr6375 R16). `impl/v1` has two
+migrations.
+
+`ethereum-verifier` (params: a registration's realm path; ibcgov
+`NewReplaceVerifierRequest`) replaces the client's verifier by another
+verifier version. A realm under `gno.land/r/aib/ibc/core/verifiers/`
+registers that version once with `RegisterVerifier(clientType, version,
+from, convert)`: `convert` is a function of the new verifier's /p/ package.
+`CheckVerifierReplacement(clientID, path)` answers from the registration's
+declared values and the client's state alone (known, not retired, of the
+registration's type, Active, its `VerifierVersion` among `from` and not the
+target); the conversion runs only when the governed migration executes,
+through `Client.SetLightClient`, and the new verifier must name the
+registered version, be Active and keep the latest height, or the whole
+execution rolls back. The client keeps its id, client and consensus states
+and packet state; its trust generation advances, and ibcgov empties its
+route's payout meters.
+
+`ethereum-fork-schedule` (params `ethereum.EncodeForkParameters(...)`)
+changes the fork schedule of the existing Ethereum verifier in place. The
+new schedule is checked
 (`ethereum.CheckForkParameters`, through `CheckMigrateClient`) when the
 decision executes, before anything changes: the client must be Active, the schedule must differ from the current
 one, the genesis fork version and slot never change, every fork already
 active at the current epoch (the later of the latest trusted slot's and the
 block time's) keeps its version and epoch, every changed fork activates after
 the current epoch, and the fork epochs stay in order. A fork whose containers
-change needs a new package version, which this migration does not provide.
+change needs a new verifier version, installed by `ethereum-verifier`.
 
 `RetireClient(clientID)` marks the client retired in the proxy, for a route
 replacement (ADR pr6375 §7.12, R18; the parent ADR freezes the old client,
