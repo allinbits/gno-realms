@@ -317,7 +317,16 @@ and when it applies, and an epoch switch drops every transition no longer
 reachable from the new epoch client, freeing the capacity. So every walk
 of the graph (notice paths, retention, pruning) reads at most 64 edges,
 exactly: there is no "too many to tell" case (z9zza: one transition too
-many refused at the cap, accepted after the switch), but it grants notice
+many refused at the cap, accepted after the switch). Every transition must
+start from a router client the epoch client reaches (itself included),
+checked when built, dispatched or recorded and when its expectation
+applies; an expectation applies only to its own intent, still pending and
+owned by its decision, so an approval of a transition an epoch switch left
+behind is spent, never resurrects it (z9zze: a graph at the cap, every
+stale approval and a duplicate spent after the switch, new transitions from
+the new epoch client accepted). Each recording of a recovery Request gets
+its own parameters, so a Request governed twice owns two places, each
+released by its own cancellation (z9zzd), but it grants notice
 authority only once its expectation applies (z9zzb: the losers'
 expectations applied first never crowd out the winner's; z9zzc: a client on
 a pending path, its route replacement executed, stays open for governance
@@ -364,7 +373,8 @@ client (Active, its counterparty the
 notice's source); the epoch then opens there, past any step in between (a
 step whose client failed before its notice arrived is skipped: z9zx freezes
 one). A gno client on an expected path from the epoch's client (the epoch's
-own, or one whose counterparty is reached within 16 steps) is never retired
+own, or the local client of any transition reachable from it, at any
+distance: a later notice may bring it within a notice's 16 steps, z9zzf) is never retired
 for the gov port: when its route replacement executes here the core retires
 it for the transfer port only (`RetireClientPort`), so a decision in flight,
 the kind 10 among them, can still be re-sent and a later step's notice can
