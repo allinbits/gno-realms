@@ -40,3 +40,22 @@ func main(cur realm) {
 // before: false
 // executed: true
 // after: true
+
+// Events:
+// [
+//   {
+//     "type": "ProposalCreated",
+//     "attrs": [
+//       {
+//         "key": "id",
+//         "value": "0"
+//       }
+//     ],
+//     "pkg_path": "gno.land/r/gov/dao"
+//   },
+//   {
+//     "type": "pause",
+//     "attrs": [],
+//     "pkg_path": "gno.land/r/aib/ibc/core"
+//   }
+// ]

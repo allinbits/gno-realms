@@ -57,3 +57,37 @@ func main(cur realm) {
 //
 // paused: true
 // paused: false
+
+// Events:
+// [
+//   {
+//     "type": "authority_member_added",
+//     "attrs": [
+//       {
+//         "key": "address",
+//         "value": "g1someother00000000000000000000000000"
+//       }
+//     ],
+//     "pkg_path": "gno.land/r/aib/ibc/core"
+//   },
+//   {
+//     "type": "authority_member_removed",
+//     "attrs": [
+//       {
+//         "key": "address",
+//         "value": "g1someother00000000000000000000000000"
+//       }
+//     ],
+//     "pkg_path": "gno.land/r/aib/ibc/core"
+//   },
+//   {
+//     "type": "pause",
+//     "attrs": [],
+//     "pkg_path": "gno.land/r/aib/ibc/core"
+//   },
+//   {
+//     "type": "unpause",
+//     "attrs": [],
+//     "pkg_path": "gno.land/r/aib/ibc/core"
+//   }
+// ]

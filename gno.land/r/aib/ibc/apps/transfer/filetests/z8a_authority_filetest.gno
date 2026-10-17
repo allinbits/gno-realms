@@ -42,3 +42,17 @@ func main(cur realm) {
 //   - gno.land/r/aib/ibc/apps/transfer/impl/v1
 // - **Blocked addresses**:
 //   - g1wdhk6et0w35x2ujlta047h6lta047h6l82cvgx
+
+// Events:
+// [
+//   {
+//     "type": "block",
+//     "attrs": [
+//       {
+//         "key": "address",
+//         "value": "g1wdhk6et0w35x2ujlta047h6lta047h6l82cvgx"
+//       }
+//     ],
+//     "pkg_path": "gno.land/r/aib/ibc/apps/transfer"
+//   }
+// ]

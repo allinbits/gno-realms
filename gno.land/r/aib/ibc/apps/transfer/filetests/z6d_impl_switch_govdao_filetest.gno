@@ -39,3 +39,27 @@ func main(cur realm) {
 // before: false
 // executed: true
 // after: true
+
+// Events:
+// [
+//   {
+//     "type": "ProposalCreated",
+//     "attrs": [
+//       {
+//         "key": "id",
+//         "value": "0"
+//       }
+//     ],
+//     "pkg_path": "gno.land/r/gov/dao"
+//   },
+//   {
+//     "type": "block",
+//     "attrs": [
+//       {
+//         "key": "address",
+//         "value": "g1wdhk6et0w35x2ujlta047h6lta047h6l82cvgx"
+//       }
+//     ],
+//     "pkg_path": "gno.land/r/aib/ibc/apps/transfer"
+//   }
+// ]
