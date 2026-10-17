@@ -1,6 +1,7 @@
 package ibcgov
 
 import (
+	"chain"
 	"strconv"
 	"strings"
 
@@ -415,6 +416,9 @@ func NewSweepRequest(cur realm, route, keys, to string) Request {
 	route = mustRoute(route)
 	list := mustKeys(keys)
 	a := mustAddr(to)
+	if a == chain.PackageAddress(transfer.PkgPath) {
+		panic("ibcgov: a sweep pays out of the transfer realm, never to it")
+	}
 	return routeRequest(cur, controls.OpSweep, "sweep", "pay sweep entries on route "+route+" to "+string(a)+": "+strings.Join(list, ","),
 		controls.Params{Route: route, Keys: list, To: a}, true)
 }

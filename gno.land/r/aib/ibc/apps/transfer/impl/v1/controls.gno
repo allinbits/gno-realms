@@ -367,6 +367,17 @@ func (l *logic) GovApply(_ int, rlm realm, op string, params []byte) string {
 		if !ok {
 			return "no sweep entry " + p.Keys[0]
 		}
+		// Every payout checked before anything changes: one that would fail
+		// refuses the decision, the entries kept.
+		var due []payout
+		for _, k := range p.Keys {
+			if x, ok := rt.Sweep(k); ok && !x.Voided && !x.Paid {
+				due = append(due, payout{x.Denom, p.To, x.Amount})
+			}
+		}
+		if refusal := l.payable(rt, due); refusal != "" {
+			return refusal
+		}
 		var ps []controls.Payment
 		ps, err = rt.PaySweeps(p.Keys, p.To, l.lockOf(rt, e.Denom))
 		for _, x := range ps {
@@ -385,6 +396,20 @@ func (l *logic) GovApply(_ int, rlm realm, op string, params []byte) string {
 	case controls.OpAccept:
 		err = rt.Accept(p.Denom, p.Amount, p.Incident)
 	case controls.OpSettle:
+		// Every refund checked before anything changes: one that would fail
+		// refuses the decision, the records unsettled.
+		var due []payout
+		for _, it := range p.Items {
+			if it.Action != controls.SettlePay || it.Amount <= 0 {
+				continue
+			}
+			if r, ok := rt.Send(controls.PacketKey(p.Client, it.Seq)); ok {
+				due = append(due, payout{r.Denom, r.Sender, it.Amount})
+			}
+		}
+		if refusal := l.payable(rt, due); refusal != "" {
+			return refusal
+		}
 		var ps []controls.RefundPayment
 		ps, err = rt.SettleRecords(p.Client, p.Items, p.Incident, func(denom string) int64 { return l.lockOf(rt, denom) }, verifierTrusted)
 		for _, x := range ps {
