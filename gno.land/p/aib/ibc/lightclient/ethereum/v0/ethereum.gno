@@ -56,6 +56,18 @@ func heightAtSlot(slot uint64) types.Height {
 	return types.NewHeight(0, slot)
 }
 
+// Version names this verifier package and version, which a governed verifier
+// replacement converts from (core.RegisterVerifier).
+const Version = "ethereum/v0"
+
+// VerifierVersion is Version: the core reads it to tell which verifier a
+// client holds.
+func (c *EthLightClient) VerifierVersion() string { return Version }
+
+// Ethereum is the v0 verifier itself: a later verifier version that wraps it
+// keeps exposing its state, so renders read it whatever wraps it.
+func (c *EthLightClient) Ethereum() *EthLightClient { return c }
+
 // Implements lightclient.Interface. It runs once, on a client not yet
 // initialized: a stored client's trusted state is never replaced through it.
 func (c *EthLightClient) Initialize(clientState lightclient.ClientState, consensusState lightclient.ConsensusState) error {

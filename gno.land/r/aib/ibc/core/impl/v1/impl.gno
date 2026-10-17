@@ -9,7 +9,10 @@
 package impl
 
 import (
+	"errors"
+
 	"gno.land/p/aib/ibc/lightclient/ethereum/v0"
+	"gno.land/p/aib/ibc/lightclient/v0"
 	"gno.land/p/nt/ufmt/v0"
 	"gno.land/r/aib/ibc/core"
 	implv0 "gno.land/r/aib/ibc/core/impl/v0"
@@ -21,6 +24,13 @@ const version = "v1"
 // client (ethereum.EthLightClient.MigrateForkParameters); params is
 // ethereum.EncodeForkParameters of the new schedule.
 const MigrationEthereumForkSchedule = "ethereum-fork-schedule"
+
+// MigrationEthereumVerifier replaces an Ethereum client's verifier by a
+// verifier version registered with core.RegisterVerifier; params is the
+// registration's realm path. The conversion keeps the client's id, client
+// state, consensus states and packet state; it runs only here, at the
+// governed installation.
+const MigrationEthereumVerifier = "ethereum-verifier"
 
 type logic struct {
 	core.Logic // impl/v0's lifecycle
@@ -89,8 +99,16 @@ func (l *logic) migration(clientID, migration string, params []byte) (*ethereum.
 }
 
 // CheckMigrateClient is why MigrateClient would fail now, or nil, with no
-// change (core.ClientMigrationChecker).
+// change (core.ClientMigrationChecker). A verifier replacement is checked from
+// its registration's declared values and the client's state alone: no
+// conversion runs.
 func (l *logic) CheckMigrateClient(clientID, migration string, params []byte) error {
+	if migration == MigrationEthereumVerifier {
+		if r := core.CheckVerifierReplacement(clientID, string(params)); r != "" {
+			return errors.New(r)
+		}
+		return nil
+	}
 	lc, fp, err := l.migration(clientID, migration, params)
 	if err != nil {
 		return err
@@ -99,6 +117,10 @@ func (l *logic) CheckMigrateClient(clientID, migration string, params []byte) er
 }
 
 func (l *logic) MigrateClient(_ int, rlm realm, clientID, migration string, params []byte) {
+	if migration == MigrationEthereumVerifier {
+		l.replaceVerifier(0, rlm, clientID, string(params))
+		return
+	}
 	lc, fp, err := l.migration(clientID, migration, params)
 	if err != nil {
 		panic(err)
@@ -108,4 +130,29 @@ func (l *logic) MigrateClient(_ int, rlm realm, clientID, migration string, para
 		panic(err)
 	}
 	core.EmitMigrateClient(0, rlm, clientID, ethereum.ClientType, migration)
+}
+
+// replaceVerifier installs the verifier version registered at path on
+// clientID: the conversion runs on the client's live verifier, and the new
+// verifier must name its version, be Active and keep the latest height, so
+// every consensus state the client trusted stays. A failure panics, which
+// rolls the governed execution back.
+func (l *logic) replaceVerifier(_ int, rlm realm, clientID, path string) {
+	if r := core.CheckVerifierReplacement(clientID, path); r != "" {
+		panic(r)
+	}
+	convert, want, _ := core.VerifierConversion(path)
+	c := l.store.Client(clientID)
+	before := c.LightClient().LatestHeight()
+	c.SetLightClient(0, rlm, convert)
+	lc := c.LightClient()
+	switch {
+	case core.VerifierVersion(clientID) != want:
+		panic("the converted verifier is not " + want)
+	case lc.Status() != lightclient.Active:
+		panic(ufmt.Sprintf("the converted verifier is %s, not Active", lc.Status()))
+	case !lc.LatestHeight().EQ(before):
+		panic(ufmt.Sprintf("the converted verifier's latest height is %s, not %s", lc.LatestHeight(), before))
+	}
+	core.EmitMigrateClient(0, rlm, clientID, c.Type(), MigrationEthereumVerifier+" "+want)
 }

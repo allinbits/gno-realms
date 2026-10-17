@@ -274,7 +274,11 @@ func (rd *Renderer) ClientConsensusState(w *mux.ResponseWriter, r *mux.Request) 
 		}
 		RenderNode(w, RenderConsensusState(height, cs))
 	case ethereum.ClientType:
-		lc := c.LightClient().(*ethereum.EthLightClient)
+		lc, ok := ethVerifier(c.LightClient())
+		if !ok {
+			RenderNode(w, NodeError("client %s's verifier keeps no ethereum/v0 state", id))
+			return
+		}
 		cs, found := lc.GetConsensusState(height)
 		if !found {
 			RenderNode(w, NodeError("consensus state not found for height %s", height))
@@ -444,7 +448,10 @@ func ClientJSON(c core.Client) *json.Node {
 			m["last_consensus_state"] = RenderConsensusState(lc.LatestHeight(), lastConsState)
 		}
 	case ethereum.ClientType:
-		lc := c.LightClient().(*ethereum.EthLightClient)
+		lc, ok := ethVerifier(c.LightClient())
+		if !ok {
+			break // a verifier version this implementation cannot render
+		}
 		cs := lc.ClientState
 		m["client_state"] = RenderEthClientState(lc.LatestHeight(), cs)
 		lastConsState, found := lc.GetConsensusState(lc.LatestHeight())
@@ -466,6 +473,20 @@ func ConsensusStatesJSON(c core.Client, r *mux.Request) *json.Node {
 		})
 	}
 	return NodeError("unhandled client type %s", c.Type())
+}
+
+// ethState is a verifier exposing ethereum/v0 state: the v0 verifier
+// itself, or a later version wrapping it.
+type ethState interface {
+	Ethereum() *ethereum.EthLightClient
+}
+
+// ethVerifier is the ethereum/v0 state of an Ethereum client's verifier.
+func ethVerifier(lc lightclient.Interface) (*ethereum.EthLightClient, bool) {
+	if v, ok := lc.(ethState); ok {
+		return v.Ethereum(), true
+	}
+	return nil, false
 }
 
 func RenderConsensusState(height types.Height, cs *tendermint.ConsensusState) *json.Node {

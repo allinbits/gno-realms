@@ -352,8 +352,9 @@ func NewCoreRemoveMemberRequest(cur realm, addr string) Request {
 // NewMigrateClientRequest migrates the verifier of a live core client after
 // 7 days (ADR pr6375 R16, §6.12): for migration "ethereum-fork-schedule",
 // paramsHex is the hex of ethereum.EncodeForkParameters of the new schedule,
-// which the decision's text spells out fork by fork. It must land before the
-// fork epoch.
+// which the decision's text spells out fork by fork, and it must land before
+// the fork epoch; for "ethereum-verifier" (see NewReplaceVerifierRequest),
+// paramsHex is the hex of a registered verifier version's path.
 func NewMigrateClientRequest(cur realm, clientID, migration, paramsHex string) Request {
 	if core.ClientType(clientID) == "" {
 		panic("ibcgov: unknown client " + clientID)
@@ -373,10 +374,27 @@ func NewMigrateClientRequest(cur realm, clientID, migration, paramsHex string) R
 			panic("ibcgov: " + err.Error())
 		}
 		text = "core: migrate client " + clientID + " to the fork schedule " + forkScheduleText(fp)
+	case "ethereum-verifier":
+		if r := core.CheckVerifierReplacement(clientID, string(bz)); r != "" {
+			panic("ibcgov: " + r)
+		}
+		text = "core: replace the verifier of client " + clientID + " (" + core.VerifierVersion(clientID) + ") by the version registered at " + string(bz)
 	default:
 		panic("ibcgov: unknown migration " + migration)
 	}
 	return adminRequest(cur, "core migrate client", text, true, clientID, migration, hex.EncodeToString(bz))
+}
+
+// NewReplaceVerifierRequest replaces the verifier of the live Ethereum client
+// clientID by the verifier version registered at verifierPath (a realm under
+// gno.land/r/aib/ibc/core/verifiers/) after 7 days (ADR pr6375 R16, §6.12):
+// the client keeps its id, consensus states and packet state, its trust
+// generation advances and its route's payout meters start empty. It is
+// checked from the registration's declared values when built and again when
+// it executes (spent if it no longer applies); the conversion runs only at
+// the execution.
+func NewReplaceVerifierRequest(cur realm, clientID, verifierPath string) Request {
+	return NewMigrateClientRequest(cur, clientID, "ethereum-verifier", hex.EncodeToString([]byte(verifierPath)))
 }
 
 func forkScheduleText(p ethereum.ForkParameters) string {
