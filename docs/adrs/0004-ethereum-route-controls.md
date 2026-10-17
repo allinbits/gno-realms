@@ -117,14 +117,20 @@ installation: the bootstrap registration, or a governed `UpdateImpl` after
 its 7-day delay. Each implementation registers, beside its constructor, a
 store-free manifest of plain values (`RegisterImpl(cur, ctor, version,
 over[, keepsControls])`: the version it reports, the versions it installs
-over, and for transfer whether it keeps the route controls). The preflights
-`CheckUpdateImpl` (core and transfer) and `transfer.KeepsControls` read the
-manifest only: no candidate code runs and nothing is handed the store or a
-stored object before approval; the installation checks the built
-implementation against its manifest. Paths by which code could reach a
-store or a mutable stored object, swept (Codex round 17): the preflights
-above (were building the candidate with the live store; now
-manifest-only); the installation itself (authorized only); the active
+over, and for transfer whether it keeps the route controls).
+`transfer.KeepsControls` reads the manifest only. The preflight
+`CheckUpdateImpl` (core and transfer) reads the manifest, then builds the
+candidate against a fresh, empty store, never the live one (core's
+`newStore()`, transfer's `sandboxStore`, which holds nothing and refuses
+every write), and checks the built version (and, for transfer, whether it
+keeps the controls) against the manifest and, through `InstallChecker`, the
+install hook's condition, a pure function of the active implementation's
+path and version the proxy passes (Codex round 29, z1m). Nothing is handed
+the live store or a stored object before approval; the installation checks
+the built implementation against its manifest again. Paths by which code
+could reach a store or a mutable stored object, swept (Codex rounds 17,
+29): the preflights above (were building the candidate with the live
+store; now against an empty one); the installation itself (authorized only); the active
 implementation's dispatch and `Render` (the approved implementation, by
 design); the stores' accessors (unexported `store` values handed only to an
 installed implementation; transfer's `Denoms`/`Vouchers` are read-only
@@ -181,7 +187,7 @@ func, and what guards each:
 | core `UpgradeClient` | four `any` | the Tendermint client asserts `tendermint.ClientState`, `tendermint.ConsensusState` and `[]ics23.CommitmentProof` before any method, and its `VerifyMembership` runs `ics23.CheckProofs`; the Ethereum client refuses |
 | core `CounterpartyValue`, transfer `ProveOutcome` | `proof any` | the Ethereum client's type switch to `MembershipProof` |
 | core `RegisterApp` | `app.IBCApp` | no method runs at registration; callbacks are crossing calls (`cross(rlm)`), so they run in the app's own realm, and a non-trusted app needs a governed approval |
-| core and transfer `RegisterImpl` | constructor func | runs only in an authorized installation (store-free manifest, round 17) |
+| core and transfer `RegisterImpl` | constructor func | runs against the live store only in an authorized installation; the preflight runs it against a fresh, empty store (rounds 17, 29) |
 | core store `AddClient`, `SetLightClient`; transfer store `InitExt`, `IterateEscrow` | func | only through the store, held by the installed implementation; mutators guarded by `assertProxyRealm` |
 | light clients `Initialize`, `VerifyClientMessage`, `CheckForMisbehaviour`, `UpdateState`, `UpdateStateOnMisbehaviour`, `VerifyUpgradeAndUpdateState` | `lightclient.*` interfaces carrying caller input (states, messages, upgrade values) | type assertion or switch to the package's own concrete types before any method; reached only from the core's guarded paths |
 | light clients `RecoverClient`, `CheckRecovery` | `lightclient.Interface`: the substitute, a verifier the core already stores (never caller input) | Tendermint: assertion to `*TMLightClient`; Ethereum: the structural interface `ethState` (`Ethereum() *EthLightClient`), which ethereum/v0's verifier and any installed version wrapping it implement, so a replaced client stays recoverable; only installed verifiers reach it, through the core's governed recovery |
@@ -245,7 +251,10 @@ except a seat change from day 21 of the hold.
   Guardian bounds: `NewSetSeatsRequest` takes 1 to 6 distinct seat changes
   (`seat:address`, an empty address vacating), at most two of them guardian
   seats, seats 0–3 being guardians and 4–5 watch keys, no address in two
-  seats; `SetFlag` takes suspect packet keys (comma-separated
+  seats; a vacating change targets the holder the seat had when the request
+  was built, and is skipped when it executes if the seat changed hands
+  since, while the request's other changes still apply (a request left with
+  nothing to change is refused: "nothing to change"); `SetFlag` takes suspect packet keys (comma-separated
   `client/sequence`, the sequence written with 20 digits, at most `MaxKeys`)
   only on a guardian's payouts flag, and a re-assertion replaces the list;
   `PruneFlags` visits 1 to `MaxKeys` (64) entries a call.
@@ -309,7 +318,7 @@ against gno-eth-ibc 6f94541's vectors.
 | §7.5 visible parameter record, §7.4 visible suspects | the guardian flags on the governance page (route keys, suspect packet keys; the page lists flags under enrolled routes only: a flag standing on a client no route has yet still counts toward the hold and is read with `Flags(clientID)`) and the ledger page escape each decision's kind, text and note as inline Markdown (`sanitize.InlineText`), so ids such as `_eth_` or `<bridge>` show as written |
 | R9, R10, §7.1, §7.9 governed addresses | the transfer proxy's `VoucherSend` and `VoucherApprove` canonicalize their recipient and spender, as do its membership calls; every gno address a builder takes (payees, fee collectors, seats, relayers, members, blocked addresses) is canonicalized (`transfer.CanonicalAddress`) before it is stored or compared, and the transfer implementation canonicalizes a decision's payee again; Ethereum addresses are lowercased |
 | R14 authorities | `core/admin.gno`, `app.gno`, `upgrade.gno`, `proposals.gno`; `transfer/admin.gno`, `upgrade.gno`, `proposals.gno`; `authority.NewWithMembers` |
-| R16 client migration, two kinds. A verifier replacement (`ethereum-verifier`, params the target version; ibcgov `NewReplaceVerifierRequest(clientID, toVersion)`, 7 days): the conversion is code of a core implementation, declared as plain values (`implv1.NewWithConversions`: from, to, conversion) and installed beforehand by the governed, manifest-checked implementation upgrade (impl/v1 itself declares none); no other code converts a verifier, so no foreign function or object runs. The active implementation's preflight reads its declared pairs and the client's type, status and `VerifierVersion` (an undeclared conversion spends the decision: z9zl); the conversion and every check on its result (it names the target version, is Active, keeps the latest height) run inside one recovered boundary in the core's realm, so a panic (a typed-nil verifier, a status or height that panics) or a mismatch refuses the migration with nothing changed and the decision spent (transfer `z9zn`, `z9zo`); only then is the new verifier installed (`Client.SetLightClient`). The new verifier keeps the history without copying it: the conversion receives only a read-only view of the live verifier (`ethereum.Retire`: copies of its client and consensus states, its latest height, nothing to write with), so a refused conversion leaves nothing half-written (z9zo's tampering conversion); `ethereum.NewFrom` copies the client state and holds that view of the retired verifier (`Retired`), serving every consensus state at or below its latest slot, while the new verifier's own states are stored apart and nothing writes to the retired one again; constant work whatever the history (`TestNewFromKeepsHistory`), every pre-replacement trusted height stays provable (z9zl). The client keeps its id, consensus states, commitments, receipts and acknowledgements, its trust generation advances and its route's payout meters start empty; recovery and fork migration act on the new verifier's head. A fork-schedule migration (`ethereum-fork-schedule`) of the client's verifier, through the `CheckForkParameters`/`MigrateForkParameters` methods it implements (ethereum/v0's, and a later version embedding it, such as `NextVerifier`: z9zl), a verifier without them refused at preflight; `CheckForkParameters`: the client Active; the schedule changed; the genesis fork version and slot unchanged; every fork whose epoch is at or before the current epoch (the later of the latest trusted slot's and the block time's) unchanged, version and epoch; every changed fork activating after the current epoch; the fork epochs in order | `core/verifiers.gno` (`VerifierVersion`), `ethereum/v0` (`NewFrom`, `Retired`, `migrate.gno`), `core/client.gno` (`MigrateClient`), `core/impl/v1` (`NewWithConversions`), ibcgov `NewMigrateClientRequest`, `NewReplaceVerifierRequest`, `ethereum/testing` (`NextVerifier`) |
+| R16 client migration, two kinds. A verifier replacement (`ethereum-verifier`, params the target version; ibcgov `NewReplaceVerifierRequest(clientID, toVersion)`, 7 days): the conversion is code of a core implementation, declared as plain values (`implv1.NewWithConversions`: from, to, conversion) and installed beforehand by the governed, manifest-checked implementation upgrade (impl/v1 itself declares none); no other code converts a verifier, so no foreign function or object runs. The active implementation's preflight reads its declared pairs and the client's type, status and `VerifierVersion`, and requires the live verifier to expose its ethereum/v0 state (`Ethereum() *EthLightClient`, which the read-only view is built from; a verifier keeping its state otherwise needs migration support of its own); any of these failing spends the decision (z9zl, z9zs); the conversion and every check on its result (it names the target version, is Active, keeps the latest height) run inside one recovered boundary in the core's realm, so a panic (a typed-nil verifier, a status or height that panics) or a mismatch refuses the migration with nothing changed and the decision spent (transfer `z9zn`, `z9zo`); only then is the new verifier installed (`Client.SetLightClient`). The new verifier keeps the history without copying it: the conversion receives only a read-only view of the live verifier (`ethereum.Retire`: copies of its client and consensus states, its latest height, nothing to write with), so a refused conversion leaves nothing half-written (z9zo's tampering conversion); `ethereum.NewFrom` copies the client state and holds that view of the retired verifier (`Retired`), serving every consensus state at or below its latest slot, while the new verifier's own states are stored apart and nothing writes to the retired one again; constant work whatever the history (`TestNewFromKeepsHistory`), every pre-replacement trusted height stays provable (z9zl). The client keeps its id, consensus states, commitments, receipts and acknowledgements, its trust generation advances and its route's payout meters start empty; recovery and fork migration act on the new verifier's head. A fork-schedule migration (`ethereum-fork-schedule`) of the client's verifier, through the `CheckForkParameters`/`MigrateForkParameters` methods it implements (ethereum/v0's, and a later version embedding it, such as `NextVerifier`: z9zl), a verifier without them refused at preflight; `CheckForkParameters`: the client Active; the schedule changed; the genesis fork version and slot unchanged; every fork whose epoch is at or before the current epoch (the later of the latest trusted slot's and the block time's) unchanged, version and epoch; every changed fork activating after the current epoch; the fork epochs in order | `core/verifiers.gno` (`VerifierVersion`), `ethereum/v0` (`NewFrom`, `Retired`, `migrate.gno`), `core/client.gno` (`MigrateClient`), `core/impl/v1` (`NewWithConversions`), ibcgov `NewMigrateClientRequest`, `NewReplaceVerifierRequest`, `ethereum/testing` (`NextVerifier`) |
 | R17 flags keep returns open; public Ethereum relaying | `transfer/impl/v1` (flags never touch burns, acks, timeouts), `core/admin.gno` `ensureRelayerFor` |
 | R18 route replacement (the new client an Active Ethereum client that is no route's, which on a fresh deployment holds no transfer state; the old one may be frozen or expired; as in Ethereum's reconciliation state machine, it replaces the route's current client whether the route is open or closed, each replacement an incident of its own covering the client it retires, the earlier incidents' records, suspect intervals and counters untouched, a reopening under way aborted, and proofs of every incident's records going through the route's current client): closed until a governed reopening (its loss scan starting over if a loss was booked meanwhile), the payout meters (bridge and recipient) emptied through a new payouts epoch; a fork migration of a route's client empties them too. Refund meters always refill under epoch 0, so their state survives both. The suspect height is a past gno.land height (the builder refuses a negative or future one), and `Registry.Replace` raises one below the previous replacement's height (`ReplacedAt`) to it: a repeated replacement's interval never starts before the client it retires became current | `controls.Registry.Replace`, `Route.Reopen`, transfer `toWire`/`toInternal`, `core.RetireClient`, ibcgov `NewReplaceRouteRequest` (+ `nextEpoch`, payouts epoch), `NewReopenRouteRequest` |
 | R19 identifying receipts | `types.CommitPacketReceipt`, `core/store.gno`, `core/impl/v0/packet.gno` |
@@ -350,10 +359,15 @@ saturates statistics no check reads. Audited:
 Every decision ibcgov executes refuses deterministically, spending the
 decision, on the failures below that the live state could later clear (by
 preflight before crossing, or a refusal returned by the callee). An
-implementation installation is the exception: the candidate's constructor
-and `OnInstall` run without panic recovery, so a panic there rolls back the
-whole execution and a queued decision stays pending. A verifier replacement
-is not: its conversion runs on a read-only view of the live verifier that
+implementation switch is checked in the preflight against an empty store
+(its built version, and its install hook's declared condition through
+`InstallChecker`), so a candidate that disagrees with its manifest or
+refuses the active implementation is spent (z1m). What can still roll back
+and leave a queued decision pending is only what the preflight cannot
+evaluate: a panic in candidate code itself (a constructor or hook panicking,
+which crosses the realm boundary unrecovered), a constructor whose result
+depends on the store it is handed, or a hook refusing on a condition it
+does not declare through `InstallChecker`. A verifier replacement is not: its conversion runs on a read-only view of the live verifier that
 returns copied states (a retired verifier's consensus states included), a
 panic in it recovered,
 and a converted verifier that fails its checks is refused before anything
@@ -361,10 +375,10 @@ is installed, so the decision is spent:
 
 | Decision | Failure conditions refused |
 |---|---|
-| core/transfer update impl | not registered; the candidate's manifest does not install over the active version (`CheckUpdateImpl`, from the manifest alone, store-free); a transfer implementation without the route controls once a route has them (the controls are never rolled back) |
+| core/transfer update impl | not registered; the candidate's manifest does not install over the active version; the candidate built against an empty store reports another version than its manifest (or, for transfer, another controls answer), or its install hook refuses the active implementation (`CheckUpdateImpl`, `InstallChecker`); a transfer implementation without the route controls once a route has them (the controls are never rolled back) |
 | core add/remove relayer | listed already / not listed |
 | core recover client | unknown, retired, mismatched or wrong-status clients; the light client's own check (`CheckRecoverClient`) |
-| core migrate client | unknown, retired or non-Ethereum client; no migrating implementation; the light client's check (`CheckMigrateClient`); for a verifier replacement, a conversion the active implementation does not declare from the client's verifier version to the target, the client not Active or not Ethereum, and, returned by the core, a conversion that panics or a converted verifier of another version, not Active, or at another latest height |
+| core migrate client | unknown, retired or non-Ethereum client; no migrating implementation; the light client's check (`CheckMigrateClient`); for a verifier replacement, a conversion the active implementation does not declare from the client's verifier version to the target, the client not Active or not Ethereum, a verifier exposing no ethereum/v0 state (`Ethereum() *EthLightClient`, which the conversion reads: z9zs), and, returned by the core, a conversion that panics or a converted verifier of another version, not Active, or at another latest height |
 | core approve app | no pending registration; port taken |
 | core reject app | no pending registration |
 | core pause / pause app / unpause / unpause app | paused already / no app / not paused |
@@ -558,7 +572,8 @@ does not list before it.
 ## Known limits
 
 - **Vacating seats is immediate** (§7.5 removals), so a decision can remove the
-  flagging guardians and end a hold 24 hours later; the day-21 rule only
+  flagging guardians and end a hold 24 hours later (each removal applies only
+  to the holder the request named when it was built); the day-21 rule only
   governs replacements. A route with unresolved losses stays closed all the
   same.
 - **A recapitalization authorized and not paid when a route reopens** is
