@@ -732,11 +732,15 @@ type Claim struct {
 	Amount  int64 // what it owes in all, after any reduction
 	Paid    int64 // fee included
 	Reduced int64 // cut by liability reductions
-	At      int64 // credited at, unix time
-	Height  int64 // credited at, block height
-	By      string
-	State   string
-	Seq     int64 // its place in the recipient's queue
+	// Fee is the denom's fee when the claim was credited, locked then: the
+	// claim's first installment and its later minimum installment, never
+	// moved by a later configuration change.
+	Fee    int64
+	At     int64 // credited at, unix time
+	Height int64 // credited at, block height
+	By     string
+	State  string
+	Seq    int64 // its place in the recipient's queue
 }
 
 // Remaining is what the claim still owes.
@@ -885,7 +889,7 @@ func (rt *Route) Credit(now, height, epoch int64, key, denom string, to address,
 func (rt *Route) enqueue(d *Denom, now, height, epoch int64, key string, to address, amount int64, by string) *Claim {
 	q := d.queue(to, now, epoch)
 	q.next++
-	c := &Claim{Key: key, Denom: d.Name, To: to, Amount: amount, At: now, Height: height, By: by, State: Open, Seq: q.next}
+	c := &Claim{Key: key, Denom: d.Name, To: to, Amount: amount, Fee: d.Config.Fee, At: now, Height: height, By: by, State: Open, Seq: q.next}
 	rt.claims.Set(key, c)
 	q.items.Set(seqKey(c.Seq), key)
 	d.waiting.Set(string(to), true)
@@ -958,9 +962,11 @@ func (rt *Route) MeterLevels(now, epoch, epochAt int64, denom string, to address
 //
 //   - a turn pays at most min(bridge meter, recipient meter), and for an
 //     unescrowed denom never more than the lock still holds;
-//   - a claim's first installment is the fee, whole, to the fee collector;
+//   - a claim's first installment is its fee, whole, to the fee collector;
 //   - a later installment is paid only when both meters hold at least
-//     min(what the claim still owes, the fee): no slivers;
+//     min(what the claim still owes, its fee): no slivers;
+//   - a claim's fee is the denom's fee when it was credited (Claim.Fee): a
+//     later fee change never applies to it.
 //   - a recipient whose meters hold less is passed over, its meter refilling
 //     for a later turn.
 //
@@ -1019,7 +1025,7 @@ func (rt *Route) PayClaimsSweeping(now, epoch, epochAt int64, denom string, n in
 		rem := c.Remaining()
 		fee := int64(0)
 		if c.Paid == 0 {
-			fee = d.Config.Fee
+			fee = c.Fee
 			if fee > rem {
 				fee = rem
 			}
@@ -1027,7 +1033,7 @@ func (rt *Route) PayClaimsSweeping(now, epoch, epochAt int64, denom string, n in
 				continue // dry: the fee is the first installment, whole
 			}
 		} else {
-			need := d.Config.Fee
+			need := c.Fee
 			if need > rem {
 				need = rem
 			}
@@ -1042,7 +1048,7 @@ func (rt *Route) PayClaimsSweeping(now, epoch, epochAt int64, denom string, n in
 		if c.Paid == 0 && pay > 0 {
 			// No sliver after the fee either: the rest of a first installment
 			// is paid only if it is at least min(what remains, the fee).
-			need := d.Config.Fee
+			need := c.Fee
 			if need > rem-fee {
 				need = rem - fee
 			}

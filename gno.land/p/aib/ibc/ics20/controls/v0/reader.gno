@@ -280,7 +280,7 @@ func denomJSON(d *Denom) string {
 // ClaimJSON is a claim's JSON.
 func ClaimJSON(c Claim) string {
 	return "{\"key\":" + q(c.Key) + ",\"denom\":" + q(c.Denom) + ",\"to\":" + q(string(c.To)) +
-		",\"amount\":" + itoa(c.Amount) + ",\"paid\":" + itoa(c.Paid) + ",\"reduced\":" + itoa(c.Reduced) +
+		",\"amount\":" + itoa(c.Amount) + ",\"paid\":" + itoa(c.Paid) + ",\"reduced\":" + itoa(c.Reduced) + ",\"fee\":" + itoa(c.Fee) +
 		",\"state\":" + q(c.State) + ",\"by\":" + q(c.By) + ",\"at\":" + itoa(c.At) + ",\"height\":" + itoa(c.Height) +
 		",\"seq\":" + itoa(c.Seq) + "}"
 }

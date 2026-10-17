@@ -622,3 +622,41 @@ func sendRec7(seq uint64, amount int64) SendRecord {
 	rec.Fee = 0
 	return rec
 }
+
+// A claim's fee is locked when it is credited: a fee raised afterwards never
+// applies to it, neither as its first installment nor as its later minimum
+// installment (docs-vs-code review round 2 #6).
+func TestClaimFeeLockedAtCredit(t *testing.T) {
+	_, rt := newRoute(t)
+	lock := int64(100_000) // a recipient 2500 a day
+	mustCredit(t, rt, t0, 1, "ugnot", alice, 3_000, lock)
+	raised := gnot()
+	raised.Fee = 2_000 // the ceiling is CapFloor/4 = 2500
+	if err := rt.SetDenom("ugnot", raised, t0, 0, 0); err != nil {
+		t.Fatal(err)
+	}
+	mustCredit(t, rt, t0, 2, "ugnot", bob, 3_000, lock)
+	ps, err := rt.PayClaims(t0+Day, 0, t0, "ugnot", 2, lock)
+	if err != nil || len(ps) != 2 {
+		t.Fatalf("%v %+v", err, ps)
+	}
+	for _, p := range ps {
+		want := int64(20) // credited before the change
+		if p.To == bob {
+			want = 2_000 // credited after it
+		}
+		if p.Fee != want {
+			t.Fatalf("%s paid fee %d, want %d", p.To, p.Fee, want)
+		}
+	}
+	c, _ := rt.Claim(pk(1))
+	if c.Fee != 20 || c.Paid != 2_500 {
+		t.Fatalf("%+v", c)
+	}
+	// Its last 500 is paid as an installment of at least its own fee (20),
+	// not the raised one: an hour's refill (104) is enough.
+	ps, _ = rt.PayClaims(t0+Day+3600, 0, t0, "ugnot", 1, lock)
+	if len(ps) != 1 || ps[0].To != alice || ps[0].Fee != 0 {
+		t.Fatalf("%+v", ps)
+	}
+}
