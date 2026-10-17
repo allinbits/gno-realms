@@ -462,20 +462,24 @@ func TestSuspectIntervalBlocksReopen(t *testing.T) {
 // amounts never drive one past 2^63 (Codex round 4 #1, class A).
 func TestAggregatesNeverWrap(t *testing.T) {
 	const q = int64(1) << 62
-	// Open sends (and so every refund they may owe, queued or not): the send
-	// that would overflow them is refused.
+	// Open sends (and so every refund they may owe, queued or not): never
+	// refused for their total, kept exact beyond int64, its view saturating
+	// (Codex round 33 #2).
 	_, rt := newRoute(t)
 	d := rt.Denom("ugnot")
-	for i, want := range []bool{true, false, true} {
+	for i := 0; i < 3; i++ {
 		amount := q
 		if i == 2 {
 			amount = q - 1
 		}
-		rec := sendRec(uint64(i+1), "ugnot", KindUnescrow, amount)
-		if err := rt.RecordSend(rec); (err == nil) != want {
+		if err := rt.RecordSend(sendRec(uint64(i+1), "ugnot", KindUnescrow, amount)); err != nil {
 			t.Fatalf("send %d of %d: %v", i+1, amount, err)
 		}
 	}
+	if d.Totals.InFlight != maxInt64 {
+		t.Fatalf("in flight %d", d.Totals.InFlight)
+	}
+	rt.Settle(t0, 1, pk(2), OutcomeSuccess, false, 0) // q off: exact again
 	rt.Settle(t0, 1, pk(1), OutcomeTimeout, true, 0)
 	rt.Settle(t0, 1, pk(3), OutcomeTimeout, true, 0)
 	if d.Totals.QueuedRefunds != q+(q-1) || d.Totals.InFlight != q+(q-1) {
@@ -1312,5 +1316,43 @@ func TestProvenRefundReservedUntilSettled(t *testing.T) {
 	}
 	if err := rt.CheckCredit("ibc/W", 1_000); err != nil {
 		t.Fatalf("released capacity: %v", err)
+	}
+}
+
+// A voucher return near the int64 limit is never refused for the open sends'
+// total, and a refund installment comes off what its open record may still
+// owe at once (Codex round 33 #2): 9e18 vouchers burned, timed out, refunded
+// 1e18 a day; the refunded vouchers go back at once, with and without a
+// standing refunds hold.
+func TestReturnAfterPartialRefund(t *testing.T) {
+	const nine, one = int64(9_000_000_000_000_000_000), int64(1_000_000_000_000_000_000)
+	for _, hold := range []bool{false, true} {
+		_, rt := newRoute(t)
+		cfg := DenomConfig{Kind: KindMint, CapFloor: maxInt64, SupplyCap: maxInt64, Fee: 10, FeeFloor: 1, RefundCap: one}
+		if err := rt.SetDenom("ibc/BIG", cfg, t0, 0, nine); err != nil {
+			t.Fatal(err)
+		}
+		d := rt.Denom("ibc/BIG")
+		rt.RecordSend(sendRec(1, "ibc/BIG", KindMint, nine))
+		rt.Settle(t0, 1, pk(1), OutcomeTimeout, false, 0) // queued: above the refund meter
+		ps, err := rt.PayRefunds(t0+Day, "ibc/BIG", 1, false, 0)
+		if err != nil || len(ps) != 1 || ps[0].Amount != one {
+			t.Fatalf("installment: %v %+v", err, ps)
+		}
+		if d.Totals.InFlight != nine-one || d.Totals.Returning != nine-one || d.Totals.Outstanding != one {
+			t.Fatalf("after the installment %+v", d.Totals)
+		}
+		if hold {
+			if ps, _ := rt.PayRefunds(t0+2*Day, "ibc/BIG", 1, true, 0); len(ps) != 0 {
+				t.Fatalf("paid under a hold")
+			}
+		}
+		// The refunded vouchers go back.
+		if err := rt.RecordSend(sendRec(2, "ibc/BIG", KindMint, one)); err != nil {
+			t.Fatalf("hold %v: the return refused: %v", hold, err)
+		}
+		if d.Totals.InFlight != nine || d.Totals.Returning != nine || d.Totals.Outstanding != 0 {
+			t.Fatalf("hold %v: after the return %+v", hold, d.Totals)
+		}
 	}
 }

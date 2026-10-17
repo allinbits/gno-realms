@@ -13,7 +13,15 @@ package controls
 //     or booked (Reserved, booked, the unpaid authorizations): saturating at
 //     the int64 maximum can only make the check it feeds refuse more;
 //   - statAdd for a statistic no check reads (credited, paid, fees, sent,
-//     refunded...): it saturates, and the JSON shows the maximum.
+//     refunded...): it saturates, and the JSON shows the maximum;
+//   - a wide counter for the open sends' remainders and the refunds owed
+//     (InFlight, Returning, QueuedRefunds, Parked, ProvenOwed): each can
+//     genuinely pass 2^63 (coins escrowed or burned by an open send can be
+//     paid out by a claim and sent again while it is open), and no send,
+//     acknowledgement, timeout, settlement or proof may be refused for it.
+//     It is kept exact beyond int64 (wide), and its int64 view saturates; the
+//     checks that read it bound what is reserved, so a saturated view only
+//     makes them refuse more.
 //
 // Counters that grow by one per transaction (queue and refund sequences,
 // recapitalization ids, open-record counts) cannot reach 2^63.
@@ -45,3 +53,51 @@ func boundAdd(a, b int64) int64 {
 
 // statAdd is boundAdd for a statistic.
 func statAdd(a, b int64) int64 { return boundAdd(a, b) }
+
+// wideBase is the base of a wide counter's low limb: 2^62.
+const wideBase = int64(1) << 62
+
+// wide is an exact non-negative counter beyond int64: hi * 2^62 + lo, lo in
+// [0, 2^62).
+type wide struct{ hi, lo int64 }
+
+func (w *wide) add(x int64) {
+	if x < 0 {
+		panic("controls: a negative wide addition")
+	}
+	w.hi += x / wideBase
+	w.lo += x % wideBase
+	if w.lo >= wideBase {
+		w.lo -= wideBase
+		w.hi++
+	}
+}
+
+func (w *wide) sub(x int64) {
+	if x < 0 {
+		panic("controls: a negative wide subtraction")
+	}
+	w.hi -= x / wideBase
+	w.lo -= x % wideBase
+	if w.lo < 0 {
+		w.lo += wideBase
+		w.hi--
+	}
+	if w.hi < 0 {
+		panic("controls: a wide counter went negative")
+	}
+}
+
+// sat is the counter as an int64, saturating at the int64 maximum.
+func (w wide) sat() int64 {
+	if w.hi >= 2 {
+		return maxInt64
+	}
+	return w.hi*wideBase + w.lo
+}
+
+// minusSat is the counter less x (at most the counter), as a saturated int64.
+func (w wide) minusSat(x int64) int64 {
+	w.sub(x)
+	return w.sat()
+}

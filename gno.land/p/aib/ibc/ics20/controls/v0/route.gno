@@ -583,10 +583,10 @@ type Totals struct {
 	Fees          int64 // claim fee installments paid to the collector
 	SweepPaid     int64 // sweep entries paid by decision
 	Outstanding   int64 // KindMint: vouchers this route has in circulation
-	Returning     int64 // KindMint: vouchers burned by sends not settled yet (in flight, or refund owed): at most InFlight
+	Returning     int64 // KindMint: vouchers burned by sends not settled yet (in flight, or refund owed), what they still reserve
 	Parked        int64 // KindMint: refunds a settlement owes and could not mint yet (parked), reserved apart from Returning
 	ProvenOwed    int64 // refunds proven owed (refundable, or a collision) on sends a forged success released, reserved until their settlement
-	InFlight      int64 // the amounts of the open send records: a bound of every refund owed (QueuedRefunds, Returning)
+	InFlight      int64 // what the open send records may still owe: their amounts less what was refunded
 	Sent          int64 // escrowed (KindUnescrow) or burned (KindMint) by recorded sends
 	SendFees      int64 // fees charged on sends
 	Refunded      int64 // refunds paid
@@ -603,6 +603,41 @@ type Totals struct {
 	// when it fits these, so resolved losses free their capacity.
 	OpenUnrecovered int64
 	OpenUnresolved  int64
+
+	// The exact counters behind InFlight, Returning, QueuedRefunds, Parked
+	// and ProvenOwed, whose int64 views saturate (see arith.gno).
+	w [5]wide
+}
+
+// The wide counters of Totals.
+const (
+	wInFlight = iota
+	wReturning
+	wQueued
+	wParked
+	wProven
+)
+
+func (t *Totals) add(f int, x int64) { t.w[f].add(x); t.sync(f) }
+func (t *Totals) sub(f int, x int64) { t.w[f].sub(x); t.sync(f) }
+
+// minusSat is counter f less x, exact, as a saturated int64.
+func (t *Totals) minusSat(f int, x int64) int64 { return t.w[f].minusSat(x) }
+
+func (t *Totals) sync(f int) {
+	v := t.w[f].sat()
+	switch f {
+	case wInFlight:
+		t.InFlight = v
+	case wReturning:
+		t.Returning = v
+	case wQueued:
+		t.QueuedRefunds = v
+	case wParked:
+		t.Parked = v
+	case wProven:
+		t.ProvenOwed = v
+	}
 }
 
 // Unrecovered is the loss ledger's economic open total, the term of the

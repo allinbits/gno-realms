@@ -60,6 +60,8 @@ type SendRecord struct {
 	ProvenGen       uint64 // ProvenBy's trust generation then: void once a recovery, freeze, upgrade, migration or substitution starts another
 	ProvenReserve   int64  // what its proven refund reserves (ProvenOwed) until it settles: a send a forged success released, proven refundable
 	Incident        string
+
+	inFlight int64 // what InFlight counts of it while it is open
 }
 
 func copyPacket(p types.Packet) types.Packet {
@@ -93,11 +95,6 @@ func (rt *Route) RecordSend(rec SendRecord) error {
 	if rec.Amount <= 0 || rec.Fee < 0 {
 		return errors.New("controls: invalid send amounts")
 	}
-	// Every refund a send may still owe is bounded by the open records'
-	// amounts: a send that would overflow them is refused.
-	if _, ok := checkedAdd(d.Totals.InFlight, rec.Amount); !ok {
-		return errors.New("controls: the route's open sends of " + rec.Denom + " would overflow")
-	}
 	r := rec
 	r.Packet = copyPacket(rec.Packet)
 	r.Commitment = append([]byte{}, rec.Commitment...)
@@ -117,7 +114,7 @@ func (rt *Route) RecordSend(rec SendRecord) error {
 			d.Totals.Outstanding = 0
 		}
 		r.Reservation = r.Amount
-		d.Totals.Returning = mustAdd(d.Totals.Returning, r.Amount) // at most InFlight
+		d.Totals.add(wReturning, r.Amount)
 	}
 	return nil
 }
@@ -137,10 +134,14 @@ func (rt *Route) track(r *SendRecord, was bool) {
 		return
 	}
 	d := rt.Denom(r.Denom)
+	// InFlight counts what an open record may still owe; an installment
+	// paid while it is open comes off at once (PayRefunds).
 	if now {
-		d.Totals.InFlight = mustAdd(d.Totals.InFlight, r.Amount) // checked when recorded
+		r.inFlight = r.Amount - r.Refunded
+		d.Totals.add(wInFlight, r.inFlight)
 	} else {
-		d.Totals.InFlight -= r.Amount
+		d.Totals.sub(wInFlight, r.inFlight)
+		r.inFlight = 0
 	}
 	client, _, _ := ParsePacketKey(r.Key)
 	var n int64
@@ -228,7 +229,7 @@ func (rt *Route) OpenSends(clientID string) int64 {
 // so what was not refunded stays burned. A record released already releases
 // nothing more.
 func (rt *Route) release(d *Denom, r *SendRecord) {
-	d.Totals.Returning -= r.Reservation
+	d.Totals.sub(wReturning, r.Reservation)
 	r.Reservation = 0
 }
 
@@ -313,7 +314,7 @@ func (d *Denom) queueRefund(key string, amount int64) {
 	k := seqKey(d.refundSeq)
 	d.refundQueue.Set(k, key)
 	d.refundIdx.Set(key, k)
-	d.Totals.QueuedRefunds = mustAdd(d.Totals.QueuedRefunds, amount) // at most InFlight, or reserved by a settlement
+	d.Totals.add(wQueued, amount)
 }
 
 // refunded books amount refunded on r.
@@ -332,9 +333,9 @@ func (rt *Route) refunded(d *Denom, r *SendRecord, amount int64) {
 		}
 		r.Reservation -= consumed
 		if r.Settlement != 0 {
-			d.Totals.Parked -= consumed // a settlement's parked refund
+			d.Totals.sub(wParked, consumed) // a settlement's parked refund
 		} else {
-			d.Totals.Returning -= consumed
+			d.Totals.sub(wReturning, consumed)
 		}
 	}
 }
@@ -414,7 +415,12 @@ func (rt *Route) PayRefunds(now int64, denom string, n int, hold bool, lock int6
 		d.refundMeter.Take(pay)
 		was := isOpen(r)
 		rt.refunded(d, r, pay)
-		d.Totals.QueuedRefunds -= pay
+		d.Totals.sub(wQueued, pay)
+		if was {
+			// What the open record may still owe shrinks at once.
+			d.Totals.sub(wInFlight, pay)
+			r.inFlight -= pay
+		}
 		if r.Refunded == r.Amount {
 			d.refundQueue.Remove(k)
 			d.refundIdx.Remove(key)
@@ -661,7 +667,6 @@ func (rt *Route) PlanSettlement(client string, items []SettleItem, incident stri
 	// The minted refunds take the room left for minting, in item order; one
 	// that does not fit is parked, owed and reserved (see park).
 	left := map[string]int64{}
-	parkedTotal := map[string]int64{}
 	for _, it := range items {
 		if it.Action != SettlePay || it.Amount <= 0 {
 			continue
@@ -679,23 +684,11 @@ func (rt *Route) PlanSettlement(client string, items []SettleItem, incident stri
 			}
 			if it.Amount > left[r.Denom] {
 				plan.parked[it.Seq] = true
-				parkedTotal[r.Denom] += it.Amount // within the denom's settled amounts, checked above
 				continue
 			}
 			left[r.Denom] -= it.Amount
 		}
 		plan.Payments = append(plan.Payments, RefundPayment{Key: r.Key, Denom: r.Denom, To: r.Sender, Amount: it.Amount})
-	}
-	// Net of what the batch releases, the parked refunds' reservations and
-	// queue entries must fit.
-	for denom, parked := range parkedTotal {
-		d := rt.Denom(denom)
-		if _, ok := checkedAdd(d.Totals.Parked, parked); !ok {
-			return nil, errors.New("controls: the parked refunds would overflow the parked total of " + denom)
-		}
-		if _, ok := checkedAdd(d.Totals.QueuedRefunds-relQueued[denom], parked); !ok {
-			return nil, errors.New("controls: the parked refunds would overflow the queued refunds of " + denom)
-		}
 	}
 	for denom, total := range pays {
 		d := rt.Denom(denom)
@@ -704,7 +697,7 @@ func (rt *Route) PlanSettlement(client string, items []SettleItem, incident stri
 		}
 		// The escrow the liabilities still reserve once the whole batch
 		// applies: claims and queued refunds, less what the batch releases.
-		reserved := boundAdd(boundAdd(boundAdd(d.Totals.Owed-relOwed[denom], d.Totals.Withheld-relWithheld[denom]), d.Totals.QueuedRefunds-relQueued[denom]), d.Totals.ProvenOwed-relProven[denom])
+		reserved := boundAdd(boundAdd(boundAdd(d.Totals.Owed-relOwed[denom], d.Totals.Withheld-relWithheld[denom]), d.Totals.minusSat(wQueued, relQueued[denom])), d.Totals.minusSat(wProven, relProven[denom]))
 		free := lock(denom) - reserved
 		if d.Config.Kind == KindUnescrow && total > free {
 			return nil, ufmt.Errorf("controls: %d of %s is above the free lock of %d", total, denom, free)
@@ -734,7 +727,7 @@ func (rt *Route) ApplySettlement(plan *SettlePlan) []RefundPayment {
 			r.Payment = PayRejected
 		}
 		rt.release(d, r)
-		d.Totals.ProvenOwed -= r.ProvenReserve
+		d.Totals.sub(wProven, r.ProvenReserve)
 		r.ProvenReserve = 0
 	}
 	// Then the parked refunds are added.
@@ -805,7 +798,7 @@ func (rt *Route) park(d *Denom, r *SendRecord, amount int64) {
 	d.queueRefund(r.Key, amount)
 	r.Payment = PayQueued
 	r.Reservation = amount
-	d.Totals.Parked = mustAdd(d.Totals.Parked, amount) // checked by PlanSettlement
+	d.Totals.add(wParked, amount)
 }
 
 // forgedReceive is the denom and what the receive of key (an inbound
@@ -878,11 +871,8 @@ func (rt *Route) ProveOutcome(key string, packet types.Packet, outcome uint8, he
 	if r.Outcome == OutcomeSuccess && (outcome == ProvenRefundable || outcome == ProvenCollision) {
 		owed = r.Amount - r.Refunded
 	}
-	if _, ok := checkedAdd(d.Totals.ProvenOwed-r.ProvenReserve, owed); !ok {
-		return errors.New("controls: the proven refunds of " + r.Denom + " would overflow")
-	}
-	d.Totals.ProvenOwed -= r.ProvenReserve
-	d.Totals.ProvenOwed += owed
+	d.Totals.sub(wProven, r.ProvenReserve)
+	d.Totals.add(wProven, owed)
 	r.ProvenReserve = owed
 	r.Proven, r.ProvenAt, r.ProvenBy, r.ProvenGen = outcome, height, verifier, gen
 	return nil
@@ -895,5 +885,5 @@ func (rt *Route) unqueue(d *Denom, r *SendRecord) {
 		d.refundQueue.Remove(v.(string))
 		d.refundIdx.Remove(r.Key)
 	}
-	d.Totals.QueuedRefunds -= r.Amount - r.Refunded
+	d.Totals.sub(wQueued, r.Amount-r.Refunded)
 }
