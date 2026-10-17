@@ -849,3 +849,35 @@ func TestReopenInBatches(t *testing.T) {
 		t.Fatalf("accepted %d of %d", total, n)
 	}
 }
+
+// A sweep entry a sweep decision paid is voided as forged on a live route,
+// its payout booked as the loss exactly once (Codex round 10 #3): payout,
+// forged void, then every other path to the same loss is refused.
+func TestForgedVoidOfPaidSweep(t *testing.T) {
+	r, rt := newRoute(t)
+	rt.Credit(t0, 10, 0, pk(6), "ugnot", alice, 400, ByPacket, "bridge realm", big)
+	if _, err := rt.PaySweeps([]string{pk(6)}, bob, big); err != nil {
+		t.Fatal(err)
+	}
+	swept := rt.Denom("ugnot").Totals.Swept
+	if !rt.Voidable(pk(6), true) || rt.Voidable(pk(6), false) {
+		t.Fatalf("a paid sweep entry is voidable as forged only")
+	}
+	if err := rt.Void([]string{pk(6)}, true, "inc"); err != nil {
+		t.Fatal(err)
+	}
+	d := rt.Denom("ugnot")
+	if d.Totals.Lost != 400 || d.Totals.Swept != swept || !rt.LossBooked(DirRecv, pk(6)) {
+		t.Fatalf("%+v", d.Totals)
+	}
+	if rt.Void([]string{pk(6)}, true, "inc") == nil || rt.RecordLoss(pk(6), "ugnot", 400, ChainGno, "inc", "forged-delivery") == nil {
+		t.Fatalf("booked the paid sweep's loss twice")
+	}
+	r.Replace("ethereum-1", "ethereum-2", 0, 1000)
+	if _, err := rt.SettleRecords("ethereum-1", []SettleItem{{Seq: 6, Action: SettleForgedReceive, Amount: 400}}, "inc", lockOf(big), activeAll); err == nil {
+		t.Fatalf("settled the voided sweep's loss again")
+	}
+	if rt.Denom("ugnot").Totals.Lost != 400 {
+		t.Fatalf("lost %d", rt.Denom("ugnot").Totals.Lost)
+	}
+}

@@ -649,7 +649,7 @@ func (rt *Route) forgedReceive(key string) (string, int64, error) {
 		}
 		return c.Denom, c.Paid, nil
 	}
-	if e := rt.sweep(key); e != nil && e.Paid && e.PaidTo != "credit by vote" && !e.Voided {
+	if e := rt.sweep(key); e != nil && e.Paid && e.PaidTo != PaidByVote && !e.Voided {
 		return e.Denom, e.Amount, nil
 	}
 	return "", 0, errors.New("no receive of " + key + " paid anything out")

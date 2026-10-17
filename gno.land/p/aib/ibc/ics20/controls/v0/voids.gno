@@ -104,7 +104,9 @@ func (rt *Route) resolvable(denom, incident string, skip int64) int64 {
 
 // Voidable reports whether a void as forged (or as withheld) can take the
 // claim or sweep entry of key as it stands: an open claim either way, a
-// withheld or paid claim as forged only, a live sweep entry as forged only.
+// withheld or paid claim as forged only, a sweep entry as forged only: a live
+// one, or one a sweep decision paid (its payout becomes the loss), not one a
+// credit by vote replaced (its claim carries the payout).
 func (rt *Route) Voidable(key string, forged bool) bool {
 	if rt.LossBooked(DirRecv, key) {
 		return false // its loss is booked (a forged-receive settlement or a recorded loss)
@@ -119,10 +121,13 @@ func (rt *Route) Voidable(key string, forged bool) bool {
 		return false
 	}
 	if e := rt.sweep(key); e != nil {
-		return forged && !e.Voided && !e.Paid
+		return forged && !e.Voided && (!e.Paid || e.PaidTo != PaidByVote)
 	}
 	return false
 }
+
+// PaidByVote is a sweep entry's PaidTo when a credit by vote replaced it.
+const PaidByVote = "credit by vote"
 
 // Void voids the claims and sweep entries of keys (ADR pr6375 §7.9). A
 // withheld void keeps a claim's remainder booked and restorable; a forged void
@@ -138,12 +143,18 @@ func (rt *Route) Void(keys []string, forged bool, incident string) error {
 		if !rt.Voidable(k, forged) {
 			return errors.New("controls: " + k + " cannot be voided " + voidWord(forged) + " as it stands")
 		}
+		denom, paid := "", int64(0)
 		if c := rt.claim(k); c != nil && forged {
-			sum, ok := checkedAdd(losses[c.Denom], c.Paid)
+			denom, paid = c.Denom, c.Paid
+		} else if e := rt.sweep(k); e != nil && e.Paid {
+			denom, paid = e.Denom, e.Amount
+		}
+		if paid > 0 {
+			sum, ok := checkedAdd(losses[denom], paid)
 			if !ok {
-				return errors.New("controls: the void's losses would overflow the loss ledger of " + c.Denom)
+				return errors.New("controls: the void's losses would overflow the loss ledger of " + denom)
 			}
-			losses[c.Denom] = sum
+			losses[denom] = sum
 		}
 	}
 	for denom, amount := range losses {
@@ -158,7 +169,14 @@ func (rt *Route) Void(keys []string, forged bool, incident string) error {
 		}
 		e := rt.sweep(k)
 		e.Voided = true
-		rt.Denom(e.Denom).Totals.Swept -= e.Amount
+		d := rt.Denom(e.Denom)
+		if e.Paid {
+			// Its payout left the swept total when it was paid: what the
+			// sweep decision paid is the loss, booked once.
+			rt.addLoss(d, Loss{Key: k, Direction: DirRecv, Denom: e.Denom, Amount: e.Amount, Chain: ChainGno, Incident: incident, Cause: "forged payout"})
+			continue
+		}
+		d.Totals.Swept -= e.Amount
 	}
 	return nil
 }
@@ -303,7 +321,7 @@ func (rt *Route) CreditByVote(now, height, epoch int64, key, denom string, to ad
 	// A minted credit replaces its sweep entry within the supply already
 	// booked for it: amount never exceeds the entry.
 	e.Paid = true
-	e.PaidTo = "credit by vote"
+	e.PaidTo = PaidByVote
 	d.Totals.Swept -= e.Amount
 	rt.enqueue(d, now, height, epoch, key, to, amount, ByVote)
 	return nil
