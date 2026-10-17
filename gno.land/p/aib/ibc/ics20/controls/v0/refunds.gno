@@ -286,7 +286,10 @@ func (rt *Route) Settle(now, height int64, key, outcome string, hold bool, lock 
 	if owed <= 0 {
 		return 0, nil
 	}
-	covered := d.Config.Kind == KindMint || lock >= owed
+	// A minted refund mints the vouchers again: paid at once only within the
+	// outstanding supply's headroom, otherwise queued.
+	_, fits := checkedAdd(d.Totals.Outstanding, owed)
+	covered := d.Config.Kind == KindMint && fits || d.Config.Kind == KindUnescrow && lock >= owed
 	d.refundMeter.Refill(now, d.Config.RefundCap, d.Config.RefundCap, 0, 0)
 	if !hold && covered && d.refundQueue.Size() == 0 && d.refundMeter.Level >= owed {
 		d.refundMeter.Take(owed)
@@ -379,6 +382,14 @@ func (rt *Route) PayRefunds(now int64, denom string, n int, hold bool, lock int6
 				break
 			}
 			lock -= pay
+		}
+		// A minted installment stays within the outstanding supply's
+		// headroom; the remainder waits.
+		if room := maxInt64 - d.Totals.Outstanding; d.Config.Kind == KindMint && pay > room {
+			pay = room
+			if pay < need {
+				break
+			}
 		}
 		d.refundMeter.Take(pay)
 		rt.refunded(d, r, pay)

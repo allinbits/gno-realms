@@ -1044,6 +1044,11 @@ func (rt *Route) PayClaimsSweeping(now, epoch, epochAt int64, denom string, n in
 		if d.Config.Kind == KindUnescrow && avail > lock-d.Totals.QueuedRefunds {
 			avail = lock - d.Totals.QueuedRefunds
 		}
+		// A minted payout never overflows the outstanding supply: capped to
+		// its headroom, the claim's entitlement kept for a later turn.
+		if room := maxInt64 - d.Totals.Outstanding; d.Config.Kind == KindMint && avail > room {
+			avail = room
+		}
 		rem := c.Remaining()
 		// A cut is kept for good: a later raise never brings it back up.
 		cfee := c.effectiveFee(d)

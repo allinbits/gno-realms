@@ -455,6 +455,11 @@ func (rt *Route) PaySweeps(keys []string, to address, lock int64) ([]Payment, er
 	if d.Config.Kind == KindUnescrow && total > lock-d.Reserved() {
 		return nil, ufmt.Errorf("controls: %d is above the free lock of %d", total, lock-d.Reserved())
 	}
+	// A minted payment adds to the outstanding supply: refused whole, the
+	// entries kept, when it would overflow it.
+	if _, ok := checkedAdd(d.Totals.Outstanding, total); d.Config.Kind == KindMint && !ok {
+		return nil, ufmt.Errorf("controls: %d of %s would overflow its outstanding supply", total, denom)
+	}
 	var out []Payment
 	for _, k := range keys {
 		e := rt.sweep(k)

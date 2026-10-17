@@ -921,3 +921,50 @@ func TestSettleForgedReceiveOfMovedClaim(t *testing.T) {
 		t.Fatalf("paid a forged receive's remainder")
 	}
 }
+
+// Every minted payout checks the outstanding supply's headroom first (Codex
+// round 26 #1): with a supply cap at MaxInt64, a forged success releases a
+// returning send's reservation, an owed sweep entry is booked, and the
+// genuine refund is settled; paying the sweep entry would then overflow the
+// outstanding supply, so the sweep payment is refused whole, the entry kept,
+// and claim installments are capped to the headroom, their remainder kept.
+func TestMintedPayoutHeadroom(t *testing.T) {
+	const five = int64(5_000_000_000_000_000_000)
+	r, rt := newRoute(t)
+	cfg := DenomConfig{Kind: KindMint, CapFloor: 4_000_000_000_000_000_000, SupplyCap: maxInt64, Fee: 10, FeeFloor: 1, RefundCap: 4_000_000_000_000_000_000}
+	if err := rt.SetDenom("ibc/BIG", cfg, t0, 0, five); err != nil {
+		t.Fatal(err)
+	}
+	d := rt.Denom("ibc/BIG")
+	if err := rt.RecordSend(sendRec(1, "ibc/BIG", KindMint, five)); err != nil {
+		t.Fatal(err)
+	}
+	rt.Settle(t0, 1, pk(1), OutcomeSuccess, false, 0) // forged: the reservation released
+	if swept, err := rt.Credit(t0, 10, 0, pk(20), "ibc/BIG", alice, five, ByPacket, "bridge realm", 0); err != nil || !swept {
+		t.Fatalf("sweep entry: %v", err)
+	}
+	mustCredit(t, rt, t0, 21, "ibc/BIG", bob, 1_000, 0)
+	r.Replace("ethereum-1", "ethereum-2", 0, 1000)
+	if _, err := settleProven(rt, "ethereum-1", []SettleItem{{Seq: 1, Action: SettlePay, Amount: five}}, "inc", lockOf(0)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := rt.PaySweeps([]string{pk(20)}, carol, 0); err == nil {
+		t.Fatalf("the sweep payment overflowed the outstanding supply")
+	}
+	if e, _ := rt.Sweep(pk(20)); e.Paid || e.Voided || e.Amount != five {
+		t.Fatalf("the entry changed: %+v", e)
+	}
+	// A claim installment is capped to the headroom left.
+	d.Totals.Outstanding = maxInt64 - 100
+	ps, err := rt.PayClaims(t0+Day, 0, t0, "ibc/BIG", 1, 0)
+	if err != nil || len(ps) != 1 || ps[0].Fee+ps[0].Amount != 100 || d.Totals.Outstanding != maxInt64 {
+		t.Fatalf("%v %+v outstanding %d", err, ps, d.Totals.Outstanding)
+	}
+	c, _ := rt.Claim(pk(21))
+	if c.Remaining() != 900 || c.State != Open {
+		t.Fatalf("the claim lost its entitlement: %+v", c)
+	}
+	if ps, _ := rt.PayClaims(t0+2*Day, 0, t0, "ibc/BIG", 1, 0); len(ps) != 0 {
+		t.Fatalf("paid past the outstanding supply: %+v", ps)
+	}
+}
