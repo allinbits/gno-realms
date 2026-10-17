@@ -67,10 +67,14 @@ func Quote(s string) string {
 // active reports whether s[i], an ASCII byte, could take part in Markdown
 // or HTML structure: links and images ([ ] ( ) !), code spans (`), emphasis
 // and strikethrough (* ~, and an underscore not inside a word), raw HTML,
-// autolinks and entities (< > &), headings (#) and table cells (|).
+// autolinks and entities (< > &), headings (#) and table cells (|), and
+// gnoweb's own inline extensions: TeX math ($, and the backslash, always
+// escaped) and mentions (@). (gnoweb's other extensions, alerts, buttons,
+// columns, forms, frames, icons and foreign blocks, open with < or > or ],
+// all escaped already.)
 func active(s string, i int) bool {
 	switch s[i] {
-	case '`', '*', '[', ']', '(', ')', '~', '<', '>', '#', '!', '&', '|':
+	case '`', '*', '[', ']', '(', ')', '~', '<', '>', '#', '!', '&', '|', '$', '@':
 		return true
 	case '_':
 		return i == 0 || i+1 >= len(s) || !word(s[i-1]) || !word(s[i+1])

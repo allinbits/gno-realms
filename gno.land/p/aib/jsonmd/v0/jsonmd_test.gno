@@ -14,6 +14,7 @@ func TestQuote(t *testing.T) {
 		{"[claim](https://attacker.example)", `"^005bclaim^005d^0028https://attacker.example^0029"`},
 		{"<b>x</b> & `y` *z* #h !i |t ~s~", `"^003cb^003ex^003c/b^003e ^0026 ^0060y^0060 ^002az^002a ^0023h ^0021i ^007ct ^007es^007e"`},
 		{"proven_at _x_", `"proven_at ^005fx^005f"`},
+		{"$x$ $$y$$ @alice", `"^0024x^0024 ^0024^0024y^0024^0024 ^0040alice"`},
 		{"q\"\\\n\x01", `"q^0022^005c^000a^0001"`},
 		{string([]byte{0xc3, 0xa9, 0xe2, 0x80, 0xae, 0xf0, 0x9f, 0x98, 0x80, 0xff}), `"^00e9^202e^d83d^de00^fffd"`},
 	}

@@ -5,6 +5,7 @@ import (
 	"chain"
 	"chain/banker"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -156,6 +157,13 @@ func main(cur realm) {
 		println("receiver", strconv.Quote(blank)+":", res.Status == types.PacketStatus_Success, "| sweep:", strconv.Quote(e.To), e.Amount, e.Reason)
 	}
 
+	// A receiver written in gnoweb's own inline syntax, TeX math and a
+	// mention, is kept raw and rendered inert: no $ or @ reaches the page
+	// (Codex round 28 #2).
+	recv(cur, route, 12, "transfer/client-0/ugnot", "$x$ $$y$$ @alice", 50)
+	page := transfer.Render("routes/" + route + "/sweeps")
+	println("math or mention on the page:", strings.ContainsAny(page, "$@"))
+
 	pay := govern(cur, ibcgov.NewSweepRequest(cross(cur), route, controls.PacketKey(route, 1), string(carol)))
 	println("before the delay:", decided(pay))
 	before := ugnot(carol)
@@ -169,5 +177,6 @@ func main(cur realm) {
 // a claim pays nothing: 0
 // receiver "": true | sweep: "" 50 invalid receiver
 // receiver "   ": true | sweep: "   " 50 invalid receiver
+// math or mention on the page: false
 // before the delay: pending - queued 7 days
 // paid: applied - sweep | carol + 300 | entry paid to true
