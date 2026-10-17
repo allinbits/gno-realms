@@ -27,8 +27,8 @@ import (
 //
 // Two guardian seats flagging (anything) make a hold: every queued decision is
 // deferred and every unpause decision is spent. A hold ends 24 hours after
-// fewer than two guardian seats flag. A guardian replacement lands through a
-// hold, no sooner than day 21 of it. A guardian's payouts flag may name the
+// fewer than two guardian seats flag. A seat change, a vacancy included,
+// waits 7 days and lands through a hold no sooner than day 21 of it. A guardian's payouts flag may name the
 // packets it suspects, which makes their void immediate. Guardians delay;
 // they never veto.
 
@@ -579,8 +579,8 @@ func (p *seatsParams) apply(cur realm, t int64) (string, string) {
 // NewSetSeatsRequest changes guardian and watch-key seats: changes is a
 // comma-separated list of "seat:address" (seat 0–5; an empty address vacates
 // the seat). At most two guardian seats per decision; no address in two
-// seats. Vacating seats only applies at once; any addition or replacement
-// waits 7 days, and through a guardian hold no sooner than day 21 of it.
+// seats. Every seat change, a vacancy included (ADR pr6375 §7.4), waits 7
+// days, and through a guardian hold no sooner than day 21 of it.
 func NewSetSeatsRequest(cur realm, changes string) Request {
 	items := splitList(changes)
 	if len(items) == 0 || len(items) > SeatCount {
@@ -588,7 +588,7 @@ func NewSetSeatsRequest(cur realm, changes string) Request {
 	}
 	p := &seatsParams{}
 	seen := map[int]bool{}
-	guardians, removalsOnly := 0, true
+	guardians := 0
 	var parts []string
 	for _, it := range items {
 		i := strings.Index(it, ":")
@@ -606,7 +606,6 @@ func NewSetSeatsRequest(cur realm, changes string) Request {
 			if seats[n] == a {
 				panic("ibcgov: seat " + strconv.Itoa(n) + " holds " + string(a) + " already")
 			}
-			removalsOnly = false
 		}
 		if IsGuardianSeat(n) {
 			guardians++
@@ -633,7 +632,7 @@ func NewSetSeatsRequest(cur realm, changes string) Request {
 	}
 	text := "set seats " + strings.Join(parts, ",")
 	return propose(cur, "set seats", text, func(cur realm, made, t int64) {
-		decide(cur, "set seats", text, p, made, t, !removalsOnly)
+		decide(cur, "set seats", text, p, made, t, true)
 	})
 }
 

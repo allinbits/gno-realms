@@ -146,8 +146,11 @@ func main(cur realm) {
 	epoch, _ := ibcgov.PayoutsEpoch(route)
 	println("hold:", ibcgov.Held(), "| payouts flagged:", ibcgov.Flagged(route, ibcgov.FnPayouts), "| epoch", epoch)
 
-	// Vacating seat 0 applies at once.
-	govern(cur, ibcgov.NewSetSeatsRequest(cross(cur), "0:"))
+	// Vacating seat 0 waits, through the hold, until day 21 of it.
+	since := ibcgov.HoldSince()
+	vacate := govern(cur, ibcgov.NewSetSeatsRequest(cross(cur), "0:"))
+	advance(time.Duration(since+21*86400-testing.GetContext().Time.Unix()) * time.Second)
+	ibcgov.Execute(cross(cur), vacate)
 	t1 := time.Now().Unix()
 	epoch, _ = ibcgov.PayoutsEpoch(route)
 	println("after the removal: payouts flagged:", ibcgov.Flagged(route, ibcgov.FnPayouts), "| a client flagged:", ibcgov.Flagged(clients[7], ibcgov.FnSends),

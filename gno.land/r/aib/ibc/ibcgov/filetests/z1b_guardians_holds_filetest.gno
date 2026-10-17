@@ -134,19 +134,27 @@ func main(cur realm) {
 	d, _ = ibcgov.Decision(unpause)
 	println("unpause:", d.State(), "-", d.Note, "- credits:", ibcgov.Flagged(route, ibcgov.FnCredits), "refunds:", ibcgov.Flagged(route, ibcgov.FnRefunds))
 
-	// A guardian replacement lands through a hold, no sooner than day 21 of it.
+	// A guardian replacement lands through a hold, no sooner than day 21 of
+	// it, and so does a vacancy (a seat set to no key, ADR pr6375 §7.4): the
+	// governor cannot end a hold by vacating the flagging seats.
 	flagAs(cur, g0, route, ibcgov.FnSends, "")
 	flagAs(cur, g1, route, ibcgov.FnSends, "")
 	since := ibcgov.HoldSince()
 	replace := govern(cur, ibcgov.NewSetSeatsRequest(cross(cur), "3:"+string(g3new)))
+	vacate := govern(cur, ibcgov.NewSetSeatsRequest(cross(cur), "1:"))
+	d, _ = ibcgov.Decision(vacate)
+	println("vacancy:", d.State(), "-", d.Note, "- seat 1 kept:", ibcgov.Seat(1) == g1)
 	advance(7*24*time.Hour + time.Second)
 	println("replacement on day 7 of the hold:", revive(func() { ibcgov.Execute(cross(cur), replace) }))
-	advance(time.Duration(since+21*86400-testing.GetContext().Time.Unix()) * time.Second)
+	println("vacancy on day 7 of the hold:", revive(func() { ibcgov.Execute(cross(cur), vacate) }))
+	advance(time.Duration(since+21*86400-testing.GetContext().Time.Unix()-1) * time.Second)
+	println("vacancy a second before day 21:", revive(func() { ibcgov.Execute(cross(cur), vacate) }))
+	advance(time.Second)
 	ibcgov.Execute(cross(cur), replace)
 	println("replacement on day 21:", ibcgov.Seat(3) == g3new, "still held:", ibcgov.Held())
 
-	// Vacating a seat applies at once and clears the seat's flags.
-	govern(cur, ibcgov.NewSetSeatsRequest(cross(cur), "1:"))
+	// On day 21 the vacancy lands and clears the seat's flags.
+	ibcgov.Execute(cross(cur), vacate)
 	println("seat 1:", ibcgov.Seat(1), "sends flags:", ibcgov.Flags(route))
 	println(ibcgov.Render(""))
 }
@@ -170,7 +178,10 @@ func main(cur realm) {
 // payouts epoch: 0 -> 1
 // clear twice: ibcgov: no such flag of yours
 // unpause: applied - cleared 2 flags - credits: false refunds: false
+// vacancy: pending - queued 7 days - seat 1 kept: true
 // replacement on day 7 of the hold: ibcgov: decision 7 is deferred: a guardian hold stands since 1237678295
+// vacancy on day 7 of the hold: ibcgov: decision 8 is deferred: a guardian hold stands since 1237678295
+// vacancy a second before day 21: ibcgov: decision 8 is deferred: a guardian hold stands since 1237678295
 // replacement on day 21: true still held: true
 // seat 1:  sends flags: slice[("sends seat 0 at 1237678295" string)]
 // # IBC governance
@@ -201,7 +212,7 @@ func main(cur realm) {
 // pending: none
 //
 // executed:
-// - #8 applied: set seats 1= (recorded 1239492695, applied 1239492695) — seats 1
+// - #8 applied: set seats 1= (recorded 1237678295, applied 1239492695) — seats 1
 // - #7 applied: set seats 3=g1va6kzunyd9skutfn94hx2a6lta047h6l562e9h (recorded 1237678295, applied 1239492695) — seats 3
 // - #3 applied: set seats 2=g1va6kzunyd9skutfjta047h6lta047h6l2w3lun,3=g1va6kzunyd9skutfnta047h6lta047h6lrgljvn,4=g1washgcmg95697h6lta047h6lta047h6l726ltc,5=g1washgcmg95647h6lta047h6lta047h6lpq3k32 (recorded 1236382293, applied 1236987094) — seats 2,3,4,5
 // - #2 applied: set seats 0=g1va6kzunyd9skutfsta047h6lta047h6lczd94n,1=g1va6kzunyd9skutf3ta047h6lta047h6l3yrg9n (recorded 1235777492, applied 1236382293) — seats 0,1

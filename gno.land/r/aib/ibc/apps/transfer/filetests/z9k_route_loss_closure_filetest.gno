@@ -220,7 +220,9 @@ func main(cur realm) {
 	advance(24 * time.Hour)
 	flag(cur, guardian, route, controls.PacketKey(route, 2))
 	println("void:", decided(govern(cur, ibcgov.NewVoidRequest(cross(cur), route, controls.PacketKey(route, 2), true, "inc-2"))))
-	println("vacate:", decided(govern(cur, ibcgov.NewSetSeatsRequest(cross(cur), "0:"))))
+	vacate := govern(cur, ibcgov.NewSetSeatsRequest(cross(cur), "0:"))
+	execute(cur, vacate)
+	println("vacate:", decided(vacate))
 	advance(24 * time.Hour)
 	println("flagged:", ibcgov.Flagged(route, ibcgov.FnPayouts), "| closed:", controlsView().LossClosed(route),
 		"| claims paid:", transfer.Claim(cross(cur), route, "ugnot", 20))
