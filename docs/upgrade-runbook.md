@@ -275,7 +275,8 @@ Ethereum client carries nothing until a decision makes it a route.
    along a transition ibcgov expects, and over the local client it names
    only: dispatching the kind 10
    (`NewEthRouteReplacementRequest(old, new, suspectFrom, localClient)`)
-   records it; for an emergency recovery, record
+   records it as a decision of its own, applied after 7 days (anyone
+   executes it; a hold defers it); for an emergency recovery, record
    `NewExpectRecoveryRequest(oldRouterClient, newRouterClient, localClient)`
    (7 days, deferred by a hold) before relaying its notice. A notice more
    than one epoch on is recorded as proven when relayed; then call
