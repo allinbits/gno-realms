@@ -428,9 +428,9 @@ func RenderNode(w *mux.ResponseWriter, n *json.Node) {
 }
 
 // GRC20RegKey returns the grc20reg key for a voucher ibc denom. grc20reg keys
-// tokens by rlmPath.symbol, and a voucher's symbol is the truncated IBC hash
-// (see transfer.VoucherSymbol), not the full one.
-// e.g. "ibc/CAEF9CA8CE6C302D..." → "gno.land/r/aib/ibc/apps/transfer.CAEF9CA8CE6"
+// tokens by rlmPath.symbol, and a voucher's symbol is allocated when it is
+// created (see transfer.VoucherSymbol), "" before.
+// e.g. the first voucher → "gno.land/r/aib/ibc/apps/transfer.IBC-1"
 func GRC20RegKey(ibcDenom string) string {
 	return transfer.PkgPath + "." + transfer.VoucherSymbol(ibcDenom)
 }

@@ -191,7 +191,7 @@ func mintVoucher(cur realm, clientID, counterpartyID string, trustedHeight types
 //     "attrs": [
 //       {
 //         "key": "token",
-//         "value": "gno.land/r/aib/ibc/apps/transfer.CAEF9CA8CE6.0000001"
+//         "value": "gno.land/r/aib/ibc/apps/transfer.IBC-1.0000001"
 //       },
 //       {
 //         "key": "name",
@@ -199,7 +199,7 @@ func mintVoucher(cur realm, clientID, counterpartyID string, trustedHeight types
 //       },
 //       {
 //         "key": "symbol",
-//         "value": "CAEF9CA8CE6"
+//         "value": "IBC-1"
 //       },
 //       {
 //         "key": "decimals",
@@ -213,7 +213,7 @@ func mintVoucher(cur realm, clientID, counterpartyID string, trustedHeight types
 //     "attrs": [
 //       {
 //         "key": "token_path",
-//         "value": "gno.land/r/aib/ibc/apps/transfer.CAEF9CA8CE6"
+//         "value": "gno.land/r/aib/ibc/apps/transfer.IBC-1"
 //       },
 //       {
 //         "key": "pkgpath",
@@ -225,7 +225,7 @@ func mintVoucher(cur realm, clientID, counterpartyID string, trustedHeight types
 //       },
 //       {
 //         "key": "symbol",
-//         "value": "CAEF9CA8CE6"
+//         "value": "IBC-1"
 //       }
 //     ],
 //     "pkg_path": "gno.land/r/nt/grc20reg/v0"
@@ -235,7 +235,7 @@ func mintVoucher(cur realm, clientID, counterpartyID string, trustedHeight types
 //     "attrs": [
 //       {
 //         "key": "token",
-//         "value": "gno.land/r/aib/ibc/apps/transfer.CAEF9CA8CE6.0000001"
+//         "value": "gno.land/r/aib/ibc/apps/transfer.IBC-1.0000001"
 //       },
 //       {
 //         "key": "from",
@@ -317,7 +317,7 @@ func mintVoucher(cur realm, clientID, counterpartyID string, trustedHeight types
 //     "attrs": [
 //       {
 //         "key": "token",
-//         "value": "gno.land/r/aib/ibc/apps/transfer.CAEF9CA8CE6.0000001"
+//         "value": "gno.land/r/aib/ibc/apps/transfer.IBC-1.0000001"
 //       },
 //       {
 //         "key": "from",
