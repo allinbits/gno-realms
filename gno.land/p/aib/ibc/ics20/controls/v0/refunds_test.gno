@@ -1004,7 +1004,7 @@ func TestParkedSettlementRefund(t *testing.T) {
 		t.Fatalf("settlement: %v %+v", err, ps)
 	}
 	rec, _ := rt.Send(pk(1))
-	if rec.Settlement != SettlePay || rec.Payment != PayQueued || rec.Reservation != a || d.Totals.QueuedRefunds != a || d.Totals.Returning != a {
+	if rec.Settlement != SettlePay || rec.Payment != PayQueued || rec.Reservation != a || d.Totals.QueuedRefunds != a || d.Totals.Parked != a || d.Totals.Returning != 0 {
 		t.Fatalf("parked: %+v totals %+v", rec, d.Totals)
 	}
 	// Settled: it no longer blocks the reopening.
@@ -1033,7 +1033,7 @@ func TestParkedSettlementRefund(t *testing.T) {
 	}
 	rec, _ = rt.Send(pk(1))
 	if rec.Payment != PayReconciled || rec.Refunded != a || rec.Reservation != 0 || d.Totals.QueuedRefunds != 0 ||
-		d.Totals.Returning != 2*a || d.Totals.Outstanding != maxInt64-a {
+		d.Totals.Parked != 0 || d.Totals.Returning != 2*a || d.Totals.Outstanding != maxInt64-a {
 		t.Fatalf("after: %+v totals %+v", rec, d.Totals)
 	}
 	if rt.OpenSends("ethereum-1") != 0 {
@@ -1152,8 +1152,83 @@ func TestSettlementNetReservations(t *testing.T) {
 		parked := order[1]
 		rec, _ := rt.Send(pk(parked))
 		if rec.Payment != PayQueued || rec.Settlement != SettlePay || rec.Reservation != amount[parked] ||
-			d.Totals.Returning != amount[parked] || d.Totals.QueuedRefunds != amount[parked] {
+			d.Totals.Parked != amount[parked] || d.Totals.Returning != 0 || d.Totals.QueuedRefunds != amount[parked] {
 			t.Fatalf("order %v: parked %+v totals %+v", order, rec, d.Totals)
+		}
+	}
+}
+
+// A parked refund never blocks a voucher return (Codex round 32 #2): the
+// returns' reservations (Returning, the in-flight burns) and the parked
+// refunds (Parked) are kept apart, each within its own bound. With the
+// outstanding supply at MaxInt64 and a refund of MaxInt64 parked, a return
+// burns, and the parked refund is paid once the headroom it frees allows.
+func TestParkedRefundLetsReturnsBurn(t *testing.T) {
+	r, rt := newRoute(t)
+	cfg := DenomConfig{Kind: KindMint, CapFloor: maxInt64, SupplyCap: maxInt64, Fee: 10, FeeFloor: 1, RefundCap: maxInt64}
+	if err := rt.SetDenom("ibc/BIG", cfg, t0, 0, maxInt64); err != nil {
+		t.Fatal(err)
+	}
+	d := rt.Denom("ibc/BIG")
+	// A return of MaxInt64; a forged success releases its reservation, and
+	// forged deposits fill the supply again.
+	rt.RecordSend(sendRec(1, "ibc/BIG", KindMint, maxInt64))
+	rt.Settle(t0, 1, pk(1), OutcomeSuccess, false, 0)
+	d.Totals.Outstanding = maxInt64
+	r.Replace("ethereum-1", "ethereum-2", 0, 1000)
+	if ps, err := settleProven(rt, "ethereum-1", []SettleItem{{Seq: 1, Action: SettlePay, Amount: maxInt64}}, "inc", lockOf(0)); err != nil || len(ps) != 0 {
+		t.Fatalf("settlement: %v %+v", err, ps)
+	}
+	if d.Totals.Parked != maxInt64 || d.Totals.Returning != 0 {
+		t.Fatalf("parked %+v", d.Totals)
+	}
+	rt.Reopen()
+	// A positive return over the new client burns.
+	ret := sendRec(2, "ibc/BIG", KindMint, 1_000)
+	ret.Packet.SourceClient = "ethereum-2"
+	ret.Key, ret.Commitment = PacketKey("ethereum-2", 2), types.CommitPacket(ret.Packet)
+	if err := rt.RecordSend(ret); err != nil {
+		t.Fatalf("a return refused: %v", err)
+	}
+	if d.Totals.Returning != 1_000 || d.Totals.Outstanding != maxInt64-1_000 {
+		t.Fatalf("after the return %+v", d.Totals)
+	}
+	// The parked refund is paid as the headroom allows: the 1000 freed.
+	ps, err := rt.PayRefunds(t0+Day, "ibc/BIG", 20, false, 0)
+	if err != nil || len(ps) != 1 || ps[0].Amount != 1_000 || d.Totals.Outstanding != maxInt64 || d.Totals.Parked != maxInt64-1_000 {
+		t.Fatalf("paid %v %+v %+v", err, ps, d.Totals)
+	}
+}
+
+// A settlement releases every reservation its batch holds before it adds
+// the parked refunds (Codex round 32 #3): a refund parked ahead of a
+// delivered return in the batch, with an intermediate sum past int64 but
+// valid final totals, settles in either order.
+func TestSettlementReleasesBeforeParking(t *testing.T) {
+	const six, four = int64(6_000_000_000_000_000_000), int64(4_000_000_000_000_000_000)
+	for _, order := range [][]uint64{{1, 2}, {2, 1}} {
+		r, rt := newRoute(t)
+		cfg := DenomConfig{Kind: KindMint, CapFloor: maxInt64, SupplyCap: maxInt64, Fee: 10, FeeFloor: 1, RefundCap: maxInt64}
+		if err := rt.SetDenom("ibc/BIG", cfg, t0, 0, maxInt64); err != nil {
+			t.Fatal(err)
+		}
+		d := rt.Denom("ibc/BIG")
+		rt.RecordSend(sendRec(1, "ibc/BIG", KindMint, six)) // refundable; a forged success released it
+		rt.Settle(t0, 1, pk(1), OutcomeSuccess, false, 0)
+		rt.RecordSend(sendRec(2, "ibc/BIG", KindMint, four)) // delivered, still reserving four
+		d.Totals.Outstanding = maxInt64 - four
+		r.Replace("ethereum-1", "ethereum-2", 0, 1000)
+		amount := map[uint64]int64{1: six, 2: 0}
+		action := map[uint64]uint8{1: SettlePay, 2: SettleDelivered}
+		var items []SettleItem
+		for _, seq := range order {
+			items = append(items, SettleItem{Seq: seq, Action: action[seq], Amount: amount[seq]})
+		}
+		rt.send(pk(1)).Proven = ProvenRefundable
+		rt.send(pk(2)).Proven = ProvenDelivered
+		ps, err := rt.SettleRecords("ethereum-1", items, "inc", lockOf(0), activeAll)
+		if err != nil || len(ps) != 0 || d.Totals.Parked != six || d.Totals.Returning != 0 || d.Totals.QueuedRefunds != six {
+			t.Fatalf("order %v: %v %+v %+v", order, err, ps, d.Totals)
 		}
 	}
 }

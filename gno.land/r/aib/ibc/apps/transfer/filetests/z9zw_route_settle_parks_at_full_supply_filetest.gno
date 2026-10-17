@@ -203,7 +203,7 @@ func main(cur realm) {
 	println("settle:", decided(settle))
 	rec, _ = controlsView().Send(route, controls.PacketKey(route, ret))
 	t, _ = controlsView().Totals(route, voucher)
-	println("record: settlement", rec.Settlement, "payment", rec.Payment, "| queued", t.QueuedRefunds, "reserved", t.Returning)
+	println("record: settlement", rec.Settlement, "payment", rec.Payment, "| queued", t.QueuedRefunds, "parked", t.Parked, "returning", t.Returning)
 
 	reopen := govern(cur, ibcgov.NewReopenRouteRequest(cross(cur), route))
 	execute(cur, reopen)
@@ -213,5 +213,5 @@ func main(cur realm) {
 // Output:
 // vouchers out: 9223372036854775807 | returning: 0
 // settle: applied - settle
-// record: settlement 1 payment queued | queued 1000 reserved 1000
+// record: settlement 1 payment queued | queued 1000 parked 1000 returning 0
 // reopen: applied - reopen | closed: false

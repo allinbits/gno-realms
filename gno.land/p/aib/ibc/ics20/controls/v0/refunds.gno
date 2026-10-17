@@ -330,7 +330,11 @@ func (rt *Route) refunded(d *Denom, r *SendRecord, amount int64) {
 			consumed = r.Reservation
 		}
 		r.Reservation -= consumed
-		d.Totals.Returning -= consumed
+		if r.Settlement != 0 {
+			d.Totals.Parked -= consumed // a settlement's parked refund
+		} else {
+			d.Totals.Returning -= consumed
+		}
 	}
 }
 
@@ -395,10 +399,11 @@ func (rt *Route) PayRefunds(now int64, denom string, n int, hold bool, lock int6
 			lock -= pay
 		}
 		// A minted installment stays within the outstanding supply's
-		// headroom; the remainder waits.
+		// headroom, whatever it is (a parked refund may be larger than any
+		// headroom a return frees); the remainder waits.
 		if room := maxInt64 - d.Totals.Outstanding; d.Config.Kind == KindMint && pay > room {
 			pay = room
-			if pay < need {
+			if pay < 1 {
 				break
 			}
 		}
@@ -516,9 +521,9 @@ func (p *SettlePlan) Parked() []uint64 {
 // them. room is the room left for minting a denom (nil: what its outstanding
 // supply leaves under int64; a caller also bound by a token's supply passes
 // the lower of the two): the refunds take it in item order, and one that
-// does not fit is parked. The plan's reservations are checked net: what
-// every settled record releases or consumes comes off before the parked
-// refunds are added.
+// does not fit is parked. The parked refunds are checked against their own
+// total (Parked), apart from the in-flight burns' reservations (Returning),
+// and the queued refunds net of what the batch unqueues.
 func (rt *Route) PlanSettlement(client string, items []SettleItem, incident string, lock func(denom string) int64, room func(denom string) int64, trusted func(client string, gen uint64) bool) (*SettlePlan, error) {
 	retired := false
 	for _, c := range rt.Replaced {
@@ -544,7 +549,7 @@ func (rt *Route) PlanSettlement(client string, items []SettleItem, incident stri
 	// (owed or withheld). The payments are checked against the escrow the
 	// liabilities still reserve once the whole batch applies; each is exact
 	// on its own, so the subtraction happens before any saturating sum.
-	relQueued, relOwed, relWithheld, relReserved := map[string]int64{}, map[string]int64{}, map[string]int64{}, map[string]int64{}
+	relQueued, relOwed, relWithheld := map[string]int64{}, map[string]int64{}, map[string]int64{}
 	lossTotals := map[string]int64{}
 	for i, it := range items {
 		key := PacketKey(client, it.Seq)
@@ -584,7 +589,6 @@ func (rt *Route) PlanSettlement(client string, items []SettleItem, incident stri
 			return nil, ufmt.Errorf("controls: item %d: send %s is settled already", i, key)
 		}
 		seen[it.Seq] = true
-		relReserved[r.Denom] += r.Reservation // within Returning: released or consumed when it settles
 		if r.Payment == PayQueued {
 			relQueued[r.Denom] += r.Amount - r.Refunded // within QueuedRefunds
 		}
@@ -681,8 +685,8 @@ func (rt *Route) PlanSettlement(client string, items []SettleItem, incident stri
 	// queue entries must fit.
 	for denom, parked := range parkedTotal {
 		d := rt.Denom(denom)
-		if _, ok := checkedAdd(d.Totals.Returning-relReserved[denom], parked); !ok {
-			return nil, errors.New("controls: the parked refunds would overflow the reserved supply of " + denom)
+		if _, ok := checkedAdd(d.Totals.Parked, parked); !ok {
+			return nil, errors.New("controls: the parked refunds would overflow the parked total of " + denom)
 		}
 		if _, ok := checkedAdd(d.Totals.QueuedRefunds-relQueued[denom], parked); !ok {
 			return nil, errors.New("controls: the parked refunds would overflow the queued refunds of " + denom)
@@ -709,6 +713,32 @@ func (rt *Route) PlanSettlement(client string, items []SettleItem, incident stri
 // the plan parks, and returns the refunds to pay now (the plan's Payments).
 func (rt *Route) ApplySettlement(plan *SettlePlan) []RefundPayment {
 	client, incident := plan.client, plan.incident
+	// First every settled send releases what it holds, its supply
+	// reservation and its queued refund, before anything is added.
+	was := map[uint64]bool{}
+	for _, it := range plan.items {
+		if it.Action == SettleForgedReceive {
+			continue
+		}
+		r := rt.send(PacketKey(client, it.Seq))
+		d := rt.Denom(r.Denom)
+		was[it.Seq] = isOpen(r)
+		rt.unmarkProcessed(r)
+		if r.Payment == PayQueued {
+			rt.unqueue(d, r)
+			r.Payment = PayRejected
+		}
+		rt.release(d, r)
+	}
+	// Then the parked refunds are added.
+	for _, it := range plan.items {
+		if it.Action == SettlePay && it.Amount > 0 && plan.parked[it.Seq] {
+			r := rt.send(PacketKey(client, it.Seq))
+			r.Settlement = it.Action
+			rt.park(rt.Denom(r.Denom), r, it.Amount)
+		}
+	}
+	// Then the records, the losses and the refunds paid now.
 	var out []RefundPayment
 	for _, it := range plan.items {
 		key := PacketKey(client, it.Seq)
@@ -738,35 +768,19 @@ func (rt *Route) ApplySettlement(plan *SettlePlan) []RefundPayment {
 		}
 		r := rt.send(key)
 		d := rt.Denom(r.Denom)
-		was := isOpen(r)
-		rt.unmarkProcessed(r)
-		if r.Payment == PayQueued {
-			rt.unqueue(d, r)
-			r.Payment = PayRejected
-		}
-		parked := false
 		switch it.Action {
 		case SettlePay:
-			if it.Amount <= 0 {
-				break
+			if it.Amount > 0 && !plan.parked[it.Seq] {
+				rt.refunded(d, r, it.Amount)
+				r.Payment = PayReconciled
+				out = append(out, RefundPayment{Key: key, Denom: r.Denom, To: r.Sender, Amount: it.Amount})
 			}
-			if plan.parked[it.Seq] {
-				parked = true
-				break
-			}
-			rt.refunded(d, r, it.Amount)
-			r.Payment = PayReconciled
-			out = append(out, RefundPayment{Key: key, Denom: r.Denom, To: r.Sender, Amount: it.Amount})
 		case SettleLoss:
 			rt.addLoss(d, Loss{Key: key, Direction: DirSend, Denom: r.Denom, Amount: it.Amount, Chain: ChainGno, Incident: incident, Cause: CauseRefundForDelivered})
 		}
-		rt.release(d, r)
 		r.Settlement = it.Action
 		r.Incident = incident
-		if parked {
-			rt.park(d, r, it.Amount)
-		}
-		rt.track(r, was)
+		rt.track(r, was[it.Seq])
 	}
 	return out
 }
@@ -776,14 +790,15 @@ func (rt *Route) ApplySettlement(plan *SettlePlan) []RefundPayment {
 // settled, so it no longer blocks a reopening, and its refund is owed and
 // queued (PayQueued, counted in QueuedRefunds), paid later by PayRefunds
 // within the supply's headroom, the refund meter and any refunds hold, like
-// every queued refund. The amount is reserved again (Reservation, Returning),
-// so it counts against the supply cap: no credit admitted meanwhile takes the
-// capacity the refund needs.
+// every queued refund. The amount is reserved again (Reservation, counted in
+// Parked, apart from the in-flight burns' Returning), so it counts against
+// the supply cap: no credit admitted meanwhile takes the capacity it needs,
+// and a voucher return is never refused for it.
 func (rt *Route) park(d *Denom, r *SendRecord, amount int64) {
 	d.queueRefund(r.Key, amount)
 	r.Payment = PayQueued
 	r.Reservation = amount
-	d.Totals.Returning = mustAdd(d.Totals.Returning, amount) // checked by SettleRecords
+	d.Totals.Parked = mustAdd(d.Totals.Parked, amount) // checked by PlanSettlement
 }
 
 // forgedReceive is the denom and what the receive of key (an inbound

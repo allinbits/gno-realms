@@ -583,7 +583,8 @@ type Totals struct {
 	Fees          int64 // claim fee installments paid to the collector
 	SweepPaid     int64 // sweep entries paid by decision
 	Outstanding   int64 // KindMint: vouchers this route has in circulation
-	Returning     int64 // KindMint: vouchers burned by sends not settled yet (in flight, or refund owed)
+	Returning     int64 // KindMint: vouchers burned by sends not settled yet (in flight, or refund owed): at most InFlight
+	Parked        int64 // KindMint: refunds a settlement owes and could not mint yet (parked), reserved apart from Returning
 	InFlight      int64 // the amounts of the open send records: a bound of every refund owed (QueuedRefunds, Returning)
 	Sent          int64 // escrowed (KindUnescrow) or burned (KindMint) by recorded sends
 	SendFees      int64 // fees charged on sends
@@ -619,7 +620,7 @@ func (t Totals) Unresolved() int64 { return t.OpenUnresolved }
 // still be refunded (minted again), and every claim and sweep entry not paid
 // yet.
 func (t Totals) booked() int64 {
-	return boundAdd(boundAdd(boundAdd(boundAdd(t.Outstanding, t.Returning), t.Owed), t.Withheld), t.Swept)
+	return boundAdd(boundAdd(boundAdd(boundAdd(boundAdd(t.Outstanding, t.Returning), t.Parked), t.Owed), t.Withheld), t.Swept)
 }
 
 // queue is one recipient's open claims, oldest first, and its meter.
