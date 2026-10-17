@@ -528,6 +528,29 @@ On an Ethereum route the acknowledgement and timeout callbacks complete the
 packet's transport (the core deletes its commitment) whether or not the
 refund is paid in the same transaction; the send record tracks the payment.
 
+### Payload checks
+
+The core's packet limits come first (core README, Packet limits: among them
+262,144 bytes of payload data and a timeout at most 24 hours ahead). The
+transfer app then requires:
+
+- port `transfer` at both ends, version `ics20-1`, and encoding
+  `application/x-protobuf` or `application/x-solidity-abi`;
+- an amount that is a decimal integer of at most 2^256 - 1 and strictly
+  positive read as an int256 (one at or above 2^255, an ABI uint256 word
+  included, reads as negative and is refused). To be sent or credited it
+  must also fit int64 (at most 9,223,372,036,854,775,807);
+- a sender that is not blank, and a receiver that is not blank except on an
+  Ethereum route, which books an undecodable receiver, blank included, as an
+  owed sweep entry;
+- a denom whose hops (`port/client`) are valid (port 2 to 128 characters,
+  client id 4 to 64 characters, or on an Ethereum route also a router client
+  id) and whose base is not blank and contains no `/`.
+
+The memo has no limit of its own: only the payload size bounds it. A send
+that fails a check aborts the transaction; a receive that fails one is
+answered with an error acknowledgement, and the sender is refunded.
+
 ## Escrow accounting
 
 Native coins and non-IBC GRC20 tokens are escrowed at the transfer realm's
