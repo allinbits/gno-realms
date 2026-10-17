@@ -460,3 +460,15 @@ func TestUpdateAfterSameRevisionUpgrade(t *testing.T) {
 		uassert.True(t, tm.CheckForMisbehaviour(header("apphash-101", now.Add(-3*time.Minute))))
 	})
 }
+
+// Initialize runs once: a stored client's trusted state is never replaced
+// through it (Codex round 17).
+func TestInitializeOnce(t *testing.T) {
+	tm := tendermint.NewTMLightClient()
+	h1, h9 := types.NewHeight(0, 1), types.NewHeight(0, 9)
+	cs := &tendermint.ConsensusState{Timestamp: time.Now().UTC(), Root: tendermint.NewMerkleRoot([]byte("root")), NextValidatorsHash: []byte("vals")}
+	urequire.NoError(t, tm.Initialize(*tendermint.NewClientState(chainID, tendermint.DefaultTrustLevel, trustingPeriod, ubdPeriod, maxClockDrift, h1, ics23.GetSDKProofSpecs(), upgradePath), *cs))
+	evil := *tendermint.NewClientState(chainID, tendermint.DefaultTrustLevel, trustingPeriod, ubdPeriod, maxClockDrift, h9, ics23.GetSDKProofSpecs(), upgradePath)
+	uassert.Error(t, tm.Initialize(evil, *cs))
+	uassert.Equal(t, h1.String(), tm.LatestHeight().String())
+}

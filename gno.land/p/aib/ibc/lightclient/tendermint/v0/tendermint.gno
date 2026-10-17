@@ -34,8 +34,12 @@ func NewLightClient() lightclient.Interface {
 
 var _ lightclient.Interface = (*TMLightClient)(nil)
 
-// Implements lightclient.Interface
+// Implements lightclient.Interface. It runs once, on a client not yet
+// initialized: a stored client's trusted state is never replaced through it.
 func (tm *TMLightClient) Initialize(clientState lightclient.ClientState, consensusState lightclient.ConsensusState) error {
+	if tm.ClientState != nil {
+		return errors.New("tendermint client initialized already")
+	}
 	cs := clientState.(ClientState)
 	tm.ClientState = &cs
 	in := consensusState.(ConsensusState)

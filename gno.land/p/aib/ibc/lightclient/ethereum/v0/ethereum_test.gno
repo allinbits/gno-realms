@@ -326,3 +326,20 @@ func TestCrossingWithoutNextCommittee(t *testing.T) {
 	setNow(cs.GenesisTime + (u.SignatureSlot-cs.GenesisSlot+1)*cs.SecondsPerSlot)
 	urequire.Error(t, c.VerifyClientMessage(next), "an update signed by an unknown committee must be refused")
 }
+
+// Initialize runs once: a stored client's trusted state is never replaced
+// through it (Codex round 17).
+func TestInitializeOnce(t *testing.T) {
+	f := fixtureNative()
+	c := NewEthLightClient()
+	urequire.NoError(t, c.Initialize(f.clientState, f.consensusState))
+	before := c.LatestHeight()
+	cs, cons := f.clientState, f.consensusState
+	cs.LatestSlot, cons.Slot = cs.LatestSlot+1000, cons.Slot+1000
+	if c.Initialize(cs, cons) == nil {
+		t.Fatalf("initialized twice")
+	}
+	if c.LatestHeight() != before {
+		t.Fatalf("trusted state moved: %v", c.LatestHeight())
+	}
+}

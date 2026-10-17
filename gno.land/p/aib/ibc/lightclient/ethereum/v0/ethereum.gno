@@ -56,8 +56,12 @@ func heightAtSlot(slot uint64) types.Height {
 	return types.NewHeight(0, slot)
 }
 
-// Implements lightclient.Interface.
+// Implements lightclient.Interface. It runs once, on a client not yet
+// initialized: a stored client's trusted state is never replaced through it.
 func (c *EthLightClient) Initialize(clientState lightclient.ClientState, consensusState lightclient.ConsensusState) error {
+	if c.ClientState != nil {
+		return errors.New("ethereum client initialized already")
+	}
 	cs, ok := clientState.(ClientState)
 	if !ok {
 		return ufmt.Errorf("expected ethereum ClientState, got %T", clientState)
