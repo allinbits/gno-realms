@@ -370,8 +370,16 @@ func TestNewFromKeepsHistory(t *testing.T) {
 	for i := uint64(0); i <= 250; i++ {
 		got, ok := c.GetConsensusState(heightAtSlot(base.Slot + i))
 		want, _ := old.GetConsensusState(heightAtSlot(base.Slot + i))
-		if !ok || got != want {
+		if !ok || !bytesEqual(got.StateRoot, want.StateRoot) || got.Slot != want.Slot {
 			t.Fatalf("height %d not served from the retired verifier", base.Slot+i)
+		}
+		// A copy: no pointer into the retired verifier escapes.
+		if got == want {
+			t.Fatalf("height %d served as the retired verifier's own pointer", base.Slot+i)
+		}
+		got.StateRoot[0] ^= 0xff
+		if again, _ := old.GetConsensusState(heightAtSlot(base.Slot + i)); again.StateRoot[0] == got.StateRoot[0] {
+			t.Fatalf("writing a served state wrote the retired verifier's")
 		}
 	}
 	if c.LatestHeight() != old.LatestHeight() || c.Status() != old.Status() {

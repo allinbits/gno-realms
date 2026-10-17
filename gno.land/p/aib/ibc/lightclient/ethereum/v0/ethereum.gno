@@ -822,8 +822,15 @@ func (c *EthLightClient) GetConsensusState(height types.Height) (*ConsensusState
 	}
 	v := c.ConsensusStateByHeight.Get(height.StringNatSort())
 	if v == nil {
-		// A height the retired verifier trusted before a replacement.
-		return c.retired.consensusState(height)
+		// A height the retired verifier trusted before a replacement: a
+		// copy, so no pointer into the retired verifier ever escapes, to a
+		// later conversion least of all.
+		cons, ok := c.retired.consensusState(height)
+		if !ok {
+			return nil, false
+		}
+		copied := copyConsensusState(*cons)
+		return &copied, true
 	}
 	return v.(*ConsensusState), true
 }

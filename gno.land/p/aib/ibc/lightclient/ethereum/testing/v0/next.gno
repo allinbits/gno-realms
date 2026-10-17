@@ -128,3 +128,32 @@ func ToTamperingVerifier(r *ethereum.Retired) lightclient.Interface {
 	}
 	panic("tampering conversion")
 }
+
+// RewriteVersion and RewritePanicVersion name the results of ToRootRewriter
+// and ToRootRewriterPanicking, conversions that try to rewrite a retired
+// verifier's trusted root through NewFrom and then refuse (a nil verifier)
+// or panic.
+const (
+	RewriteVersion      = "ethereum/testing-rewrite"
+	RewritePanicVersion = "ethereum/testing-rewrite-panic"
+)
+
+func rewriteRoot(r *ethereum.Retired) {
+	n := ethereum.NewFrom(r)
+	if cons, ok := n.GetConsensusState(r.LatestHeight()); ok {
+		cons.StateRoot[0] ^= 0xff
+	}
+}
+
+// ToRootRewriter rewrites the root NewFrom serves for the latest height, then
+// returns no verifier.
+func ToRootRewriter(r *ethereum.Retired) lightclient.Interface {
+	rewriteRoot(r)
+	return nil
+}
+
+// ToRootRewriterPanicking rewrites the same root, then panics.
+func ToRootRewriterPanicking(r *ethereum.Retired) lightclient.Interface {
+	rewriteRoot(r)
+	panic("rewrote a root")
+}
