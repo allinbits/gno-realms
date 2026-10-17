@@ -136,7 +136,7 @@ func main(cur realm) {
 		"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc", ""))
 	govern(cur, ibcgov.NewEthRoleRequest(cross(cur), true, 1, "0x8888888888888888888888888888888888888888"))
 	govern(cur, ibcgov.NewEthHandOverRequest(cross(cur), "0x9999999999999999999999999999999999999999", "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd", ""))
-	govern(cur, ibcgov.NewEthRouteReplacementRequest(cross(cur), "client-0", "gnoland-2", 21000000))
+	govern(cur, ibcgov.NewEthRouteReplacementRequest(cross(cur), "client-0", "gnoland-2", 21000000, "ethereum-2"))
 	govern(cur, ibcgov.NewEthRouteSettingsRequest(cross(cur), "client-0", 1209600))
 	govern(cur, ibcgov.NewEthCancelRequest(cross(cur), "2-3"))
 	govern(cur, ibcgov.NewEthRouteSettingsRequest(cross(cur), "client-0", 86400))    // seq 12, for the "spent" acknowledgement
@@ -187,7 +187,6 @@ func main(cur realm) {
 	println("notice built equal:", hex.EncodeToString(ibcgov.EpochNotice(2, "gnoland-2")) == notice)
 	e, named, ok := ibcgov.ParseEpochNotice(mustHex(notice))
 	println("notice parsed:", ok, e, named)
-	govern(cur, ibcgov.NewReplaceRouteRequest(cross(cur), client, "ethereum-2", 0))
 	np := types.Payload{SourcePort: ibcgov.GovDestPort, DestinationPort: ibcgov.GovPort, Version: ibcgov.GovVersion, Encoding: ibcgov.GovEncoding, Value: mustHex(notice)}
 	for i, want := range []string{ackSwitched, ackDuplicate} {
 		testing.SetRealm(testing.NewCodeRealm("gno.land/r/aib/ibc/core"))

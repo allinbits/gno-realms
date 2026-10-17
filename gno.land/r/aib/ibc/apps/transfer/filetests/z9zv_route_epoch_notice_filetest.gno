@@ -7,6 +7,7 @@ import (
 
 	ethtesting "gno.land/p/aib/ibc/lightclient/ethereum/testing/v0"
 	"gno.land/p/aib/ibc/lightclient/extproof/v0"
+	tmtesting "gno.land/p/aib/ibc/lightclient/tendermint/testing/v0"
 	"gno.land/p/aib/ibc/types/v0"
 	"gno.land/p/nt/testutils/v0"
 	_ "gno.land/r/aib/ibc/apps/transfer/impl/v1"
@@ -127,6 +128,13 @@ func main(cur realm) {
 		noticePacket(5, "gnoland-b", "ethereum-2", 2, "gnoland-b")) // re-sent
 	x := client(cur, "ethereum-3", "gnoland-x", noticePacket(1, "gnoland-x", "ethereum-3", 2, "gnoland-x"))
 	c := client(cur, "ethereum-4", "gnoland-c", noticePacket(1, "gnoland-c", "ethereum-4", 3, "gnoland-c"))
+	// Anyone may create a client: one with a fabricated checkpoint whose root
+	// commits an epoch-2 notice, its counterparty the expected gnoland-b too.
+	forged := client(cur, "ethereum-5", "gnoland-b", noticePacket(1, "gnoland-b", "ethereum-5", 2, "gnoland-b"))
+	// And a Tendermint client, its counterparty an SDK-shaped router id.
+	tm := core.CreateClient(cross(cur), tmtesting.NewClientState("chain-id-2", types.NewHeight(2, 2)),
+		tmtesting.GenConsensusState(time.Now(), tmtesting.Hash("apphash"), tmtesting.GenValset().Hash()))
+	core.RegisterCounterparty(cross(cur), tm, [][]byte{{}}, "gnoland-9")
 	execute(cur, govern(cur, ibcgov.NewEnrollRouteRequest(cross(cur), "ethereum-1", string(collector), bridge)))
 	execute(cur, govern(cur, ibcgov.NewBindGovernanceRequest(cross(cur), "ethereum-1")))
 	println(epochNow())
@@ -138,7 +146,10 @@ func main(cur realm) {
 	// expected from then on), and gno.land's replacement executes first: the
 	// epoch stays over the old client, which still carries governance
 	// packets, not transfers.
-	govern(cur, ibcgov.NewEthRouteReplacementRequest(cross(cur), "client-0", "gnoland-b", 1))
+	println("kind 10 carried by a Tendermint client:", revive(func() {
+		govern(cur, ibcgov.NewEthRouteReplacementRequest(cross(cur), "client-0", "gnoland-9", 1, tm))
+	}))
+	govern(cur, ibcgov.NewEthRouteReplacementRequest(cross(cur), "client-0", "gnoland-b", 1, "ethereum-2"))
 	execute(cur, govern(cur, ibcgov.NewReplaceRouteRequest(cross(cur), "ethereum-1", "ethereum-2", 0)))
 	println(epochNow(), "| old retired for transfers:", core.IsClientRetiredFor("ethereum-1", "transfer"),
 		"for governance:", core.IsClientRetiredFor("ethereum-1", ibcgov.GovPort))
@@ -146,6 +157,15 @@ func main(cur realm) {
 	println("a decision after the replacement:", decided(ibcgov.LastDecision()))
 
 	println("notice over x (not expected):", deliver(cur, x, 0), "|", epochNow())
+	// Only the approved client carries the epoch: the fabricated client's
+	// notice, proven under its own root, is refused, and so is one over the
+	// Tendermint client (delivered as the core would, its proof aside).
+	println("notice over another client of gnoland-b:", deliver(cur, forged, 0), "|", epochNow())
+	testing.SetRealm(testing.NewCodeRealm("gno.land/r/aib/ibc/core"))
+	var gov ibcgov.App
+	res := gov.OnRecvPacket(cross(cur), "gnoland-9", tm, 1, noticePacket(1, "gnoland-9", tm, 2, "gnoland-9").Payloads[0])
+	testing.SetRealm(testing.NewCodeRealm("gno.land/r/aib/main"))
+	println("notice over the Tendermint client: status", res.Status, "|", epochNow())
 	println("notice of epoch 3:", deliver(cur, b, 1), "|", epochNow())
 	println("notice naming another client:", deliver(cur, b, 2), "|", epochNow())
 	println("the notice:", deliver(cur, b, 3), "|", epochNow())
@@ -155,7 +175,7 @@ func main(cur realm) {
 	// The next replacement's notice arrives before gno.land's replacement
 	// executes: the epoch moves, the old client is retired for governance
 	// and keeps the route until the replacement executes.
-	govern(cur, ibcgov.NewEthRouteReplacementRequest(cross(cur), "gnoland-b", "gnoland-c", 2))
+	govern(cur, ibcgov.NewEthRouteReplacementRequest(cross(cur), "gnoland-b", "gnoland-c", 2, "ethereum-4"))
 	replace := govern(cur, ibcgov.NewReplaceRouteRequest(cross(cur), "ethereum-1", "ethereum-4", 0))
 	println("notice over c before its replacement executes:", deliver(cur, c, 0), "|", epochNow())
 	println("b retired for governance:", core.IsClientRetiredFor("ethereum-2", ibcgov.GovPort), "for transfers:", core.IsClientRetiredFor("ethereum-2", "transfer"))
@@ -167,9 +187,12 @@ func main(cur realm) {
 // Output:
 // epoch 1 over ethereum-1
 // notice over b before its kind 10: error acknowledgement | epoch 1 over ethereum-1
+// kind 10 carried by a Tendermint client: ibcgov: 07-tendermint-6 is not an Ethereum client
 // epoch 1 over ethereum-1 | old retired for transfers: true for governance: false
 // a decision after the replacement: applied - dispatched as epoch 1 seq 2
 // notice over x (not expected): error acknowledgement | epoch 1 over ethereum-1
+// notice over another client of gnoland-b: error acknowledgement | epoch 1 over ethereum-1
+// notice over the Tendermint client: status (2 gno.land/p/aib/ibc/types/v0.PacketStatus) | epoch 1 over ethereum-1
 // notice of epoch 3: error acknowledgement | epoch 1 over ethereum-1
 // notice naming another client: error acknowledgement | epoch 1 over ethereum-1
 // the notice: acknowledged | epoch 2 over ethereum-2

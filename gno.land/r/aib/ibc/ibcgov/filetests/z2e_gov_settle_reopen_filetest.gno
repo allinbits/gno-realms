@@ -52,6 +52,8 @@ var vectors = map[uint64]string{
 func main(cur realm) {
 	client := core.CreateClient(cross(cur), ethtesting.ClientState(), ethtesting.ConsensusState())
 	core.RegisterCounterparty(cross(cur), client, [][]byte{{}}, "client-0")
+	local := core.CreateClient(cross(cur), ethtesting.ClientState(), ethtesting.ConsensusState())
+	core.RegisterCounterparty(cross(cur), local, [][]byte{{}}, "gnoland-2")
 	// The governance channel rides a route: enroll the client first.
 	execute(cur, govern(cur, ibcgov.NewEnrollRouteRequest(cross(cur), client, string(ibcgov.Governor()), "0x1d95d544586eacb63b6154e9e45122b32ded11aa 0x00000000000000000000000000000000000b0002 0x00000000000000000000000000000000000b0003")))
 	execute(cur, govern(cur, ibcgov.NewBindGovernanceRequest(cross(cur), client)))
@@ -85,7 +87,7 @@ func main(cur realm) {
 	println("eight items:", len(ibcgov.DispatchBody(1, 3)), "bytes")
 
 	// The recovery's order: replace, settle the retired client, reopen.
-	govern(cur, ibcgov.NewEthRouteReplacementRequest(cross(cur), "client-0", "gnoland-2", 1))
+	govern(cur, ibcgov.NewEthRouteReplacementRequest(cross(cur), "client-0", "gnoland-2", 1, local))
 	govern(cur, ibcgov.NewEthSettleRequest(cross(cur), "client-0", "1:3:0"))
 	govern(cur, ibcgov.NewEthReopenRequest(cross(cur), "gnoland-2"))
 	for seq := uint64(4); seq <= 6; seq++ {

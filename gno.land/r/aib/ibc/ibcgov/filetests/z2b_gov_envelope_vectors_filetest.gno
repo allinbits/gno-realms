@@ -84,6 +84,9 @@ func setupRoute(cur realm) string {
 func main(cur realm) {
 	client := core.CreateClient(cross(cur), ethtesting.ClientState(), ethtesting.ConsensusState())
 	core.RegisterCounterparty(cross(cur), client, [][]byte{{}}, "client-0")
+	// The gno client approved to carry the epoch over gnoland-2 (kind 10).
+	local := core.CreateClient(cross(cur), ethtesting.ClientState(), ethtesting.ConsensusState())
+	core.RegisterCounterparty(cross(cur), local, [][]byte{{}}, "gnoland-2")
 	// The governance channel rides a route: enroll the client first.
 	execute(cur, govern(cur, ibcgov.NewEnrollRouteRequest(cross(cur), client, string(ibcgov.Governor()), "0x1d95d544586eacb63b6154e9e45122b32ded11aa 0x00000000000000000000000000000000000b0002 0x00000000000000000000000000000000000b0003")))
 	execute(cur, govern(cur, ibcgov.NewBindGovernanceRequest(cross(cur), client)))
@@ -96,7 +99,7 @@ func main(cur realm) {
 	govern(cur, ibcgov.NewEthUpgradeRequest(cross(cur), a1, a2, "0x"+hash, "cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd"))
 	govern(cur, ibcgov.NewEthRoleRequest(cross(cur), true, 3, a1))
 	govern(cur, ibcgov.NewEthHandOverRequest(cross(cur), a1, hash, "01020304"))
-	govern(cur, ibcgov.NewEthRouteReplacementRequest(cross(cur), "client-0", "gnoland-2", 1234))
+	govern(cur, ibcgov.NewEthRouteReplacementRequest(cross(cur), "client-0", "gnoland-2", 1234, local))
 	govern(cur, ibcgov.NewEthRouteSettingsRequest(cross(cur), "client-0", 604800))
 	govern(cur, ibcgov.NewEthCancelRequest(cross(cur), "1-3,7"))
 
@@ -119,7 +122,7 @@ func main(cur realm) {
 	println("too long:", revive(func() { govern(cur, ibcgov.NewEthUpgradeRequest(cross(cur), a1, a2, hash, long)) }))
 	println("cancel beyond the last seq:", revive(func() { govern(cur, ibcgov.NewEthCancelRequest(cross(cur), "13")) }))
 	println("a router id of the router's own:", revive(func() {
-		govern(cur, ibcgov.NewEthRouteReplacementRequest(cross(cur), "client-0", "client-9", 1234))
+		govern(cur, ibcgov.NewEthRouteReplacementRequest(cross(cur), "client-0", "client-9", 1234, local))
 	}))
 	println("ADMIN_ROLE:", revive(func() { govern(cur, ibcgov.NewEthRoleRequest(cross(cur), true, 0, a1)) }))
 	println("three guardian seats:", revive(func() {

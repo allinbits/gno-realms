@@ -60,6 +60,9 @@ const weth = "0x457df1a9866af7b6a78eeba9291fc3e58b4d864b"
 func main(cur realm) {
 	client := core.CreateClient(cross(cur), ethtesting.ClientState(), ethtesting.ConsensusState())
 	core.RegisterCounterparty(cross(cur), client, [][]byte{{}}, "gnoland")
+	// The gno client approved to carry the epoch over gnoland.v2.
+	local := core.CreateClient(cross(cur), ethtesting.ClientState(), ethtesting.ConsensusState())
+	core.RegisterCounterparty(cross(cur), local, [][]byte{{}}, "gnoland.v2")
 	println("counterparty:", core.CounterpartyClientID(client))
 	// The governance channel rides a route: enroll the client first.
 	execute(cur, govern(cur, ibcgov.NewEnrollRouteRequest(cross(cur), client, string(collector), bridge)))
@@ -67,11 +70,11 @@ func main(cur realm) {
 
 	govern(cur, ibcgov.NewEthRouteSettingsRequest(cross(cur), "gnoland", 86400))
 	govern(cur, ibcgov.NewEthClientRequest(cross(cur), 1, "gnoland.v2", client, "6d61696e", "0x1111111111111111111111111111111111111111", "abababababababababababababababababababababababababababababababab"))
-	govern(cur, ibcgov.NewEthRouteReplacementRequest(cross(cur), "gnoland", "gnoland.v2", 1))
+	govern(cur, ibcgov.NewEthRouteReplacementRequest(cross(cur), "gnoland", "gnoland.v2", 1, local))
 	println("dispatched:", ibcgov.LastSeq(1))
 	for _, id := range []string{"channel-1", "client-7", "abc", "gno/land"} {
 		println("add", id+":", revive(func() {
-			govern(cur, ibcgov.NewEthRouteReplacementRequest(cross(cur), "gnoland", id, 1))
+			govern(cur, ibcgov.NewEthRouteReplacementRequest(cross(cur), "gnoland", id, 1, local))
 		}))
 	}
 	println("settings client-01:", revive(func() { govern(cur, ibcgov.NewEthRouteSettingsRequest(cross(cur), "client-01", 1)) }))
