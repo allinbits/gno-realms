@@ -1232,3 +1232,85 @@ func TestSettlementReleasesBeforeParking(t *testing.T) {
 		}
 	}
 }
+
+// prove records outcome on the send of seq through a trusted verifier.
+func prove(t *testing.T, rt *Route, seq uint64, outcome uint8, trusted func(string, uint64) bool) {
+	t.Helper()
+	rec, _ := rt.Send(pk(seq))
+	if err := rt.ProveOutcome(pk(seq), rec.Packet, outcome, 72, "ethereum-2", 1, trusted); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// A refund a forged success hid gets its reservation back when its outcome
+// is proven, not when its settlement runs (Ethereum review round 18): two
+// such refunds settled by separate decisions never pay the first from the
+// second's backing, nor does a credit in between take it. An unescrowed
+// denom reserves the escrow, a minted one the supply cap; a proof voided by
+// a new trust generation releases its reservation when the outcome is
+// proven again.
+func TestProvenRefundReservedUntilSettled(t *testing.T) {
+	// Escrow: two sends of 1000, both acknowledged by a forged success; the
+	// escrow holds both.
+	r, rt := newRoute(t)
+	rt.RecordSend(sendRec(1, "ugnot", KindUnescrow, 1_000))
+	rt.RecordSend(sendRec(2, "ugnot", KindUnescrow, 1_000))
+	rt.Settle(t0, 1, pk(1), OutcomeSuccess, false, 2_000)
+	rt.Settle(t0, 1, pk(2), OutcomeSuccess, false, 2_000)
+	r.Replace("ethereum-1", "ethereum-2", 0, 1000)
+	prove(t, rt, 1, ProvenRefundable, activeAll)
+	prove(t, rt, 2, ProvenCollision, activeAll)
+	d := rt.Denom("ugnot")
+	if d.Totals.ProvenOwed != 2_000 || d.Reserved() != 2_000 {
+		t.Fatalf("proven owed %d reserved %d", d.Totals.ProvenOwed, d.Reserved())
+	}
+	// The first settlement pays 1000 of the 2000 escrowed.
+	if ps, err := rt.SettleRecords("ethereum-1", []SettleItem{{Seq: 1, Action: SettlePay, Amount: 1_000}}, "inc", lockOf(2_000), activeAll); err != nil || len(ps) != 1 {
+		t.Fatalf("first: %v %+v", err, ps)
+	}
+	// In between, a credit of the 1000 left finds no free escrow: swept.
+	if swept, err := rt.Credit(t0, 10, 0, PacketKey("ethereum-2", 50), "ugnot", bob, 1_000, ByPacket, "", 1_000); err != nil || !swept {
+		t.Fatalf("a credit took the proven refund's escrow: %v %v", swept, err)
+	}
+	// The second settlement still pays from the 1000 that backs it.
+	if ps, err := rt.SettleRecords("ethereum-1", []SettleItem{{Seq: 2, Action: SettlePay, Amount: 1_000}}, "inc", lockOf(1_000), activeAll); err != nil || len(ps) != 1 {
+		t.Fatalf("second: %v %+v", err, ps)
+	}
+	if d.Totals.ProvenOwed != 0 {
+		t.Fatalf("proven owed %d", d.Totals.ProvenOwed)
+	}
+
+	// Supply: two returns of 1000 under a cap of 10000, both hidden by a
+	// forged success; the cap counts their proven refunds.
+	r, rt = newRoute(t)
+	cfg := mintCfg()
+	cfg.SupplyCap = 10_000
+	rt.SetDenom("ibc/W", cfg, t0, 0, 10_000)
+	w := rt.Denom("ibc/W")
+	rt.RecordSend(sendRec(1, "ibc/W", KindMint, 1_000))
+	rt.RecordSend(sendRec(2, "ibc/W", KindMint, 1_000))
+	rt.Settle(t0, 1, pk(1), OutcomeSuccess, false, 0)
+	rt.Settle(t0, 1, pk(2), OutcomeSuccess, false, 0)
+	if err := rt.CheckCredit("ibc/W", 2_000); err != nil {
+		t.Fatalf("setup: %v", err)
+	}
+	r.Replace("ethereum-1", "ethereum-2", 0, 1000)
+	prove(t, rt, 1, ProvenRefundable, activeAll)
+	prove(t, rt, 2, ProvenRefundable, activeAll)
+	if _, err := rt.SettleRecords("ethereum-1", []SettleItem{{Seq: 1, Action: SettlePay, Amount: 1_000}}, "inc", lockOf(0), activeAll); err != nil {
+		t.Fatal(err)
+	}
+	// In between, no credit takes the capacity the second refund needs.
+	if err := rt.CheckCredit("ibc/W", 1); err == nil {
+		t.Fatalf("a credit took the second refund's supply capacity: %+v", w.Totals)
+	}
+	// A proof voided by a new trust generation releases its reservation when
+	// the send is proven again, here delivered.
+	prove(t, rt, 2, ProvenDelivered, func(string, uint64) bool { return false })
+	if w.Totals.ProvenOwed != 0 {
+		t.Fatalf("a void proof kept its reservation: %d", w.Totals.ProvenOwed)
+	}
+	if err := rt.CheckCredit("ibc/W", 1_000); err != nil {
+		t.Fatalf("released capacity: %v", err)
+	}
+}

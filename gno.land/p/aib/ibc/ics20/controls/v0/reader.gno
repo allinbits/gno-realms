@@ -271,7 +271,7 @@ func denomJSON(d *Denom) string {
 		",\"waiting\":" + itoa(int64(d.waiting.Size())) + ",\"queued_refunds\":" + itoa(int64(d.refundQueue.Size())) +
 		",\"totals\":{\"credited\":" + itoa(t.Credited) + ",\"owed\":" + itoa(t.Owed) + ",\"withheld\":" + itoa(t.Withheld) +
 		",\"swept\":" + itoa(t.Swept) + ",\"paid\":" + itoa(t.Paid) + ",\"fees\":" + itoa(t.Fees) +
-		",\"sweep_paid\":" + itoa(t.SweepPaid) + ",\"outstanding\":" + itoa(t.Outstanding) + ",\"returning\":" + itoa(t.Returning) + ",\"parked\":" + itoa(t.Parked) + ",\"in_flight\":" + itoa(t.InFlight) + ",\"sent\":" + itoa(t.Sent) +
+		",\"sweep_paid\":" + itoa(t.SweepPaid) + ",\"outstanding\":" + itoa(t.Outstanding) + ",\"returning\":" + itoa(t.Returning) + ",\"parked\":" + itoa(t.Parked) + ",\"proven_owed\":" + itoa(t.ProvenOwed) + ",\"in_flight\":" + itoa(t.InFlight) + ",\"sent\":" + itoa(t.Sent) +
 		",\"send_fees\":" + itoa(t.SendFees) + ",\"refunded\":" + itoa(t.Refunded) + ",\"queued_refunds\":" + itoa(t.QueuedRefunds) +
 		",\"lost\":" + itoa(t.Lost) + ",\"recapitalized\":" + itoa(t.Recapitalized) + ",\"reduced\":" + itoa(t.Reduced) +
 		",\"accepted\":" + itoa(t.Accepted) + ",\"unrecovered\":" + itoa(t.Unrecovered()) + ",\"unresolved\":" + itoa(t.Unresolved()) + "}}"

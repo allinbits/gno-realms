@@ -585,6 +585,7 @@ type Totals struct {
 	Outstanding   int64 // KindMint: vouchers this route has in circulation
 	Returning     int64 // KindMint: vouchers burned by sends not settled yet (in flight, or refund owed): at most InFlight
 	Parked        int64 // KindMint: refunds a settlement owes and could not mint yet (parked), reserved apart from Returning
+	ProvenOwed    int64 // refunds proven owed (refundable, or a collision) on sends a forged success released, reserved until their settlement
 	InFlight      int64 // the amounts of the open send records: a bound of every refund owed (QueuedRefunds, Returning)
 	Sent          int64 // escrowed (KindUnescrow) or burned (KindMint) by recorded sends
 	SendFees      int64 // fees charged on sends
@@ -620,7 +621,7 @@ func (t Totals) Unresolved() int64 { return t.OpenUnresolved }
 // still be refunded (minted again), and every claim and sweep entry not paid
 // yet.
 func (t Totals) booked() int64 {
-	return boundAdd(boundAdd(boundAdd(boundAdd(boundAdd(t.Outstanding, t.Returning), t.Parked), t.Owed), t.Withheld), t.Swept)
+	return boundAdd(boundAdd(boundAdd(boundAdd(boundAdd(boundAdd(t.Outstanding, t.Returning), t.Parked), t.ProvenOwed), t.Owed), t.Withheld), t.Swept)
 }
 
 // queue is one recipient's open claims, oldest first, and its meter.
@@ -727,7 +728,7 @@ func (d *Denom) DayCap(lock int64) int64 {
 // voids, credits and payouts never spend it twice (ADR pr6375 §7.9, §7.12:
 // refund liabilities move with the backing).
 func (d *Denom) Reserved() int64 {
-	return boundAdd(boundAdd(d.Totals.Owed, d.Totals.Withheld), d.Totals.QueuedRefunds)
+	return boundAdd(boundAdd(boundAdd(d.Totals.Owed, d.Totals.Withheld), d.Totals.QueuedRefunds), d.Totals.ProvenOwed)
 }
 
 // liabilities is what the denom's claims and sweep entries owe, saturating.
@@ -1065,9 +1066,10 @@ func (rt *Route) PayClaimsSweeping(now, epoch, epochAt int64, denom string, n in
 		if q.meter.Level < avail {
 			avail = q.meter.Level
 		}
-		// A claim payout never takes the escrow owed refunds reserve.
-		if d.Config.Kind == KindUnescrow && avail > lock-d.Totals.QueuedRefunds {
-			avail = lock - d.Totals.QueuedRefunds
+		// A claim payout never takes the escrow owed refunds reserve,
+		// queued or proven.
+		if owed := boundAdd(d.Totals.QueuedRefunds, d.Totals.ProvenOwed); d.Config.Kind == KindUnescrow && avail > lock-owed {
+			avail = lock - owed
 		}
 		// A minted payout never overflows the outstanding supply: capped to
 		// its headroom, the claim's entitlement kept for a later turn.

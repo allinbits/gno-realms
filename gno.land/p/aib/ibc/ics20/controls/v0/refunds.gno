@@ -58,6 +58,7 @@ type SendRecord struct {
 	ProvenBy        string // the client that verified it: the outcome is void once it is no longer Active
 	ProvenAt        uint64 // the proof's height on the replacement client
 	ProvenGen       uint64 // ProvenBy's trust generation then: void once a recovery, freeze, upgrade, migration or substitution starts another
+	ProvenReserve   int64  // what its proven refund reserves (ProvenOwed) until it settles: a send a forged success released, proven refundable
 	Incident        string
 }
 
@@ -367,6 +368,9 @@ func (rt *Route) PayRefunds(now int64, denom string, n int, hold bool, lock int6
 		return nil, nil
 	}
 	d.refundMeter.Refill(now, d.Config.RefundCap, d.Config.RefundCap, 0, 0)
+	// The escrow proven refunds reserve is theirs: a queued refund never
+	// takes it.
+	lock -= d.Totals.ProvenOwed
 	var out []RefundPayment
 	for len(out) < n {
 		k, key, ok := d.headRefund()
@@ -549,7 +553,7 @@ func (rt *Route) PlanSettlement(client string, items []SettleItem, incident stri
 	// (owed or withheld). The payments are checked against the escrow the
 	// liabilities still reserve once the whole batch applies; each is exact
 	// on its own, so the subtraction happens before any saturating sum.
-	relQueued, relOwed, relWithheld := map[string]int64{}, map[string]int64{}, map[string]int64{}
+	relQueued, relOwed, relWithheld, relProven := map[string]int64{}, map[string]int64{}, map[string]int64{}, map[string]int64{}
 	lossTotals := map[string]int64{}
 	for i, it := range items {
 		key := PacketKey(client, it.Seq)
@@ -589,6 +593,7 @@ func (rt *Route) PlanSettlement(client string, items []SettleItem, incident stri
 			return nil, ufmt.Errorf("controls: item %d: send %s is settled already", i, key)
 		}
 		seen[it.Seq] = true
+		relProven[r.Denom] += r.ProvenReserve // within ProvenOwed
 		if r.Payment == PayQueued {
 			relQueued[r.Denom] += r.Amount - r.Refunded // within QueuedRefunds
 		}
@@ -699,7 +704,7 @@ func (rt *Route) PlanSettlement(client string, items []SettleItem, incident stri
 		}
 		// The escrow the liabilities still reserve once the whole batch
 		// applies: claims and queued refunds, less what the batch releases.
-		reserved := boundAdd(boundAdd(d.Totals.Owed-relOwed[denom], d.Totals.Withheld-relWithheld[denom]), d.Totals.QueuedRefunds-relQueued[denom])
+		reserved := boundAdd(boundAdd(boundAdd(d.Totals.Owed-relOwed[denom], d.Totals.Withheld-relWithheld[denom]), d.Totals.QueuedRefunds-relQueued[denom]), d.Totals.ProvenOwed-relProven[denom])
 		free := lock(denom) - reserved
 		if d.Config.Kind == KindUnescrow && total > free {
 			return nil, ufmt.Errorf("controls: %d of %s is above the free lock of %d", total, denom, free)
@@ -729,6 +734,8 @@ func (rt *Route) ApplySettlement(plan *SettlePlan) []RefundPayment {
 			r.Payment = PayRejected
 		}
 		rt.release(d, r)
+		d.Totals.ProvenOwed -= r.ProvenReserve
+		r.ProvenReserve = 0
 	}
 	// Then the parked refunds are added.
 	for _, it := range plan.items {
@@ -862,6 +869,21 @@ func (rt *Route) ProveOutcome(key string, packet types.Packet, outcome uint8, he
 	if r.Proven != ProvenNone && trusted(r.ProvenBy, r.ProvenGen) {
 		return ufmt.Errorf("controls: send %s's outcome is proven already", key)
 	}
+	// A refund proven owed on a send whose forged success released what it
+	// held is reserved again at once, until its settlement: another
+	// settlement, payout or credit in between never takes its backing (a
+	// void proof's reservation is released, the new proof's taken).
+	d := rt.Denom(r.Denom)
+	owed := int64(0)
+	if r.Outcome == OutcomeSuccess && (outcome == ProvenRefundable || outcome == ProvenCollision) {
+		owed = r.Amount - r.Refunded
+	}
+	if _, ok := checkedAdd(d.Totals.ProvenOwed-r.ProvenReserve, owed); !ok {
+		return errors.New("controls: the proven refunds of " + r.Denom + " would overflow")
+	}
+	d.Totals.ProvenOwed -= r.ProvenReserve
+	d.Totals.ProvenOwed += owed
+	r.ProvenReserve = owed
 	r.Proven, r.ProvenAt, r.ProvenBy, r.ProvenGen = outcome, height, verifier, gen
 	return nil
 }
