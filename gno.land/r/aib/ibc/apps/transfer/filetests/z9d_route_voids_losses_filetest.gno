@@ -169,12 +169,16 @@ func main(cur realm) {
 	println("payouts flagged:", ibcgov.Flagged(route, ibcgov.FnPayouts), "| closed:", controlsView().LossClosed(route),
 		"| claims paid:", transfer.Claim(cross(cur), route, "ugnot", 20))
 
-	// A void nobody named waits 7 days; a withheld void is restored at once.
+	// A void nobody named waits 7 days; restoring a withheld claim loosens,
+	// so it waits 7 days too (Codex round 11 #2).
 	voidC := govern(cur, ibcgov.NewVoidRequest(cross(cur), route, controls.PacketKey(route, 4), false, "inc-1"))
 	println("void not named:", decided(voidC))
 	execute(cur, voidC)
 	println("carol:", state(route, 4), "|", totals(route))
-	println("restore:", decided(govern(cur, ibcgov.NewRestoreRequest(cross(cur), route, controls.PacketKey(route, 4)))))
+	restore := govern(cur, ibcgov.NewRestoreRequest(cross(cur), route, controls.PacketKey(route, 4)))
+	println("restore:", decided(restore), "| early:", revive(func() { ibcgov.Execute(cross(cur), restore) }))
+	execute(cur, restore)
+	println("restore:", decided(restore))
 	println("carol:", state(route, 4), "|", totals(route))
 
 	// Recapitalization: authorized by a decision, paid by anyone.
@@ -230,6 +234,7 @@ func main(cur realm) {
 // payouts flagged: false | closed: true | claims paid: 0
 // void not named: pending - queued 7 days
 // carol: withheld paid 2500 of 4000 | owed 0 withheld 1500 swept 10 lost 2500 unrecovered 2500
+// restore: pending - queued 7 days | early: ibcgov: decision 6 is due at 1238369495, not before
 // restore: applied - restore
 // carol: open paid 2500 of 4000 | owed 1500 withheld 0 swept 10 lost 2500 unrecovered 2500
 // recap: 1 2000 false

@@ -365,8 +365,10 @@ func NewVoidRequest(cur realm, route, keys string, forged bool, incident string)
 	})
 }
 
-// NewRestoreRequest restores withheld claims, at once (ADR pr6375 §7.9: a
-// withheld void can be restored). A forged void and a voided sweep entry are
+// NewRestoreRequest restores withheld claims after 7 days (ADR pr6375 §7.9:
+// a withheld void can be restored). A restoration loosens: it resumes the
+// claims' payouts, so it waits like every loosening and a guardian hold
+// defers it. A forged void and a voided sweep entry are
 // final; transfer re-checks every key when the decision applies.
 func NewRestoreRequest(cur realm, route, keys string) Request {
 	route = mustRoute(route)
@@ -378,7 +380,7 @@ func NewRestoreRequest(cur realm, route, keys string) Request {
 		}
 	}
 	text := "restore on route " + route + ": " + strings.Join(list, ",")
-	return routeRequest(cur, controls.OpRestore, "restore", text, controls.Params{Route: route, Keys: list}, false)
+	return routeRequest(cur, controls.OpRestore, "restore", text, controls.Params{Route: route, Keys: list}, true)
 }
 
 // NewCreditRequest credits a packet by vote after 7 days (ADR pr6375 §7.9):

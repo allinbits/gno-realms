@@ -243,7 +243,9 @@ func main(cur realm) {
 	execute(cur, again)
 	println("settle again:", decided(again))
 	execute(cur, govern(cur, ibcgov.NewRecordLossRequest(cross(cur), route, "ethereum-1/00000000000000000009", "ugnot", 20, "gno", "inc-1", "collision")))
-	println("restore:", decided(govern(cur, ibcgov.NewRestoreRequest(cross(cur), route, controls.PacketKey(route, 2)))))
+	restore := govern(cur, ibcgov.NewRestoreRequest(cross(cur), route, controls.PacketKey(route, 2)))
+	execute(cur, restore)
+	println("restore:", decided(restore))
 	println("unresolved:", controlsView().Unresolved(route))
 
 	// The reopening records the loss as an accepted deficit.
@@ -296,7 +298,7 @@ func main(cur realm) {
 // restore: applied - restore
 // unresolved: 20
 // reopen: applied - reopen | closed: false | accepted 20 unrecovered 20
-// send back after the reopening: send back](/r/aib/main$help&func=Transfer&amount=&clientID=ethereum-2&denom=ibc%2F2495500BDD01666856D26EE034DB2F940FD4DA91239F4D5C7AE1E9D07538CFFE&memo=&receiver=&timeoutTimestamp=1242455503) via `ethereum-2`
+// send back after the reopening: send back](/r/aib/main$help&func=Transfer&amount=&clientID=ethereum-2&denom=ibc%2F2495500BDD01666856D26EE034DB2F940FD4DA91239F4D5C7AE1E9D07538CFFE&memo=&receiver=&timeoutTimestamp=1243060304) via `ethereum-2`
 // {"denom":"ugnot","amount":2000,"clients":[{"client":"ethereum-1","amount":2000}]}
 // voucher back: wire denom transfer/ethereum-2/0x457df1a9866af7b6a78eeba9291fc3e58b4d864b | bob's vouchers: 390
 // ugnot send on the wire: ugnot
