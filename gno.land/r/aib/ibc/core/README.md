@@ -418,13 +418,17 @@ declared values and the client's state alone (known, not retired, of the
 registration's type, Active, its `VerifierVersion` among `from` and not the
 target, and a verifier that gives a snapshot). The conversion runs only
 when the governed migration executes, on a detached snapshot of the live
-verifier (`Snapshot`, a deep copy of the client state and every consensus
-state), a panic in it recovered; the converted verifier must name the
-registered version, be Active and keep the latest height. If it fails, the
-migration is refused with nothing changed and the decision is spent;
-otherwise it is installed through `Client.SetLightClient`. The client keeps its id, client and consensus states
-and packet state; its trust generation advances, and ibcgov empties its
-route's payout meters.
+verifier (`Snapshot`: a copy of the client state and the latest trusted
+consensus state only, constant work whatever the client's history); the
+converted verifier must name the registered version, be Active and keep the
+latest height. The conversion and these checks run inside one recovered
+boundary: a panic or a mismatch refuses the migration with nothing changed,
+and the decision is spent; otherwise the verifier is installed through
+`Client.SetLightClient`. The client keeps its id, client state and packet
+state; it keeps only its latest trusted consensus state, so proofs at
+heights from before the replacement are no longer available and relayers
+prove at current heights. Its trust generation advances, and ibcgov empties
+its route's payout meters.
 
 `ethereum-fork-schedule` (params `ethereum.EncodeForkParameters(...)`)
 changes the fork schedule of the client's verifier in place, through the
