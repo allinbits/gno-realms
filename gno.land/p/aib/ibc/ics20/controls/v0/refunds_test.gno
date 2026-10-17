@@ -225,8 +225,10 @@ func TestSettleRecords(t *testing.T) {
 		{{Seq: 3, Action: SettleDelivered}, {Seq: 3, Action: SettleDelivered}},                   // twice
 		{{Seq: 4, Action: SettlePay, Amount: 3_000}, {Seq: 5, Action: SettlePay, Amount: 3_000}}, // above the free lock below
 	}
+	// The preparation reserved 4's and 5's 3000 each, which their own
+	// settlement releases: 5000 left free once it applies.
 	for i, b := range bad {
-		if _, err := settleProven(rt, "ethereum-1", b, "inc-1", lockOf(5_000+d.Reserved())); err == nil {
+		if _, err := settleProven(rt, "ethereum-1", b, "inc-1", lockOf(d.Reserved()-1_000)); err == nil {
 			t.Fatalf("bad settlement %d applied", i)
 		}
 	}
@@ -1310,14 +1312,17 @@ func TestProvenRefundReservedUntilSettled(t *testing.T) {
 	if err := rt.CheckCredit("ibc/W", 1); err == nil {
 		t.Fatalf("a credit took the second refund's supply capacity: %+v", w.Totals)
 	}
-	// A proof voided by a new trust generation releases its reservation when
-	// the send is proven again, here delivered.
+	// A proof never releases a reservation, a delivery proven after a void
+	// one included (Codex round 39 #1): only the settlement does.
 	prove(t, rt, 2, ProvenDelivered, func(string, uint64) bool { return false })
-	if w.Totals.ProvenOwed != 0 {
-		t.Fatalf("a void proof kept its reservation: %d", w.Totals.ProvenOwed)
+	if w.Totals.ProvenOwed != 1_000 {
+		t.Fatalf("a proof released the reservation: %d", w.Totals.ProvenOwed)
 	}
-	if err := rt.CheckCredit("ibc/W", 1_000); err != nil {
-		t.Fatalf("released capacity: %v", err)
+	if _, err := rt.SettleRecords("ethereum-1", []SettleItem{{Seq: 2, Action: SettleDelivered}}, "inc", lockOf(0), activeAll); err != nil {
+		t.Fatal(err)
+	}
+	if err := rt.CheckCredit("ibc/W", 1_000); err != nil || w.Totals.ProvenOwed != 0 {
+		t.Fatalf("released capacity: %v %d", err, w.Totals.ProvenOwed)
 	}
 }
 
@@ -1463,10 +1468,13 @@ func TestStaggeredProofsKeepSiblingBacking(t *testing.T) {
 	if err := pay(rt, 1, 150); err == nil {
 		t.Fatalf("paid the first refund out of the second's backing")
 	}
-	// A proof of delivery releases the sibling's reservation; the first is
-	// then paid.
+	// A proof of delivery releases nothing; the settlement applying it does,
+	// in the same batch as the first refund's payment.
 	prove(t, rt, 2, ProvenDelivered, activeAll)
-	if err := pay(rt, 1, 150); err != nil {
+	if err := pay(rt, 1, 150); err == nil {
+		t.Fatalf("a delivery proof released the sibling's backing")
+	}
+	if _, err := rt.SettleRecords("ethereum-1", []SettleItem{{Seq: 1, Action: SettlePay, Amount: 100}, {Seq: 2, Action: SettleDelivered}}, "inc", lockOf(150), activeAll); err != nil {
 		t.Fatal(err)
 	}
 
@@ -1516,7 +1524,71 @@ func TestStaggeredProofsKeepSiblingSupply(t *testing.T) {
 		t.Fatalf("a credit took the unproven sibling's supply")
 	}
 	prove(t, rt, 2, ProvenDelivered, activeAll)
+	if err := rt.CheckCredit("ibc/WETH", 1); err == nil {
+		t.Fatalf("a delivery proof released the sibling's supply")
+	}
+	if _, err := rt.SettleRecords("ethereum-1", []SettleItem{{Seq: 2, Action: SettleDelivered}}, "inc", lockOf(0), activeAll); err != nil {
+		t.Fatal(err)
+	}
 	if err := rt.CheckCredit("ibc/WETH", 100); err != nil {
-		t.Fatalf("the delivered sibling's supply stays reserved: %v", err)
+		t.Fatalf("the settled delivery's supply stays reserved: %v", err)
+	}
+}
+
+// A delivery proof that is voided releases nothing (Codex round 39 #1):
+// two pending escrowed sends of 1000 with 1000 escrowed, both reserved by
+// the preparation; A is falsely proven delivered, then its verifier's trust
+// generation changes (a freeze and recovery). B, proven refundable, cannot be
+// paid out of A's backing, in either settlement order, before A is proven
+// again; once A is proven refundable too, the escrow is short for both and
+// each is refused alone. In the honest case, a batch settling A as delivered
+// pays B.
+func TestVoidedDeliveryKeepsBacking(t *testing.T) {
+	setup := func() *Route {
+		r, rt := newRoute(t)
+		rt.RecordSend(sendRec(1, "ugnot", KindUnescrow, 1_000))
+		rt.RecordSend(sendRec(2, "ugnot", KindUnescrow, 1_000))
+		replaceReady(r, "ethereum-1", "ethereum-2", 0, 1000)
+		return rt
+	}
+	gen := uint64(1)
+	trusted := func(_ string, g uint64) bool { return g == gen }
+	proveAt := func(rt *Route, seq uint64, outcome uint8) {
+		rec, _ := rt.Send(pk(seq))
+		if err := rt.ProveOutcome(pk(seq), rec.Packet, outcome, 72, "ethereum-2", gen, trusted); err != nil {
+			t.Fatal(err)
+		}
+	}
+	settle := func(rt *Route, items ...SettleItem) error {
+		_, err := rt.SettleRecords("ethereum-1", items, "inc", lockOf(1_000), trusted)
+		return err
+	}
+	for _, aFirst := range []bool{true, false} {
+		gen = 1
+		rt := setup()
+		proveAt(rt, 1, ProvenDelivered) // false
+		gen = 2                         // the verifier frozen and recovered
+		proveAt(rt, 2, ProvenRefundable)
+		var err error
+		if aFirst {
+			err = settle(rt, SettleItem{Seq: 1, Action: SettleDelivered}, SettleItem{Seq: 2, Action: SettlePay, Amount: 1_000})
+		} else {
+			err = settle(rt, SettleItem{Seq: 2, Action: SettlePay, Amount: 1_000})
+		}
+		if err == nil {
+			t.Fatalf("A first %v: B paid out of A's backing on a void delivery proof", aFirst)
+		}
+		proveAt(rt, 1, ProvenRefundable)
+		if settle(rt, SettleItem{Seq: 2, Action: SettlePay, Amount: 1_000}) == nil || settle(rt, SettleItem{Seq: 1, Action: SettlePay, Amount: 1_000}) == nil {
+			t.Fatalf("A first %v: a refund paid out of its sibling's backing", aFirst)
+		}
+	}
+	// Honest: A delivered, settled in the batch that pays B.
+	gen = 1
+	rt := setup()
+	proveAt(rt, 1, ProvenDelivered)
+	proveAt(rt, 2, ProvenRefundable)
+	if err := settle(rt, SettleItem{Seq: 2, Action: SettlePay, Amount: 1_000}, SettleItem{Seq: 1, Action: SettleDelivered}); err != nil {
+		t.Fatal(err)
 	}
 }

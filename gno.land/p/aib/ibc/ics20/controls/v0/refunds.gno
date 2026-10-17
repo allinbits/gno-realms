@@ -884,16 +884,16 @@ func (rt *Route) ProveOutcome(key string, packet types.Packet, outcome uint8, he
 	}
 	// A refund proven owed on a send whose forged success released what it
 	// held is reserved again at once, until its settlement: another
-	// settlement, payout or credit in between never takes its backing (a
-	// void proof's reservation is released, the new proof's taken).
+	// settlement, payout or credit in between never takes its backing. A
+	// proof never releases a reservation, a delivery included: a proof can
+	// be voided later (its verifier frozen, recovered, replaced) and proven
+	// otherwise, so only the settlement that applies an outcome valid then
+	// releases it (ApplySettlement).
 	d := rt.Denom(r.Denom)
-	owed := int64(0)
-	if hiddenRefund(r, d) && (outcome == ProvenRefundable || outcome == ProvenCollision) {
-		owed = r.Amount - r.Refunded
+	if r.ProvenReserve == 0 && hiddenRefund(r, d) && (outcome == ProvenRefundable || outcome == ProvenCollision) {
+		r.ProvenReserve = r.Amount - r.Refunded
+		d.Totals.add(wProven, r.ProvenReserve)
 	}
-	d.Totals.sub(wProven, r.ProvenReserve)
-	d.Totals.add(wProven, owed)
-	r.ProvenReserve = owed
 	r.Proven, r.ProvenAt, r.ProvenBy, r.ProvenGen = outcome, height, verifier, gen
 	return nil
 }
@@ -933,9 +933,8 @@ func (rt *Route) checkPrepared() error {
 // stopped, and reserves every refund one of them may still owe and nothing
 // reserves (ADR pr6375 §7.12): a success processed at or after its client's
 // suspect height (a forged acknowledgement may have released what it held),
-// and an escrowed send still pending. Each is reserved in ProvenOwed until a
-// proof of its outcome through the replacement client decides (a delivery
-// releases it, a refund keeps it) or its settlement releases it, so no
+// and an escrowed send still pending. Each is reserved in ProvenOwed until
+// its settlement releases it (a proof, of a delivery too, never does), so no
 // payment for the route takes the backing a sibling's refund needs, whatever
 // the order its outcomes are proven in. Anyone may call it; it returns how
 // many it reserved and whether the walk is complete.
@@ -980,7 +979,7 @@ func (rt *Route) PrepareReplacement(n int) (int, bool, error) {
 // suspect interval starting at h and nothing decided it yet.
 func (rt *Route) reserveHidden(r *SendRecord, h int64) bool {
 	d := rt.Denom(r.Denom)
-	if r.Settlement != 0 || r.Proven != ProvenNone || r.ProvenReserve != 0 || !hiddenRefund(r, d) {
+	if r.Settlement != 0 || r.ProvenReserve != 0 || !hiddenRefund(r, d) {
 		return false
 	}
 	if r.Outcome == OutcomeSuccess && r.ProcessedHeight < h {
