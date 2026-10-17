@@ -17,7 +17,7 @@ shape it:
    (ADR 0001): a deployed chain cannot change them.
 2. **Verification cost.** Each update verifies a BLS12-381 aggregate
    signature of the sync committee (512 keys). That needs a native: gno's
-   `crypto/bls12381.FastAggregateVerify`.
+   `crypto/bls12381.FastAggregateVerifyExcluding`.
 3. **Payload encoding.** The Solidity ICS20 app only reads and writes
    `abi.encode(FungibleTokenPacketData)` under the encoding
    `application/x-solidity-abi`; this transfer app only spoke protobuf.
@@ -28,7 +28,7 @@ header, and the light-client generalized indices moved (EIP-7688, EIP-7732).
 
 ## Decision
 
-**Proof route.** `p/aib/ibc/lightclient/extproof` defines `Proof{Data any}`,
+**Proof route.** `p/aib/ibc/lightclient/extproof/v0` defines `Proof{Data any}`,
 which a relayer puts in a message's `Ext` field (reserved by ADR 0001 for
 exactly this), and a `Verifier` interface. The core implementation verifies
 through `Verifier` when `Ext` carries a `Proof` and the ICS23 field is empty,
@@ -36,7 +36,7 @@ applying the rest of `ValidateBasic` itself. Messages without one take the
 existing path unchanged, so the tendermint client and the deployed relayer are
 unaffected.
 
-**Client.** `p/aib/ibc/lightclient/ethereum` ports the Ethereum light client
+**Client.** `p/aib/ibc/lightclient/ethereum/v0` ports the Ethereum light client
 of solidity-ibc-eureka (client type `ethereum`):
 
 - Updates follow the Altair sync protocol: the trusted state keeps summaries
@@ -47,8 +47,32 @@ of solidity-ibc-eureka (client type `ethereum`):
   aggregate key minus the non-signers, which the update lists with Merkle
   branches to the pubkeys root. The committee commits to its aggregate key
   next to its keys, so this equals verifying over the signers' keys.
-- Finality, next sync committee and execution branches are checked with the
+- Every header and every misbehaviour builds on the latest trusted state: its
+  `TrustedSlot` must equal the client state's `LatestSlot`
+  (`checkLatestAnchor`). Older stored consensus states stay usable for
+  membership proofs at their heights (those from before a recovery
+  excepted), but never as the anchor of an update,
+  so a past sync committee, rotated out and no longer slashable, cannot
+  insert state roots below the latest slot or freeze the client.
+- An update must carry at least the client state's
+  `MinSyncCommitteeParticipants` signers (`validateUpdate`), and to move the
+  client a 2/3 supermajority of the committee besides: participants * 3 >=
+  `SyncCommitteeSize` * 2, 342 of 512 (`hasSupermajority`).
+- Misbehaviour is conflicting finality: two updates, both valid against the
+  latest trusted state, that finalize different beacon headers at the same
+  slot, each meeting the 2/3 supermajority an update needs, not only the
+  configured minimum. Different attested heads alone are not misbehaviour, since a
+  reorg yields two. A header that passes verification but would store a
+  different execution state root at a slot the client already holds is
+  misbehaviour too (`CheckForMisbehaviour`). Either freezes the client.
+- The finality and next sync committee branches are checked with the
   generalized indices of the attested slot's fork: Electra/Fulu, or Gloas.
+  Each header's execution branch (the attested and the finalized one) is
+  checked with the indices of that header's own beacon slot, so an update
+  whose finalized header precedes Gloas and whose attested header follows it
+  verifies each against its own fork. Headers before Electra are refused
+  (`verifySupportedFork`): their indices differ from the ones this client
+  uses.
 - Before Gloas the execution state root comes from the execution payload
   header. From Gloas on, the relayer supplies the RLP execution header, whose
   keccak256 must equal the committed block hash.
@@ -71,7 +95,7 @@ of preprocessing on update literals; a `[]byte` argument is base64-decoded
 natively. Together with the non-signer scheme this took a live Sepolia
 finality update from 641M gas to 40M, with messages of about 2.5 KB.
 
-**Encoding.** `p/aib/ibc/ics20/abi` encodes and decodes the Solidity layout.
+**Encoding.** `p/aib/ibc/ics20/abi/v0` encodes and decodes the Solidity layout.
 The transfer implementation accepts either encoding on receive, ack and
 timeout, and sends ABI over `ethereum-*` clients. `Transfer`'s signature is
 unchanged.
@@ -88,11 +112,19 @@ unchanged.
 
 ## Consequences
 
-- On an already deployed chain these changes ship as new implementation
-  versions (`core/impl/v1`, `transfer/impl/v1`) and new `p/` packages; this
-  branch edits `impl/v0` in place for the local testnet.
+- The deployment is fresh: core `impl/v0` serves Ethereum clients itself
+  (`core/impl/v1` adds only the fork-schedule migration), and the transfer
+  app starts with `impl/v1`, the first implementation its proxy registers;
+  the new `p/` packages deploy beside them.
 - Tests replay the four recorded devnet runs of the eureka client (11 updates,
   6 storage proofs), a live Sepolia snapshot on Gloas, and tamper cases. A
   Solidity payload decodes and re-encodes byte for byte.
-- The client does not expire on its own: one that misses a whole sync
-  committee period cannot verify updates and must be recovered.
+- The client expires when the current slot passes its latest trusted slot by
+  more than `TrustingPeriods` (8) sync committee periods' worth of slots:
+  current slot > `LatestSlot` + 8 * `EpochsPerSyncCommitteePeriod` *
+  `SlotsPerEpoch` (`expired`). It counts slots, not period numbers, so the
+  window is the same wherever in a period the latest slot falls. Until then
+  it can catch up through successive periods, each update signed in the
+  stored period or the next one (with the next committee), which it learns
+  period by period; once expired it accepts no update or misbehaviour and
+  must be recovered by governance.
