@@ -15,7 +15,7 @@ import (
 
 // bridge is the route's Ethereum router, ICS20 transfer and IBCAdmin: its
 // protected recipients.
-const bridge = "0x00000000000000000000000000000000000b0001 0x00000000000000000000000000000000000b0002 0x00000000000000000000000000000000000b0003"
+const bridge = "0x1d95d544586eacb63b6154e9e45122b32ded11aa 0x00000000000000000000000000000000000b0002 0x00000000000000000000000000000000000b0003"
 
 var (
 	collector = testutils.TestAddress("collector")
@@ -237,4 +237,4 @@ func main(cur realm) {
 // pending: none
 //
 // executed:
-// - #1 applied: enroll route ethereum\-1 with fee collector g1vdhkcmr9vd6x7ujlta047h6lta047h6lsp3m50 and bridge contracts router 0x00000000000000000000000000000000000b0001, ICS20 transfer 0x00000000000000000000000000000000000b0002, IBCAdmin 0x00000000000000000000000000000000000b0003 (recorded 1234567890, applied 1235172691) — enroll
+// - #1 applied: enroll route ethereum\-1 with fee collector g1vdhkcmr9vd6x7ujlta047h6lta047h6lsp3m50 and bridge contracts router 0x1d95d544586eacb63b6154e9e45122b32ded11aa, ICS20 transfer 0x00000000000000000000000000000000000b0002, IBCAdmin 0x00000000000000000000000000000000000b0003 (recorded 1234567890, applied 1235172691) — enroll

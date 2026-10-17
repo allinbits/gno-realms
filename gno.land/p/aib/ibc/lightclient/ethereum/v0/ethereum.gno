@@ -13,7 +13,9 @@
 package ethereum
 
 import (
+	"encoding/hex"
 	"errors"
+	"strconv"
 	"time"
 
 	"crypto/bls12381"
@@ -72,6 +74,21 @@ func (c *EthLightClient) VerifierVersion() string { return Version }
 // keeps exposing its state, so renders and recoveries read it whatever wraps
 // it.
 func (c *EthLightClient) Ethereum() *EthLightClient { return c }
+
+// RouteIdentity is the history this verifier authenticates (ADR pr6375
+// §7.12, "Route identity is preserved"): the Ethereum chain (its chain id and
+// genesis validators root), the ICS26 router and its commitments slot. router
+// is the router's address in lower case with "0x". Every field is fixed at
+// creation: no update, recovery or verifier replacement changes it.
+func (c *EthLightClient) RouteIdentity() (identity, router string) {
+	cs := c.ClientState
+	router = "0x" + hex.EncodeToString(cs.IBCContractAddress)
+	identity = "chain " + strconv.FormatUint(cs.ChainID, 10) +
+		", genesis validators root 0x" + hex.EncodeToString(cs.GenesisValidatorsRoot) +
+		", router " + router +
+		", commitment slot 0x" + hex.EncodeToString(cs.IBCCommitmentSlot)
+	return identity, router
+}
 
 // ethState is a verifier exposing ethereum/v0 state: this one, or a later
 // version wrapping it.

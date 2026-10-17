@@ -23,7 +23,7 @@ import (
 
 // bridge is the route's Ethereum router, ICS20 transfer and IBCAdmin: its
 // protected recipients.
-const bridge = "0x00000000000000000000000000000000000b0001 0x00000000000000000000000000000000000b0002 0x00000000000000000000000000000000000b0003"
+const bridge = "0x1d95d544586eacb63b6154e9e45122b32ded11aa 0x00000000000000000000000000000000000b0002 0x00000000000000000000000000000000000b0003"
 
 var (
 	collector = testutils.TestAddress("collector")
@@ -105,23 +105,23 @@ func main(cur realm) {
 	route := setupRoute(cur)
 	execute(cur, govern(cur, ibcgov.NewSetDenomRequest(cross(cur), route, "ugnot", "unescrow", 10_000, 0, 20, 2, 25_000, 40, 10_000, "0x0000000000000000000000000000000000c0ffee")))
 	execute(cur, govern(cur, ibcgov.NewSetDenomRequest(cross(cur), route, "ufoo", "unescrow", 10_000, 0, 20, 2, 25_000, 40, 10_000, "0x0000000000000000000000000000000000c0ffef")))
-	for _, a := range []string{"0x00000000000000000000000000000000000b0001", "0x00000000000000000000000000000000000B0002", "0x00000000000000000000000000000000000b0003", "0x0000000000000000000000000000000000c0ffef"} {
+	for _, a := range []string{"0x1d95d544586eacb63b6154e9e45122b32ded11aa", "0x00000000000000000000000000000000000B0002", "0x00000000000000000000000000000000000b0003", "0x0000000000000000000000000000000000c0ffef"} {
 		println(a, revive(func() { send(cur, route, 100, 120, a) }))
 	}
 	println("an ordinary receiver:", send(cur, route, 100, 120, ethReceiver))
 
-	execute(cur, govern(cur, ibcgov.NewUnrefuseRecipientsRequest(cross(cur), route, "0x00000000000000000000000000000000000b0001")))
-	println("after an unrefuse:", revive(func() { send(cur, route, 100, 120, "0x00000000000000000000000000000000000b0001") }))
+	execute(cur, govern(cur, ibcgov.NewUnrefuseRecipientsRequest(cross(cur), route, "0x1d95d544586eacb63b6154e9e45122b32ded11aa")))
+	println("after an unrefuse:", revive(func() { send(cur, route, 100, 120, "0x1d95d544586eacb63b6154e9e45122b32ded11aa") }))
 
 	newClient := core.CreateClient(cross(cur), ethtesting.ClientState(), ethtesting.ConsensusState())
 	core.RegisterCounterparty(cross(cur), newClient, [][]byte{{}}, "client-1")
 	execute(cur, govern(cur, ibcgov.NewReplaceRouteRequest(cross(cur), route, newClient, 1)))
-	println("after a replacement:", controlsView().IsRefused(route, "0x00000000000000000000000000000000000b0001"),
+	println("after a replacement:", controlsView().IsRefused(route, "0x1d95d544586eacb63b6154e9e45122b32ded11aa"),
 		controlsView().IsRefused(route, "0x00000000000000000000000000000000000b0003"))
 }
 
 // Output:
-// 0x00000000000000000000000000000000000b0001 the receiver is a contract of the bridge
+// 0x1d95d544586eacb63b6154e9e45122b32ded11aa the receiver is a contract of the bridge
 // 0x00000000000000000000000000000000000B0002 the receiver is a contract of the bridge
 // 0x00000000000000000000000000000000000b0003 the receiver is a contract of the bridge
 // 0x0000000000000000000000000000000000c0ffef the receiver is a contract of the bridge

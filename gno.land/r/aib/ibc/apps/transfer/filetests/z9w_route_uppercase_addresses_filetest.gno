@@ -25,7 +25,7 @@ import (
 
 // bridge is the route's Ethereum router, ICS20 transfer and IBCAdmin: its
 // protected recipients.
-const bridge = "0x00000000000000000000000000000000000b0001 0x00000000000000000000000000000000000b0002 0x00000000000000000000000000000000000b0003"
+const bridge = "0x1d95d544586eacb63b6154e9e45122b32ded11aa 0x00000000000000000000000000000000000b0002 0x00000000000000000000000000000000000b0003"
 
 var (
 	collector = testutils.TestAddress("collector")
@@ -182,9 +182,9 @@ func main(cur realm) {
 	other := core.CreateClient(cross(cur), ethtesting.ClientState(), ethtesting.ConsensusState())
 	core.RegisterCounterparty(cross(cur), other, [][]byte{{}}, "client-0")
 	execute(cur, govern(cur, ibcgov.NewEnrollRouteRequest(cross(cur), other, strings.ToUpper(string(collector)),
-		"0x00000000000000000000000000000000000B0011 0x00000000000000000000000000000000000B0012 0x00000000000000000000000000000000000B0013")))
+		"0x1D95D544586EACB63B6154E9E45122B32DED11AA 0x00000000000000000000000000000000000B0012 0x00000000000000000000000000000000000B0013")))
 	page := transfer.Render("routes/" + other)
-	println("protected, lowercase:", strings.Contains(page, `"0x00000000000000000000000000000000000b0011 router"`),
+	println("protected, lowercase:", strings.Contains(page, `"0x1d95d544586eacb63b6154e9e45122b32ded11aa router"`),
 		"| fee collector:", strings.Contains(page, `"fee_collector":"`+string(collector)+`"`))
 
 	// The admin builders' addresses too.

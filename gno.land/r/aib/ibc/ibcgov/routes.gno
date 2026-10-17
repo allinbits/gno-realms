@@ -61,10 +61,15 @@ func (p *routeParams) deferredBy() string {
 }
 
 func (p *routeParams) apply(cur realm, t int64) (string, string) {
+	identity := ""
 	if p.enroll {
 		// Re-check the client on the live state (ADR pr6375 §7.5): one that
 		// froze or expired during the delay takes no route, in neither realm.
 		if refusal := checkRouteClient(p.p.Route); refusal != "" {
+			return "", refusal
+		}
+		var refusal string
+		if identity, refusal = enrolIdentity(p.p.Route, p.p.Keys[0]); refusal != "" {
 			return "", refusal
 		}
 	}
@@ -76,13 +81,16 @@ func (p *routeParams) apply(cur realm, t int64) (string, string) {
 		if view().Client(p.p.Route) != p.replace {
 			return "", "the route's client is no longer " + p.replace
 		}
+		if refusal := checkIdentity(p.p.Route, p.p.Client); refusal != "" {
+			return "", refusal
+		}
 	}
 	if refusal := transfer.GovApply(cross(cur), p.op, p.p.Encode()); refusal != "" {
 		return "", refusal
 	}
 	note := p.op
 	if p.enroll {
-		routes.Set(p.p.Route, &routeRec{epochAt: t})
+		routes.Set(p.p.Route, &routeRec{epochAt: t, identity: identity})
 	}
 	if p.replace != "" {
 		if !core.IsClientRetired(p.replace) {
@@ -166,6 +174,54 @@ func checkRouteClient(client string) string {
 	return ""
 }
 
+// enrolIdentity is the identity client gives a new route, or why it cannot
+// (ADR pr6375 §7.12, "Route identity is preserved"): its verifier must name
+// one, and the bridge's router must be the router it reads, so the protected
+// contracts and the history the route authenticates are the same router's.
+func enrolIdentity(client, router string) (string, string) {
+	identity, read := core.ClientRouteIdentity(client)
+	switch {
+	case identity == "":
+		return "", client + "'s verifier names no route identity"
+	case read != router:
+		return "", "the bridge's router " + router + " is not the router " + read + " that " + client + " reads"
+	}
+	return identity, ""
+}
+
+// RouteIdentity is the identity route recorded at its enrolment (route is a
+// route key or one of its clients), "" if there is no such route: the
+// Ethereum chain id, genesis validators root, ICS26 router and commitments
+// slot every client of the route authenticates.
+func RouteIdentity(route string) string {
+	v := routes.Get(routeKeyOf(route))
+	if v == nil {
+		return ""
+	}
+	return v.(*routeRec).identity
+}
+
+// checkIdentity is why client cannot replace route's client, or "": it must
+// authenticate the history the route recorded at its enrolment (ADR pr6375
+// §7.12). A client of another chain or router, however genuine, would prove
+// that router's receipts, not the route's: moving a route there is a
+// migration of its own, not a replacement.
+func checkIdentity(route, client string) string {
+	want := RouteIdentity(route)
+	got, _ := core.ClientRouteIdentity(client)
+	if want == "" || got != want {
+		return client + " authenticates " + quoteIdentity(got) + ", not route " + route + "'s " + quoteIdentity(want)
+	}
+	return ""
+}
+
+func quoteIdentity(s string) string {
+	if s == "" {
+		return "no route identity"
+	}
+	return "(" + s + ")"
+}
+
 // mustBridge reads the bridge contracts of a route: "router ics20 ibcAdmin",
 // three distinct non-zero Ethereum addresses, space-separated. They are the
 // route's protected recipients from its enrolment on (ADR pr6375 R12, §7.8).
@@ -194,7 +250,9 @@ func bridgeText(f []string) string {
 // NewEnrollRouteRequest makes the Ethereum client clientID a controlled route
 // of the transfer app after 7 days (enrolling a route loosens): its key is
 // clientID, its fee collector feeCollector, its protected bridge contracts
-// bridge ("router ics20 ibcAdmin", see mustBridge). Until a denom is enabled
+// bridge ("router ics20 ibcAdmin", see mustBridge; the router must be the one
+// clientID reads). The route records clientID's identity (RouteIdentity), which
+// every replacement must match. Until a denom is enabled
 // on it (NewSetDenomRequest), the route refuses every send and receive. The
 // client is checked again when the decision executes: one no longer Active
 // leaves it spent, with no route in either realm.
@@ -207,6 +265,9 @@ func NewEnrollRouteRequest(cur realm, clientID, feeCollector, bridge string) Req
 	}
 	fc := mustAddr(feeCollector)
 	b := mustBridge(bridge)
+	if _, refusal := enrolIdentity(clientID, b[0]); refusal != "" {
+		panic("ibcgov: " + refusal)
+	}
 	text := "enroll route " + clientID + " with fee collector " + string(fc) + " and bridge contracts " + bridgeText(b)
 	rp := &routeParams{op: controls.OpEnroll, p: controls.Params{Route: clientID, To: fc, Keys: b}, enroll: true}
 	return propose(cur, "enroll route", text, func(cur realm, made, t int64) {
@@ -569,7 +630,9 @@ func settleItemKey(seq, action uint64) string {
 // stay keyed by the route key; denoms on the wire carry the new client id),
 // the core retires the old client, and if the governance channel ran over the
 // old client its next epoch opens over the new one. newClientID is an Active
-// Ethereum client with its counterparty (the new router client) registered.
+// Ethereum client with its counterparty (the new router client) registered,
+// authenticating the route's identity (the same chain, router and commitments
+// slot: RouteIdentity), checked again when the decision executes.
 // The route closes with the replacement: the reconciliation's settlements
 // (NewSettleRequest) and restoring decisions follow, then
 // NewReopenRouteRequest reopens it. suspectFrom is the gno.land height from
@@ -587,6 +650,9 @@ func NewReplaceRouteRequest(cur realm, route, newClientID string, suspectFrom in
 		panic("ibcgov: the suspect interval starts at a past gno.land height (0 for every record)")
 	}
 	if refusal := checkRouteClient(newClientID); refusal != "" {
+		panic("ibcgov: " + refusal)
+	}
+	if refusal := checkIdentity(route, newClientID); refusal != "" {
 		panic("ibcgov: " + refusal)
 	}
 	old := view().Client(route)

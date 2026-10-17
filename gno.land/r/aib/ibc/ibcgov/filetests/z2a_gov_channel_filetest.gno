@@ -17,7 +17,7 @@ import (
 
 // bridge is the route's Ethereum router, ICS20 transfer and IBCAdmin: its
 // protected recipients.
-const bridge = "0x00000000000000000000000000000000000b0001 0x00000000000000000000000000000000000b0002 0x00000000000000000000000000000000000b0003"
+const bridge = "0x1d95d544586eacb63b6154e9e45122b32ded11aa 0x00000000000000000000000000000000000b0002 0x00000000000000000000000000000000000b0003"
 
 var collector = testutils.TestAddress("collector")
 
@@ -101,7 +101,7 @@ func main(cur realm) {
 	core.RegisterCounterparty(cross(cur), client, [][]byte{{}}, "client-0")
 	println("before the channel is bound:", revive(func() { govern(cur, ibcgov.NewEthUnpauseRequest(cross(cur), 2, "")) }))
 	// The governance channel rides a route: enroll the client first.
-	execute(cur, govern(cur, ibcgov.NewEnrollRouteRequest(cross(cur), client, string(ibcgov.Governor()), "0x00000000000000000000000000000000000b0001 0x00000000000000000000000000000000000b0002 0x00000000000000000000000000000000000b0003")))
+	execute(cur, govern(cur, ibcgov.NewEnrollRouteRequest(cross(cur), client, string(ibcgov.Governor()), "0x1d95d544586eacb63b6154e9e45122b32ded11aa 0x00000000000000000000000000000000000b0002 0x00000000000000000000000000000000000b0003")))
 	execute(cur, govern(cur, ibcgov.NewBindGovernanceRequest(cross(cur), client)))
 	println("epoch", ibcgov.Epoch(), "over", ibcgov.EpochClient())
 

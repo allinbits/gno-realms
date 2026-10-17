@@ -114,10 +114,13 @@ type flag struct {
 func (f *flag) live() bool { return f.gen == seatGen[f.seat] }
 
 // routeRec is a route's record here: its payouts epoch, which the transfer
-// implementation reads to empty its meters when a payouts flag is cleared.
+// implementation reads to empty its meters when a payouts flag is cleared,
+// and its identity, recorded at enrolment and never changed: the history
+// every client of the route must authenticate (core.ClientRouteIdentity).
 type routeRec struct {
-	epoch   int64
-	epochAt int64
+	epoch    int64
+	epochAt  int64
+	identity string
 }
 
 func flagKey(route, fn string, seat int) string { return route + "|" + fn + "|" + strconv.Itoa(seat) }

@@ -17,7 +17,7 @@ import (
 
 // bridge is the route's Ethereum router, ICS20 transfer and IBCAdmin: its
 // protected recipients.
-const bridge = "0x00000000000000000000000000000000000b0001 0x00000000000000000000000000000000000b0002 0x00000000000000000000000000000000000b0003"
+const bridge = "0x1d95d544586eacb63b6154e9e45122b32ded11aa 0x00000000000000000000000000000000000b0002 0x00000000000000000000000000000000000b0003"
 
 var collector = testutils.TestAddress("collector")
 
@@ -121,7 +121,7 @@ func main(cur realm) {
 	// kind 6 names a second gno client as the counterparty of the new router client.
 	core.CreateClient(cross(cur), ethtesting.ClientState(), ethtesting.ConsensusState())
 	// The governance channel rides a route: enroll the client first.
-	execute(cur, govern(cur, ibcgov.NewEnrollRouteRequest(cross(cur), client, string(ibcgov.Governor()), "0x00000000000000000000000000000000000b0001 0x00000000000000000000000000000000000b0002 0x00000000000000000000000000000000000b0003")))
+	execute(cur, govern(cur, ibcgov.NewEnrollRouteRequest(cross(cur), client, string(ibcgov.Governor()), "0x1d95d544586eacb63b6154e9e45122b32ded11aa 0x00000000000000000000000000000000000b0002 0x00000000000000000000000000000000000b0003")))
 	execute(cur, govern(cur, ibcgov.NewBindGovernanceRequest(cross(cur), client)))
 
 	govern(cur, ibcgov.NewEthUnpauseRequest(cross(cur), 1, "client-0"))
