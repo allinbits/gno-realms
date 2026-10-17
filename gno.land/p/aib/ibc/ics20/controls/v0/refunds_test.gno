@@ -1103,3 +1103,57 @@ func TestBoundedIndexes(t *testing.T) {
 		t.Fatalf("still blocking: %v", rt.reopenBlocker())
 	}
 }
+
+// A settlement checks its reservations net (Codex round 31 #2): a genuine
+// refund above MaxInt64/2 whose own reservation covers it settles and is
+// paid, though the reservation plus the refund would overflow; in a batch
+// mixing a covered refund and one whose reservation a forged success
+// released, the refunds take the room left for minting in item order and
+// the one that does not fit is parked, in either order.
+func TestSettlementNetReservations(t *testing.T) {
+	const five, three = int64(5_000_000_000_000_000_000), int64(3_000_000_000_000_000_000)
+	setup := func() (*Route, *Denom) {
+		r, rt := newRoute(t)
+		cfg := DenomConfig{Kind: KindMint, CapFloor: maxInt64, SupplyCap: maxInt64, Fee: 10, FeeFloor: 1, RefundCap: maxInt64}
+		if err := rt.SetDenom("ibc/BIG", cfg, t0, 0, five+three); err != nil {
+			t.Fatal(err)
+		}
+		rt.RecordSend(sendRec(1, "ibc/BIG", KindMint, five))  // still reserved
+		rt.RecordSend(sendRec(2, "ibc/BIG", KindMint, three)) // a forged success releases it
+		rt.Settle(t0, 1, pk(2), OutcomeSuccess, false, 0)
+		r.Replace("ethereum-1", "ethereum-2", 0, 1000)
+		return rt, rt.Denom("ibc/BIG")
+	}
+
+	// Alone: the whole of the supply burned into one return comes back.
+	rt, d := setup()
+	if d.Totals.Outstanding != 0 || d.Totals.Returning != five {
+		t.Fatalf("setup %+v", d.Totals)
+	}
+	ps, err := settleProven(rt, "ethereum-1", []SettleItem{{Seq: 1, Action: SettlePay, Amount: five}}, "inc", lockOf(0))
+	if err != nil || len(ps) != 1 || ps[0].Amount != five || d.Totals.Outstanding != five || d.Totals.Returning != 0 {
+		t.Fatalf("covered refund: %v %+v %+v", err, ps, d.Totals)
+	}
+
+	// Mixed, the room left for minting being five: either order pays the
+	// first that fits and parks the other.
+	for _, order := range [][]uint64{{1, 2}, {2, 1}} {
+		rt, d := setup()
+		d.Totals.Outstanding = maxInt64 - five // forged credits took the rest
+		amount := map[uint64]int64{1: five, 2: three}
+		var items []SettleItem
+		for _, seq := range order {
+			items = append(items, SettleItem{Seq: seq, Action: SettlePay, Amount: amount[seq]})
+		}
+		ps, err := settleProven(rt, "ethereum-1", items, "inc", lockOf(0))
+		if err != nil || len(ps) != 1 || ps[0].Key != pk(order[0]) {
+			t.Fatalf("order %v: %v %+v", order, err, ps)
+		}
+		parked := order[1]
+		rec, _ := rt.Send(pk(parked))
+		if rec.Payment != PayQueued || rec.Settlement != SettlePay || rec.Reservation != amount[parked] ||
+			d.Totals.Returning != amount[parked] || d.Totals.QueuedRefunds != amount[parked] {
+			t.Fatalf("order %v: parked %+v totals %+v", order, rec, d.Totals)
+		}
+	}
+}

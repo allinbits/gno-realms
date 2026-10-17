@@ -480,6 +480,46 @@ type SettleItem struct {
 // whether a verifier still vouches for what it proved under a trust
 // generation: Active, not retired, and that generation still current.
 func (rt *Route) SettleRecords(client string, items []SettleItem, incident string, lock func(denom string) int64, trusted func(client string, gen uint64) bool) ([]RefundPayment, error) {
+	plan, err := rt.PlanSettlement(client, items, incident, lock, nil, trusted)
+	if err != nil {
+		return nil, err
+	}
+	return rt.ApplySettlement(plan), nil
+}
+
+// SettlePlan is a checked settlement, not applied yet: the refunds it pays
+// at once (Payments) and the minted refunds it parks. It holds for the
+// state it was planned on: apply it in the same transaction, nothing
+// changed in between.
+type SettlePlan struct {
+	client, incident string
+	items            []SettleItem
+	parked           map[uint64]bool // outbound sequences whose refund is parked
+	// Payments are the refunds the settlement pays at once, in item order.
+	Payments []RefundPayment
+}
+
+// Parked lists the outbound sequences whose minted refund the plan parks.
+func (p *SettlePlan) Parked() []uint64 {
+	var out []uint64
+	for _, it := range p.items {
+		if p.parked[it.Seq] && it.Action == SettlePay {
+			out = append(out, it.Seq)
+		}
+	}
+	return out
+}
+
+// PlanSettlement checks a reconciliation's outcomes (see SettleRecords) and
+// plans them without changing anything: which genuine refunds are paid at
+// once and which minted ones are parked, the supply then holding no room for
+// them. room is the room left for minting a denom (nil: what its outstanding
+// supply leaves under int64; a caller also bound by a token's supply passes
+// the lower of the two): the refunds take it in item order, and one that
+// does not fit is parked. The plan's reservations are checked net: what
+// every settled record releases or consumes comes off before the parked
+// refunds are added.
+func (rt *Route) PlanSettlement(client string, items []SettleItem, incident string, lock func(denom string) int64, room func(denom string) int64, trusted func(client string, gen uint64) bool) (*SettlePlan, error) {
 	retired := false
 	for _, c := range rt.Replaced {
 		if c == client {
@@ -504,7 +544,7 @@ func (rt *Route) SettleRecords(client string, items []SettleItem, incident strin
 	// (owed or withheld). The payments are checked against the escrow the
 	// liabilities still reserve once the whole batch applies; each is exact
 	// on its own, so the subtraction happens before any saturating sum.
-	relQueued, relOwed, relWithheld := map[string]int64{}, map[string]int64{}, map[string]int64{}
+	relQueued, relOwed, relWithheld, relReserved := map[string]int64{}, map[string]int64{}, map[string]int64{}, map[string]int64{}
 	lossTotals := map[string]int64{}
 	for i, it := range items {
 		key := PacketKey(client, it.Seq)
@@ -544,6 +584,7 @@ func (rt *Route) SettleRecords(client string, items []SettleItem, incident strin
 			return nil, ufmt.Errorf("controls: item %d: send %s is settled already", i, key)
 		}
 		seen[it.Seq] = true
+		relReserved[r.Denom] += r.Reservation // within Returning: released or consumed when it settles
 		if r.Payment == PayQueued {
 			relQueued[r.Denom] += r.Amount - r.Refunded // within QueuedRefunds
 		}
@@ -607,14 +648,49 @@ func (rt *Route) SettleRecords(client string, items []SettleItem, incident strin
 			return nil, err
 		}
 	}
+	plan := &SettlePlan{client: client, incident: incident, items: items, parked: map[uint64]bool{}}
+	// The minted refunds take the room left for minting, in item order; one
+	// that does not fit is parked, owed and reserved (see park).
+	left := map[string]int64{}
+	parkedTotal := map[string]int64{}
+	for _, it := range items {
+		if it.Action != SettlePay || it.Amount <= 0 {
+			continue
+		}
+		r := rt.send(PacketKey(client, it.Seq))
+		d := rt.Denom(r.Denom)
+		if d.Config.Kind == KindMint {
+			if _, ok := left[r.Denom]; !ok {
+				left[r.Denom] = maxInt64 - d.Totals.Outstanding
+				if room != nil {
+					if x := room(r.Denom); x < left[r.Denom] {
+						left[r.Denom] = x
+					}
+				}
+			}
+			if it.Amount > left[r.Denom] {
+				plan.parked[it.Seq] = true
+				parkedTotal[r.Denom] += it.Amount // within the denom's settled amounts, checked above
+				continue
+			}
+			left[r.Denom] -= it.Amount
+		}
+		plan.Payments = append(plan.Payments, RefundPayment{Key: r.Key, Denom: r.Denom, To: r.Sender, Amount: it.Amount})
+	}
+	// Net of what the batch releases, the parked refunds' reservations and
+	// queue entries must fit.
+	for denom, parked := range parkedTotal {
+		d := rt.Denom(denom)
+		if _, ok := checkedAdd(d.Totals.Returning-relReserved[denom], parked); !ok {
+			return nil, errors.New("controls: the parked refunds would overflow the reserved supply of " + denom)
+		}
+		if _, ok := checkedAdd(d.Totals.QueuedRefunds-relQueued[denom], parked); !ok {
+			return nil, errors.New("controls: the parked refunds would overflow the queued refunds of " + denom)
+		}
+	}
 	for denom, total := range pays {
 		d := rt.Denom(denom)
-		// A minted refund the outstanding supply cannot hold now is parked,
-		// not refused (see park): it never blocks the reconciliation.
 		if d.Config.Kind == KindMint {
-			if _, ok := checkedAdd(d.Totals.Returning, total); !ok {
-				return nil, errors.New("controls: the settlement's refunds would overflow the reserved supply of " + denom)
-			}
 			continue
 		}
 		// The escrow the liabilities still reserve once the whole batch
@@ -625,8 +701,16 @@ func (rt *Route) SettleRecords(client string, items []SettleItem, incident strin
 			return nil, ufmt.Errorf("controls: %d of %s is above the free lock of %d", total, denom, free)
 		}
 	}
+	return plan, nil
+}
+
+// ApplySettlement applies a settlement PlanSettlement checked, in the same
+// transaction: it settles every record, books the losses, parks the refunds
+// the plan parks, and returns the refunds to pay now (the plan's Payments).
+func (rt *Route) ApplySettlement(plan *SettlePlan) []RefundPayment {
+	client, incident := plan.client, plan.incident
 	var out []RefundPayment
-	for _, it := range items {
+	for _, it := range plan.items {
 		key := PacketKey(client, it.Seq)
 		if it.Action == SettleForgedReceive {
 			denom, _, _ := rt.forgedReceive(key)
@@ -666,7 +750,7 @@ func (rt *Route) SettleRecords(client string, items []SettleItem, incident strin
 			if it.Amount <= 0 {
 				break
 			}
-			if _, fits := checkedAdd(d.Totals.Outstanding, it.Amount); d.Config.Kind == KindMint && !fits {
+			if plan.parked[it.Seq] {
 				parked = true
 				break
 			}
@@ -684,7 +768,7 @@ func (rt *Route) SettleRecords(client string, items []SettleItem, incident strin
 		}
 		rt.track(r, was)
 	}
-	return out, nil
+	return out
 }
 
 // park books a settled genuine refund of a minted denom that the outstanding
