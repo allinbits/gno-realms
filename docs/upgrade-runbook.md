@@ -228,11 +228,22 @@ Ethereum client carries nothing until a decision makes it a route.
    (7 days), where `bridge` names the route's Ethereum router, ICS20
    transfer and IBCAdmin ("router ics20 ibcAdmin", protected recipients from
    then on).
-3. Enable each denom with `NewSetDenomRequest` (7 days).
-4. A client of a route is replaced with `NewReplaceRouteRequest` (an Active
+3. Seat the guardians and watch keys. All six seats start empty (seats 0–3
+   guardians, 4–5 watch keys), and an unseated key cannot flag, so no hold
+   or flag protects the route until they are seated: install them with
+   `NewSetSeatsRequest("0:g1...,1:g1...")`, at most two guardian seats a
+   decision, each addition waiting 7 days (and, under a hold, until day 21
+   of it).
+4. Once the enrollment has executed, bind the governance channel to the
+   route's client with `NewBindGovernanceRequest(clientID)` (7 days): the
+   client must still be Active and the route's current client when it
+   executes. Every Ethereum-bound decision (`NewEth*Request`) is refused
+   until the channel is bound.
+5. Enable each denom with `NewSetDenomRequest` (7 days).
+6. A client of a route is replaced with `NewReplaceRouteRequest` (an Active
    Ethereum client that is no route's client yet), which closes the route
    until `NewReopenRouteRequest`.
-5. A client's verifier is replaced by another verifier version (ADR pr6375
+7. A client's verifier is replaced by another verifier version (ADR pr6375
    R16) in two governed steps: first a core implementation that compiles the
    conversion in (`implv1.NewWithConversions`: from version, to version,
    the new verifier package's conversion) is registered under
