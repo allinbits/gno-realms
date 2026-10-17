@@ -936,8 +936,9 @@ func (rt *Route) checkPrepared() error {
 // and an escrowed send still pending. Each is reserved in ProvenOwed until
 // its settlement releases it (a proof, of a delivery too, never does), so no
 // payment for the route takes the backing a sibling's refund needs, whatever
-// the order its outcomes are proven in. Anyone may call it; it returns how
-// many it reserved and whether the walk is complete.
+// the order its outcomes are proven in. Every record visited, and every move
+// to the next retired client, takes a step of n. Anyone may call it; it
+// returns how many it reserved and whether the walk is complete.
 func (rt *Route) PrepareReplacement(n int) (int, bool, error) {
 	if n < 1 || n > MaxKeys {
 		return 0, false, ufmt.Errorf("controls: prepare 1 to %d records a call", MaxKeys)
@@ -969,8 +970,11 @@ func (rt *Route) PrepareReplacement(n int) (int, bool, error) {
 			rt.prepCursor = last
 			break
 		}
+		// Moving to the next retired client takes a step of the budget too:
+		// a long run of clients with no records stays bounded per call.
 		rt.prepIdx++
 		rt.prepCursor = ""
+		visited++
 	}
 	return reserved, rt.Prepared(), nil
 }

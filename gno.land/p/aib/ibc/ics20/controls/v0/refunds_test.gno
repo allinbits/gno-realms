@@ -1592,3 +1592,33 @@ func TestVoidedDeliveryKeepsBacking(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// Every move to the next retired client takes a step of the preparation's
+// budget (Codex round 41 #2): many replacements of clients with no records,
+// queued behind an unfinished preparation, are walked a bounded few a call,
+// and the walk completes.
+func TestPrepareChargesEmptyClients(t *testing.T) {
+	r, rt := newRoute(t)
+	rt.RecordSend(sendRec(1, "ugnot", KindUnescrow, 100))
+	rt.RecordSend(sendRec(2, "ugnot", KindUnescrow, 100))
+	// ethereum-1 has two records; ten empty clients follow.
+	for i := 2; i <= 12; i++ {
+		if err := r.Replace("ethereum-1", "ethereum-"+strconv.Itoa(i), 0, int64(1000+i)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	calls := 0
+	for done := false; !done; calls++ {
+		before := rt.prepIdx
+		_, done, _ = rt.PrepareReplacement(2)
+		if rt.prepIdx-before > 2 {
+			t.Fatalf("a call of budget 2 moved past %d clients", rt.prepIdx-before)
+		}
+		if calls > 20 {
+			t.Fatalf("the preparation never completes")
+		}
+	}
+	if !rt.Prepared() || calls < 6 {
+		t.Fatalf("prepared %v after %d calls", rt.Prepared(), calls)
+	}
+}
