@@ -195,11 +195,14 @@ func main(cur realm) {
 	advance(7*24*time.Hour + time.Second)
 	println("meters before the migration:", meters(route, voucher))
 	ibcgov.Execute(cross(cur), replace)
-	println("route client:", controlsView().Client(route), "| old retired:", core.IsClientRetired(route), "| closed:", controlsView().Closed(route))
+	println("route client:", controlsView().Client(route), "| old retired for transfers:", core.IsClientRetiredFor(route, "transfer"), "| for good:", core.IsClientRetired(route), "| closed:", controlsView().Closed(route))
 	// Every meter starts empty after a migration, then refills (Codex review #10).
 	println("meters after the migration:", meters(route, voucher))
 	advance(6 * time.Hour)
 	println("six hours later:", meters(route, voucher))
+	// The governance epoch stays over the old client until IBCAdmin's epoch
+	// notice arrives over the new one (z9zv): its decision in flight is not
+	// sent again while a packet of it is out.
 	println("governance epoch", ibcgov.Epoch(), "over", ibcgov.EpochClient(), "| epoch 1's seq 1 again:",
 		revive(func() { ibcgov.Redispatch(cross(cur), 1, 1) }))
 
@@ -284,10 +287,10 @@ func main(cur realm) {
 // governance epoch 1 over ethereum-1 last seq 1
 // not registered yet: ibcgov: ethereum-2 has no counterparty registered
 // meters before the migration: bridge 4000, bob 1000
-// route client: ethereum-2 | old retired: true | closed: true
+// route client: ethereum-2 | old retired for transfers: true | for good: false | closed: true
 // meters after the migration: bridge 0, bob 0
 // six hours later: bridge 1000, bob 250
-// governance epoch 2 over ethereum-2 | epoch 1's seq 1 again: ibcgov: epoch 1 is past: its decisions are never sent again
+// governance epoch 1 over ethereum-1 | epoch 1's seq 1 again: ibcgov: decision 1 is not re-dispatchable (sent as packet 2)
 // send over the old client: client ethereum-1 is an Ethereum client of no enrolled route: it carries no transfer
 // receive over the old client: (2 gno.land/p/aib/ibc/types/v0.PacketStatus)
 // send back while closed: send back](/r/aib/main$help&func=Transfer&amount=&clientID=ethereum-2&denom=ibc%2F2495500BDD01666856D26EE034DB2F940FD4DA91239F4D5C7AE1E9D07538CFFE&memo=&receiver=&timeoutTimestamp=1238826697) via `ethereum-2`

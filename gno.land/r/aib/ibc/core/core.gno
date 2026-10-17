@@ -13,7 +13,7 @@ import (
 // and invokes each payload app's OnSendPacket. Returns the packet sequence.
 func SendPacket(cur realm, msg types.MsgSendPacket) (sequence uint64) {
 	ensureNotPaused()
-	ensureNotRetired(msg.SourceClient)
+	ensureNotRetiredFor(msg.SourceClient, msg.Payloads, false)
 	return mustImpl().SendPacket(0, cur, msg)
 }
 
@@ -24,7 +24,7 @@ func SendPacket(cur realm, msg types.MsgSendPacket) (sequence uint64) {
 // relaying is permissionless (see ensureRelayerFor).
 func RecvPacket(cur realm, msg types.MsgRecvPacket) types.ResponseResultType {
 	ensureNotPaused()
-	ensureNotRetired(msg.Packet.DestinationClient)
+	ensureNotRetiredFor(msg.Packet.DestinationClient, msg.Packet.Payloads, true)
 	ensureRelayerFor(msg.Packet.DestinationClient)
 	return mustImpl().RecvPacket(0, cur, msg)
 }
@@ -49,7 +49,7 @@ func WriteAcknowledgement(cur realm, clientID string, sequence uint64, ack types
 // ensureRelayerFor): a refund never waits on a listed relayer.
 func Acknowledgement(cur realm, msg types.MsgAcknowledgement) types.ResponseResultType {
 	ensureNotPaused()
-	ensureNotRetired(msg.Packet.SourceClient)
+	ensureNotRetiredFor(msg.Packet.SourceClient, msg.Packet.Payloads, false)
 	ensureRelayerFor(msg.Packet.SourceClient)
 	return mustImpl().Acknowledgement(0, cur, msg)
 }
@@ -59,7 +59,7 @@ func Acknowledgement(cur realm, msg types.MsgAcknowledgement) types.ResponseResu
 // Relayers only, except for an Ethereum client (see ensureRelayerFor).
 func Timeout(cur realm, msg types.MsgTimeout) types.ResponseResultType {
 	ensureNotPaused()
-	ensureNotRetired(msg.Packet.SourceClient)
+	ensureNotRetiredFor(msg.Packet.SourceClient, msg.Packet.Payloads, false)
 	ensureRelayerFor(msg.Packet.SourceClient)
 	return mustImpl().Timeout(0, cur, msg)
 }

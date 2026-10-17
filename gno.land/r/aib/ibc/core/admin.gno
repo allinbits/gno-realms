@@ -6,6 +6,7 @@ import (
 
 	"gno.land/p/aib/authority/v0"
 	"gno.land/p/aib/ibc/lightclient/ethereum/v0"
+	"gno.land/p/aib/ibc/types/v0"
 	"gno.land/p/nt/bptree/v0"
 	"gno.land/p/nt/ufmt/v0"
 )
@@ -177,10 +178,51 @@ func IsClientRetired(clientID string) bool {
 	return store.isRetired(clientID)
 }
 
+// RetireClientPort retires a client for one port only: every packet message
+// naming the client with a payload on port is refused from now on, while
+// its other ports, client updates and counterparty stay. A route
+// replacement retires the old client for the transfer port while the
+// governance channel's epoch still runs over it (ADR pr6375 §7.12, the
+// two-phase epoch switch); RetireClient retires it for good once IBCAdmin's
+// epoch notice moves the channel. Governance only.
+func RetireClientPort(cur realm, clientID, port string) {
+	assertGovernance(0, cur, "retire_client_port")
+	if store.getClient(clientID) == nil {
+		panic(ufmt.Sprintf("client %s not found", clientID))
+	}
+	if store.isRetiredFor(clientID, port) {
+		panic(ufmt.Sprintf("client %s is retired for port %s already", clientID, port))
+	}
+	store.retired.Set(clientID+"|"+port, true)
+	chain.Emit(EventTypeClientRetired, "client_id", clientID, "port", port)
+}
+
+// IsClientRetiredFor reports whether clientID is retired, or retired for
+// port (RetireClientPort).
+func IsClientRetiredFor(clientID, port string) bool {
+	return store.isRetiredFor(clientID, port)
+}
+
 // ensureNotRetired panics if clientID was retired.
 func ensureNotRetired(clientID string) {
 	if store.isRetired(clientID) {
 		panic(ufmt.Sprintf("client %s is retired", clientID))
+	}
+}
+
+// ensureNotRetiredFor panics if clientID was retired, or retired for the
+// local port of a payload (its source port when sent from here, its
+// destination port when received).
+func ensureNotRetiredFor(clientID string, payloads []types.Payload, received bool) {
+	ensureNotRetired(clientID)
+	for _, p := range payloads {
+		port := p.SourcePort
+		if received {
+			port = p.DestinationPort
+		}
+		if store.isRetiredFor(clientID, port) {
+			panic(ufmt.Sprintf("client %s is retired for port %s", clientID, port))
+		}
 	}
 }
 

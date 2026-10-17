@@ -164,8 +164,11 @@ func setTime(t time.Time) {
 // The governance channel always rides a route (Codex round 16 #2): binding
 // it is refused for a client no enrolled route has as its current client,
 // and spent when its client loses health during the binding delay; once
-// bound, a replacement of the route moves the channel's epoch with it, so a
-// frozen or expired client never strands the channel.
+// bound, a replacement of the route prepares the channel's move: the epoch
+// stays over the old client until IBCAdmin's epoch notice, sent over the new
+// client when Ethereum executes its kind 10 or its emergency recovery, moves
+// it there (two phases, design review #1; z9zv), so a frozen or expired
+// client never strands the channel.
 func main(cur realm) {
 	lone := core.CreateClient(cross(cur), ethtesting.ClientState(), ethtesting.ConsensusState())
 	core.RegisterCounterparty(cross(cur), lone, [][]byte{{}}, "client-9")
@@ -212,5 +215,5 @@ func main(cur realm) {
 // bind over an expired client: spent - spent: ethereum-2 is not Active | epoch 0
 // bind over the route's current client: applied - governance epoch 1 over ethereum-3 | epoch 1 over true
 // bound client: Expired
-// replace the bound route: applied - replace: client ethereum-3 retired, meters emptied, governance epoch 2 opened over ethereum-4
-// route client is c: true | epoch 2 over c: true
+// replace the bound route: applied - replace: client ethereum-3 retired for transfers, meters emptied; governance epoch 1 stays over ethereum-3 until IBCAdmin's epoch notice arrives over ethereum-4
+// route client is c: true | epoch 1 over c: false

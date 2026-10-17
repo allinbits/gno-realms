@@ -332,7 +332,7 @@ func RenderTransferLinks() string {
 	for _, clientID := range clientIDs {
 		status := core.ClientStatus(clientID)
 		height := core.ClientLatestHeight(clientID)
-		if core.IsClientRetired(clientID) {
+		if core.IsClientRetiredFor(clientID, transfer.PortID) {
 			// A retired client (ADR pr6375 §7.12) carries nothing more: its
 			// status stays as it was, so it is checked first.
 			out.WriteString(ufmt.Sprintf(

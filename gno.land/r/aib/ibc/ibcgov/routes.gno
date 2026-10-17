@@ -93,21 +93,28 @@ func (p *routeParams) apply(cur realm, t int64) (string, string) {
 		routes.Set(p.p.Route, &routeRec{epochAt: t, identity: identity})
 	}
 	if p.replace != "" {
-		if !core.IsClientRetired(p.replace) {
+		// The two-phase epoch switch (ADR pr6375 §7.12): while the
+		// governance epoch runs over the old client, it is retired for
+		// transfers only, until IBCAdmin's epoch notice moves the epoch.
+		retired := " retired"
+		switch {
+		case EpochClient() == p.replace:
+			core.RetireClientPort(cross(cur), p.replace, transfer.PortID)
+			retired = " retired for transfers"
+		case !core.IsClientRetired(p.replace):
 			core.RetireClient(cross(cur), p.replace)
 		}
 		// After a migration every meter starts empty (ADR pr6375 §7.1): a
 		// new payouts epoch, reset lazily in constant work.
 		bumpPayoutsEpoch(p.p.Route, t)
-		note += ": client " + p.replace + " retired, meters emptied"
+		note += ": client " + p.replace + retired + ", meters emptied"
 		// The new client is the route's alias from now on: flags standing
 		// under its own id join the route's.
 		if n := foldFlags(p.p.Client, p.p.Route, t); n > 0 {
 			note += ", " + strconv.Itoa(n) + " flags of " + p.p.Client + " moved to the route"
 		}
 		if EpochClient() == p.replace {
-			nextEpoch(p.p.Client)
-			note += ", governance epoch " + strconv.FormatUint(uint64(epoch), 10) + " opened over " + p.p.Client
+			note += "; governance epoch " + strconv.FormatUint(uint64(epoch), 10) + " stays over " + p.replace + " until IBCAdmin's epoch notice arrives over " + p.p.Client
 		}
 	}
 	return note, ""
@@ -159,7 +166,7 @@ func checkRouteClient(client string) string {
 	switch {
 	case core.ClientType(client) != ethereum.ClientType:
 		return client + " is not an Ethereum client"
-	case core.IsClientRetired(client):
+	case core.IsClientRetiredFor(client, transfer.PortID):
 		return client + " is retired"
 	case core.ClientStatus(client) != "Active":
 		return client + " is not Active"
@@ -628,8 +635,10 @@ func settleItemKey(seq, action uint64) string {
 // 7 days (ADR pr6375 §7.12, R18, the gno.land side): the transfer app re-points
 // the route to the new client in constant work (escrow, vouchers and controls
 // stay keyed by the route key; denoms on the wire carry the new client id),
-// the core retires the old client, and if the governance channel ran over the
-// old client its next epoch opens over the new one. newClientID is an Active
+// the core retires the old client, for transfers only while the governance
+// epoch runs over it: the epoch moves to the new client, and the old one is
+// retired for good, when IBCAdmin's epoch notice arrives over it (recorded
+// with this decision, see OnRecvPacket). newClientID is an Active
 // Ethereum client with its counterparty (the new router client) registered,
 // authenticating the route's identity (the same chain, router and commitments
 // slot: RouteIdentity), checked again when the decision executes.
@@ -659,6 +668,7 @@ func NewReplaceRouteRequest(cur realm, route, newClientID string, suspectFrom in
 	text := "replace the client of route " + route + ": " + old + " by " + newClientID + ", suspect from gno.land height " + itoa(suspectFrom)
 	rp := &routeParams{op: controls.OpReplace, p: controls.Params{Route: route, Client: newClientID, Height: suspectFrom}, replace: old}
 	return propose(cur, "replace route", text, func(cur realm, made, t int64) {
+		recordReplacement(newClientID, old)
 		decide(cur, "replace route", text, rp, made, t, true)
 	})
 }
@@ -700,7 +710,7 @@ func checkBindClient(client string) string {
 	switch {
 	case core.ClientType(client) != ethereum.ClientType:
 		return client + " is not an Ethereum client"
-	case core.IsClientRetired(client):
+	case core.IsClientRetiredFor(client, GovPort):
 		return client + " is retired"
 	case core.ClientStatus(client) != "Active":
 		return client + " is not Active"

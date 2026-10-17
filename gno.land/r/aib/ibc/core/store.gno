@@ -128,8 +128,10 @@ type coreStore struct {
 	// pendingKey(port, pkgPath); a B+ tree, because anyone may add to it and
 	// a map would be loaded whole on every access.
 	pendingApps *bptree.BPTree // port:pkgPath -> App
-	// retired holds the clients RetireClient retired (see admin.gno).
-	retired *bptree.BPTree // clientID -> true
+	// retired holds the clients RetireClient retired, and under
+	// clientID|port the ports RetireClientPort retired a client for (see
+	// admin.gno; an ICS24 identifier holds no '|').
+	retired *bptree.BPTree // clientID or clientID|port -> true
 }
 
 var _ Store = (*coreStore)(nil)
@@ -145,6 +147,11 @@ func newStore() *coreStore {
 
 func (cs *coreStore) isRetired(clientID string) bool {
 	return cs.retired.Has(clientID)
+}
+
+// isRetiredFor reports whether clientID is retired, or retired for port.
+func (cs *coreStore) isRetiredFor(clientID, port string) bool {
+	return cs.retired.Has(clientID) || cs.retired.Has(clientID+"|"+port)
 }
 
 type client struct {

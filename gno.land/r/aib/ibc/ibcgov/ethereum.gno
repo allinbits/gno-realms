@@ -12,9 +12,11 @@ import (
 	"gno.land/p/aib/encoding/abi/v0"
 	"gno.land/p/aib/encoding/ethaddr/v0"
 	"gno.land/p/aib/ibc/app/v0"
+	"gno.land/p/aib/ibc/ics20/controls/v0"
 	"gno.land/p/aib/ibc/types/v0"
 	"gno.land/p/nt/avl/v0"
 	"gno.land/p/nt/ufmt/v0"
+	"gno.land/r/aib/ibc/apps/transfer"
 	"gno.land/r/aib/ibc/core"
 )
 
@@ -48,6 +50,29 @@ import (
 // redispatch = 1 make the decision re-dispatchable: anyone then calls
 // Redispatch, which sends the same seq with identical bytes. A packet of a
 // past epoch is never sent again.
+//
+// The epoch moves in two phases (ADR pr6375 §7.12, "Governance epoch switch,
+// two-phase and authenticated"). A route replacement here retires the old
+// client for the transfer port only: the epoch stays over it, so a decision
+// in flight, the kind 10 among them, can still be re-sent. When IBCAdmin
+// executes the matching kind 10 (or the emergency recovery), it sends an
+// epoch notice from its port over the new client to this realm's port:
+//
+//	payload: source port "ibcgov" (IBCAdmin's), destination port "gov",
+//	         version "ibcgov-1", encoding "application/x-ibcgov"
+//	value:   version u8 (= 1) ‖ epoch u32 ‖ newClient
+//
+// big-endian, newClient the router's client id the notice comes from (the
+// kind 10's new client), the rest of the bytes. It is the only packet this
+// realm receives. It is accepted only over the new client of a route
+// replacement recorded here whose old client carries the current epoch, for
+// exactly the current epoch plus one, its proof verified by the core through
+// that new client (Active, its counterparty the notice's source): the epoch
+// then moves to the new client, and the old client is retired for the gov
+// port (for good once the route's replacement has executed here too). The
+// app acknowledgement is epoch u32 ‖ seq u64 (0) ‖ status u8 ‖ redispatch u8
+// (0): status 1 when it switches, 3 for the notice of the epoch already
+// switched to. Anything else is refused with an error acknowledgement.
 
 const (
 	// GovPort is this realm's port on the gno core: the packets' source port.
@@ -107,6 +132,30 @@ const (
 	maxEthGuardianSeats = 2
 )
 
+// Epoch notice statuses: the notice switched the epoch, or named the epoch it
+// had switched to already.
+const (
+	NoticeVersion = uint8(1)
+	noticeHeader  = 5
+)
+
+// EpochNotice is the canonical epoch notice of IBCAdmin (see above).
+func EpochNotice(e uint32, newClient string) []byte {
+	out := make([]byte, noticeHeader, noticeHeader+len(newClient))
+	out[0] = NoticeVersion
+	binary.BigEndian.PutUint32(out[1:5], e)
+	return append(out, newClient...)
+}
+
+// ParseEpochNotice reads an epoch notice; ok is false when it is too short,
+// of another version, or names no client.
+func ParseEpochNotice(b []byte) (e uint32, newClient string, ok bool) {
+	if len(b) <= noticeHeader || b[0] != NoticeVersion {
+		return 0, "", false
+	}
+	return binary.BigEndian.Uint32(b[1:5]), string(b[noticeHeader:]), true
+}
+
 // epochRec is a governance epoch: the gno client its packets go over and the
 // last seq bound in it.
 type epochRec struct {
@@ -143,7 +192,14 @@ var (
 	epochs      avl.Tree // epochKey -> *epochRec
 	dispatches  avl.Tree // dispatchKey -> *dispatch
 	pendingAuth *authorization
+	// replacements names, for the new client of every route replacement
+	// recorded here, the client it replaces: an epoch notice is accepted
+	// only over one of them (see OnRecvPacket).
+	replacements avl.Tree // new client -> old client
 )
+
+// recordReplacement notes a route replacement decision of old by client.
+func recordReplacement(client, old string) { replacements.Set(client, old) }
 
 func epochKey(e uint32) string {
 	s := strconv.FormatUint(uint64(e), 10)
@@ -244,7 +300,7 @@ func bindChannel(client string) {
 	chain.Emit("GovEpoch", "epoch", "1", "client", client)
 }
 
-// nextEpoch opens the next epoch over client (a route replacement): the old
+// nextEpoch opens the next epoch over client (IBCAdmin's epoch notice): the old
 // epoch's unacknowledged decisions are never sent again.
 func nextEpoch(client string) {
 	epoch++
@@ -266,7 +322,7 @@ func bind(cur realm, decision int64, kind uint8, params []byte) (uint64, string)
 		return 0, "the core is paused: no governance packet can be sent"
 	case core.IsAppPaused(GovPort):
 		return 0, "the gov app is paused on the core"
-	case core.IsClientRetired(rec.client):
+	case core.IsClientRetiredFor(rec.client, GovPort):
 		return 0, "the epoch's client " + rec.client + " is retired"
 	case core.ClientStatus(rec.client) != "Active":
 		return 0, "the epoch's client " + rec.client + " is " + core.ClientStatus(rec.client) + ", not Active"
@@ -372,11 +428,57 @@ func (a *App) OnSendPacket(cur realm, sourceClient, destinationClient string, se
 	return nil
 }
 
-// OnRecvPacket refuses every packet: this chain sends governance, it does not
-// receive it.
+// OnRecvPacket takes IBCAdmin's epoch notice, the only packet this realm
+// receives (see above), and refuses every other: an error acknowledgement.
 func (a *App) OnRecvPacket(cur realm, sourceClient, destinationClient string, sequence uint64, payload types.Payload) types.RecvPacketResult {
 	assertCoreCaller(cur)
-	return types.RecvPacketResult{Status: types.PacketStatus_Failure}
+	e, status, refusal := takeNotice(cur, sourceClient, destinationClient, payload)
+	if refusal != "" {
+		chain.Emit("GovNotice", "client", destinationClient, "status", "refused", "reason", refusal)
+		return types.RecvPacketResult{Status: types.PacketStatus_Failure}
+	}
+	ack := make([]byte, ackLen)
+	binary.BigEndian.PutUint32(ack[0:4], e)
+	ack[12] = status
+	return types.RecvPacketResult{Status: types.PacketStatus_Success, Acknowledgement: ack}
+}
+
+// takeNotice applies an epoch notice received over client from the router's
+// client source, or says why it refuses it.
+func takeNotice(cur realm, source, client string, payload types.Payload) (uint32, uint8, string) {
+	if payload.SourcePort != GovDestPort || payload.DestinationPort != GovPort || payload.Version != GovVersion || payload.Encoding != GovEncoding {
+		return 0, 0, "not an epoch notice payload"
+	}
+	e, named, ok := ParseEpochNotice(payload.Value)
+	switch {
+	case !ok:
+		return 0, 0, "a malformed epoch notice"
+	case named != source:
+		return 0, 0, "the notice names " + named + ", not " + source + ", the client it came from"
+	case epoch != 0 && e == epoch && client == EpochClient():
+		return e, StatusDuplicate, "" // the switch happened already: acknowledged again
+	}
+	v := replacements.Get(client)
+	if v == nil {
+		return 0, 0, "no route replacement recorded here has " + client + " for its new client"
+	}
+	old := v.(string)
+	switch {
+	case epoch == 0 || old != EpochClient():
+		return 0, 0, "the replacement by " + client + " retires " + old + ", which carries no current epoch"
+	case e != epoch+1:
+		return 0, 0, "the notice is of epoch " + strconv.FormatUint(uint64(e), 10) + ", not " + strconv.FormatUint(uint64(epoch+1), 10)
+	}
+	nextEpoch(client)
+	// The old client is retired for governance: for good once the route's
+	// replacement executed here (it is retired for transfers already),
+	// otherwise for the gov port, the replacement retiring the rest.
+	if rd, ok := transfer.ExtView("controls").(controls.Reader); ok && rd.RetiredRouteOf(old) != "" {
+		core.RetireClient(cross(cur), old)
+	} else {
+		core.RetireClientPort(cross(cur), old, GovPort)
+	}
+	return e, StatusRecorded, ""
 }
 
 // ownDispatch is the dispatch a packet's payload carries, if it is ours.

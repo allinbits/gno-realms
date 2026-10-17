@@ -151,7 +151,7 @@ func (l *logic) ProveOutcome(_ int, rlm realm, packet types.Packet, proofHeight 
 // retired, and gen still its current generation (no recovery, freeze,
 // upgrade, migration or substitution since).
 func verifierTrusted(client string, gen uint64) bool {
-	return client != "" && core.ClientStatus(client) == "Active" && !core.IsClientRetired(client) &&
+	return client != "" && core.ClientStatus(client) == "Active" && !core.IsClientRetiredFor(client, transfer.PortID) &&
 		core.ClientTrustGeneration(client) == gen
 }
 
@@ -285,7 +285,7 @@ func (l *logic) GovApply(_ int, rlm realm, op string, params []byte) string {
 	reg := l.registry(0, rlm)
 	t := now()
 	if op == controls.OpEnroll {
-		if !isEthereum(p.Route) || core.IsClientRetired(p.Route) {
+		if !isEthereum(p.Route) || core.IsClientRetiredFor(p.Route, transfer.PortID) {
 			return p.Route + " is no usable Ethereum client"
 		}
 		// The bridge's own contracts are protected recipients from the
@@ -424,7 +424,7 @@ func (l *logic) GovApply(_ int, rlm realm, op string, params []byte) string {
 			note += "; continue with transfer.ContinueReopen"
 		}
 	case controls.OpReplace:
-		if !isEthereum(p.Client) || core.IsClientRetired(p.Client) {
+		if !isEthereum(p.Client) || core.IsClientRetiredFor(p.Client, transfer.PortID) {
 			return p.Client + " is no usable Ethereum client"
 		}
 		err = reg.Replace(rt.Key, p.Client, p.Height, chainHeight())
