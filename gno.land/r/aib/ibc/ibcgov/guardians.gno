@@ -57,13 +57,29 @@ var (
 
 	holdSince  int64 // when the current hold began, 0 if none
 	belowSince int64 // when it fell below two guardian seats, 0 while it has two
+
+	// A seat's generation grows when its key leaves (removal or
+	// replacement): a flag counts only while its generation is the seat's,
+	// so a departing key's flags stop counting in constant work, however
+	// many there are. seatFlags counts each seat's live flags, kept as flags
+	// are set and cleared, which the hold reads in constant work. The stale
+	// entries are removed lazily: by a later flag at the same key, an
+	// unpause, a fold, or PruneFlags, which anyone may call.
+	seatGen    [SeatCount]uint64
+	seatGenAt  [SeatCount]int64 // when the seat's generation last grew
+	seatFlags  [SeatCount]int64
+	pruneAfter string // where PruneFlags resumes
 )
 
 type flag struct {
 	seat int
+	gen  uint64 // the seat's generation when it was set
 	at   int64
 	keys []string // a guardian's payouts flag: the packets it suspects
 }
+
+// live reports whether f still counts: its seat's key has not left since.
+func (f *flag) live() bool { return f.gen == seatGen[f.seat] }
 
 // routeRec is a route's record here: its payouts epoch, which the transfer
 // implementation reads to empty its meters when a payouts flag is cleared.
@@ -143,8 +159,14 @@ func foldFlags(from, to string, t int64) int {
 	for _, k := range keys {
 		v, _ := flags.Remove(k)
 		f := v.(*flag)
+		if !f.live() {
+			continue // its seat's key left: it stopped counting then
+		}
 		fn := strings.Split(k, "|")[1]
-		if w := flags.Get(flagKey(to, fn, f.seat)); w != nil {
+		if w := flags.Get(flagKey(to, fn, f.seat)); w != nil && !w.(*flag).live() {
+			pruneFlag(flagKey(to, fn, f.seat), w.(*flag))
+		} else if w != nil {
+			seatFlags[f.seat]-- // merged into the route's own flag
 			g := w.(*flag)
 			if f.at < g.at {
 				g.at = f.at
@@ -179,9 +201,9 @@ func flaggable(route string) bool {
 func Flagged(route, fn string) bool {
 	route = routeKeyOf(route)
 	found := false
-	flags.Iterate(flagPrefix(route, fn), flagPrefix(route, fn)+"~", func(_ string, _ any) bool {
-		found = true
-		return true
+	flags.Iterate(flagPrefix(route, fn), flagPrefix(route, fn)+"~", func(_ string, v any) bool {
+		found = v.(*flag).live()
+		return found
 	})
 	return found
 }
@@ -189,12 +211,26 @@ func Flagged(route, fn string) bool {
 // PayoutsEpoch is how many times a standing payouts flag on route was
 // cleared, and when the last was: the route's meters empty when it changes.
 func PayoutsEpoch(route string) (epoch, at int64) {
-	v := routes.Get(routeKeyOf(route))
+	route = routeKeyOf(route)
+	v := routes.Get(route)
 	if v == nil {
 		return 0, 0
 	}
 	r := v.(*routeRec)
-	return r.epoch, r.epochAt
+	epoch, at = r.epoch, r.epochAt
+	// A payouts flag whose seat's key left was cleared then, though its
+	// entry is not removed yet: it counts as that clearing (pruneFlag books
+	// it the same way when it removes the entry).
+	flags.Iterate(flagPrefix(route, FnPayouts), flagPrefix(route, FnPayouts)+"~", func(_ string, v any) bool {
+		if f := v.(*flag); !f.live() {
+			epoch++
+			if seatGenAt[f.seat] > at {
+				at = seatGenAt[f.seat]
+			}
+		}
+		return false
+	})
+	return epoch, at
 }
 
 // NamedSuspect reports whether a guardian's standing payouts flag on route
@@ -204,7 +240,7 @@ func NamedSuspect(route, key string) bool {
 	found := false
 	flags.Iterate(flagPrefix(route, FnPayouts), flagPrefix(route, FnPayouts)+"~", func(_ string, v any) bool {
 		f := v.(*flag)
-		if !IsGuardianSeat(f.seat) {
+		if !IsGuardianSeat(f.seat) || !f.live() {
 			return false
 		}
 		for _, k := range f.keys {
@@ -236,18 +272,15 @@ func heldAt(t int64) bool {
 	return belowSince == 0 || t < belowSince+holdLinger
 }
 
-// guardiansFlagging counts the guardian seats with a standing flag.
+// guardiansFlagging counts the guardian seats with a live flag, in constant
+// work.
 func guardiansFlagging() int {
-	var flagging [GuardianSeats]bool
 	n := 0
-	flags.Iterate("", "", func(_ string, v any) bool {
-		f := v.(*flag)
-		if IsGuardianSeat(f.seat) && !flagging[f.seat] {
-			flagging[f.seat] = true
+	for s := 0; s < GuardianSeats; s++ {
+		if seatFlags[s] > 0 {
 			n++
 		}
-		return false
-	})
+	}
 	return n
 }
 
@@ -305,7 +338,14 @@ func SetFlag(cur realm, route, fn, keys string) {
 		panic("ibcgov: only a guardian's payouts flag names packets")
 	}
 	t := now()
-	flags.Set(flagKey(route, fn, seat), &flag{seat: seat, at: t, keys: list})
+	k := flagKey(route, fn, seat)
+	if v := flags.Get(k); v != nil && v.(*flag).live() {
+		seatFlags[seat]-- // a re-assertion replaces the live flag
+	} else if v != nil {
+		pruneFlag(k, v.(*flag)) // a departed key's entry at the same place
+	}
+	flags.Set(k, &flag{seat: seat, gen: seatGen[seat], at: t, keys: list})
+	seatFlags[seat]++
 	updateHold(t)
 	chain.Emit("Flag", "route", route, "fn", fn, "seat", strconv.Itoa(seat), "packets", strconv.Itoa(len(list)))
 }
@@ -320,7 +360,7 @@ func ClearFlag(cur realm, route, fn string) {
 		panic("ibcgov: not a guardian or a watch key: " + who(0, cur.Previous()))
 	}
 	route = routeKeyOf(route)
-	if !flags.Has(flagKey(route, fn, seat)) {
+	if v := flags.Get(flagKey(route, fn, seat)); v == nil || !v.(*flag).live() {
 		panic("ibcgov: no such flag of yours")
 	}
 	t := now()
@@ -328,12 +368,69 @@ func ClearFlag(cur realm, route, fn string) {
 	updateHold(t)
 }
 
+// clearFlag clears a live flag.
 func clearFlag(route, fn string, seat int, t int64) {
 	flags.Remove(flagKey(route, fn, seat))
+	seatFlags[seat]--
 	if fn == FnPayouts {
 		bumpPayoutsEpoch(route, t)
 	}
 	chain.Emit("Unflag", "route", route, "fn", fn, "seat", strconv.Itoa(seat))
+}
+
+// pruneFlag removes the entry of a flag whose seat's key left: it stopped
+// counting then; a payouts flag's clearing is booked as of then, as
+// PayoutsEpoch already reads it.
+func pruneFlag(k string, f *flag) {
+	flags.Remove(k)
+	parts := strings.Split(k, "|")
+	if parts[1] == FnPayouts {
+		if v := routes.Get(parts[0]); v != nil {
+			r := v.(*routeRec)
+			r.epoch++
+			if seatGenAt[f.seat] > r.epochAt {
+				r.epochAt = seatGenAt[f.seat]
+			}
+		}
+	}
+}
+
+// PruneFlags removes up to n entries of flags whose seat's key left,
+// visiting at most n entries from where the last call stopped, and returns
+// how many it removed; anyone may call it. A departed key's flags stop
+// counting at once (seat generations); this only reclaims their storage.
+func PruneFlags(cur realm, n int) int {
+	if n <= 0 || n > controls.MaxKeys {
+		panic("ibcgov: prune 1 to " + strconv.Itoa(controls.MaxKeys) + " entries a call")
+	}
+	var stale []string
+	visited := 0
+	last := ""
+	flags.Iterate(after(pruneAfter), "", func(k string, v any) bool {
+		if visited == n {
+			return true
+		}
+		visited++
+		last = k
+		if !v.(*flag).live() {
+			stale = append(stale, k)
+		}
+		return false
+	})
+	pruneAfter = last // "" once the walk reaches the end: the next starts over
+	for _, k := range stale {
+		pruneFlag(k, flags.Get(k).(*flag))
+	}
+	return len(stale)
+}
+
+// after is the first key an iteration resumes at, past cursor ("" from the
+// start).
+func after(cursor string) string {
+	if cursor == "" {
+		return ""
+	}
+	return cursor + "\x00"
 }
 
 func bumpPayoutsEpoch(route string, t int64) {
@@ -348,12 +445,20 @@ func bumpPayoutsEpoch(route string, t int64) {
 func clearFns(route string, fns []string, t int64) int {
 	n := 0
 	for _, fn := range fns {
-		var seatsFlagging []int
-		flags.Iterate(flagPrefix(route, fn), flagPrefix(route, fn)+"~", func(_ string, v any) bool {
-			seatsFlagging = append(seatsFlagging, v.(*flag).seat)
+		var live []int
+		stale := map[string]*flag{}
+		flags.Iterate(flagPrefix(route, fn), flagPrefix(route, fn)+"~", func(k string, v any) bool {
+			if f := v.(*flag); f.live() {
+				live = append(live, f.seat)
+			} else {
+				stale[k] = f
+			}
 			return false
 		})
-		for _, s := range seatsFlagging {
+		for k, f := range stale {
+			pruneFlag(k, f)
+		}
+		for _, s := range live {
 			clearFlag(route, fn, s, t)
 			n++
 		}
@@ -362,19 +467,14 @@ func clearFns(route string, fns []string, t int64) int {
 	return n
 }
 
-// clearSeat clears every flag of a seat (its key leaves).
+// clearSeat ends every flag of a seat (its key leaves), in constant work:
+// the seat's generation grows, so its flags stop counting; their entries
+// are pruned lazily.
 func clearSeat(seat int, t int64) {
-	var keys []string
-	flags.Iterate("", "", func(k string, v any) bool {
-		if v.(*flag).seat == seat {
-			keys = append(keys, k)
-		}
-		return false
-	})
-	for _, k := range keys {
-		parts := strings.Split(k, "|")
-		clearFlag(parts[0], parts[1], seat, t)
-	}
+	seatGen[seat]++
+	seatGenAt[seat] = t
+	seatFlags[seat] = 0
+	chain.Emit("SeatFlagsEnded", "seat", strconv.Itoa(seat))
 	updateHold(t)
 }
 
@@ -385,6 +485,9 @@ func Flags(route string) []string {
 	var out []string
 	flags.Iterate(route+"|", route+"|~", func(k string, v any) bool {
 		f := v.(*flag)
+		if !f.live() {
+			return false
+		}
 		line := strings.Split(k, "|")[1] + " seat " + strconv.Itoa(f.seat) + " at " + itoa(f.at)
 		if len(f.keys) > 0 {
 			line += " naming " + strings.Join(f.keys, ",")
