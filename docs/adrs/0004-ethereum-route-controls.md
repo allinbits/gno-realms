@@ -139,6 +139,29 @@ clients expose exported mutators (`Initialize`, `UpdateState`,
 core's store, so only through the installed implementation's guarded
 paths, and `Initialize` runs once on both the Ethereum and the Tendermint
 client, so a stored client's trusted state is never replaced through it.
+A light client keeps no slice its caller still holds (Codex round 18,
+pre-existing in the base and fixed in its own commit): every retained
+reference is copied where it is stored. Tendermint: `Initialize` deep-copies
+the client state (`ProofSpecs` through `ics23.ProofSpec.Clone`, including
+the leaf prefix and the inner spec's child order and empty child;
+`UpgradePath`) and the consensus state's root and next validators hash;
+`UpdateState` copies the header's app hash (`NewMerkleRoot` copies its
+input) and next validators hash; `RecoverClient` copies the substitute's
+consensus state; `VerifyUpgradeAndUpdateState` copies the upgraded client
+state's proof specifications and upgrade path and the consensus state's
+next validators hash; misbehaviour keeps nothing from the message. Later
+client-state replacements (latest or frozen height) share the client's own
+copies, never the caller's. Ethereum: `Initialize` copies the genesis
+validators root, router address and commitment slot (the fork parameters
+are arrays, copied by value) and the consensus state (`copyConsensusState`:
+state root, both sync committee summaries); `UpdateState` copies the
+execution state root and every sync committee summary it keeps;
+`RecoverClient` copies the substitute's consensus state;
+`MigrateForkParameters` stores arrays. `ics23`, `extproof` and the merkle
+path type keep no state: they verify against what they are given. The core
+filetest z7z mutates a client's initialization inputs and a verified
+header after the calls, and a proof against the substituted root is
+refused.
 
 ### Delays (§7.5, §9)
 
@@ -298,7 +321,7 @@ before crossing, or a refusal returned by the callee):
 | transfer block/unblock | blocked already / not blocked |
 | route operations (`GovApply`) | every refusal returned, including no controls installed; a sweep payment under a payouts flag, or a settlement paying refunds under a refunds hold, is deferred (stays pending) rather than spent |
 | route enrollment | as `GovApply`; the client no longer usable (`checkRouteClient` again at execution: not Active, retired, not Ethereum, no counterparty, a route's already), before either realm changes |
-| route replacement | as `GovApply`; the new client unusable; the route's client moved; still closed from the previous replacement |
+| route replacement | as `GovApply`; the new client unusable; the route's client moved |
 | bind governance | bound already; not Active, or not the current client of an enrolled route |
 | seats | an address in two seats; nothing to change |
 | unpause route | spent under a hold; no flag |
