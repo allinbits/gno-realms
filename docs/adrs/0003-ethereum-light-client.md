@@ -134,8 +134,13 @@ unchanged.
 
 ## Consequences
 
+- Consensus-state storage grows with every accepted finalized height: each
+  advancing update stores a consensus state, and nothing prunes them. A
+  recovery only stops trusting the states below the substitute's (they no
+  longer verify proofs); they stay allocated.
 - The deployment is fresh: core `impl/v0` serves Ethereum clients itself
-  (`core/impl/v1` adds only the fork-schedule migration), and the transfer
+  (`core/impl/v1` adds the client migrations: a fork schedule, or a verifier
+  replacement by a registered version), and the transfer
   app starts with `impl/v1`, the first implementation its proxy registers;
   the new `p/` packages deploy beside them.
 - Tests replay the four recorded devnet runs of the eureka client (11 updates,
