@@ -21,16 +21,20 @@ the proxies and stay provable across the switch.
   implements the proxy's `Logic`, registers itself from `init` with
   `RegisterImpl`, and reuses from `impl/v0` what it does not change (`New`, the
   exported `Renderer`).
-- `RegisterImpl` takes, beside the constructor, a store-free manifest of
-  plain values: `RegisterImpl(cur, ctor, version, over)` for the core,
+- `RegisterImpl` takes, beside the constructor, a manifest of plain
+  values: `RegisterImpl(cur, ctor, version, over)` for the core,
   `RegisterImpl(cur, ctor, version, over, keepsControls)` for the transfer
   app. `version` is what the candidate's `Version()` reports; `over` lists
   the versions of an active implementation it installs over (`""` for the
   bootstrap; its own version is always accepted; `nil` accepts any);
   `keepsControls` declares that it implements the route controls. The
-  governed preflight (`CheckUpdateImpl`) reads only the manifest, and the
-  installation panics if the built candidate's version, or its keeping the
-  controls, differs from what it declared.
+  governed preflight (`CheckUpdateImpl`) checks the manifest, then runs the
+  candidate's constructor against a fresh, empty store (never the live
+  one), checks the version it builds (and, for transfer, whether it keeps
+  the controls) against the manifest, and evaluates its declared install
+  condition (`CheckInstall`): candidate code runs during the preflight. The
+  installation checks the built candidate against its manifest again and
+  panics on a difference.
 - `OnInstall` is the migration hook. It runs inside `UpdateImpl` before the
   switch, and `prevVersion` tells it which implementation was active, which
   is also the layout of the data as long as versions activate in sequence.
