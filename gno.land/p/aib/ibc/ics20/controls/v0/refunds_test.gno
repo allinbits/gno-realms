@@ -509,15 +509,15 @@ func TestAggregatesNeverWrap(t *testing.T) {
 	}
 
 	// The minted supply: a refund paid beyond a released reservation that
-	// would overflow the outstanding supply is refused.
+	// would overflow the outstanding supply is parked, never minted past it.
 	r2, rt2 := newRoute(t)
 	w := rt2.Denom("ibc/WETH")
 	rt2.RecordSend(sendRec(1, "ibc/WETH", KindMint, 100))
 	rt2.Settle(t0, 1, pk(1), OutcomeSuccess, false, 0) // releases the reservation
 	w.Totals.Outstanding = maxInt64 - 50
 	r2.Replace("ethereum-1", "ethereum-2", 2, 1000)
-	if _, err := settleProven(rt2, "ethereum-1", []SettleItem{{Seq: 1, Action: SettlePay, Amount: 100}}, "inc", lockOf(0)); err == nil {
-		t.Fatalf("the outstanding supply wrapped")
+	if ps, err := settleProven(rt2, "ethereum-1", []SettleItem{{Seq: 1, Action: SettlePay, Amount: 100}}, "inc", lockOf(0)); err != nil || len(ps) != 0 || w.Totals.Outstanding != maxInt64-50 {
+		t.Fatalf("the outstanding supply wrapped: %v %+v %d", err, ps, w.Totals.Outstanding)
 	}
 	// Unpaid authorizations saturate: they only bound what is left to
 	// resolve.
@@ -966,5 +966,77 @@ func TestMintedPayoutHeadroom(t *testing.T) {
 	}
 	if ps, _ := rt.PayClaims(t0+2*Day, 0, t0, "ibc/BIG", 1, 0); len(ps) != 0 {
 		t.Fatalf("paid past the outstanding supply: %+v", ps)
+	}
+}
+
+// A genuine settlement refund the outstanding supply cannot hold is parked,
+// not refused (design review #3): the integer capacity is spent (a forged
+// success released the send's reservation, and forged credits took what it
+// freed), no unpaid claim is left to reduce, and the route stays closed until
+// its sends are settled. The parked refund settles its record, so the route
+// reopens; it is owed, queued and reserved against the supply cap, so no
+// credit takes the capacity it needs; a voucher return frees capacity, and
+// the queued refund is then paid in full.
+func TestParkedSettlementRefund(t *testing.T) {
+	const five = int64(5_000_000_000_000_000_000)
+	const a = int64(1_000)
+	r, rt := newRoute(t)
+	cfg := DenomConfig{Kind: KindMint, CapFloor: maxInt64, SupplyCap: maxInt64, Fee: 10, FeeFloor: 1, RefundCap: 24_000}
+	if err := rt.SetDenom("ibc/BIG", cfg, t0, 0, maxInt64); err != nil {
+		t.Fatal(err)
+	}
+	d := rt.Denom("ibc/BIG")
+	// A holder burns a (a return); a forged success releases its reservation.
+	if err := rt.RecordSend(sendRec(1, "ibc/BIG", KindMint, a)); err != nil {
+		t.Fatal(err)
+	}
+	rt.Settle(t0, 1, pk(1), OutcomeSuccess, false, 0)
+	// Forged credits take the freed capacity: the supply is full again.
+	mustCredit(t, rt, t0, 30, "ibc/BIG", bob, a, 0)
+	if ps, err := rt.PayClaims(t0+Day, 0, t0, "ibc/BIG", 1, 0); err != nil || len(ps) != 1 || d.Totals.Outstanding != maxInt64 || d.Totals.Owed != 0 {
+		t.Fatalf("setup: %v %+v %+v", err, ps, d.Totals)
+	}
+	// The replacement proves the return refundable: its genuine refund
+	// cannot be minted now, so it is parked.
+	r.Replace("ethereum-1", "ethereum-2", 0, 1000)
+	ps, err := settleProven(rt, "ethereum-1", []SettleItem{{Seq: 1, Action: SettlePay, Amount: a}}, "inc", lockOf(0))
+	if err != nil || len(ps) != 0 {
+		t.Fatalf("settlement: %v %+v", err, ps)
+	}
+	rec, _ := rt.Send(pk(1))
+	if rec.Settlement != SettlePay || rec.Payment != PayQueued || rec.Reservation != a || d.Totals.QueuedRefunds != a || d.Totals.Returning != a {
+		t.Fatalf("parked: %+v totals %+v", rec, d.Totals)
+	}
+	// Settled: it no longer blocks the reopening.
+	if _, done, err := rt.Reopen(); err != nil || !done {
+		t.Fatalf("reopen: %v %v", done, err)
+	}
+	// The reserved refund counts against the supply cap: no credit takes it.
+	if err := rt.CheckCredit("ibc/BIG", 1); err == nil {
+		t.Fatalf("a credit took the capacity the parked refund needs")
+	}
+	// No capacity yet: nothing is paid, the refund stays owed.
+	if ps, _ := rt.PayRefunds(t0+2*Day, "ibc/BIG", 20, false, 0); len(ps) != 0 {
+		t.Fatalf("minted past the supply: %+v", ps)
+	}
+	// A voucher return over the new client burns 2a: the parked refund is
+	// paid in full.
+	ret := sendRec(2, "ibc/BIG", KindMint, 2*a)
+	ret.Packet.SourceClient = "ethereum-2"
+	ret.Key, ret.Commitment = PacketKey("ethereum-2", 2), types.CommitPacket(ret.Packet)
+	if err := rt.RecordSend(ret); err != nil {
+		t.Fatal(err)
+	}
+	ps, err = rt.PayRefunds(t0+2*Day, "ibc/BIG", 20, false, 0)
+	if err != nil || len(ps) != 1 || ps[0].Key != pk(1) || ps[0].Amount != a {
+		t.Fatalf("paid: %v %+v", err, ps)
+	}
+	rec, _ = rt.Send(pk(1))
+	if rec.Payment != PayReconciled || rec.Refunded != a || rec.Reservation != 0 || d.Totals.QueuedRefunds != 0 ||
+		d.Totals.Returning != 2*a || d.Totals.Outstanding != maxInt64-a {
+		t.Fatalf("after: %+v totals %+v", rec, d.Totals)
+	}
+	if rt.OpenSends("ethereum-1") != 0 {
+		t.Fatalf("open sends %d", rt.OpenSends("ethereum-1"))
 	}
 }

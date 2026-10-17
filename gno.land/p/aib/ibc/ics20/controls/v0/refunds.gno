@@ -21,7 +21,7 @@ const (
 const (
 	PayNone       = ""           // nothing owed: in flight, or acknowledged as a success
 	PayPaid       = "paid"       // refunded at once
-	PayQueued     = "queued"     // refund owed, waiting under the refund meter or a refunds hold
+	PayQueued     = "queued"     // refund owed, waiting under the refund meter, a refunds hold or the minted supply's headroom
 	PayClaimed    = "claimed"    // a queued refund paid in full later
 	PayRejected   = "rejected"   // a queued refund a reconciliation settled unpaid
 	PayReconciled = "reconciled" // a refund a reconciliation paid by decision
@@ -392,12 +392,16 @@ func (rt *Route) PayRefunds(now int64, denom string, n int, hold bool, lock int6
 			}
 		}
 		d.refundMeter.Take(pay)
+		was := isOpen(r)
 		rt.refunded(d, r, pay)
 		d.Totals.QueuedRefunds -= pay
 		if r.Refunded == r.Amount {
 			d.refundQueue.Remove(k)
 			r.Payment = PayClaimed
-			rt.track(r, true)
+			if r.Settlement != 0 {
+				r.Payment = PayReconciled // a settlement's parked refund
+			}
+			rt.track(r, was)
 		}
 		out = append(out, RefundPayment{Key: key, Denom: denom, To: r.Sender, Amount: pay})
 	}
@@ -593,10 +597,13 @@ func (rt *Route) SettleRecords(client string, items []SettleItem, incident strin
 	}
 	for denom, total := range pays {
 		d := rt.Denom(denom)
-		// A minted refund paid beyond what its send still reserves mints
-		// vouchers anew: the outstanding supply must hold them.
-		if _, ok := checkedAdd(d.Totals.Outstanding, total); d.Config.Kind == KindMint && !ok {
-			return nil, errors.New("controls: the settlement's refunds would overflow the outstanding supply of " + denom)
+		// A minted refund the outstanding supply cannot hold now is parked,
+		// not refused (see park): it never blocks the reconciliation.
+		if d.Config.Kind == KindMint {
+			if _, ok := checkedAdd(d.Totals.Returning, total); !ok {
+				return nil, errors.New("controls: the settlement's refunds would overflow the reserved supply of " + denom)
+			}
+			continue
 		}
 		// The escrow the liabilities still reserve once the whole batch
 		// applies: claims and queued refunds, less what the batch releases.
@@ -641,22 +648,48 @@ func (rt *Route) SettleRecords(client string, items []SettleItem, incident strin
 			rt.unqueue(d, r)
 			r.Payment = PayRejected
 		}
+		parked := false
 		switch it.Action {
 		case SettlePay:
-			if it.Amount > 0 {
-				rt.refunded(d, r, it.Amount)
-				r.Payment = PayReconciled
-				out = append(out, RefundPayment{Key: key, Denom: r.Denom, To: r.Sender, Amount: it.Amount})
+			if it.Amount <= 0 {
+				break
 			}
+			if _, fits := checkedAdd(d.Totals.Outstanding, it.Amount); d.Config.Kind == KindMint && !fits {
+				parked = true
+				break
+			}
+			rt.refunded(d, r, it.Amount)
+			r.Payment = PayReconciled
+			out = append(out, RefundPayment{Key: key, Denom: r.Denom, To: r.Sender, Amount: it.Amount})
 		case SettleLoss:
 			rt.addLoss(d, Loss{Key: key, Direction: DirSend, Denom: r.Denom, Amount: it.Amount, Chain: ChainGno, Incident: incident, Cause: CauseRefundForDelivered})
 		}
 		rt.release(d, r)
 		r.Settlement = it.Action
 		r.Incident = incident
+		if parked {
+			rt.park(d, r, it.Amount)
+		}
 		rt.track(r, was)
 	}
 	return out, nil
+}
+
+// park books a settled genuine refund of a minted denom that the outstanding
+// supply cannot hold now (its integer capacity is spent): the record is
+// settled, so it no longer blocks a reopening, and its refund is owed and
+// queued (PayQueued, counted in QueuedRefunds), paid later by PayRefunds
+// within the supply's headroom, the refund meter and any refunds hold, like
+// every queued refund. The amount is reserved again (Reservation, Returning),
+// so it counts against the supply cap: no credit admitted meanwhile takes the
+// capacity the refund needs.
+func (rt *Route) park(d *Denom, r *SendRecord, amount int64) {
+	d.refundSeq++
+	d.refundQueue.Set(seqKey(d.refundSeq), r.Key)
+	d.Totals.QueuedRefunds = mustAdd(d.Totals.QueuedRefunds, amount)
+	r.Payment = PayQueued
+	r.Reservation = amount
+	d.Totals.Returning = mustAdd(d.Totals.Returning, amount) // checked by SettleRecords
 }
 
 // forgedReceive is the denom and what the receive of key (an inbound
