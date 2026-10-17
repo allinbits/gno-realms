@@ -112,10 +112,12 @@ var (
 )
 
 // manifest is what an implementation declares about itself when it
-// registers, as plain values: CheckUpdateImpl and KeepsControls answer from
-// it alone, so no candidate code runs, and nothing is handed the store,
-// before a governed installation. The installation checks the built
-// implementation against it.
+// registers, as plain values. KeepsControls answers from it alone;
+// CheckUpdateImpl checks it, then builds the candidate against the empty
+// sandboxStore (never the live store) and checks the built version and
+// controls answer against it: candidate code runs in the preflight, but
+// nothing is handed the live store before a governed installation. The
+// installation checks the built implementation against it again.
 type manifest struct {
 	// Version is the Version() the implementation reports.
 	Version string
