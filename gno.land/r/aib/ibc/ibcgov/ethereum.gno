@@ -239,8 +239,15 @@ const (
 // client replacing it, and the local gno client governance approved to
 // carry the epoch over it (tracking that router client), the only one a
 // notice for it is accepted over.
+//
+// A transition is an intent from the moment its kind 10 is dispatched (or
+// its recovery expectation recorded): it counts against the old client's
+// successors and keeps its clients open for governance at once, and grants
+// notice authority (active) only once its 7-day, hold-deferred expectation
+// decision applies. A refused, spent or cancelled expectation releases it.
 type expEdge struct {
 	to, local string
+	active    bool
 }
 
 func expectedOf(old string) []expEdge {
@@ -277,7 +284,8 @@ func checkLocal(local, remote string) string {
 }
 
 // checkExpect is why the transition old → next over the gno client local
-// cannot be expected, or "".
+// cannot be expected, or "": the local client must qualify (checkLocal), and
+// a new transition must fit the old client's successors, intents included.
 func checkExpect(old, next, local string) string {
 	if refusal := checkLocal(local, next); refusal != "" {
 		return refusal
@@ -289,14 +297,14 @@ func checkExpect(old, next, local string) string {
 		}
 	}
 	if len(succ) >= maxExpected {
-		return "router client " + old + " has " + strconv.Itoa(maxExpected) + " expected successors already"
+		return "router client " + old + " has " + strconv.Itoa(maxExpected) + " expected successors already, intents included"
 	}
 	return ""
 }
 
-// expect records the transition old → next over local (a no-op when it is
-// expected already); its caller checked it (checkExpect).
-func expect(old, next, local string) {
+// intend records the transition old → next over local as an intent (a no-op
+// when it is recorded already); its caller checked it (checkExpect).
+func intend(old, next, local string) {
 	succ := expectedOf(old)
 	for _, x := range succ {
 		if x.to == next && x.local == local {
@@ -304,8 +312,38 @@ func expect(old, next, local string) {
 		}
 	}
 	expected.Set(old, append(append([]expEdge{}, succ...), expEdge{to: next, local: local}))
+	chain.Emit("GovIntent", "from", old, "to", next, "client", local)
+}
+
+// expect makes the transition old → next over local active, recording it
+// first if need be; its caller checked it (checkExpect).
+func expect(old, next, local string) {
+	intend(old, next, local)
+	succ := append([]expEdge{}, expectedOf(old)...)
+	for i := range succ {
+		if succ[i].to == next && succ[i].local == local {
+			succ[i].active = true
+		}
+	}
+	expected.Set(old, succ)
 	approvedLocal.Set(local, true)
 	chain.Emit("GovExpect", "from", old, "to", next, "client", local)
+}
+
+// release drops the intent old → next over local, unless it is active.
+func release(old, next, local string) {
+	var kept []expEdge
+	for _, x := range expectedOf(old) {
+		if x.to == next && x.local == local && !x.active {
+			continue
+		}
+		kept = append(kept, x)
+	}
+	if len(kept) == 0 {
+		expected.Remove(old)
+		return
+	}
+	expected.Set(old, kept)
 }
 
 // stepEdges is the expected transitions taken at step k (from 1) of the
@@ -650,7 +688,7 @@ func takeNotice(cur realm, source, client string, payload types.Payload) (uint32
 	}
 	found := false
 	for _, x := range expectedOf(core.CounterpartyClientID(EpochClient())) {
-		if x.to == source && x.local == client {
+		if x.active && x.to == source && x.local == client {
 			found = true
 		}
 	}
@@ -771,7 +809,7 @@ func ApplyEpochNotice(cur realm, e uint32, client, path string) {
 		to, local = st[:j], st[j+1:]
 		found := false
 		for _, x := range expectedOf(prev) {
-			if x.to == to && x.local == local {
+			if x.active && x.to == to && x.local == local {
 				found = true
 			}
 		}
@@ -935,6 +973,7 @@ func (p *ethParams) apply(cur realm, t int64) (string, string) {
 		// waits 7 days and that a hold defers, as for an emergency recovery
 		// (NewExpectRecoveryRequest). A notice over it before then is
 		// refused, and IBCAdmin sends it again.
+		intend(p.from, p.to, p.local)
 		text := "expect the governance epoch to move from " + p.from + " to " + p.to + ", carried here by " + p.local + " (kind 10)"
 		d := decide(cur, "expect transition", text, &expectParams{from: p.from, to: p.to, local: p.local}, t, t, true)
 		note += "; its transition is expected from decision " + itoa(d.ID)
@@ -1236,6 +1275,7 @@ type expectParams struct{ from, to, local string }
 
 func (p *expectParams) apply(cur realm, t int64) (string, string) {
 	if refusal := checkExpect(p.from, p.to, p.local); refusal != "" {
+		release(p.from, p.to, p.local)
 		return "", refusal
 	}
 	expect(p.from, p.to, p.local)
@@ -1264,6 +1304,12 @@ func NewExpectRecoveryRequest(cur realm, oldClientID, newClientID, localClientID
 	text := "expect the emergency recovery of " + oldClientID + " by " + newClientID + ", carried here by " + localClientID
 	p := &expectParams{from: oldClientID, to: newClientID, local: localClientID}
 	return propose(cur, "expect recovery", text, func(cur realm, made, t int64) {
+		// An intent from the recording on: it holds the successor's place
+		// and keeps its clients open for governance.
+		if refusal := checkExpect(oldClientID, newClientID, localClientID); refusal != "" {
+			panic("ibcgov: " + refusal)
+		}
+		intend(oldClientID, newClientID, localClientID)
 		decide(cur, "expect recovery", text, p, made, t, true)
 	})
 }

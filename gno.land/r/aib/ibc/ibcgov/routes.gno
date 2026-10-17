@@ -168,7 +168,9 @@ func checkRouteClient(client string) string {
 	switch {
 	case core.ClientType(client) != ethereum.ClientType:
 		return client + " is not an Ethereum client"
-	case core.IsClientRetiredFor(client, transfer.PortID):
+	case core.IsClientRetiredAny(client):
+		// Retired on any port, governance's included (an epoch notice moved
+		// past it): a client Ethereum retired takes no route.
 		return client + " is retired"
 	case core.ClientStatus(client) != "Active":
 		return client + " is not Active"

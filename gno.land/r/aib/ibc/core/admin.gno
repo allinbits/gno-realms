@@ -197,6 +197,12 @@ func RetireClientPort(cur realm, clientID, port string) {
 	chain.Emit(EventTypeClientRetired, "client_id", clientID, "port", port)
 }
 
+// IsClientRetiredAny reports whether clientID is retired, or retired for any
+// port (RetireClientPort): such a client takes no new role.
+func IsClientRetiredAny(clientID string) bool {
+	return store.isRetiredAny(clientID)
+}
+
 // IsClientRetiredFor reports whether clientID is retired, or retired for
 // port (RetireClientPort).
 func IsClientRetiredFor(clientID, port string) bool {

@@ -149,6 +149,20 @@ func (cs *coreStore) isRetired(clientID string) bool {
 	return cs.retired.Has(clientID)
 }
 
+// isRetiredAny reports whether clientID is retired, or retired for any port
+// ('}' follows '|': the keys clientID|port sort below clientID}).
+func (cs *coreStore) isRetiredAny(clientID string) bool {
+	if cs.retired.Has(clientID) {
+		return true
+	}
+	found := false
+	cs.retired.Iterate(clientID+"|", clientID+"}", func(string, any) bool {
+		found = true
+		return true
+	})
+	return found
+}
+
 // isRetiredFor reports whether clientID is retired, or retired for port.
 func (cs *coreStore) isRetiredFor(clientID, port string) bool {
 	return cs.retired.Has(clientID) || cs.retired.Has(clientID+"|"+port)
