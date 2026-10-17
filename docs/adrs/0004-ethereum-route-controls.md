@@ -112,13 +112,14 @@ starts with impl/v1 and there is no migration from impl/v0 (round 10).
 | ibcgov `SetFlag`, `ClearFlag` | the seat's key, on a route ibcgov enrolled or any Ethereum client (one about to become a route's); a client of a route, current or retired, names its route (flags are kept under the route key) |
 | `UpdateClient`, `RecvPacket`, `Acknowledgement`, `Timeout` on an Ethereum client | anyone (R17); other clients keep the relayer whitelist |
 
-Candidate implementation code reaches the store only through an authorized
-installation: the bootstrap registration, or a governed `UpdateImpl` after
+Candidate implementation code reaches the live store only through an
+authorized installation: the bootstrap registration, or a governed `UpdateImpl` after
 its 7-day delay. Each implementation registers, beside its constructor, a
-store-free manifest of plain values (`RegisterImpl(cur, ctor, version,
+manifest of plain values (`RegisterImpl(cur, ctor, version,
 over[, keepsControls])`: the version it reports, the versions it installs
 over, and for transfer whether it keeps the route controls).
-`transfer.KeepsControls` reads the manifest only. The preflight
+`transfer.KeepsControls` reads the manifest only. The preflight, unlike
+it, runs candidate code:
 `CheckUpdateImpl` (core and transfer) reads the manifest, then builds the
 candidate against a fresh, empty store, never the live one (core's
 `newStore()`, transfer's `sandboxStore`, which holds nothing and refuses
