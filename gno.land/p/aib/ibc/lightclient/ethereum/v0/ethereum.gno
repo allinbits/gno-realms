@@ -714,7 +714,7 @@ func (c *EthLightClient) RecoverClient(substitute lightclient.Interface) error {
 	if err := c.CheckRecovery(substitute); err != nil {
 		return err
 	}
-	sub := substitute.(*EthLightClient)
+	sub := substitute.(ethState).Ethereum()
 	a, b := c.ClientState, sub.ClientState
 	cons, _ := sub.GetConsensusState(sub.LatestHeight())
 	copied := copyConsensusState(*cons)
@@ -733,10 +733,12 @@ func (c *EthLightClient) RecoverClient(substitute lightclient.Interface) error {
 // changes nothing, so a governed recovery is refused deterministically
 // before it runs.
 func (c *EthLightClient) CheckRecovery(substitute lightclient.Interface) error {
-	sub, ok := substitute.(*EthLightClient)
+	// The v0 verifier, or a later version wrapping it.
+	s, ok := substitute.(ethState)
 	if !ok {
 		return ufmt.Errorf("substitute must be an ethereum client, got %T", substitute)
 	}
+	sub := s.Ethereum()
 	a, b := c.ClientState, sub.ClientState
 	if a.ChainID != b.ChainID || !bytesEqual(a.GenesisValidatorsRoot, b.GenesisValidatorsRoot) ||
 		a.ForkParameters != b.ForkParameters || a.SyncCommitteeSize != b.SyncCommitteeSize ||
