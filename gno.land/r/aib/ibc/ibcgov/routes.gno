@@ -605,26 +605,50 @@ func (p *bindParams) apply(cur realm, t int64) (string, string) {
 	if epoch != 0 {
 		return "", "the governance channel is bound already"
 	}
-	switch {
-	case core.ClientType(p.client) != ethereum.ClientType || core.IsClientRetired(p.client):
-		return "", p.client + " is no usable Ethereum client"
-	case core.CounterpartyClientID(p.client) == "":
-		return "", p.client + " has no counterparty registered"
+	if refusal := checkBindClient(p.client); refusal != "" {
+		return "", refusal
 	}
 	bindChannel(p.client)
 	return "governance epoch 1 over " + p.client, ""
 }
 
+// checkBindClient is why client cannot carry the governance channel, "" if
+// it can: an Active Ethereum client with its counterparty registered, the
+// current client of a route ibcgov enrolled. The channel always rides a
+// route, so a replacement of the route, the way out of a client that
+// freezes or expires, moves the channel's epoch with it.
+func checkBindClient(client string) string {
+	switch {
+	case core.ClientType(client) != ethereum.ClientType:
+		return client + " is not an Ethereum client"
+	case core.IsClientRetired(client):
+		return client + " is retired"
+	case core.ClientStatus(client) != "Active":
+		return client + " is not Active"
+	case core.CounterpartyClientID(client) == "":
+		return client + " has no counterparty registered"
+	}
+	rd, ok := transfer.ExtView("controls").(controls.Reader)
+	if !ok {
+		return client + " is no route's client: no transfer controls"
+	}
+	if k := rd.RouteOf(client); k == "" || !routes.Has(k) || rd.Client(k) != client {
+		return client + " is not the current client of an enrolled route"
+	}
+	return ""
+}
+
 // NewBindGovernanceRequest binds the governance channel to the Ethereum client
 // clientID after 7 days (enrolling a route loosens): it opens epoch 1, whose
-// decisions go to IBCAdmin over clientID. Once only: later epochs open with a
-// route replacement.
+// decisions go to IBCAdmin over clientID. clientID must be the current client
+// of an enrolled route, and Active, when it is made and again when it
+// executes. Once only: later epochs open with a replacement of that route.
 func NewBindGovernanceRequest(cur realm, clientID string) Request {
 	if epoch != 0 {
 		panic("ibcgov: the governance channel is bound already")
 	}
-	if core.ClientType(clientID) != ethereum.ClientType || core.CounterpartyClientID(clientID) == "" {
-		panic("ibcgov: " + clientID + " is no Ethereum client with a counterparty")
+	if refusal := checkBindClient(clientID); refusal != "" {
+		panic("ibcgov: " + refusal)
 	}
 	text := "bind the governance channel to " + clientID + " (epoch 1)"
 	p := &bindParams{client: clientID}

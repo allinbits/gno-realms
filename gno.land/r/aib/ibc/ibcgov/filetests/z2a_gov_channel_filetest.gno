@@ -9,6 +9,7 @@ import (
 	ethtesting "gno.land/p/aib/ibc/lightclient/ethereum/testing/v0"
 	"gno.land/p/aib/ibc/types/v0"
 	"gno.land/p/nt/testutils/v0"
+	_ "gno.land/r/aib/ibc/apps/transfer/impl/v1"
 	"gno.land/r/aib/ibc/core"
 	_ "gno.land/r/aib/ibc/core/impl/v0"
 	"gno.land/r/aib/ibc/ibcgov"
@@ -99,6 +100,8 @@ func main(cur realm) {
 	client := core.CreateClient(cross(cur), ethtesting.ClientState(), ethtesting.ConsensusState())
 	core.RegisterCounterparty(cross(cur), client, [][]byte{{}}, "client-0")
 	println("before the channel is bound:", revive(func() { govern(cur, ibcgov.NewEthUnpauseRequest(cross(cur), 2, "")) }))
+	// The governance channel rides a route: enroll the client first.
+	execute(cur, govern(cur, ibcgov.NewEnrollRouteRequest(cross(cur), client, string(ibcgov.Governor()), "0x00000000000000000000000000000000000b0001 0x00000000000000000000000000000000000b0002 0x00000000000000000000000000000000000b0003")))
 	execute(cur, govern(cur, ibcgov.NewBindGovernanceRequest(cross(cur), client)))
 	println("epoch", ibcgov.Epoch(), "over", ibcgov.EpochClient())
 
@@ -174,7 +177,7 @@ func main(cur realm) {
 // before the channel is bound: ibcgov: the governance channel is not bound
 // epoch 1 over ethereum-1
 // dispatched seq 1: 110 bytes; core commitment: true
-// {"epoch":1,"seq":1,"kind":2,"decision":2,"body":"0100000001000000000000000102000000000000000000000000000000000000000000000000000000000000000200000000000000000000000000000000000000000000000000000000000000400000000000000000000000000000000000000000000000000000000000000000","status":0,"redispatch":false,"in_flight":true,"transport":1,"sends":1,"event":"sent as packet 1"}
+// {"epoch":1,"seq":1,"kind":2,"decision":3,"body":"0100000001000000000000000102000000000000000000000000000000000000000000000000000000000000000200000000000000000000000000000000000000000000000000000000000000400000000000000000000000000000000000000000000000000000000000000000","status":0,"redispatch":false,"in_flight":true,"transport":1,"sends":1,"event":"sent as packet 1"}
 // direct send: send packet failed for payload #0 app "gov": ibcgov: governance packets are sent by ibcgov's decisions only
 // foreign ack: ibcgov: the gov callbacks are the IBC core's, not gno.land/r/aib/main
 // a governance packet received here: true

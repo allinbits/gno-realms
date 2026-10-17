@@ -61,6 +61,8 @@ func main(cur realm) {
 	client := core.CreateClient(cross(cur), ethtesting.ClientState(), ethtesting.ConsensusState())
 	core.RegisterCounterparty(cross(cur), client, [][]byte{{}}, "gnoland")
 	println("counterparty:", core.CounterpartyClientID(client))
+	// The governance channel rides a route: enroll the client first.
+	execute(cur, govern(cur, ibcgov.NewEnrollRouteRequest(cross(cur), client, string(collector), bridge)))
 	execute(cur, govern(cur, ibcgov.NewBindGovernanceRequest(cross(cur), client)))
 
 	govern(cur, ibcgov.NewEthRouteSettingsRequest(cross(cur), "gnoland", 86400))
@@ -85,8 +87,6 @@ func main(cur realm) {
 	}
 
 	// The transfer app carries a packet from the router client "gnoland".
-	execute(cur, govern(cur, ibcgov.NewEnrollRouteRequest(cross(cur), client, string(collector), bridge)))
-	advance(7*24*time.Hour + time.Second) // keeps the timeline of the goldens
 	execute(cur, govern(cur, ibcgov.NewSetDenomRequest(cross(cur), client, weth, "mint", 4_000, 10_000, 10, 1, 0, 0, 4_000, "")))
 	data := ics20.NewFungibleTokenPacketData(weth, "100", "0x5f67a5398d91087d1b37a8a43436196a7830867f", bob.String(), "")
 	bz, _ := abi.Marshal(data)
@@ -106,6 +106,6 @@ func main(cur realm) {
 // add abc: ibcgov: a router client id added by governance is a custom id: 4 to 128 characters of a-z A-Z 0-9 . _ + - # [ ] < >, not starting with client- or channel-: abc
 // add gno/land: ibcgov: a router client id added by governance is a custom id: 4 to 128 characters of a-z A-Z 0-9 . _ + - # [ ] < >, not starting with client- or channel-: gno/land
 // settings client-01: ibcgov: not an Ethereum router client id: client-01
-// - #6 applied: ethereum kind 11 \(route settings\): quarantine of \<bridge\>: 3600 s (recorded 1235172691, applied 1235172691) — dispatched as epoch 1 seq 5
-// - #5 applied: ethereum kind 11 \(route settings\): quarantine of \_eth\_: 3600 s (recorded 1235172691, applied 1235172691) — dispatched as epoch 1 seq 4
+// - #7 applied: ethereum kind 11 \(route settings\): quarantine of \<bridge\>: 3600 s (recorded 1235777492, applied 1235777492) — dispatched as epoch 1 seq 5
+// - #6 applied: ethereum kind 11 \(route settings\): quarantine of \_eth\_: 3600 s (recorded 1235777492, applied 1235777492) — dispatched as epoch 1 seq 4
 // receive from gnoland: true

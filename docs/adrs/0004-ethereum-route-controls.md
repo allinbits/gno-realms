@@ -175,8 +175,13 @@ Source port `gov` on gno.land, destination port `ibcgov` on Ethereum, version
 `ibcgov-1`, encoding `application/x-ibcgov`; envelope
 `version u8 (1) ‖ epoch u32 ‖ seq u64 ‖ kind u8 ‖ params` (big-endian),
 `params = abi.encode(fields…)` of the §5.4 tuple, at most 1024 bytes. Epoch 1
-opens when `NewBindGovernanceRequest` binds the channel to an Ethereum client;
-a route replacement over that client opens the next epoch over the new one.
+opens when `NewBindGovernanceRequest` binds the channel to an Ethereum client,
+which must be Active and the current client of an enrolled transfer route
+both when the request is made and when it executes (`checkBindClient`); a
+standalone binding is refused, and a client that loses health during the
+delay leaves the decision spent. The channel thus always rides a route: a
+route replacement over that client, the way out of a frozen or expired
+client, opens the next epoch over the new one.
 `seq` is bound in the transaction that records and dispatches the decision, so
 numbers are contiguous, never reused or skipped, and their bytes immutable.
 Each send is authorized once (client, epoch, seq, payload hash), consumed in
@@ -265,7 +270,7 @@ before crossing, or a refusal returned by the callee):
 | transfer block/unblock | blocked already / not blocked |
 | route operations (`GovApply`) | every refusal returned, including no controls installed; a sweep payment under a payouts flag, or a settlement paying refunds under a refunds hold, is deferred (stays pending) rather than spent |
 | route replacement | as `GovApply`; the new client unusable; the route's client moved; still closed from the previous replacement |
-| bind governance | bound already; unusable client |
+| bind governance | bound already; not Active, or not the current client of an enrolled route |
 | seats | an address in two seats; nothing to change |
 | unpause route | spent under a hold; no flag |
 | cancel | not pending |
