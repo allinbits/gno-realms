@@ -102,9 +102,9 @@ starts with impl/v1 and there is no migration from impl/v0 (round 10).
 - **ibcgov**: `ledger`, `yielded`, `seats[6]`, `flags` (route|fn|seat),
   `routes` (route key → payouts epoch, the route's identity recorded at
   enrolment), `holdSince`/`belowSince`, `epoch`,
-  `epochs` (epoch → client, last seq), `replacements` (the new client of
-  every recorded route replacement → the client it replaces: where an epoch
-  notice may arrive), `dispatches` ((epoch, seq) → bytes,
+  `epochs` (epoch → client, last seq), `govSucc` (the governance
+  transitions, kept apart from the transfer aliases: the old client of every
+  recorded route replacement → the client replacing it), `dispatches` ((epoch, seq) → bytes,
   status, transport sequence), `pendingAuth` (one-time, never persisted
   between transactions in practice: set and consumed in the same call).
 
@@ -294,31 +294,39 @@ both when the request is made and when it executes (`checkBindClient`); a
 standalone binding is refused, and a client that loses health during the
 delay leaves the decision spent. The channel thus always rides a route, and
 moves with a route replacement in two phases (ADR pr6375 §7.12, "Governance
-epoch switch, two-phase and authenticated"; z9zv). Recording
-`NewReplaceRouteRequest` notes its new client as one an epoch notice may
-arrive over. When the replacement executes here while the epoch runs over
-the old client, the core retires the old client for the transfer port only
-(`RetireClientPort`): the epoch stays over it, so a decision in flight, the
-kind 10 among them, can still be re-sent. IBCAdmin, when it executes the
+epoch switch, two-phase and authenticated"; z9zv, z9zx). Recording
+`NewReplaceRouteRequest` records the transition old client → new client
+(`govSucc`, kept apart from the transfer app's route aliases), so the
+recorded transitions chain, from the epoch's client, the clients the epoch is
+to move through, one epoch each, as Ethereum raises its epoch by one per
+kind 10 or emergency recovery it executes. A client on that chain (the
+epoch's, or one still ahead of it) is never retired for the gov port: when
+its replacement executes here the core retires it for the transfer port only
+(`RetireClientPort`), so a decision in flight, the kind 10 among them, can
+still be re-sent over the epoch's client, and a later step's notice can
+still arrive. IBCAdmin, when it executes the
 matching kind 10 or its emergency recovery, sends an epoch notice from its
 port `ibcgov` over the new client to port `gov`: `version u8 (1) ‖ epoch
 u32 ‖ newClient` (big-endian, `newClient` the router's client id it comes
 from, the rest of the bytes), version `ibcgov-1`, encoding
 `application/x-ibcgov`. It is the only packet ibcgov receives
-(`App.OnRecvPacket`). ibcgov accepts it only over the new client of a
-recorded replacement whose old client carries the current epoch, for exactly
-the current epoch plus one, naming the client it came from, its proof
-verified by the core through the new client (Active, its counterparty the
-notice's source); the epoch then opens over the new client and the old one
-is retired for the gov port, for good once the replacement has executed here
-too. The app acknowledgement is `epoch u32 ‖ seq u64 (0) ‖ status u8 ‖
+(`App.OnRecvPacket`). ibcgov accepts a notice of epoch current + k (k from 1
+to 16) only over the k-th recorded successor of the epoch's client, naming
+the client it came from, its proof verified by the core through that client
+(Active, its counterparty the notice's source); the epoch then opens there,
+past any step in between (a step whose client failed before its notice
+arrived is skipped: z9zx freezes one), and every client passed is retired
+for the gov port, for good once its replacement has executed here too. Two
+replacements executed here before any notice (A→B, then B→C) leave A and B
+retired for transfers only: B's notice moves the epoch to 2, C's to 3; C's
+notice for epoch 2 is refused. The app acknowledgement is `epoch u32 ‖ seq u64 (0) ‖ status u8 ‖
 redispatch u8 (0)`: status 1 when the notice switches the epoch, 3 for a
 notice of the epoch switched to already (a re-send). Anything else is
 refused with the universal error acknowledgement; a notice sent before its
 replacement is recorded here is refused, and IBCAdmin sends it again. The
 notice may arrive before the replacement executes here: the epoch moves
-then, the old client is retired for the gov port, and the replacement
-retires the rest. Until the notice arrives ibcgov never sends with the next
+then, the clients passed are retired for the gov port, and each one's
+replacement retires the rest. Until the notice arrives ibcgov never sends with the next
 epoch, so the two sides cannot disagree about the current epoch. The
 notice's layout follows ADR pr6375 §7.12; its vectors are to be checked
 against gno-eth-ibc's when IBCAdmin publishes them.
@@ -362,7 +370,7 @@ against gno-eth-ibc 6f94541's vectors.
 | R19 identifying receipts | `types.CommitPacketReceipt`, `core/store.gno`, `core/impl/v0/packet.gno` |
 | §7.3 refusals before state change | `transfer/impl/v1/recv.gno` (`refuse`) |
 | §7.11 on-chain records | `controls.Reader` JSON: route totals, and pages `{"entries":[...],"next":<cursor>}` of claims, sweeps, sends (by packet key) and losses (by direction and packet key), `next` being the storage key the following page starts at; `route_*` events. Every Render page is safe Markdown: JSON pages of transfer, core and ibcgov pass through `jsonmd.Inert` (the controls quote with `jsonmd.Quote`), so a raw receiver kept on an owed sweep entry or a path segment echoed in an error is inert text; tables escape counterparty base denoms, paths, counterparty ids and ports, and the route list its denoms (`sanitize.TableCell`, `InlineText`) |
-| §7.12 gno side | route replacement above, naming its suspect height; settlements of a retired client's sends (`Route.SettleRecords`, `NewSettleRequest` and `NewEthSettleRequest` naming a sequence once per direction, an outbound send and an inbound receive of one sequence together: payments checked against the escrow the liabilities still reserve once the whole batch applies, every queued refund and forged claim it releases counted in any item order; whole remainders, zero for a genuine refund paid in full, forged refunds, each record once; a settlement's refund is paid directly, outside the refund meter and, for a minted denom, outside the supply cap, while a refunds hold still defers the decision; a minted refund the outstanding supply's integer capacity cannot hold then is parked, never refused: its record is settled (it no longer blocks the reopening), the refund owed and queued (`PayQueued`, in `QueuedRefunds`) and reserved again against the supply cap (`Reservation`, `Returning`), so no credit takes the capacity it needs, and `ClaimRefunds` pays it once the route reopens, within the headroom (a voucher return frees it), the refund meter and any refunds hold, the record then `reconciled` (`TestParkedSettlementRefund`); a settlement marks the transfer app's send record and leaves the retired client's commitment in the core as it is); a reopening waits for every open record and every record processed in the suspect interval, and runs its deficit acceptance in batches (`ContinueReopen`); `NewRecordLossRequest`; owed refunds reserved; retired client ids final; a retired client takes the authorized app's pending asynchronous acknowledgements |
+| §7.12 gno side | route replacement above, naming its suspect height; settlements of a retired client's sends (`Route.SettleRecords`, `NewSettleRequest` and `NewEthSettleRequest` naming a sequence once per direction, an outbound send and an inbound receive of one sequence together: payments checked against the escrow the liabilities still reserve once the whole batch applies, every queued refund and forged claim it releases counted in any item order; whole remainders, zero for a genuine refund paid in full, forged refunds, each record once; a settlement's refund is paid directly, outside the refund meter and, for a minted denom, outside the supply cap, while a refunds hold still defers the decision; the settlement is planned before anything changes (`PlanSettlement`): its genuine minted refunds take the room left for minting (the lower of what the outstanding supply and the voucher token's supply leave under int64) in item order, and one that does not fit is parked, never refused; only the refunds paid now are checked against their token or the banker (`payable`), then the plan applies whole (`ApplySettlement`, z9zw). A parked refund: its record is settled (it no longer blocks the reopening), the refund owed and queued (`PayQueued`, in `QueuedRefunds`) and reserved again against the supply cap (`Reservation`, `Returning`), so no credit takes the capacity it needs, and `ClaimRefunds` pays it once the route reopens, within the headroom (a voucher return frees it), the refund meter and any refunds hold, the record then `reconciled` (`TestParkedSettlementRefund`); a settlement marks the transfer app's send record and leaves the retired client's commitment in the core as it is); a reopening waits for every open record and every record processed in the suspect interval, and runs its deficit acceptance in batches (`ContinueReopen`); `NewRecordLossRequest`; owed refunds reserved; retired client ids final; a retired client takes the authorized app's pending asynchronous acknowledgements |
 | R17, §6.7 deployment | a fresh deployment: the transfer proxy's first registration is impl/v1, which serves non-Ethereum clients through impl/v0's logic and puts every Ethereum client under the controls; an Ethereum client carries nothing until `NewEnrollRouteRequest` makes it a route; impl/v0 registers nothing, and the proxy refuses an implementation without the controls once a route exists |
 | §7.12 proven outcomes | `transfer.ProveOutcome` reads the destination router's receipt (`ethereum.PacketReceiptCommitment`) and acknowledgement through the replacement client (`core.CounterpartyValue`, which refuses a verifier not Active or retired); an absence counts only at a destination time at or past the packet's timeout; with a matching receipt, the acknowledgement commitment must be exactly one of two: eureka's canonical success (one app acknowledgement, `{"result":"AQ=="}`, `successAckCommitment`), proving delivered, or the universal error acknowledgement, proving refundable; any other commitment, an unwritten one included, is refused ("the destination wrote no final acknowledgement of the packet"), narrower than §5.4's success or error acknowledgement and than ordinary acknowledgement processing (`ack.gno`), which takes any decodable success result; it is safe because an honest eureka ICS20 app writes exactly these two (see Known limits); an outcome is final while its verifier stays healthy under the trust generation it was proven in, and void (to be proven again) once the verifier froze, expired, or was recovered, upgraded, migrated or substituted, checked again when the settlement consumes it; a recovered Ethereum client proves nothing from its pre-recovery consensus states; settlement actions must match; action 5 makes a forged receive's claim forged and books what it paid once; a refund paid for a delivered packet is booked only by action 4 |
 | §7.13 refund meter, refunds hold, send records for every send | `controls/refunds.gno`, `transfer/impl/v1/ack.gno`, `send.gno`, `controls.gno` (`ClaimRefunds`) |
@@ -380,7 +388,7 @@ saturates statistics no check reads. Audited:
 | Aggregate | Rule |
 |---|---|
 | `InFlight` (open sends' amounts) | checked at every send: bounds every refund owed |
-| `QueuedRefunds`, `Returning` | must (≤ `InFlight`, plus the parked settlement refunds, whose sum a settlement checks against `Returning`) |
+| `QueuedRefunds`, `Returning` | must (≤ `InFlight`, plus the parked settlement refunds, which a settlement adds to `Returning` and `QueuedRefunds` net of every reservation and queued refund its batch releases or consumes, never counting a covered refund twice: `TestSettlementNetReservations`) |
 | `Owed`, `Withheld`, `Swept` | checked as their sum at every credit (`liabilities`); moves between them must |
 | `Outstanding` | checked before every minted payout (a settlement's refund beyond a released reservation is parked when it would overflow: see §7.12 above): a sweep payment that would overflow it is refused whole, its entries kept (the decision spent); a claim installment and a queued refund installment are capped to the headroom, the remainder kept; an immediate refund that would not fit is queued (`TestMintedPayoutHeadroom`) |
 | `OpenUnrecovered`, `OpenUnresolved` (denom and incident): the outstanding loss balances | checked (`lossFits` admits a loss against `OpenUnrecovered`, which bounds `OpenUnresolved`), batch sums checked per addition; a recovery (a paid recapitalization, a reduction: `recover`) takes off `OpenUnrecovered`, freeing admission capacity, and off `OpenUnresolved` as far as it remains; an accepted deficit (`accept`) takes off `OpenUnresolved` only and frees no admission capacity |
