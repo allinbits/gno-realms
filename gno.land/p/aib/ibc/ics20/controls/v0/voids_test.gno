@@ -599,20 +599,22 @@ func TestRecapAuthorizationBoundToIncident(t *testing.T) {
 	if _, err := rt.AuthorizeRecap("ugnot", 1, "inc-a"); err == nil {
 		t.Fatalf("authorized the same loss twice")
 	}
-	// The funding falls through: an accepted deficit supersedes it.
+	// An accepted deficit restores no backing, so it supersedes no
+	// recapitalization (Codex round 13 #1): the authorization stands and
+	// its funding recovers the accepted loss.
 	if err := rt.Accept("ugnot", 101, "inc-a"); err == nil {
 		t.Fatalf("accepted more than the loss")
 	}
 	if err := rt.Accept("ugnot", 100, "inc-a"); err != nil {
 		t.Fatal(err)
 	}
-	if r, _ := rt.Recap(id); !r.Revoked {
-		t.Fatalf("the superseded authorization stands: %+v", r)
+	if r, _ := rt.Recap(id); r.Revoked {
+		t.Fatalf("an accepted deficit revoked the authorization")
 	}
-	if err := rt.Recapitalize(id, "ugnot", 100, alice); err == nil {
-		t.Fatalf("paid a superseded authorization")
+	if err := rt.Recapitalize(id, "ugnot", 100, alice); err != nil {
+		t.Fatal(err)
 	}
-	if d.Totals.Unresolved() != 0 || d.Totals.Recapitalized != 0 {
+	if d.Totals.Unresolved() != 0 || d.Totals.Unrecovered() != 0 || d.Totals.Recapitalized != 100 {
 		t.Fatalf("%+v", d.Totals)
 	}
 	// A governed revocation frees an authorization's part for a reduction.
@@ -942,5 +944,39 @@ func TestReplacementAbortsReopening(t *testing.T) {
 	}
 	if err != nil || rt.IsClosed() || rt.Denom("ugnot").Totals.Unresolved() != 0 {
 		t.Fatalf("%v %d", err, total)
+	}
+}
+
+// A deficit accepted, even through a reopening, is still recapitalized by a
+// new authorization (Codex round 13 #1): accept, authorize, fund, and the
+// unrecovered balance is zero; a revoked authorization stays refused.
+func TestRecapitalizeAcceptedDeficit(t *testing.T) {
+	r, rt := newRoute(t)
+	d := rt.Denom("ugnot")
+	r.Replace("ethereum-1", "ethereum-2", 0, 1000)
+	rt.RecordLoss(pk(10), "ugnot", 100, ChainGno, "inc", "collision")
+	if _, done, err := rt.Reopen(); err != nil || !done || d.Totals.Unresolved() != 0 || d.Totals.Unrecovered() != 100 {
+		t.Fatalf("%v %+v", err, d.Totals)
+	}
+	revoked, err := rt.AuthorizeRecap("ugnot", 40, "inc")
+	if err != nil {
+		t.Fatal(err)
+	}
+	rt.RevokeRecap(revoked)
+	id, err := rt.AuthorizeRecap("ugnot", 100, "inc")
+	if err != nil {
+		t.Fatalf("no authorization against an accepted deficit: %v", err)
+	}
+	if rt.Recapitalize(revoked, "ugnot", 40, alice) == nil {
+		t.Fatalf("paid a revoked authorization")
+	}
+	if err := rt.Recapitalize(id, "ugnot", 100, alice); err != nil {
+		t.Fatal(err)
+	}
+	if d.Totals.Unrecovered() != 0 || d.Totals.Unresolved() != 0 || rt.Incident("ugnot", "inc").OpenUnrecovered != 0 {
+		t.Fatalf("%+v", d.Totals)
+	}
+	if _, err := rt.AuthorizeRecap("ugnot", 1, "inc"); err == nil {
+		t.Fatalf("authorized beyond the unrecovered losses")
 	}
 }

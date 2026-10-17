@@ -455,8 +455,8 @@ func NewRecapitalizeRequest(cur realm, route, denom string, amount int64, incide
 // NewRevokeRecapRequest revokes the unpaid recapitalization authorization id
 // of route, at once (a removal): its funding fell through, and its part of
 // the incident's losses is free for another restoring decision. A reduction
-// or an accepted deficit decided later revokes conflicting authorizations by
-// itself.
+// decided later revokes conflicting authorizations by itself; an accepted
+// deficit does not (a recapitalization may still restore it).
 func NewRevokeRecapRequest(cur realm, route string, id int64) Request {
 	route = mustRoute(route)
 	if r, ok := view().Recap(route, id); !ok || r.Paid || r.Revoked {

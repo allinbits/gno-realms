@@ -97,13 +97,14 @@ func (rt *Route) Incident(denom, incident string) IncidentTotals {
 	return IncidentTotals{}
 }
 
-// resolvable is what of an incident's losses on denom no decision resolved
-// or reserved yet: its losses minus what was recapitalized, reduced or
-// accepted, minus the recapitalizations authorized and not paid (except
-// skip, an authorization being paid).
-func (rt *Route) resolvable(denom, incident string, skip int64) int64 {
+// recapitalizable is what of an incident's losses on denom a
+// recapitalization may still restore: its unrecovered losses (accepted
+// deficits included: accepting a deficit restores no backing, so a later
+// recapitalization may), minus the recapitalizations authorized and not
+// paid (except skip, an authorization being paid).
+func (rt *Route) recapitalizable(denom, incident string, skip int64) int64 {
 	it := rt.Incident(denom, incident)
-	return it.OpenUnresolved - rt.openRecaps(denom, incident, skip)
+	return it.OpenUnrecovered - rt.openRecaps(denom, incident, skip)
 }
 
 // Voidable reports whether a void as forged (or as withheld) can take the
@@ -232,6 +233,26 @@ func (rt *Route) resolve(denom, incident string, amount int64, recovers bool) {
 		t.OpenUnrecovered -= amount
 		it.OpenUnrecovered -= amount
 	}
+}
+
+// recover takes a paid recapitalization off the outstanding balances: off
+// the unrecovered losses, and off the unresolved ones as far as they go (an
+// accepted deficit it restores is resolved already). Its caller checked
+// amount is within the incident's unrecovered losses.
+func (rt *Route) recover(denom, incident string, amount int64) {
+	t := &rt.Denom(denom).Totals
+	it := rt.incident(denom, incident)
+	if amount > it.OpenUnrecovered || amount > t.OpenUnrecovered {
+		panic("controls: a recovery beyond the unrecovered losses")
+	}
+	x := amount
+	if x > it.OpenUnresolved {
+		x = it.OpenUnresolved
+	}
+	t.OpenUnrecovered -= amount
+	it.OpenUnrecovered -= amount
+	t.OpenUnresolved -= x // the incident's unresolved part is within the denom's
+	it.OpenUnresolved -= x
 }
 
 // lossFits refuses a loss the ledger's outstanding balances (the denom's and
@@ -505,8 +526,8 @@ func (rt *Route) AuthorizeRecap(denom string, amount int64, incident string) (in
 	if incident == "" {
 		return 0, errors.New("controls: a recapitalization names its incident")
 	}
-	if amount <= 0 || amount > rt.resolvable(denom, incident, 0) {
-		return 0, ufmt.Errorf("controls: %d is not within incident %s's losses not yet resolved or authorized", amount, incident)
+	if amount <= 0 || amount > rt.recapitalizable(denom, incident, 0) {
+		return 0, ufmt.Errorf("controls: %d is not within incident %s's unrecovered losses not yet authorized", amount, incident)
 	}
 	rt.nRecaps++
 	rt.recaps.Set(seqKey(rt.nRecaps), &Recap{ID: rt.nRecaps, Denom: denom, Amount: amount, Incident: incident})
@@ -535,9 +556,10 @@ func (rt *Route) unresolvedOf(denom, incident string) int64 {
 }
 
 // revokeConflicting revokes the newest unpaid recapitalization authorizations
-// of an incident until amount fits what the incident still has to resolve: an
-// alternative resolution decided later supersedes them (ADR pr6375 §7.9). The
-// caller checked amount fits unresolvedOf.
+// of an incident until a reduction of amount leaves them within what the
+// incident still has unrecovered: a reduction decided later supersedes them
+// (ADR pr6375 §7.9). An accepted deficit supersedes none: a recapitalization
+// may still restore it. The caller checked amount fits unresolvedOf.
 func (rt *Route) revokeConflicting(denom, incident string, amount int64) {
 	var open []*Recap
 	rt.recaps.Iterate("", "", func(_ string, v any) bool {
@@ -547,7 +569,7 @@ func (rt *Route) revokeConflicting(denom, incident string, amount int64) {
 		}
 		return false
 	})
-	for i := len(open) - 1; i >= 0 && rt.resolvable(denom, incident, 0) < amount; i-- {
+	for i := len(open) - 1; i >= 0 && rt.recapitalizable(denom, incident, 0) < amount; i-- {
 		open[i].Revoked = true
 	}
 }
@@ -593,11 +615,11 @@ func (rt *Route) Recapitalize(id int64, denom string, amount int64, by address) 
 		return ufmt.Errorf("controls: recapitalization %d is %d %s", id, r.Amount, r.Denom)
 	}
 	// Re-checked at payment: the incident's losses must still hold it.
-	if amount > rt.resolvable(denom, r.Incident, id) {
-		return ufmt.Errorf("controls: recapitalization %d is above what incident %s still has to resolve", id, r.Incident)
+	if amount > rt.recapitalizable(denom, r.Incident, id) {
+		return ufmt.Errorf("controls: recapitalization %d is above what incident %s still has unrecovered", id, r.Incident)
 	}
 	r.Paid, r.PaidBy = true, by
-	rt.resolve(denom, r.Incident, amount, true)
+	rt.recover(denom, r.Incident, amount)
 	t := &rt.Denom(denom).Totals
 	it := rt.incident(denom, r.Incident)
 	t.Recapitalized, it.Recapitalized = statAdd(t.Recapitalized, amount), statAdd(it.Recapitalized, amount)
@@ -687,7 +709,6 @@ func (rt *Route) Accept(denom string, amount int64, incident string) error {
 	if amount <= 0 || amount > rt.unresolvedOf(denom, incident) {
 		return ufmt.Errorf("controls: %d is not within incident %s's unresolved losses", amount, incident)
 	}
-	rt.revokeConflicting(denom, incident, amount)
 	rt.resolve(denom, incident, amount, false)
 	it := rt.incident(denom, incident)
 	d.Totals.Accepted, it.Accepted = statAdd(d.Totals.Accepted, amount), statAdd(it.Accepted, amount)
