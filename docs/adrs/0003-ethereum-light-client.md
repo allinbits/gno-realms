@@ -140,7 +140,9 @@ unchanged.
   longer verify proofs); they stay allocated.
 - The deployment is fresh: core `impl/v0` serves Ethereum clients itself
   (`core/impl/v1` adds the client migrations: a fork schedule, or a verifier
-  replacement by a registered version), and the transfer
+  replacement by a conversion a later core implementation compiles in, the
+  new verifier continuing the retired one's history read only through
+  `ethereum.NewFrom`), and the transfer
   app starts with `impl/v1`, the first implementation its proxy registers;
   the new `p/` packages deploy beside them.
 - Tests replay the four recorded devnet runs of the eureka client (11 updates,
