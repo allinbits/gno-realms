@@ -248,7 +248,7 @@ func (rd Reader) RouteJSON(route string) string {
 	}
 	var b strings.Builder
 	b.WriteString("{\"route\":" + q(rt.Key) + ",\"client\":" + q(rt.Client) + ",\"replaced\":" + strList(rt.Replaced) +
-		",\"enrolled\":" + itoa(rt.Enrolled) + ",\"activated\":" + itoa(rt.Activated) + ",\"closed\":" + strconv.FormatBool(rt.IsClosed()) + ",\"unimported\":" + itoa(rt.Unimported) + ",\"loss_closed\":" + strconv.FormatBool(rt.LossClosed()) + ",\"fee_collector\":" + q(string(rt.FeeCollector)) +
+		",\"enrolled\":" + itoa(rt.Enrolled) + ",\"activated\":" + itoa(rt.Activated) + ",\"closed\":" + strconv.FormatBool(rt.IsClosed()) + ",\"loss_closed\":" + strconv.FormatBool(rt.LossClosed()) + ",\"fee_collector\":" + q(string(rt.FeeCollector)) +
 		",\"refused_recipients\":" + strList(rt.Refused()) + ",\"protected_recipients\":" + strList(rt.Protected()) + ",\"unrecovered\":" + itoa(rt.Unrecovered()) + ",\"unresolved\":" + itoa(rt.Unresolved()) + ",\"denoms\":[")
 	for i, name := range rt.Denoms() {
 		if i > 0 {
@@ -298,7 +298,7 @@ func SendJSON(r SendRecord) string {
 	return "{\"key\":" + q(r.Key) + ",\"packet\":" + packetJSON(r.Packet) + ",\"commitment\":" + q(hexs(r.Commitment)) +
 		",\"sender\":" + q(string(r.Sender)) + ",\"receiver\":" + q(r.Receiver) + ",\"denom\":" + q(r.Denom) +
 		",\"kind\":" + q(r.Kind) + ",\"amount\":" + itoa(r.Amount) + ",\"fee\":" + itoa(r.Fee) +
-		",\"sent_height\":" + itoa(r.SentHeight) + ",\"sent_at\":" + itoa(r.SentAt) + ",\"backfilled\":" + strconv.FormatBool(r.Backfilled) + ",\"outcome\":" + q(r.Outcome) +
+		",\"sent_height\":" + itoa(r.SentHeight) + ",\"sent_at\":" + itoa(r.SentAt) + ",\"outcome\":" + q(r.Outcome) +
 		",\"processed_height\":" + itoa(r.ProcessedHeight) + ",\"processed_at\":" + itoa(r.ProcessedAt) +
 		",\"payment\":" + q(r.Payment) + ",\"refunded\":" + itoa(r.Refunded) + ",\"settlement\":" + itoa(int64(r.Settlement)) + ",\"reservation\":" + itoa(r.Reservation) + ",\"proven\":" + itoa(int64(r.Proven)) + ",\"proven_at\":" + strconv.FormatUint(r.ProvenAt, 10) + ",\"proven_by\":" + q(r.ProvenBy) + ",\"proven_gen\":" + strconv.FormatUint(r.ProvenGen, 10) + ",\"incident\":" + q(r.Incident) + "}"
 }

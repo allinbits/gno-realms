@@ -87,9 +87,6 @@ func (p *adminParams) check() string {
 		}
 		return core.CheckMigrateClient(a[0], a[1], bz)
 	case "transfer update impl":
-		if refusal := firstControls(a[0]); refusal != "" {
-			return refusal
-		}
 		return transfer.CheckUpdateImpl(a[0])
 	case "transfer block":
 		if transfer.IsBlocked(address(a[0])) {
@@ -388,27 +385,10 @@ func forkScheduleText(p ethereum.ForkParameters) string {
 }
 
 // NewTransferUpdateImplRequest activates a registered transfer implementation
-// after 7 days. The first implementation with the route controls is refused:
-// it is activated only by NewTransferActivateControlsRequest, which stages a
-// route for every Ethereum client that holds transfer state with it. Once an implementation
-// with the controls is active, another one with them installs here.
+// after 7 days.
 func NewTransferUpdateImplRequest(cur realm, path string) Request {
 	mustImplPath(TransferPath, path)
-	if refusal := firstControls(path); refusal != "" {
-		panic("ibcgov: " + refusal)
-	}
 	return adminRequest(cur, "transfer update impl", "transfer: activate the implementation "+path, true, path)
-}
-
-// firstControls refuses installing path if it would be the first active
-// implementation with the route controls (ADR pr6375 R17, §7.3): without the
-// staged activation, an Ethereum client's impl/v0 assets would be under the
-// controls with no route to carry their returns and refunds.
-func firstControls(path string) string {
-	if transfer.KeepsControls(path) && !transfer.KeepsControls(transfer.ImplPath()) {
-		return "the route controls are first activated by a staged activation (NewTransferActivateControlsRequest), with a route for every Ethereum client that holds transfer state"
-	}
-	return ""
 }
 
 // NewTransferBlockRequest blocks an address in the transfer app at once.

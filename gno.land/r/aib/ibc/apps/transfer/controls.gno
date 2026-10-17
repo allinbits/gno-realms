@@ -26,15 +26,6 @@ func ClaimRefunds(cur realm, clientID, denom string, n int) int {
 	return mustControls().ClaimRefunds(0, cur, clientID, denom, n)
 }
 
-// Backfill records a send made over an Ethereum route before its controls
-// (by impl/v0) whose commitment the core still holds: its acknowledgement or
-// timeout is refused until it has a record, so the refund cannot bypass the
-// refund meter or the refunds hold (ADR pr6375 §7.13). Anyone may call it
-// with the packet; it is authenticated against the core's commitment.
-func Backfill(cur realm, packet types.Packet) {
-	mustControls().Backfill(0, cur, packet)
-}
-
 // ProveOutcome proves, through a replaced route's replacement Ethereum
 // client, what the destination did with a send of a retired client (ADR
 // pr6375 §7.12 "Proven outcomes"): packet is the send (checked against its

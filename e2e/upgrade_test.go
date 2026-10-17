@@ -9,12 +9,14 @@ import (
 
 // upgradeTarget is one of the two upgradeable realms and its implementations.
 type upgradeTarget struct {
-	name, realm, v0, v99 string
+	name, realm, initial, v99 string
 }
 
 var upgradeTargets = []upgradeTarget{
 	{"core", "gno.land/r/aib/ibc/core", "gno.land/r/aib/ibc/core/impl/v0", "gno.land/r/aib/ibc/core/impl/v99"},
-	{"transfer", "gno.land/r/aib/ibc/apps/transfer", "gno.land/r/aib/ibc/apps/transfer/impl/v0", "gno.land/r/aib/ibc/apps/transfer/impl/v99"},
+	// The transfer app starts with impl/v1 (the route controls) on a fresh
+	// deployment; it serves AtomOne as impl/v0 did.
+	{"transfer", "gno.land/r/aib/ibc/apps/transfer", "gno.land/r/aib/ibc/apps/transfer/impl/v1", "gno.land/r/aib/ibc/apps/transfer/impl/v99"},
 }
 
 func (t upgradeTarget) rel() string { return strings.TrimPrefix(t.realm, "gno.land/") }
@@ -29,19 +31,20 @@ const decisionDelay = 10 * time.Second
 // gno.land/r/aib/ibc/ibcgov, where the launch governor (on the e2e devnet the
 // test key, e2e/gno/Dockerfile) records the decision and anyone executes it
 // once its delay has passed. Executing it before is refused and leaves it
-// pending. Re-installing v0 keeps the chain usable by the other tests; the
+// pending. Re-installing the initial implementation (core impl/v0, transfer
+// impl/v1) keeps the chain usable by the other tests; the
 // switch to another implementation is TestUpgradeRehearsal.
 func (s *E2ETestSuite) TestGovernorUpdateImpl() {
 	for _, tc := range upgradeTargets {
 		s.Run(tc.name, func() {
-			s.Require().Equal(tc.v0, s.implPath(tc), "impl/v0 must be active before the decision")
-			s.governDecision(tc.updateRequest(tc.v0))
+			s.Require().Equal(tc.initial, s.implPath(tc), "the initial implementation must be active before the decision")
+			s.governDecision(tc.updateRequest(tc.initial))
 			err := s.gnoRun("test", executeLastDecision)
 			s.Require().Error(err, "a decision executes only once its delay has passed")
 			s.Require().Contains(err.Error(), "is due at")
 			time.Sleep(decisionDelay + 2*time.Second)
 			s.Require().NoError(s.gnoRun("test", executeLastDecision))
-			s.Require().Equal(tc.v0, s.implPath(tc), "impl/v0 re-installed through ibcgov")
+			s.Require().Equal(tc.initial, s.implPath(tc), "the initial implementation re-installed through ibcgov")
 		})
 	}
 }
@@ -52,7 +55,8 @@ func (s *E2ETestSuite) TestGovernorUpdateImpl() {
 // rehearsal's v99, is refused: the controls are never rolled back):
 // deploy the v99 candidates with addpkg (their init registers them), switch
 // both realms to them through ibcgov decisions, relay a transfer in each
-// direction through the new implementations, roll back to v0, and relay
+// direction through the new implementations, roll back to the initial
+// implementations, and relay
 // again. The relayer is never told anything: paths, events and routes are the
 // proxies'. The guardians' holds, which defer every queued decision, need an
 // Ethereum route to flag and are covered by ibcgov's filetests instead
@@ -67,7 +71,7 @@ func (s *E2ETestSuite) TestUpgradeRehearsal() {
 		registered, err := gnoEval(s.gnoContainer, tc.rel(), "RegisteredImplPaths()")
 		s.Require().NoError(err, "query RegisteredImplPaths")
 		s.Require().Contains(registered, tc.v99, "the candidate registers itself at deploy")
-		s.Require().Equal(tc.v0, s.implPath(tc), "registration alone activates nothing")
+		s.Require().Equal(tc.initial, s.implPath(tc), "registration alone activates nothing")
 	}
 
 	for _, tc := range upgradeTargets {
@@ -81,9 +85,9 @@ func (s *E2ETestSuite) TestUpgradeRehearsal() {
 	})
 
 	for _, tc := range upgradeTargets {
-		s.governAndExecute(tc.updateRequest(tc.v0))
-		s.Require().Equal(tc.v0, s.implPath(tc))
-		s.Require().Equal("v0", s.implVersion(tc))
+		s.governAndExecute(tc.updateRequest(tc.initial))
+		s.Require().Equal(tc.initial, s.implPath(tc))
+		s.Require().Equal(tc.initial[strings.LastIndex(tc.initial, "/")+1:], s.implVersion(tc))
 	}
 	s.Run("transfers after rollback", func() {
 		s.TestIBCTransferAtomOneToGno()

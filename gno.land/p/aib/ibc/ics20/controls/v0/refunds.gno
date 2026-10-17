@@ -44,9 +44,8 @@ type SendRecord struct {
 	Kind       string // KindUnescrow (escrowed) or KindMint (burned)
 	Amount     int64
 	Fee        int64 // charged on top of Amount, paid to the collector
-	SentHeight int64 // 0 for a backfilled send
+	SentHeight int64
 	SentAt     int64
-	Backfilled bool // a send from before the controls, recorded from the core's commitment
 
 	Outcome         string
 	ProcessedHeight int64
@@ -116,58 +115,6 @@ func (rt *Route) RecordSend(rec SendRecord) error {
 			// vouchers minted before the route was controlled
 			d.Totals.Outstanding = 0
 		}
-		r.Reservation = r.Amount
-		d.Totals.Returning = mustAdd(d.Totals.Returning, r.Amount) // at most InFlight
-	}
-	return nil
-}
-
-// Backfill records a send made before the route's controls (by impl/v0)
-// that is still outstanding: the caller authenticated rec.Packet against the
-// core's stored commitment, which is present until the send's
-// acknowledgement or timeout is processed (ADR pr6375 §7.13: every send on
-// an Ethereum route has a record before relaying resumes). Its escrow or
-// burn happened before the controls: an unescrowed denom's escrow already
-// holds it, a minted denom's outstanding supply (counted when the denom was
-// enabled) already excludes it. A minted send reserves its supply until it
-// settles, as any return does. Its refund then goes through the refund meter
-// and the refunds hold like every other.
-func (rt *Route) Backfill(rec SendRecord) error {
-	if _, _, ok := ParsePacketKey(rec.Key); !ok {
-		return errors.New("controls: not a packet key: " + rec.Key)
-	}
-	if rt.sends.Has(rec.Key) {
-		return errors.New("controls: a send record exists for " + rec.Key)
-	}
-	d := rt.Denom(rec.Denom)
-	if d == nil {
-		return errors.New("controls: denom " + rec.Denom + " is not enabled on route " + rt.Key + ": enable it before backfilling its sends")
-	}
-	if rec.Kind != d.Config.Kind {
-		return errors.New("controls: the send's accounting differs from its denom's")
-	}
-	if rec.Amount <= 0 || rec.Fee != 0 {
-		return errors.New("controls: invalid send amounts")
-	}
-	// Every refund a send may still owe is bounded by the open records'
-	// amounts: a send that would overflow them is refused.
-	if _, ok := checkedAdd(d.Totals.InFlight, rec.Amount); !ok {
-		return errors.New("controls: the route's open sends of " + rec.Denom + " would overflow")
-	}
-	r := rec
-	r.Packet = copyPacket(rec.Packet)
-	r.Commitment = append([]byte{}, rec.Commitment...)
-	r.Backfilled = true
-	r.Outcome, r.ProcessedHeight, r.ProcessedAt, r.Payment, r.Refunded, r.Settlement, r.Incident = OutcomePending, 0, 0, PayNone, 0, 0, ""
-	r.Reservation = 0
-	rt.sends.Set(r.Key, &r)
-	rt.track(&r, false)
-	rt.addPending(r.Key, 1)
-	if rt.Unimported > 0 {
-		rt.Unimported--
-	}
-	d.Totals.Sent = statAdd(d.Totals.Sent, r.Amount)
-	if d.Config.Kind == KindMint {
 		r.Reservation = r.Amount
 		d.Totals.Returning = mustAdd(d.Totals.Returning, r.Amount) // at most InFlight
 	}

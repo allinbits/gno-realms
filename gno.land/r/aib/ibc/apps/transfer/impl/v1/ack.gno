@@ -19,19 +19,17 @@ import (
 // block them (ADR pr6375 §7.3).
 
 // sendRecord is the record of a send on an Ethereum client the callbacks
-// settle. A send without one (made before the controls, over a client not
-// enrolled yet or not backfilled yet) is refused: the core keeps its
-// commitment, so Backfill records it and the relayer retries (ADR pr6375
-// §7.13: no refund on an Ethereum client bypasses the refund meter or the
-// refunds hold).
+// settle. Every send on a route writes one, so a send without one is refused
+// (ADR pr6375 §7.13: no refund on an Ethereum client bypasses the refund
+// meter or the refunds hold).
 func (l *logic) sendRecord(_ int, rlm realm, rt *controls.Route, sourceClient string, sequence uint64) (controls.SendRecord, error) {
 	key := controls.PacketKey(sourceClient, sequence)
 	if rt == nil {
-		return controls.SendRecord{}, ufmt.Errorf("client %s is an Ethereum client of no enrolled route: enroll it and backfill send %s first", sourceClient, key)
+		return controls.SendRecord{}, ufmt.Errorf("client %s is an Ethereum client of no enrolled route: it sent no %s", sourceClient, key)
 	}
 	rec, ok := rt.Send(key)
 	if !ok {
-		return controls.SendRecord{}, ufmt.Errorf("send %s has no record: backfill it first (transfer.Backfill)", key)
+		return controls.SendRecord{}, ufmt.Errorf("send %s has no record", key)
 	}
 	return rec, nil
 }
@@ -39,7 +37,7 @@ func (l *logic) sendRecord(_ int, rlm realm, rt *controls.Route, sourceClient st
 // OnAcknowledgementPacket is impl/v0's for clients the controls do not cover.
 // On an Ethereum client it settles the send's record: a success completes
 // it, an error refunds the sender under the refund meter and the refunds
-// hold. A send without a record is refused until it is backfilled.
+// hold. A send without a record is refused.
 func (l *logic) OnAcknowledgementPacket(_ int, rlm realm, sourceClient, destinationClient string, sequence uint64, acknowledgement []byte, payload types.Payload) error {
 	rt, covered := l.routeOf(0, rlm, sourceClient)
 	if !covered {
@@ -83,7 +81,7 @@ func (l *logic) OnAcknowledgementPacket(_ int, rlm realm, sourceClient, destinat
 
 // OnTimeoutPacket is impl/v0's for clients the controls do not cover; on an
 // Ethereum client it refunds the sender under the refund meter and the
-// refunds hold. A send without a record is refused until it is backfilled.
+// refunds hold. A send without a record is refused.
 func (l *logic) OnTimeoutPacket(_ int, rlm realm, sourceClient, destinationClient string, sequence uint64, payload types.Payload) error {
 	rt, covered := l.routeOf(0, rlm, sourceClient)
 	if !covered {

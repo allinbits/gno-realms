@@ -12,7 +12,7 @@ import (
 	"gno.land/p/aib/ics23/v0"
 	"gno.land/p/nt/testutils/v0"
 	"gno.land/r/aib/ibc/apps/transfer"
-	_ "gno.land/r/aib/ibc/apps/transfer/impl/v0"
+	_ "gno.land/r/aib/ibc/apps/transfer/impl/v1"
 	"gno.land/r/aib/ibc/core"
 	_ "gno.land/r/aib/ibc/core/impl/v0"
 )
@@ -160,8 +160,7 @@ func main(cur realm) {
 //   - g12l3du5z70zzq9rkc82asre09srefve7p5mfay4
 //   - g1p84dvfh4wrplyxx4zsmy77a8rxcnjup2j7zv5r
 // - **Paused**: false (set by the IBC core)
-// - **Implementation**: [`gno.land/r/aib/ibc/apps/transfer/impl/v0`](/r/aib/ibc/apps/transfer/impl/v0) (version v0)
+// - **Implementation**: [`gno.land/r/aib/ibc/apps/transfer/impl/v1`](/r/aib/ibc/apps/transfer/impl/v1) (version v1)
 // - **Registered implementations**:
-//   - gno.land/r/aib/ibc/apps/transfer/impl/v0
 //   - gno.land/r/aib/ibc/apps/transfer/impl/v1
 // - **Blocked addresses**: none

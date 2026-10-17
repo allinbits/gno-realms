@@ -8,7 +8,6 @@ import (
 
 	"gno.land/p/aib/ibc/host/v0"
 	"gno.land/p/aib/ibc/ics20/controls/v0"
-	"gno.land/p/aib/ibc/ics20/v0"
 	"gno.land/p/aib/ibc/lightclient/ethereum/v0"
 	"gno.land/p/aib/ibc/types/v0"
 	"gno.land/p/nt/ufmt/v0"
@@ -78,61 +77,6 @@ func (l *logic) ClaimRefunds(_ int, rlm realm, clientID, denom string, n int) in
 			"amount", strconv.FormatInt(p.Amount, 10))
 	}
 	return len(ps)
-}
-
-// Backfill records a send made over an Ethereum route before its controls
-// (ADR pr6375 §7.13), authenticated against the commitment the core still
-// holds for it: the route's current or retired client sent it, and its
-// acknowledgement or timeout was not processed yet.
-func (l *logic) Backfill(_ int, rlm realm, packet types.Packet) {
-	reg := l.registry(0, rlm)
-	rt := reg.RouteOf(packet.SourceClient)
-	if rt == nil {
-		if k := reg.RetiredRouteOf(packet.SourceClient); k != "" {
-			rt = reg.Route(k)
-		}
-	}
-	if rt == nil {
-		panic("client " + packet.SourceClient + " is the client of no route")
-	}
-	c := core.PacketCommitment(packet.SourceClient, packet.Sequence)
-	if len(c) == 0 {
-		panic(ufmt.Sprintf("the core holds no commitment for %s/%d: never sent, or its acknowledgement or timeout was processed", packet.SourceClient, packet.Sequence))
-	}
-	if !bytes.Equal(c, types.CommitPacket(packet)) {
-		panic("the packet differs from the one the core committed")
-	}
-	if len(packet.Payloads) != 1 || packet.Payloads[0].SourcePort != transfer.PortID {
-		panic("not a transfer packet")
-	}
-	data, token, err := unmarshalPayload(packet.Payloads[0])
-	if err != nil {
-		panic(err)
-	}
-	amount, err := token.AmountInt64()
-	if err != nil {
-		panic(err)
-	}
-	sender := address(data.Sender)
-	if !sender.IsValid() {
-		panic("invalid sender " + data.Sender)
-	}
-	accDenom, kind := token.Denom.IBCDenom(), controls.KindUnescrow
-	if token.Denom.HasPrefix(transfer.PortID, packet.SourceClient) {
-		// A voucher returning: keyed by the route key on this chain.
-		trace := append([]ics20.Hop{ics20.NewHop(transfer.PortID, rt.Key)}, token.Denom.Trace[1:]...)
-		accDenom, kind = ics20.Denom{Base: token.Denom.Base, Trace: trace}.IBCDenom(), controls.KindMint
-	}
-	key := controls.PacketKey(packet.SourceClient, packet.Sequence)
-	err = rt.Backfill(controls.SendRecord{
-		Key: key, Packet: packet, Commitment: c, Sender: sender, Receiver: data.Receiver,
-		Denom: accDenom, Kind: kind, Amount: amount, SentAt: now(),
-	})
-	if err != nil {
-		panic(err)
-	}
-	transfer.EmitRoute(0, rlm, "backfill", "route", rt.Key, "packet", key, "denom", accDenom,
-		"amount", strconv.FormatInt(amount, 10))
 }
 
 // ProveOutcome reads the destination router's receipt and acknowledgement of
@@ -300,21 +244,6 @@ func (l *logic) creditPending(_ int, rlm realm, rt *controls.Route, p controls.P
 	return ""
 }
 
-// imported reports whether every send impl/v0 made over the route's client
-// and left outstanding has been backfilled (ADR pr6375 §7.13): until then the
-// route takes no credit, so a credit cannot use the supply or escrow a legacy
-// return still owes. The count is taken at the enrolment (from the core's
-// outstanding transfer commitments on the client, less the sends already
-// recorded) and each backfill lowers it.
-func (l *logic) imported(_ int, rlm realm, rt *controls.Route) bool {
-	return rt.Unimported == 0
-}
-
-// isLegacyReceipt reports whether a receipt is the constant 0x02 that cores
-// before this one stored for every packet (it identifies no packet): such a
-// receive predates the controls.
-func isLegacyReceipt(r []byte) bool { return len(r) == 1 && r[0] == 0x02 }
-
 // clientOfRoute reports whether clientID is or was a client of rt.
 func clientOfRoute(rt *controls.Route, clientID string) bool {
 	if clientID == rt.Client {
@@ -368,7 +297,6 @@ func (l *logic) GovApply(_ int, rlm realm, op string, params []byte) string {
 		if err := rt.Protect(p.Keys[0], p.Keys[1], p.Keys[2]); err != nil {
 			panic(err) // checked above, on a route just enrolled
 		}
-		rt.StartImport(core.OutstandingSends(p.Route, transfer.PortID))
 		transfer.EmitRoute(0, rlm, "gov", "op", op, "route", p.Route)
 		return ""
 	}
@@ -406,14 +334,10 @@ func (l *logic) GovApply(_ int, rlm realm, op string, params []byte) string {
 		switch {
 		case rt.ExposureClosed():
 			return "route " + rt.Key + " is closed (a replacement awaiting its reopening, or a loss without a restoring decision): it credits nothing"
-		case !l.imported(0, rlm, rt):
-			return "route " + rt.Key + " still has sends impl/v0 made without a record: credits start once they are backfilled"
 		case !clientOfRoute(rt, client):
 			return "packet " + p.Key + " was not received on route " + rt.Key
 		case len(core.PacketReceipt(client, seq)) == 0:
 			return "packet " + p.Key + " was never received"
-		case isLegacyReceipt(core.PacketReceipt(client, seq)):
-			return "packet " + p.Key + "'s receipt is the legacy constant: it was received before the route's controls"
 		}
 		if pkt, height, pending := core.PendingAsyncAck(client, seq); pending {
 			if refusal := l.creditPending(0, rlm, rt, p, pkt, height, epoch); refusal != "" {

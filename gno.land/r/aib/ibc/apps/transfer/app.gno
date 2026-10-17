@@ -59,13 +59,7 @@ func (a *App) OnSendPacket(
 	payload types.Payload,
 ) error {
 	assertCoreCaller(0, cur)
-	if err := mustImpl().OnSendPacket(0, cur, sourceClient, destinationClient, sequence, payload); err != nil {
-		return err
-	}
-	if isEthereumClient(sourceClient) {
-		noteSent(sourceClient, sequence, payload)
-	}
-	return nil
+	return mustImpl().OnSendPacket(0, cur, sourceClient, destinationClient, sequence, payload)
 }
 
 // Implements app.IBCApp
@@ -90,11 +84,7 @@ func (a *App) OnAcknowledgementPacket(
 	payload types.Payload,
 ) error {
 	assertCoreCaller(0, cur)
-	if err := mustImpl().OnAcknowledgementPacket(0, cur, sourceClient, destinationClient, sequence, acknowledgement, payload); err != nil {
-		return err
-	}
-	noteSettled(sourceClient, sequence)
-	return nil
+	return mustImpl().OnAcknowledgementPacket(0, cur, sourceClient, destinationClient, sequence, acknowledgement, payload)
 }
 
 // Implements app.IBCApp
@@ -106,9 +96,5 @@ func (a *App) OnTimeoutPacket(
 	payload types.Payload,
 ) error {
 	assertCoreCaller(0, cur)
-	if err := mustImpl().OnTimeoutPacket(0, cur, sourceClient, destinationClient, sequence, payload); err != nil {
-		return err
-	}
-	noteSettled(sourceClient, sequence)
-	return nil
+	return mustImpl().OnTimeoutPacket(0, cur, sourceClient, destinationClient, sequence, payload)
 }

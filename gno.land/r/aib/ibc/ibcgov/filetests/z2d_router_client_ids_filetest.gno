@@ -12,7 +12,6 @@ import (
 	"gno.land/p/aib/ibc/types/v0"
 	"gno.land/p/nt/testutils/v0"
 	"gno.land/r/aib/ibc/apps/transfer"
-	_ "gno.land/r/aib/ibc/apps/transfer/impl/v0"
 	_ "gno.land/r/aib/ibc/apps/transfer/impl/v1"
 	"gno.land/r/aib/ibc/core"
 	_ "gno.land/r/aib/ibc/core/impl/v0"
@@ -86,8 +85,8 @@ func main(cur realm) {
 	}
 
 	// The transfer app carries a packet from the router client "gnoland".
-	execute(cur, govern(cur, ibcgov.NewTransferActivateControlsRequest(cross(cur), "gno.land/r/aib/ibc/apps/transfer/impl/v1", client+" "+string(collector)+" "+bridge)))
-	advance(7*24*time.Hour + time.Second) // the separate enrollment's delay, kept so the timeline stays
+	execute(cur, govern(cur, ibcgov.NewEnrollRouteRequest(cross(cur), client, string(collector), bridge)))
+	advance(7*24*time.Hour + time.Second) // keeps the timeline of the goldens
 	execute(cur, govern(cur, ibcgov.NewSetDenomRequest(cross(cur), client, weth, "mint", 4_000, 10_000, 10, 1, 0, 0, 4_000, "")))
 	data := ics20.NewFungibleTokenPacketData(weth, "100", "0x5f67a5398d91087d1b37a8a43436196a7830867f", bob.String(), "")
 	bz, _ := abi.Marshal(data)

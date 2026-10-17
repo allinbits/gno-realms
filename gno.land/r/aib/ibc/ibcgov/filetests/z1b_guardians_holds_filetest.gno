@@ -7,7 +7,6 @@ import (
 
 	ethtesting "gno.land/p/aib/ibc/lightclient/ethereum/testing/v0"
 	"gno.land/p/nt/testutils/v0"
-	_ "gno.land/r/aib/ibc/apps/transfer/impl/v0"
 	_ "gno.land/r/aib/ibc/apps/transfer/impl/v1"
 	"gno.land/r/aib/ibc/core"
 	_ "gno.land/r/aib/ibc/core/impl/v0"
@@ -55,8 +54,8 @@ func execute(cur realm, id int64) {
 func setupRoute(cur realm) string {
 	clientID := core.CreateClient(cross(cur), ethtesting.ClientState(), ethtesting.ConsensusState())
 	core.RegisterCounterparty(cross(cur), clientID, [][]byte{{}}, "client-0")
-	execute(cur, govern(cur, ibcgov.NewTransferActivateControlsRequest(cross(cur), "gno.land/r/aib/ibc/apps/transfer/impl/v1", clientID+" "+string(collector)+" "+bridge)))
-	advance(7*24*time.Hour + time.Second) // the separate enrollment's delay, kept so the timeline stays
+	execute(cur, govern(cur, ibcgov.NewEnrollRouteRequest(cross(cur), clientID, string(collector), bridge)))
+	advance(7*24*time.Hour + time.Second) // keeps the timeline of the goldens
 	return clientID
 }
 
@@ -222,9 +221,9 @@ func main(cur realm) {
 // executed:
 // - #4 applied: core: add relayer g1wfjkcctev4e97h6lta047h6lta047h6lyh98u9 (recorded 1236987094, applied 1237678295) — core add relayer
 //
-// ### transfer activate controls
+// ### enroll route
 //
 // pending: none
 //
 // executed:
-// - #1 applied: transfer: activate gno\.land/r/aib/ibc/apps/transfer/impl/v1 with routes ethereum\-1 \(fee collector g1vdhkcmr9vd6x7ujlta047h6lta047h6lsp3m50; router 0x00000000000000000000000000000000000b0001, ICS20 transfer 0x00000000000000000000000000000000000b0002, IBCAdmin 0x00000000000000000000000000000000000b0003; denoms none yet\) (recorded 1234567890, applied 1235172691) — transfer gno\.land/r/aib/ibc/apps/transfer/impl/v1 active with 1 routes and 0 denoms
+// - #1 applied: enroll route ethereum\-1 with fee collector g1vdhkcmr9vd6x7ujlta047h6lta047h6lsp3m50 and bridge contracts router 0x00000000000000000000000000000000000b0001, ICS20 transfer 0x00000000000000000000000000000000000b0002, IBCAdmin 0x00000000000000000000000000000000000b0003 (recorded 1234567890, applied 1235172691) — enroll

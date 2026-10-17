@@ -41,7 +41,6 @@ import (
 	"time"
 
 	"gno.land/p/aib/ibc/ics20/controls/v0"
-	"gno.land/p/nt/ufmt/v0"
 	"gno.land/r/aib/ibc/apps/transfer"
 	implv0 "gno.land/r/aib/ibc/apps/transfer/impl/v0"
 )
@@ -73,23 +72,12 @@ func init(cur realm) {
 func (l *logic) Version() string { return version }
 
 // OnInstall creates the route controls in the proxy, empty: every meter
-// starts empty (ADR pr6375 §7.1). It installs over v0 or nothing, and
-// re-installs over itself; anything else is refused.
+// starts empty (ADR pr6375 §7.1). impl/v1 is the implementation a fresh
+// deployment starts with; it also re-installs over itself and over an
+// implementation without the controls (the proxy never installs one of
+// those once a route exists), keeping the controls state already there.
 func (l *logic) OnInstall(_ int, rlm realm, prevPath, prevVersion string) {
-	if err := l.CheckInstall(prevPath, prevVersion); err != nil {
-		panic(err)
-	}
 	l.store.InitExt(0, rlm, extKey, controls.NewRegistryAny)
-}
-
-// CheckInstall is transfer.InstallChecker: v1 installs over v0, nothing or
-// itself.
-func (l *logic) CheckInstall(prevPath, prevVersion string) error {
-	switch prevVersion {
-	case "", "v0", version:
-		return nil
-	}
-	return ufmt.Errorf("transfer impl %s cannot install over version %s", version, prevVersion)
 }
 
 // registry is the controls state, mutable: only for the proxy's live rlm.

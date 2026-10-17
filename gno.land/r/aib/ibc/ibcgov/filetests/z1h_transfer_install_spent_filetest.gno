@@ -2,6 +2,7 @@
 package impl
 
 import (
+	"errors"
 	"testing"
 	"time"
 
@@ -20,11 +21,21 @@ const bridge = "0x00000000000000000000000000000000000b0001 0x0000000000000000000
 
 const self = "gno.land/r/aib/ibc/apps/transfer/impl/v99"
 
-// logic is a rehearsal implementation: v0's logic under version v99, which
-// transfer impl/v1 refuses as its predecessor.
+// logic is a rehearsal implementation: v0's logic, without the route
+// controls, under version v99; while refuseV1 holds, it refuses impl/v1 as
+// its predecessor.
 type logic struct{ transfer.Logic }
 
+var refuseV1 = true
+
 func (logic) Version() string { return "v99" }
+
+func (logic) CheckInstall(prevPath, prevVersion string) error {
+	if refuseV1 && prevVersion == "v1" {
+		return errors.New("transfer impl v99 cannot install over version v1")
+	}
+	return nil
+}
 
 func New(s transfer.Store) transfer.Logic { return logic{Logic: implv0.New(s)} }
 
@@ -48,53 +59,38 @@ func decided(id int64) string {
 	return d.State() + " - " + d.Note
 }
 
-// A transfer implementation switch whose candidate refuses the active
-// implementation as its predecessor is refused and spent when it executes
-// (Codex round 4 #6, class B): after a rollback that would make it
-// installable, its old approval never applies. The first implementation with
-// the route controls installs only through the staged activation, never the
-// ordinary switch (Codex round 6 #4); once it is active, the ordinary switch
-// reinstalls it.
+// The transfer app starts with impl/v1 (a fresh deployment). A switch whose
+// candidate refuses the active implementation as its predecessor is refused
+// and spent when it executes (Codex round 4 #6, class B), never retried.
+// Once an Ethereum route exists, an implementation without the route
+// controls is refused, whatever its own checks.
 func main(cur realm) {
-	client := core.CreateClient(cross(cur), ethtesting.ClientState(), ethtesting.ConsensusState())
-	core.RegisterCounterparty(cross(cur), client, [][]byte{{}}, "client-0")
-	activate := func() ibcgov.Request {
-		return ibcgov.NewTransferActivateControlsRequest(cross(cur), "gno.land/r/aib/ibc/apps/transfer/impl/v1", client+" "+
-			string(testutils.TestAddress("collector"))+" "+bridge)
-	}
-	toV1 := govern(cur, activate())
+	println("active:", transfer.ImplVersion())
 	toV99 := govern(cur, ibcgov.NewTransferUpdateImplRequest(cross(cur), self))
 	advance()
 	ibcgov.Execute(cross(cur), toV99)
-	println("active:", transfer.ImplVersion())
-	ibcgov.Execute(cross(cur), toV1)
-	println("v1 over v99:", decided(toV1))
-	back := govern(cur, ibcgov.NewTransferUpdateImplRequest(cross(cur), "gno.land/r/aib/ibc/apps/transfer/impl/v0"))
-	advance()
-	ibcgov.Execute(cross(cur), back)
-	println("active:", transfer.ImplVersion())
-	println("retry:", revive(func() { ibcgov.Execute(cross(cur), toV1) }))
-	println("active:", transfer.ImplVersion())
+	println("v99 over v1:", decided(toV99), "| active:", transfer.ImplVersion())
+	println("retry:", revive(func() { ibcgov.Execute(cross(cur), toV99) }))
 
-	println("the ordinary switch to v1:", revive(func() {
-		ibcgov.NewTransferUpdateImplRequest(cross(cur), "gno.land/r/aib/ibc/apps/transfer/impl/v1")
-	}))
-	staged := govern(cur, activate())
+	refuseV1 = false
+	client := core.CreateClient(cross(cur), ethtesting.ClientState(), ethtesting.ConsensusState())
+	core.RegisterCounterparty(cross(cur), client, [][]byte{{}}, "client-0")
+	enroll := govern(cur, ibcgov.NewEnrollRouteRequest(cross(cur), client, string(testutils.TestAddress("collector")), bridge))
 	advance()
-	ibcgov.Execute(cross(cur), staged)
-	println("staged:", decided(staged))
-	again := govern(cur, ibcgov.NewTransferUpdateImplRequest(cross(cur), "gno.land/r/aib/ibc/apps/transfer/impl/v1"))
+	ibcgov.Execute(cross(cur), enroll)
+	again := govern(cur, ibcgov.NewTransferUpdateImplRequest(cross(cur), self))
 	advance()
 	ibcgov.Execute(cross(cur), again)
-	println("reinstalled by the ordinary switch:", decided(again), "| active:", transfer.ImplVersion())
+	println("v99 once a route exists:", decided(again), "| active:", transfer.ImplVersion())
+	same := govern(cur, ibcgov.NewTransferUpdateImplRequest(cross(cur), "gno.land/r/aib/ibc/apps/transfer/impl/v1"))
+	advance()
+	ibcgov.Execute(cross(cur), same)
+	println("v1 reinstalled:", decided(same))
 }
 
 // Output:
-// active: v99
-// v1 over v99: spent - spent: transfer impl v1 cannot install over version v99
-// active: v0
+// active: v1
+// v99 over v1: spent - spent: transfer impl v99 cannot install over version v1 | active: v1
 // retry: ibcgov: decision 1 is spent, not pending
-// active: v0
-// the ordinary switch to v1: ibcgov: the route controls are first activated by a staged activation (NewTransferActivateControlsRequest), with a route for every Ethereum client that holds transfer state
-// staged: applied - transfer gno.land/r/aib/ibc/apps/transfer/impl/v1 active with 1 routes and 0 denoms
-// reinstalled by the ordinary switch: applied - transfer update impl | active: v1
+// v99 once a route exists: spent - spent: transfer: an implementation without the route controls cannot replace them once a route has them | active: v1
+// v1 reinstalled: applied - transfer update impl

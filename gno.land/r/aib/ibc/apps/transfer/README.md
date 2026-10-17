@@ -164,14 +164,9 @@ mapping: [ADR 0004](../../../../../../docs/adrs/0004-ethereum-route-controls.md)
   route. Every send writes an immutable send record (full packet, commitment,
   sender, amounts, height) in the same transaction; a minted denom keeps the
   returned vouchers counted against its supply cap until the send settles.
-- **Backfill.** A send made over an Ethereum client before the controls
-  (impl/v0) has no record: its acknowledgement or timeout is refused until
-  anyone calls **`Backfill(packet)`**, which records it from the commitment
-  the core still holds. impl/v1 is activated together with a route for
-  every Ethereum client that holds transfer state, with all its denoms
-  (ibcgov's `NewTransferActivateControlsRequest`), so voucher returns work at
-  once and no client is left without one; backfill every outstanding send before relaying
-  resumes.
+- **Deployment.** The transfer app is deployed fresh with impl/v1 as its
+  initial implementation; an Ethereum client carries nothing until ibcgov
+  enrolls it as a route (there is no migration from impl/v0).
 - **Receives** are refused with an error acknowledgement, before any state
   change, under a `credits` flag, on a closed route, for a denom not enabled,
   past a minted denom's supply cap, or for a blocked receiver. Otherwise they

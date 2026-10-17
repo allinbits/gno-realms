@@ -157,35 +157,21 @@ registered when it executes is spent, not left pending.
 implementation is still registered, so nothing needs redeploying; its
 `OnInstall` runs again.
 
-## 7. Activating the Ethereum route controls (transfer impl/v1)
+## 7. Ethereum routes on a fresh deployment (transfer impl/v1)
 
-Switching the transfer app to `impl/v1` puts every Ethereum client under the
-route controls (ADR 0004). Before relaying resumes on an Ethereum client:
+The transfer app is deployed fresh with `impl/v1` as its initial
+implementation: it registers first (see `scripts/packages.sh`), serves every
+non-Ethereum client as `impl/v0` does, and puts every Ethereum client under
+the route controls (ADR 0004). There is no migration from `impl/v0`: an
+Ethereum client carries nothing until a decision makes it a route.
 
-1. Activate with `NewTransferActivateControlsRequest(path, routes)`.
-   `routes` stages a route for every Ethereum client that holds transfer
-   state (escrow, vouchers in circulation, outstanding transfer
-   commitments): "|"-separated entries "clientID feeCollector router ics20
-   ibcAdmin: denom kind capFloor supplyCap fee feeFloor sendMax sendMin
-   refundCap remoteToken; ...", with every denom the client holds assets of
-   (at most 8 routes of 16 denoms). The builder refuses a gap, and the
-   decision is refused and spent when it executes if a client or denom
-   gained assets during the delay: propose it again. The old clients need
-   not be Active. It is the only way to the first controls implementation:
-   `NewTransferUpdateImplRequest` refuses it (and later reinstalls one over
-   an active controls implementation). The one decision switches to
-   impl/v1, enrolls every staged route with its bridge contracts protected
-   and enables its denoms (a minted denom's outstanding supply is read from
-   the voucher at that moment), so voucher returns work at once. After the
-   switch, an Ethereum client without a route carries nothing; a later one
-   is enrolled with `NewEnrollRouteRequest` and its denoms enabled with
-   `NewSetDenomRequest`.
-2. Backfill every send impl/v0 made over the client that is still
-   outstanding: for each commitment the core holds
-   (`core.PacketCommitment`), anyone calls `transfer.Backfill(packet)`. An
-   acknowledgement or a timeout of a send without a record is refused, so a
-   missed one only blocks its own relay until it is backfilled; and the
-   route takes no credit until every send impl/v0 left outstanding on its
-   client is backfilled (the count is taken at the enrolment).
-3. Credits by vote apply only to receives booked after the enrolment: a
-   receive impl/v0 already paid is never credited again.
+1. Create the Ethereum client and register its counterparty (the router's
+   client id, eureka's single empty merkle prefix).
+2. Enroll it with `NewEnrollRouteRequest(clientID, feeCollector, bridge)`
+   (7 days), where `bridge` names the route's Ethereum router, ICS20
+   transfer and IBCAdmin ("router ics20 ibcAdmin", protected recipients from
+   then on).
+3. Enable each denom with `NewSetDenomRequest` (7 days).
+4. A client of a route is replaced with `NewReplaceRouteRequest` (an Active
+   Ethereum client that is no route's client yet), which closes the route
+   until `NewReopenRouteRequest`.

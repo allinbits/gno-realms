@@ -309,17 +309,6 @@ func CounterpartyValue(clientID string, height types.Height, proof any, key []by
 	return vp.ProvenValue(height, proof, types.BuildMerklePath(c.CounterpartyMerklePrefix(), key))
 }
 
-// OutstandingSends is how many packets an app on port sent over clientID
-// whose commitment is still outstanding: the transfer app compares it with
-// its own records to know every send is accounted for (ADR pr6375 §7.13).
-func OutstandingSends(clientID, port string) int64 {
-	c := store.getClient(clientID)
-	if c == nil {
-		return 0
-	}
-	return c.OutstandingSends(port)
-}
-
 // HasPendingAsyncAck reports whether a packet received on clientID waits for
 // its asynchronous acknowledgement.
 func HasPendingAsyncAck(clientID string, sequence uint64) bool {

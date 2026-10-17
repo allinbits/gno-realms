@@ -17,7 +17,6 @@ import (
 	"gno.land/p/nt/testutils/v0"
 	"gno.land/r/aib/ibc/apps/testing/grc20test"
 	"gno.land/r/aib/ibc/apps/transfer"
-	_ "gno.land/r/aib/ibc/apps/transfer/impl/v0"
 	_ "gno.land/r/aib/ibc/apps/transfer/impl/v1"
 	"gno.land/r/aib/ibc/core"
 	_ "gno.land/r/aib/ibc/core/impl/v0"
@@ -65,8 +64,8 @@ func execute(cur realm, id int64) {
 func setupRoute(cur realm) string {
 	clientID := core.CreateClient(cross(cur), ethtesting.ClientState(), ethtesting.ConsensusState())
 	core.RegisterCounterparty(cross(cur), clientID, [][]byte{{}}, "client-0")
-	execute(cur, govern(cur, ibcgov.NewTransferActivateControlsRequest(cross(cur), "gno.land/r/aib/ibc/apps/transfer/impl/v1", clientID+" "+string(collector)+" "+bridge)))
-	advance(7*24*time.Hour + time.Second) // the separate enrollment's delay, kept so the timeline stays
+	execute(cur, govern(cur, ibcgov.NewEnrollRouteRequest(cross(cur), clientID, string(collector), bridge)))
+	advance(7*24*time.Hour + time.Second) // keeps the timeline of the goldens
 	return clientID
 }
 
@@ -137,18 +136,13 @@ const denoms = "ugnot unescrow 10000 0 20 2 25000 40 10000 0x0000000000000000000
 func main(cur realm) {
 	alias := transfer.GRC20Alias(token)
 	transferAddr := chain.PackageAddress(transfer.PkgPath)
-	for i, remote := range []string{"gnoland", "gnoland." + strings.Repeat("x", 57), "gnoland." + strings.Repeat("y", 120)} {
+	for _, remote := range []string{"gnoland", "gnoland." + strings.Repeat("x", 57), "gnoland." + strings.Repeat("y", 120)} {
 		client := core.CreateClient(cross(cur), ethtesting.ClientState(), ethtesting.ConsensusState())
 		core.RegisterCounterparty(cross(cur), client, [][]byte{{}}, remote)
-		if i == 0 {
-			execute(cur, govern(cur, ibcgov.NewTransferActivateControlsRequest(cross(cur), "gno.land/r/aib/ibc/apps/transfer/impl/v1",
-				client+" "+string(collector)+" "+bridge+": "+denoms)))
-		} else {
-			execute(cur, govern(cur, ibcgov.NewEnrollRouteRequest(cross(cur), client, string(collector), bridge)))
-			for _, spec := range strings.Split(denoms, ";") {
-				f := strings.Fields(spec)
-				execute(cur, govern(cur, ibcgov.NewSetDenomRequest(cross(cur), client, f[0], f[1], 10000, 0, 20, 2, 25000, 40, 10000, f[9])))
-			}
+		execute(cur, govern(cur, ibcgov.NewEnrollRouteRequest(cross(cur), client, string(collector), bridge)))
+		for _, spec := range strings.Split(denoms, ";") {
+			f := strings.Fields(spec)
+			execute(cur, govern(cur, ibcgov.NewSetDenomRequest(cross(cur), client, f[0], f[1], 10000, 0, 20, 2, 25000, 40, 10000, f[9])))
 		}
 		send(cur, client, 1_000, 1_020, ethReceiver)
 		grc20test.Mint(cross(cur), sender, 1_020)

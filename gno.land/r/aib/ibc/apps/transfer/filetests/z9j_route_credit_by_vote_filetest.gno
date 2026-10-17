@@ -15,7 +15,6 @@ import (
 	"gno.land/p/aib/ibc/types/v0"
 	"gno.land/p/nt/testutils/v0"
 	"gno.land/r/aib/ibc/apps/transfer"
-	_ "gno.land/r/aib/ibc/apps/transfer/impl/v0"
 	_ "gno.land/r/aib/ibc/apps/transfer/impl/v1"
 	"gno.land/r/aib/ibc/core"
 	_ "gno.land/r/aib/ibc/core/impl/v0"
@@ -63,8 +62,8 @@ func execute(cur realm, id int64) {
 func setupRoute(cur realm) string {
 	clientID := core.CreateClient(cross(cur), ethtesting.ClientState(), ethtesting.ConsensusState())
 	core.RegisterCounterparty(cross(cur), clientID, [][]byte{{}}, "client-0")
-	execute(cur, govern(cur, ibcgov.NewTransferActivateControlsRequest(cross(cur), "gno.land/r/aib/ibc/apps/transfer/impl/v1", clientID+" "+string(collector)+" "+bridge)))
-	advance(7*24*time.Hour + time.Second) // the separate enrollment's delay, kept so the timeline stays
+	execute(cur, govern(cur, ibcgov.NewEnrollRouteRequest(cross(cur), clientID, string(collector), bridge)))
+	advance(7*24*time.Hour + time.Second) // keeps the timeline of the goldens
 	return clientID
 }
 
@@ -95,41 +94,29 @@ func decided(id int64) string {
 	return d.State() + " - " + d.Note
 }
 
-// A receive impl/v0 paid at once, before the route's activation, keeps its
-// receipt and success acknowledgement, but a credit by vote of it is refused:
-// it would pay the packet twice. A receive the controls booked as a sweep
-// entry is credited (Codex review #2).
+// A credit by vote replaces only a sweep entry booked at the receipt (Codex
+// review #2): a swept receive is credited once; an error-acknowledged one is
+// refused.
 func main(cur realm) {
 	const client = "ethereum-1"
 	timeout := uint64(time.Now().Add(90 * 24 * time.Hour).Unix())
-	p1 := ethPacket(client, 1, weth, bob.String(), 900, timeout)
 	p2 := ethPacket(client, 2, weth, chain.PackageAddress(transfer.PkgPath).String(), 50, timeout) // a bridge realm: swept
 	p3 := ethPacket(client, 3, ethReceiver, bob.String(), 70, timeout)                             // a denom not enabled: error ack
 	router := ethtesting.NewRouter()
-	router.CommitPacket(p1)
 	router.CommitPacket(p2)
 	router.CommitPacket(p3)
 	id := core.CreateClient(cross(cur), ethtesting.ClientState(), ethtesting.ConsensusStateWithRoot(router.StateRoot()))
 	core.RegisterCounterparty(cross(cur), id, [][]byte{{}}, "client-0")
-
-	relay(cur, router, p1)
 	voucher := ics20.NewDenom(weth, ics20.NewHop("transfer", client)).IBCDenom()
-	println("impl:", transfer.ImplVersion(), "| bob's vouchers:", transfer.VoucherBalanceOf(voucher, bob),
-		"| receipt:", len(core.PacketReceipt(client, 1)) > 0, "| ack:", len(core.PacketAcknowledgement(client, 1)) > 0)
+	execute(cur, govern(cur, ibcgov.NewEnrollRouteRequest(cross(cur), client, string(collector), bridge)))
+	execute(cur, govern(cur, ibcgov.NewSetDenomRequest(cross(cur), client, weth, "mint", 4_000, 10_000, 10, 1, 0, 0, 4_000, "")))
 
-	// The activation stages the denom of the vouchers impl/v0 minted.
-	execute(cur, govern(cur, ibcgov.NewTransferActivateControlsRequest(cross(cur), "gno.land/r/aib/ibc/apps/transfer/impl/v1",
-		client+" "+string(collector)+" "+bridge+": "+weth+" mint 4000 10000 10 1 0 0 4000 -")))
-	advance(14*24*time.Hour + 2*time.Second) // the separate enrollment's and denom's delays, kept so the timeline stays
 	relay(cur, router, p2)
 	e, _ := controlsView().Sweep(client, controls.PacketKey(client, 2))
-	println("v1 receive swept:", e.Amount, e.Reason)
+	println("receive swept:", e.Amount, e.Reason)
 	relay(cur, router, p3)
-	println("v1 receive refused, error ack:", string(core.PacketAcknowledgement(client, 3)) != string(core.PacketAcknowledgement(client, 2)))
+	println("receive refused, error ack:", string(core.PacketAcknowledgement(client, 3)) != string(core.PacketAcknowledgement(client, 2)))
 
-	legacy := govern(cur, ibcgov.NewCreditRequest(cross(cur), client, controls.PacketKey(client, 1), voucher, string(bob), 900))
-	execute(cur, legacy)
-	println("credit of the v0 receive:", decided(legacy))
 	booked := govern(cur, ibcgov.NewCreditRequest(cross(cur), client, controls.PacketKey(client, 2), voucher, string(bob), 50))
 	execute(cur, booked)
 	println("credit of the swept receive:", decided(booked))
@@ -140,16 +127,13 @@ func main(cur realm) {
 	execute(cur, errAcked)
 	println("credit of the error-acknowledged receive:", decided(errAcked))
 	c, _ := controlsView().Claim(client, controls.PacketKey(client, 2))
-	_, legacyClaim := controlsView().Claim(client, controls.PacketKey(client, 1))
-	println("claims:", c.Amount, c.By, "| v0 packet claimed:", legacyClaim, "| bob's vouchers:", transfer.VoucherBalanceOf(voucher, bob))
+	println("claim:", c.Amount, c.By, "| bob's vouchers:", transfer.VoucherBalanceOf(voucher, bob))
 }
 
 // Output:
-// impl: v0 | bob's vouchers: 900 | receipt: true | ack: true
-// v1 receive swept: 50 bridge realm
-// v1 receive refused, error ack: true
-// credit of the v0 receive: spent - spent: controls: packet ethereum-1/00000000000000000001 was not received under the route's controls (no sweep entry booked at its receipt): a receive from before the activation was paid already
+// receive swept: 50 bridge realm
+// receive refused, error ack: true
 // credit of the swept receive: applied - credit
 // credit again: spent - spent: controls: packet ethereum-1/00000000000000000002 has a claim already
 // credit of the error-acknowledged receive: spent - spent: packet ethereum-1/00000000000000000003 has no success acknowledgement: an error-acknowledged packet is refunded at its source
-// claims: 50 vote | v0 packet claimed: false | bob's vouchers: 900
+// claim: 50 vote | bob's vouchers: 0

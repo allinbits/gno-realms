@@ -19,14 +19,12 @@ type logic struct {
 
 var _ transfer.Logic = (*logic)(nil)
 
-// New builds the implementation against the proxy's store. The proxy calls it
-// through the constructor registered below.
+// New builds the implementation against the proxy's store. impl/v0 is no
+// longer an installable implementation: on a fresh deployment the proxy
+// starts with impl/v1, which serves every non-Ethereum client through this
+// logic (it embeds it), so impl/v0 registers nothing.
 func New(s transfer.Store) transfer.Logic {
 	return &logic{store: s}
-}
-
-func init(cur realm) {
-	transfer.RegisterImpl(cross(cur), New)
 }
 
 func (l *logic) Version() string {
