@@ -49,3 +49,29 @@ func TestIdentifiers(t *testing.T) {
 		}
 	}
 }
+
+// Kind 5's base denom follows the transfer app's wire grammar, the one
+// IBCAdmin's canonicalGnoDenom accepts: hyphenated realm paths included,
+// realm-issued coins excluded.
+func TestGnoWireDenom(t *testing.T) {
+	for _, s := range []string{
+		"ugnot", "abc", "atom2",
+		"gno.land:r:demo:foo", "gno.land:r:demo:foo.FOO",
+		"gno.land:r:my-org:token", "gno.land:r:my-org:token.TKN", "gno.land:r:my_org:my-token:v0.My-Slug_1",
+	} {
+		if !isGnoWireDenom(s) {
+			t.Errorf("refused %q", s)
+		}
+	}
+	for _, s := range []string{
+		"", "ab", "Ugnot", "u_gnot", "ugnot-x", "abcdefghijklmnopq",
+		"/gno.land/r/demo/foo:coin", "gno.land/r/demo/foo.FOO", "gno.land:p:demo:foo",
+		"gno.land:r:demo", "gno.land:r:my--org:token", "gno.land:r:org-:token", "gno.land:r:-org:token",
+		"gno.land:r:My:token", "gno.land:r:demo:foo.", "gno.land:r:demo:foo.a.b",
+		"gno.land:r:demo:foo." + "abcdefghijabcdefghijabcdefghijabc",
+	} {
+		if isGnoWireDenom(s) {
+			t.Errorf("accepted %q", s)
+		}
+	}
+}

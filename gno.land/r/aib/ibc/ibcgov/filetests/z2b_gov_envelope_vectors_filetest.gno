@@ -138,6 +138,18 @@ func main(cur realm) {
 	println("last seq after the refusals:", ibcgov.LastSeq(1))
 	govern(cur, ibcgov.NewEthCancelRequest(cross(cur), ranges(14)))
 	println("fourteen cancel ranges:", len(ibcgov.DispatchBody(1, ibcgov.LastSeq(1))), "bytes")
+
+	// Kind 5 takes a gno.land denom as the transfer app sends it: a GRC20
+	// alias of a hyphenated realm path is one; a realm-issued coin and a
+	// path segment gno refuses are not.
+	govern(cur, ibcgov.NewEthVoucherRequest(cross(cur), "client-0", "gno.land:r:my-org:token.TKN", a1, hash))
+	println("hyphenated realm path dispatched:", len(ibcgov.DispatchBody(1, ibcgov.LastSeq(1))), "bytes")
+	println("realm-issued coin:", revive(func() {
+		govern(cur, ibcgov.NewEthVoucherRequest(cross(cur), "client-0", "/gno.land/r/my-org/token:coin", a1, hash))
+	}))
+	println("doubled hyphen:", revive(func() {
+		govern(cur, ibcgov.NewEthVoucherRequest(cross(cur), "client-0", "gno.land:r:my--org:token", a1, hash))
+	}))
 }
 
 // Output:
@@ -164,3 +176,6 @@ func main(cur realm) {
 // fifteen cancel ranges: ibcgov: name 1 to 14 ranges: no more fit the 1024-byte envelope
 // last seq after the refusals: 12
 // fourteen cancel ranges: 974 bytes
+// hyphenated realm path dispatched: 270 bytes
+// realm-issued coin: ibcgov: not a gno.land denom the transfer app sends: /gno.land/r/my-org/token:coin
+// doubled hyphen: ibcgov: not a gno.land denom the transfer app sends: gno.land:r:my--org:token

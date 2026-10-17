@@ -672,11 +672,14 @@ func NewEthLimitsRequest(cur realm, clientID, token, maxPerMessage, dayCap, refu
 }
 
 // NewEthVoucherRequest (kind 5) registers the GnoVoucher of a gno denom on
-// the route of clientID (setCustomERC20), pinned to its code hash.
+// the route of clientID (setCustomERC20), pinned to its code hash. baseDenom
+// is the denom as the transfer app puts it on the wire (isGnoWireDenom): a
+// native denom, or a GRC20 alias; a realm-issued coin ("/gno.land/r/...:x")
+// never travels and is refused.
 func NewEthVoucherRequest(cur realm, clientID, baseDenom, voucher, codeHash string) Request {
 	mustEthClientID(clientID)
-	if !isDenom(baseDenom) {
-		panic("ibcgov: not a denom: " + baseDenom)
+	if !isGnoWireDenom(baseDenom) {
+		panic("ibcgov: not a gno.land denom the transfer app sends: " + baseDenom)
 	}
 	v, h := mustEthAddr(voucher), mustHash(codeHash)
 	text := "voucher of " + baseDenom + " on " + clientID + ": " + ethAddrText(v) + " code hash " + hex.EncodeToString(h[:])
@@ -840,3 +843,81 @@ func NewEthReopenRequest(cur realm, clientID string) Request {
 	mustEthClientID(clientID)
 	return ethRequest(cur, "reopen", KindReopen, "reopen the route of "+clientID, abi.Encode(abi.String(clientID)))
 }
+
+// isGnoWireDenom is the grammar of a gno.land denom as the transfer app puts
+// it on the wire, which IBCAdmin's kind 5 must accept exactly
+// (canonicalGnoDenom), at most 128 bytes:
+//   - a native denom: [a-z][a-z0-9]{2,15} (e.g. ugnot);
+//   - a GRC20 alias, the grc20reg key "<realm path>[.<slug>]" with "/" as
+//     ":": "gno.land:r" then at least two ":"-separated path segments, each a
+//     gno package name ([a-z][a-z0-9]*, with "_" or "-" only between
+//     alphanumerics: "my-org", not "my--org" or "org-"), then optionally "."
+//     and a slug of 1 to 32 characters of [A-Za-z0-9_-].
+//
+// A realm-issued coin ("/gno.land/r/...:denom") is no wire denom: the
+// transfer app looks it up as a grc20reg key and sends it only as a GRC20.
+func isGnoWireDenom(s string) bool {
+	if len(s) == 0 || len(s) > 128 {
+		return false
+	}
+	const head = "gno.land:r"
+	if !strings.HasPrefix(s, head+":") {
+		if len(s) < 3 || len(s) > 16 || !lowerByte(s[0]) {
+			return false
+		}
+		for i := 1; i < len(s); i++ {
+			if !lowerByte(s[i]) && !digitByte(s[i]) {
+				return false
+			}
+		}
+		return true
+	}
+	rest := s[len(head):]
+	slug := ""
+	if i := strings.IndexByte(rest, '.'); i >= 0 {
+		rest, slug = rest[:i], rest[i+1:]
+		if len(slug) == 0 || len(slug) > 32 {
+			return false
+		}
+		for i := 0; i < len(slug); i++ {
+			c := slug[i]
+			if !lowerByte(c) && !digitByte(c) && !(c >= 'A' && c <= 'Z') && c != '_' && c != '-' {
+				return false
+			}
+		}
+	}
+	segs := strings.Split(rest[1:], ":")
+	if len(segs) < 2 {
+		return false
+	}
+	for _, seg := range segs {
+		if !isPkgName(seg) {
+			return false
+		}
+	}
+	return true
+}
+
+// isPkgName is gno's package path segment grammar (gnolang Re_name):
+// [a-z][a-z0-9]*([_-][a-z0-9]+)*.
+func isPkgName(seg string) bool {
+	if len(seg) == 0 || !lowerByte(seg[0]) {
+		return false
+	}
+	for i := 1; i < len(seg); i++ {
+		c := seg[i]
+		switch {
+		case lowerByte(c) || digitByte(c):
+		case c == '_' || c == '-':
+			if i+1 >= len(seg) || !(lowerByte(seg[i+1]) || digitByte(seg[i+1])) {
+				return false
+			}
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+func lowerByte(c byte) bool { return c >= 'a' && c <= 'z' }
+func digitByte(c byte) bool { return c >= '0' && c <= '9' }
