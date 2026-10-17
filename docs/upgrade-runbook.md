@@ -204,6 +204,20 @@ non-Ethereum client as `impl/v0` does, and puts every Ethereum client under
 the route controls (ADR 0004). There is no migration from `impl/v0`: an
 Ethereum client carries nothing until a decision makes it a route.
 
+0. **Authenticate the client's initial state independently (mandatory).**
+   `CreateClient` stores the Ethereum client state and the initial consensus
+   state as given, with no bootstrap proof: the light client trusts them
+   from then on, and enrolling the client checks only that it is usable
+   (Active, not retired, counterparty registered), not that its checkpoint
+   is genuine. Before creating it, and again before voting on its
+   enrollment, check against sources you trust, independently of whoever
+   proposes them: the checkpoint (finalized slot, execution state root and
+   timestamp), the current and next sync committee summaries (pubkeys hash,
+   aggregate key), the chain parameters (chain id, genesis validators root,
+   genesis time and slot, fork schedule, slot, epoch and period lengths,
+   sync committee size, minimum participants) and the router configuration
+   (the ICS26 router address and its commitment mapping slot). A wrong value
+   lets forged headers or proofs through.
 1. Create the Ethereum client and register its counterparty (the router's
    client id, eureka's single empty merkle prefix). `CreateClient` needs a
    listed relayer while the whitelist names any; `RegisterCounterparty` must
@@ -218,3 +232,15 @@ Ethereum client carries nothing until a decision makes it a route.
 4. A client of a route is replaced with `NewReplaceRouteRequest` (an Active
    Ethereum client that is no route's client yet), which closes the route
    until `NewReopenRouteRequest`.
+5. A client's verifier is replaced by another verifier version (ADR pr6375
+   R16) in two governed steps: first a core implementation that compiles the
+   conversion in (`implv1.NewWithConversions`: from version, to version,
+   the new verifier package's conversion) is registered under
+   `gno.land/r/aib/ibc/core/impl/` and installed with
+   `NewCoreUpdateImplRequest` (7 days); then `NewReplaceVerifierRequest(
+   clientID, toVersion)` (7 days) converts the client. A conversion the
+   active implementation does not declare, a client not Active, or a
+   converted verifier failing its checks spends the decision. The client
+   keeps its id and every consensus state it trusted (served read only from
+   the retired verifier), its trust generation advances and its route's
+   payout meters start empty.
