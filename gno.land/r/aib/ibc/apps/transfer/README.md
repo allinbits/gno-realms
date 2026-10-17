@@ -199,7 +199,8 @@ mapping: [ADR 0004](../../../../../../docs/adrs/0004-ethereum-route-controls.md)
 - **Receives** are refused with an error acknowledgement, before any state
   change, under a `credits` flag, on a closed route, for a denom not enabled,
   past a minted denom's supply cap (what is booked against it,
-  `Outstanding + Returning + Owed + Withheld + Swept`, plus the receive; the
+  `Outstanding + Returning + Parked + ProvenOwed + Owed + Withheld + Swept`,
+  plus the receive, ADR 0004's one equation; the
   cap governs admission only: lowering it below what is booked refuses new
   credits and keeps every booked obligation payable), or for a blocked
   receiver. Otherwise they
@@ -236,8 +237,9 @@ mapping: [ADR 0004](../../../../../../docs/adrs/0004-ethereum-route-controls.md)
   above 20 is taken as 20; nothing
   under a `refunds` hold or on a closed route), in installments: each takes
   what the meter (and, for `unescrow`, the escrow) allows of the head
-  refund's remainder, at least `min(remainder, max(1, RefundCap/24))`, and
-  the call stops at a head it cannot pay that much of. The outcome, the
+  refund's remainder, at least `min(remainder, max(1, RefundCap/24))` (a
+  minted installment is cut to the supply's headroom when that is less, any
+  positive amount), and the call stops at a head it cannot pay. The outcome, the
   local processing height and the payment state are attached to the send
   record. Queued refunds are reserved: no receive or claim payout takes
   their escrow.
@@ -272,8 +274,8 @@ mapping: [ADR 0004](../../../../../../docs/adrs/0004-ethereum-route-controls.md)
   collector, refused recipients, voids and restores of withheld claims, credit
   by vote, sweep payments (live entries of one denom, each paid whole to the
   decision's payee, with no claim fee and outside the payout meters; for an
-  `unescrow` denom their total must fit the free escrow, what open and withheld claims and
-  queued refunds do not reserve; deferred under a `payouts` flag), losses,
+  `unescrow` denom their total must fit the free escrow, what open and withheld claims,
+  queued refunds and proven reservations do not reserve; deferred under a `payouts` flag), losses,
   recapitalization authorizations (only for
   an `unescrow` denom, the only kind recapitalized on gno.land; paid by
   anyone with **`Recapitalize(route, id)`**: for a native coin, a direct
@@ -590,8 +592,8 @@ On an Ethereum route the escrow is keyed by the route's stable key (its first
 client id), so it follows the route across client replacements. A send
 escrows under it; a receive moves no value: it books a claim or a sweep
 entry, and the escrow is released later, by `Claim` within the meters or by
-a governed sweep payment. A receive above the free escrow (what open and withheld claims and
-queued refunds do not reserve) is not refused: it becomes an owed sweep
+a governed sweep payment. A receive above the free escrow (what open and withheld claims,
+queued refunds and proven reservations do not reserve) is not refused: it becomes an owed sweep
 entry, acknowledged with success.
 
 ## Upgrades
