@@ -231,6 +231,22 @@ func quoteIdentity(s string) string {
 	return "(" + s + ")"
 }
 
+// mustCollector reads a fee collector: an address that is no realm of the
+// bridge (the transfer app checks it again when the decision executes,
+// against every implementation registered by then).
+func mustCollector(s string) address {
+	a := mustAddr(s)
+	paths := []string{CorePath, TransferPath, PkgPath, "gno.land/r/aib/ibc/ethrelay", "gno.land/r/aib/ibc/apps/transfer/impl/v0"}
+	paths = append(paths, core.RegisteredImplPaths()...)
+	paths = append(paths, transfer.RegisteredImplPaths()...)
+	for _, p := range paths {
+		if chain.PackageAddress(p) == a {
+			panic("ibcgov: the fee collector " + string(a) + " is a realm of the bridge (" + p + ")")
+		}
+	}
+	return a
+}
+
 // mustBridge reads the bridge contracts of a route: "router ics20 ibcAdmin",
 // three distinct non-zero Ethereum addresses, space-separated. They are the
 // route's protected recipients from its enrolment on (ADR pr6375 R12, §7.8).
@@ -272,7 +288,7 @@ func NewEnrollRouteRequest(cur realm, clientID, feeCollector, bridge string) Req
 	if routes.Has(clientID) {
 		panic("ibcgov: " + clientID + " is a route already")
 	}
-	fc := mustAddr(feeCollector)
+	fc := mustCollector(feeCollector)
 	b := mustBridge(bridge)
 	if _, refusal := enrolIdentity(clientID, b[0]); refusal != "" {
 		panic("ibcgov: " + refusal)
@@ -366,7 +382,7 @@ func NewSetDenomRequest(cur realm, route, denom, kind string, capFloor, supplyCa
 // NewSetFeeCollectorRequest replaces a route's fee collector after 7 days.
 func NewSetFeeCollectorRequest(cur realm, route, feeCollector string) Request {
 	route = mustRoute(route)
-	fc := mustAddr(feeCollector)
+	fc := mustCollector(feeCollector)
 	return routeRequest(cur, controls.OpCollector, "set fee collector", "fee collector of route "+route+": "+string(fc),
 		controls.Params{Route: route, To: fc}, true)
 }

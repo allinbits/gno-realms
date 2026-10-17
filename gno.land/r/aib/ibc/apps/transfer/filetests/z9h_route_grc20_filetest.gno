@@ -157,6 +157,36 @@ func main(cur realm) {
 	transfer.Claim(cross(cur), route, alias, 20)
 	println("alice", grc20test.BalanceOf(alice), "| collector", grc20test.BalanceOf(collector))
 	println(transfer.Render("total_escrow/" + alias))
+
+	// No realm of the bridge becomes the fee collector (Codex round 35 #3):
+	// a GRC20 fee paid to the transfer realm is a self-transfer the token
+	// refuses, which would stop every GRC20 send and claim on the route.
+	// Refused when the request is built, and again when it executes, here
+	// an implementation registered at the collector's address meanwhile.
+	println("collector the transfer realm:", revive(func() {
+		govern(cur, ibcgov.NewSetFeeCollectorRequest(cross(cur), route, string(transferAddr)))
+	}))
+	const laterImpl = "gno.land/r/aib/ibc/apps/transfer/impl/v9x"
+	change := govern(cur, ibcgov.NewSetFeeCollectorRequest(cross(cur), route, string(chain.PackageAddress(laterImpl))))
+	testing.SetRealm(testing.NewCodeRealm(laterImpl))
+	transfer.RegisterImpl(cross(cur), func(s transfer.Store) transfer.Logic { return nil }, "v9x", nil, true)
+	testing.SetRealm(testing.NewCodeRealm("gno.land/r/aib/main"))
+	execute(cur, change)
+	d, _ := ibcgov.Decision(change)
+	println("collector an implementation registered meanwhile:", d.State(), "-", d.Note)
+
+	// The collector stays, and still takes a GRC20 send's fee and a claim's
+	// first installment's fee.
+	before := grc20test.BalanceOf(collector)
+	grc20test.Mint(cross(cur), sender, 120)
+	grc20test.Approve(cross(cur), sender, transferAddr, 120)
+	sendGRC20(cur, route, 100)
+	println("send fee to the collector:", grc20test.BalanceOf(collector)-before)
+	before = grc20test.BalanceOf(collector)
+	recv(cur, route, 2, "transfer/client-0/"+alias, alice.String(), 300)
+	advance(24 * time.Hour)
+	transfer.Claim(cross(cur), route, alias, 20)
+	println("claim fee to the collector:", grc20test.BalanceOf(collector)-before)
 }
 
 // Output:
@@ -169,3 +199,7 @@ func main(cur realm) {
 // return: (1 gno.land/p/aib/ibc/types/v0.PacketStatus)
 // alice 480 | collector 80
 // {"denom":"gno.land:r:aib:ibc:apps:testing:grc20test.TEST","amount":1380,"clients":[{"client":"ethereum-1","amount":1380}]}
+// collector the transfer realm: ibcgov: the fee collector g1tp3gk4quumurav4858hjfdy6hxtyffwmnxyr00 is a realm of the bridge (gno.land/r/aib/ibc/apps/transfer)
+// collector an implementation registered meanwhile: spent - spent: the fee collector g1u54yy6kljq98wlgsfgvtgwkj2esqyz880a3ad3 is a realm of the bridge
+// send fee to the collector: 20
+// claim fee to the collector: 20

@@ -282,6 +282,13 @@ func (l *logic) GovApply(_ int, rlm realm, op string, params []byte) string {
 		}
 		p.To = to
 	}
+	// A fee collector is never a realm of the bridge (the transfer realm
+	// itself, the core, an implementation...): a GRC20 fee paid to the
+	// transfer realm is a self-transfer the token refuses, which would stop
+	// every GRC20 send and every claim's first installment on the route.
+	if (op == controls.OpEnroll || op == controls.OpCollector) && isBridgeRealm(p.To) {
+		return "the fee collector " + string(p.To) + " is a realm of the bridge"
+	}
 	reg := l.registry(0, rlm)
 	t := now()
 	if op == controls.OpEnroll {
