@@ -229,10 +229,13 @@ const (
 	maxNoticeSteps = 16
 	// maxExpected bounds a router client's expected successors.
 	maxExpected = 4
-	// maxFrontier bounds the router clients a notice's search keeps at each
-	// step: with maxNoticeSteps steps and maxExpected successors each, a
-	// search reads at most 16 × 64 × 4 entries.
-	maxFrontier = 64
+	// maxLive bounds the expected transitions kept, pending and active: a
+	// dispatch that would pass it is refused, and an epoch switch drops
+	// every transition no longer reachable from the new epoch's client. So
+	// every walk of the graph reads at most maxLive edges, exactly, with no
+	// "too many to tell" case. 64 holds 16 steps of 4 competing successors,
+	// more than any incident needs.
+	maxLive = 64
 )
 
 // expEdge is an expected transition from an old router client: the router
@@ -248,6 +251,7 @@ const (
 type expEdge struct {
 	to, local string
 	active    bool
+	owners    []int64 // the expectation decisions pending on it: an intent lives while one is
 }
 
 func expectedOf(old string) []expEdge {
@@ -283,9 +287,13 @@ func checkLocal(local, remote string) string {
 	return ""
 }
 
+// liveEdges is how many transitions are kept, pending and active.
+var liveEdges int
+
 // checkExpect is why the transition old → next over the gno client local
 // cannot be expected, or "": the local client must qualify (checkLocal), and
-// a new transition must fit the old client's successors, intents included.
+// a new transition must fit the old client's successors and the graph's
+// maxLive transitions, intents included.
 func checkExpect(old, next, local string) string {
 	if refusal := checkLocal(local, next); refusal != "" {
 		return refusal
@@ -299,81 +307,147 @@ func checkExpect(old, next, local string) string {
 	if len(succ) >= maxExpected {
 		return "router client " + old + " has " + strconv.Itoa(maxExpected) + " expected successors already, intents included"
 	}
+	if liveEdges >= maxLive {
+		return "the governance graph holds " + strconv.Itoa(maxLive) + " expected transitions already, intents included: an epoch switch frees those it leaves behind"
+	}
 	return ""
 }
 
-// intend records the transition old → next over local as an intent (a no-op
-// when it is recorded already); its caller checked it (checkExpect).
-func intend(old, next, local string) {
-	succ := expectedOf(old)
-	for _, x := range succ {
-		if x.to == next && x.local == local {
+func setEdges(old string, edges []expEdge) {
+	if len(edges) == 0 {
+		expected.Remove(old)
+		return
+	}
+	expected.Set(old, edges)
+}
+
+// intend records the transition old → next over local as an intent owned by
+// the expectation decision owner (adding the owner to it when it is
+// recorded already); its caller checked it (checkExpect).
+func intend(old, next, local string, owner int64) {
+	succ := append([]expEdge{}, expectedOf(old)...)
+	for i := range succ {
+		if succ[i].to == next && succ[i].local == local {
+			succ[i].owners = append(append([]int64{}, succ[i].owners...), owner)
+			setEdges(old, succ)
 			return
 		}
 	}
-	expected.Set(old, append(append([]expEdge{}, succ...), expEdge{to: next, local: local}))
-	chain.Emit("GovIntent", "from", old, "to", next, "client", local)
+	setEdges(old, append(succ, expEdge{to: next, local: local, owners: []int64{owner}}))
+	liveEdges++
+	chain.Emit("GovIntent", "from", old, "to", next, "client", local, "decision", itoa(owner))
 }
 
 // expect makes the transition old → next over local active, recording it
 // first if need be; its caller checked it (checkExpect).
 func expect(old, next, local string) {
-	intend(old, next, local)
 	succ := append([]expEdge{}, expectedOf(old)...)
+	found := false
 	for i := range succ {
 		if succ[i].to == next && succ[i].local == local {
-			succ[i].active = true
+			succ[i].active, succ[i].owners, found = true, nil, true
 		}
 	}
-	expected.Set(old, succ)
+	if !found {
+		succ = append(succ, expEdge{to: next, local: local, active: true})
+		liveEdges++
+	}
+	setEdges(old, succ)
 	approvedLocal.Set(local, true)
 	chain.Emit("GovExpect", "from", old, "to", next, "client", local)
 }
 
-// release drops the intent old → next over local, unless it is active.
-func release(old, next, local string) {
-	var kept []expEdge
-	for _, x := range expectedOf(old) {
-		if x.to == next && x.local == local && !x.active {
+// release drops owner from the intent old → next over local: the intent
+// goes with its last owner, unless it is active.
+func release(old, next, local string, owner int64) {
+	succ := append([]expEdge{}, expectedOf(old)...)
+	for i := range succ {
+		x := succ[i]
+		if x.to != next || x.local != local || x.active {
 			continue
 		}
-		kept = append(kept, x)
-	}
-	if len(kept) == 0 {
-		expected.Remove(old)
-		return
-	}
-	expected.Set(old, kept)
-}
-
-// stepEdges is the expected transitions taken at step k (from 1) of the
-// paths from the epoch client's router counterparty, the search keeping at
-// most maxFrontier router clients a step; ok is false once a step overflows.
-func stepEdges(k int) ([]expEdge, bool) {
-	front := map[string]bool{core.CounterpartyClientID(EpochClient()): true}
-	var edges []expEdge
-	for i := 1; i <= k; i++ {
-		edges = nil
-		next := map[string]bool{}
-		for c := range front {
-			for _, x := range expectedOf(c) {
-				edges = append(edges, x)
-				next[x.to] = true
+		var owners []int64
+		for _, o := range x.owners {
+			if o != owner {
+				owners = append(owners, o)
 			}
 		}
-		if len(next) > maxFrontier {
-			return nil, false
+		if len(owners) > 0 {
+			succ[i].owners = owners
+			setEdges(old, succ)
+			return
+		}
+		setEdges(old, append(succ[:i:i], succ[i+1:]...))
+		liveEdges--
+		return
+	}
+}
+
+// reachable is every transition reachable from the epoch client's router
+// counterparty, by the number of steps that first reaches each local client
+// (from 1): an exact walk of at most maxLive edges.
+func reachable() map[string]int {
+	if epoch == 0 {
+		return nil
+	}
+	steps := map[string]int{}
+	seen := map[string]bool{}
+	front := []string{core.CounterpartyClientID(EpochClient())}
+	seen[front[0]] = true
+	for k := 1; len(front) > 0 && k <= maxLive; k++ {
+		var next []string
+		for _, c := range front {
+			for _, x := range expectedOf(c) {
+				if _, ok := steps[x.local]; !ok {
+					steps[x.local] = k
+				}
+				if !seen[x.to] {
+					seen[x.to] = true
+					next = append(next, x.to)
+				}
+			}
 		}
 		front = next
 	}
-	return edges, true
+	return steps
+}
+
+// pruneUnreachable drops every transition whose old client the epoch
+// client's counterparty no longer reaches (an epoch switch left it behind):
+// bounded by maxLive edges.
+func pruneUnreachable() {
+	seen := map[string]bool{core.CounterpartyClientID(EpochClient()): true}
+	front := []string{core.CounterpartyClientID(EpochClient())}
+	for len(front) > 0 {
+		var next []string
+		for _, c := range front {
+			for _, x := range expectedOf(c) {
+				if !seen[x.to] {
+					seen[x.to] = true
+					next = append(next, x.to)
+				}
+			}
+		}
+		front = next
+	}
+	var drop []string
+	expected.Iterate("", "", func(old string, v any) bool {
+		if !seen[old] {
+			drop = append(drop, old)
+		}
+		return false
+	})
+	for _, old := range drop {
+		liveEdges -= len(expectedOf(old))
+		expected.Remove(old)
+	}
 }
 
 // onExpectedPath reports whether the gno client c carries the governance
-// epoch or is the approved client of an expected transition within
+// epoch or is the approved client of a transition, pending or active, within
 // maxNoticeSteps of it: such a client is never retired for the gov port, so
 // a notice over it can still arrive and the epoch's decisions still be
-// re-sent.
+// re-sent. Exact: the graph holds at most maxLive transitions.
 func onExpectedPath(c string) bool {
 	if epoch == 0 {
 		return false
@@ -381,21 +455,8 @@ func onExpectedPath(c string) bool {
 	if c == EpochClient() {
 		return true
 	}
-	for k := 1; k <= maxNoticeSteps; k++ {
-		edges, ok := stepEdges(k)
-		if !ok {
-			return true // too many paths to tell: keep it open
-		}
-		if len(edges) == 0 {
-			return false
-		}
-		for _, x := range edges {
-			if x.local == c {
-				return true
-			}
-		}
-	}
-	return false
+	k, ok := reachable()[c]
+	return ok && k <= maxNoticeSteps
 }
 
 // awaitGov notes a gno client retired for transfers only, to retire for good
@@ -709,6 +770,7 @@ func takeNotice(cur realm, source, client string, payload types.Payload) (uint32
 func switchEpoch(cur realm, e uint32, client string, passed []string) {
 	old := EpochClient()
 	setEpoch(e, client)
+	pruneUnreachable()
 	retireForGov(cur, old)
 	awaitingGov.Remove(old)
 	for _, c := range passed {
@@ -973,9 +1035,11 @@ func (p *ethParams) apply(cur realm, t int64) (string, string) {
 		// waits 7 days and that a hold defers, as for an emergency recovery
 		// (NewExpectRecoveryRequest). A notice over it before then is
 		// refused, and IBCAdmin sends it again.
-		intend(p.from, p.to, p.local)
 		text := "expect the governance epoch to move from " + p.from + " to " + p.to + ", carried here by " + p.local + " (kind 10)"
-		d := decide(cur, "expect transition", text, &expectParams{from: p.from, to: p.to, local: p.local}, t, t, true)
+		ep := &expectParams{from: p.from, to: p.to, local: p.local}
+		d := decide(cur, "expect transition", text, ep, t, t, true)
+		ep.owner = d.ID
+		intend(p.from, p.to, p.local, d.ID)
 		note += "; its transition is expected from decision " + itoa(d.ID)
 	}
 	return note, ""
@@ -1271,11 +1335,14 @@ func NewEthRouteReplacementRequest(cur realm, oldClientID, newClientID string, s
 }
 
 // expectParams records an expected governance transition.
-type expectParams struct{ from, to, local string }
+type expectParams struct {
+	from, to, local string
+	owner           int64 // this expectation's decision, an owner of its intent
+}
 
 func (p *expectParams) apply(cur realm, t int64) (string, string) {
 	if refusal := checkExpect(p.from, p.to, p.local); refusal != "" {
-		release(p.from, p.to, p.local)
+		release(p.from, p.to, p.local, p.owner)
 		return "", refusal
 	}
 	expect(p.from, p.to, p.local)
@@ -1309,8 +1376,9 @@ func NewExpectRecoveryRequest(cur realm, oldClientID, newClientID, localClientID
 		if refusal := checkExpect(oldClientID, newClientID, localClientID); refusal != "" {
 			panic("ibcgov: " + refusal)
 		}
-		intend(oldClientID, newClientID, localClientID)
-		decide(cur, "expect recovery", text, p, made, t, true)
+		d := decide(cur, "expect recovery", text, p, made, t, true)
+		p.owner = d.ID
+		intend(oldClientID, newClientID, localClientID, d.ID)
 	})
 }
 

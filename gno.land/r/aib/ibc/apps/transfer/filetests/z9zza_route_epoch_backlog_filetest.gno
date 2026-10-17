@@ -190,25 +190,22 @@ func expectAll(cur realm) {
 	pendingExpect = nil
 }
 
-// Switching the epoch does bounded work (Codex round 36 #2). An expected
-// graph whose fourth step reaches more than 64 router clients cannot be
-// searched within bounds, so every client a route replacement retires then
-// is kept open for governance and waits (a growing backlog). A notice's
-// switch retires only the old epoch client and its path's steps, whatever
-// the backlog; PruneGovRetirements retires the rest in bounded batches once
-// their paths can be told, the epoch having moved to a smaller graph. Its
-// batches resume where the last one stopped (Codex round 37): clients still
-// on a path, sorted first, never hold back the eligible ones behind them.
+// The expected graph is capped (Codex round 41 #3): at most 64 transitions,
+// pending and active, so every walk of it is exact and bounded; one more
+// dispatch is refused, and an epoch switch drops the transitions it left
+// behind, freeing the capacity. With the graph at the cap and the epoch
+// unchanged, a replaced client on no path is retired for good at once, one
+// on a path waits. The switch retires only the old epoch client; the
+// clients it left behind are retired by PruneGovRetirements, in bounded
+// batches that resume where the last stopped (Codex round 37), so clients
+// still on a path, sorted first, never hold back the others.
 func main(cur realm) {
 	client(cur, "ethereum-1", "client-0")
 	client(cur, "ethereum-2", "gnoland-b1")
 	b2 := client(cur, "ethereum-3", "gnoland-b2", noticePacket(1, "gnoland-b2", "ethereum-3", 2, "gnoland-b2"))
 	execute(cur, govern(cur, ibcgov.NewEnrollRouteRequest(cross(cur), "ethereum-1", string(collector), bridge)))
 	execute(cur, govern(cur, ibcgov.NewBindGovernanceRequest(cross(cur), "ethereum-1")))
-	expect := func(from, to, local string) {
-		kind10(cur, from, to, 1, local)
-	}
-	// client-0 -> b1..b4 -> c.. (16) -> d.. (64) -> e.. (65)
+	// client-0 -> b1..b4 (4) -> c.. (16) -> d.. (44): 64 transitions.
 	var level []string
 	for i := 1; i <= 4; i++ {
 		r := "gnoland-b" + strconv.Itoa(i)
@@ -216,70 +213,60 @@ func main(cur realm) {
 		if i > 2 {
 			local = plain(cur, r)
 		}
-		expect("client-0", r, local)
+		kind10(cur, "client-0", r, 1, local)
 		level = append(level, r)
 	}
-	for depth, name := range []string{"c", "d"} {
-		var next []string
-		for pi, p := range level {
-			for j := 1; j <= 4; j++ {
-				r := "gnoland-" + name + strconv.Itoa(pi) + "x" + strconv.Itoa(j)
-				expect(p, r, plain(cur, r))
-				next = append(next, r)
-			}
-		}
-		level = next
-		_ = depth
-	}
+	var cs []string
 	for pi, p := range level {
-		n := 1
-		if pi == 0 {
-			n = 2
-		}
-		for j := 1; j <= n; j++ {
-			r := "gnoland-e" + strconv.Itoa(pi) + "x" + strconv.Itoa(j)
-			expect(p, r, plain(cur, r))
+		for j := 1; j <= 4; j++ {
+			r := "gnoland-c" + strconv.Itoa(pi) + "x" + strconv.Itoa(j)
+			kind10(cur, p, r, 1, plain(cur, r))
+			cs = append(cs, r)
 		}
 	}
+	for pi := 0; pi < 11; pi++ {
+		for j := 1; j <= 4; j++ {
+			r := "gnoland-d" + strconv.Itoa(pi) + "x" + strconv.Itoa(j)
+			kind10(cur, cs[pi], r, 1, plain(cur, r))
+		}
+	}
+	extra := plain(cur, "gnoland-new")
+	println("one transition too many:", revive(func() { kind10(cur, "gnoland-d4x1", "gnoland-new", 1, extra) }))
 	expectAll(cur)
-	println(epochNow(), "| expectations recorded")
+	println(epochNow(), "| 64 transitions expected")
 
-	// Route replacements now: the graph cannot be searched within bounds,
-	// so each old client is retired for transfers only and waits. The route
-	// moves through b2's successors' clients (ethereum-10 to 13, which stay
-	// on a path once the epoch is over b2), then through clients on none.
-	route := []string{"ethereum-1", "ethereum-10", "ethereum-11", "ethereum-12", "ethereum-13"}
-	for i := 0; i < 3; i++ {
-		route = append(route, plain(cur, "gnoland-r"+strconv.Itoa(i)))
-	}
+	// The route moves through b2's successors' clients (ethereum-10 to 13,
+	// on a path before and after the switch), then b1's (ethereum-6 and 7,
+	// on a path only before it), then two clients on none.
+	route := []string{"ethereum-1", "ethereum-10", "ethereum-11", "ethereum-12", "ethereum-13", "ethereum-6", "ethereum-7"}
+	route = append(route, plain(cur, "gnoland-r0"), plain(cur, "gnoland-r1"))
 	for _, next := range route[1:] {
 		execute(cur, govern(cur, ibcgov.NewReplaceRouteRequest(cross(cur), "ethereum-1", next, 0)))
 	}
-	println("waiting:", ibcgov.AwaitingGovRetirement())
+	println("graph at the cap, epoch unchanged: waiting", ibcgov.AwaitingGovRetirement(),
+		"| a client on no path retired for good at once:", core.IsClientRetired(route[7]),
+		"| one on a path kept:", core.IsClientRetiredFor(route[6], ibcgov.GovPort))
 
-	// The notice switches the epoch to b2, retiring only the old epoch
-	// client: the backlog is left for the batches.
+	// The notice switches the epoch to b2: the transitions it left behind
+	// are dropped, and the capacity is free again.
 	println("b2's notice:", deliver(cur, b2, 0), "|", epochNow())
-	retired := 0
-	for _, c := range route[1 : len(route)-1] {
-		if core.IsClientRetiredFor(c, ibcgov.GovPort) {
-			retired++
-		}
-	}
-	println("old epoch client retired:", core.IsClientRetired("ethereum-1"), "| backlog clients retired by the switch:", retired, "| waiting:", ibcgov.AwaitingGovRetirement())
-	// Batches of 2: the clients still on a path come first and are kept;
-	// the batches move past them to the eligible ones.
+	println("old epoch client retired:", core.IsClientRetired("ethereum-1"), "| waiting:", ibcgov.AwaitingGovRetirement())
+	kind10(cur, "gnoland-d4x1", "gnoland-new", 1, extra)
+	println("the transition refused before:", decided(ibcgov.LastDecision()-1))
+	// Batches of 2: ethereum-10 to 13 are kept, ethereum-6 and 7 retired.
 	for i := 0; i < 4; i++ {
 		println("pruned:", ibcgov.PruneGovRetirements(cross(cur), 2), "| waiting:", ibcgov.AwaitingGovRetirement())
 	}
-	println("kept on a path:", core.IsClientRetiredFor("ethereum-10", ibcgov.GovPort), "| retired for good:", core.IsClientRetired(route[5]), core.IsClientRetired(route[6]))
+	println("kept on a path:", core.IsClientRetiredFor("ethereum-10", ibcgov.GovPort), "| retired for good:", core.IsClientRetired("ethereum-6"), core.IsClientRetired("ethereum-7"))
 }
 
 // Output:
-// epoch 1 over ethereum-1 | expectations recorded
-// waiting: 7
+// one transition too many: ibcgov: the governance graph holds 64 expected transitions already, intents included: an epoch switch frees those it leaves behind
+// epoch 1 over ethereum-1 | 64 transitions expected
+// graph at the cap, epoch unchanged: waiting 7 | a client on no path retired for good at once: true | one on a path kept: false
 // b2's notice: acknowledged | epoch 2 over ethereum-3
-// old epoch client retired: true | backlog clients retired by the switch: 0 | waiting: 6
+// old epoch client retired: true | waiting: 6
+// the transition refused before: applied - dispatched as epoch 2 seq 1; its transition is expected from decision 140
 // pruned: 0 | waiting: 6
 // pruned: 0 | waiting: 6
 // pruned: 2 | waiting: 4
