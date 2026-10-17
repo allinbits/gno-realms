@@ -813,6 +813,11 @@ func (rt *Route) CheckCredit(denom string, amount int64) error {
 	if amount <= 0 {
 		return errors.New("controls: the amount must be positive")
 	}
+	// Credit's own checked addition, here too: a receive that would
+	// overflow what the route owes is refused before its acknowledgement.
+	if _, ok := checkedAdd(d.Totals.liabilities(), amount); !ok {
+		return errors.New("controls: the amount would overflow what is owed")
+	}
 	if d.Config.Kind == KindMint {
 		booked := d.Totals.booked()
 		if amount > d.Config.SupplyCap-booked {
@@ -836,9 +841,6 @@ func (rt *Route) Credit(now, height, epoch int64, key, denom string, to address,
 		return false, errors.New("controls: packet " + key + " is credited already")
 	}
 	d := rt.Denom(denom)
-	if _, ok := checkedAdd(d.Totals.liabilities(), amount); !ok {
-		return false, errors.New("controls: the amount would overflow what is owed")
-	}
 	reason := sweepReason
 	if reason == "" {
 		switch {
