@@ -21,7 +21,7 @@ func (logic) Version() string { return "v99" }
 
 func New(s core.Store) core.Logic { return logic{Logic: implv0.New(s)} }
 
-func init(cur realm) { core.RegisterImpl(cross(cur), New) }
+func init(cur realm) { core.RegisterImpl(cross(cur), New, "v99", nil) }
 
 func govern(cur realm, req ibcgov.Request) int64 {
 	testing.SetRealm(testing.NewUserRealm(ibcgov.Governor()))

@@ -112,6 +112,34 @@ starts with impl/v1 and there is no migration from impl/v0 (round 10).
 | ibcgov `SetFlag`, `ClearFlag` | the seat's key, on a route ibcgov enrolled or any Ethereum client (one about to become a route's); a client of a route, current or retired, names its route (flags are kept under the route key) |
 | `UpdateClient`, `RecvPacket`, `Acknowledgement`, `Timeout` on an Ethereum client | anyone (R17); other clients keep the relayer whitelist |
 
+Candidate implementation code reaches the store only through an authorized
+installation: the bootstrap registration, or a governed `UpdateImpl` after
+its 7-day delay. Each implementation registers, beside its constructor, a
+store-free manifest of plain values (`RegisterImpl(cur, ctor, version,
+over[, keepsControls])`: the version it reports, the versions it installs
+over, and for transfer whether it keeps the route controls). The preflights
+`CheckUpdateImpl` (core and transfer) and `transfer.KeepsControls` read the
+manifest only: no candidate code runs and nothing is handed the store or a
+stored object before approval; the installation checks the built
+implementation against its manifest. Paths by which code could reach a
+store or a mutable stored object, swept (Codex round 17): the preflights
+above (were building the candidate with the live store; now
+manifest-only); the installation itself (authorized only); the active
+implementation's dispatch and `Render` (the approved implementation, by
+design); the stores' accessors (unexported `store` values handed only to an
+installed implementation; transfer's `Denoms`/`Vouchers` are read-only
+views, `ExtView` a read-only reader); core's exported functions (they
+return values: heights, statuses, timestamps, bytes, never a light client
+or a client record); `CheckRecoverClient` and `CheckMigrateClient` (run
+the active implementation's and the light client's own checks, no
+mutation); ibcgov (keeps its state unexported, returns values). Light
+clients expose exported mutators (`Initialize`, `UpdateState`,
+`UpdateStateOnMisbehaviour`, `RecoverClient`, `MigrateForkParameters`,
+`VerifyUpgradeAndUpdateState`); a stored one is reachable only through
+core's store, so only through the installed implementation's guarded
+paths, and `Initialize` runs once on both the Ethereum and the Tendermint
+client, so a stored client's trusted state is never replaced through it.
+
 ### Delays (§7.5, §9)
 
 At once: tightening (pause, pause app, reject app, block, remove relayer while
@@ -260,7 +288,7 @@ before crossing, or a refusal returned by the callee):
 
 | Decision | Failure conditions refused |
 |---|---|
-| core/transfer update impl | not registered; the candidate refuses the active implementation as its predecessor (`CheckUpdateImpl`, `InstallChecker`); a transfer implementation without the route controls once a route has them (the controls are never rolled back) |
+| core/transfer update impl | not registered; the candidate's manifest does not install over the active version (`CheckUpdateImpl`, from the manifest alone, store-free); a transfer implementation without the route controls once a route has them (the controls are never rolled back) |
 | core add/remove relayer | listed already / not listed |
 | core recover client | unknown, retired, mismatched or wrong-status clients; the light client's own check (`CheckRecoverClient`) |
 | core migrate client | unknown, retired or non-Ethereum client; no migrating implementation; the light client's check (`CheckMigrateClient`) |

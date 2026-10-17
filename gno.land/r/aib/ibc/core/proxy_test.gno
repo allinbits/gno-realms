@@ -96,15 +96,18 @@ func resetUpgradeState() {
 	implPath = ""
 	implVersion = ""
 	implCtors = bptree.NewBPTree32()
+	implManifests = bptree.NewBPTree32()
 	auth = authority.NewWithMembers(chain.PackageAddress(authority.GovDAOPath), chain.PackageAddress(IBCGovPath))
 	relayers = bptree.NewBPTree32()
 	paused = false
 }
 
 // registerAs registers ctor as if from the implementation realm at path.
+// Its manifest declares the version a throwaway build reports.
 func registerAs(cur realm, path string, ctor func(Store) Logic) {
+	version := ctor(newStore()).Version()
 	testing.SetRealm(testing.NewCodeRealm(path))
-	RegisterImpl(cross(cur), ctor)
+	RegisterImpl(cross(cur), ctor, version, nil)
 }
 
 func TestRegisterImplRejectsForeignRealm(cur realm, t *testing.T) {
@@ -207,7 +210,7 @@ func TestUpdateImplAbortsWhenOnInstallPanics(cur realm, t *testing.T) {
 	defer resetUpgradeState()
 
 	registerAs(cur, upgradeTestImplPath, newUpgradeTestLogic)
-	registerAs(cur, upgradeTestImplPath2, func(s Store) Logic { return &panickingLogic{} })
+	registerAs(cur, upgradeTestImplPath2, func(s Store) Logic { return &panickingLogic{upgradeTestLogic{version: "vpanic"}} })
 	testing.SetRealm(testing.NewCodeRealm(IBCGovPath))
 
 	uassert.AbortsContains(t, cur, "migration failed", func() {

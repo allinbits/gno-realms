@@ -136,7 +136,7 @@ func main(cur realm) {
 	println("receiver voucher balance:", transfer.VoucherBalanceOf(voucherDenom, receiver))
 
 	testing.SetRealm(testing.NewCodeRealm(v99Path))
-	transfer.RegisterImpl(cross(cur), newV99)
+	transfer.RegisterImpl(cross(cur), newV99, "v99", nil, false)
 	testing.SetRealm(testing.NewCodeRealm(transfer.IBCGovPath)) // decided by the governance realm
 	transfer.UpdateImpl(cross(cur), v99Path)
 	println("\nimpl:", transfer.ImplPath(), transfer.ImplVersion())

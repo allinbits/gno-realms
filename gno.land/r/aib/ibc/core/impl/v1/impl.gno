@@ -39,7 +39,7 @@ func New(s core.Store) core.Logic {
 }
 
 func init(cur realm) {
-	core.RegisterImpl(cross(cur), New)
+	core.RegisterImpl(cross(cur), New, version, []string{"", "v0"}) // as CheckInstall
 }
 
 func (l *logic) Version() string {
@@ -55,7 +55,8 @@ func (l *logic) OnInstall(_ int, rlm realm, prevPath, prevVersion string) {
 	}
 }
 
-// CheckInstall is core.InstallChecker: v1 installs over v0, nothing or itself.
+// CheckInstall is why v1 refuses to install: it installs over v0, nothing or
+// itself, as its manifest declares.
 func (l *logic) CheckInstall(prevPath, prevVersion string) error {
 	switch prevVersion {
 	case "", "v0", version:

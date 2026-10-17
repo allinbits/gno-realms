@@ -26,7 +26,7 @@ func newV99(s core.Store) core.Logic { return v99{Logic: implv0.New(s)} }
 // registerV99 registers the candidate as if from its own realm.
 func registerV99(cur realm) {
 	testing.SetRealm(testing.NewCodeRealm(v99Path))
-	core.RegisterImpl(cross(cur), newV99)
+	core.RegisterImpl(cross(cur), newV99, "v99", nil)
 	testing.SetRealm(testing.NewCodeRealm("gno.land/r/aib/main"))
 }
 
@@ -39,7 +39,7 @@ func createClient(cur realm, chainID string) string {
 
 // RegisterImpl refuses a realm outside the proxy's impl namespace.
 func main(cur realm) {
-	core.RegisterImpl(cross(cur), newV99)
+	core.RegisterImpl(cross(cur), newV99, "v99", nil)
 }
 
 // Error:

@@ -75,14 +75,19 @@ func resetUpgradeState() {
 	implPath = ""
 	implVersion = ""
 	implCtors = bptree.NewBPTree32()
+	implManifests = bptree.NewBPTree32()
 	auth = authority.NewWithMembers(chain.PackageAddress(authority.GovDAOPath), chain.PackageAddress(IBCGovPath))
 	blocked = bptree.NewBPTree32()
 	ext = bptree.NewBPTree32()
 }
 
+// registerAs registers ctor as if from the implementation realm at path; its
+// manifest declares what a build reports (test logic only).
 func registerAs(cur realm, path string, ctor func(Store) Logic) {
+	l := ctor(store)
+	_, keeps := l.(ControlsLogic)
 	testing.SetRealm(testing.NewCodeRealm(path))
-	RegisterImpl(cross(cur), ctor)
+	RegisterImpl(cross(cur), ctor, l.Version(), nil, keeps)
 }
 
 func TestRegisterImplRejectsForeignRealm(cur realm, t *testing.T) {

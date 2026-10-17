@@ -45,7 +45,7 @@ const v99Path = "gno.land/r/aib/ibc/core/impl/v99"
 // realm, after the deployment.
 func registerV99(cur realm) {
 	testing.SetRealm(testing.NewCodeRealm(v99Path))
-	core.RegisterImpl(cross(cur), implv0.New)
+	core.RegisterImpl(cross(cur), implv0.New, "v0", nil)
 	testing.SetRealm(testing.NewCodeRealm("gno.land/r/aib/main"))
 }
 

@@ -2,7 +2,6 @@
 package impl
 
 import (
-	"errors"
 	"testing"
 	"time"
 
@@ -22,24 +21,17 @@ const bridge = "0x00000000000000000000000000000000000b0001 0x0000000000000000000
 const self = "gno.land/r/aib/ibc/apps/transfer/impl/v99"
 
 // logic is a rehearsal implementation: v0's logic, without the route
-// controls, under version v99; while refuseV1 holds, it refuses impl/v1 as
-// its predecessor.
+// controls, under version v99; its manifest declares it installs over v0
+// only, so it refuses impl/v1 as its predecessor.
 type logic struct{ transfer.Logic }
-
-var refuseV1 = true
 
 func (logic) Version() string { return "v99" }
 
-func (logic) CheckInstall(prevPath, prevVersion string) error {
-	if refuseV1 && prevVersion == "v1" {
-		return errors.New("transfer impl v99 cannot install over version v1")
-	}
-	return nil
-}
-
 func New(s transfer.Store) transfer.Logic { return logic{Logic: implv0.New(s)} }
 
-func init(cur realm) { transfer.RegisterImpl(cross(cur), New) }
+func init(cur realm) {
+	transfer.RegisterImpl(cross(cur), New, "v99", []string{"v0"}, false)
+}
 
 func govern(cur realm, req ibcgov.Request) int64 {
 	testing.SetRealm(testing.NewUserRealm(ibcgov.Governor()))
@@ -72,7 +64,6 @@ func main(cur realm) {
 	println("v99 over v1:", decided(toV99), "| active:", transfer.ImplVersion())
 	println("retry:", revive(func() { ibcgov.Execute(cross(cur), toV99) }))
 
-	refuseV1 = false
 	client := core.CreateClient(cross(cur), ethtesting.ClientState(), ethtesting.ConsensusState())
 	core.RegisterCounterparty(cross(cur), client, [][]byte{{}}, "client-0")
 	enroll := govern(cur, ibcgov.NewEnrollRouteRequest(cross(cur), client, string(testutils.TestAddress("collector")), bridge))

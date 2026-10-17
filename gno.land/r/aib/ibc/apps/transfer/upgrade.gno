@@ -105,7 +105,51 @@ var (
 	// path. A constructor receives the proxy-owned store so a swapped
 	// implementation reads and writes the same persistent state.
 	implCtors = bptree.NewBPTree32() // path -> func(Store) Logic
+	// implManifests holds what each registered implementation declared
+	// about itself, store-free: the preflight reads it and never builds a
+	// candidate (ADR 0004, R14).
+	implManifests = bptree.NewBPTree32() // path -> manifest
 )
+
+// manifest is what an implementation declares about itself when it
+// registers, as plain values: CheckUpdateImpl and KeepsControls answer from
+// it alone, so no candidate code runs, and nothing is handed the store,
+// before a governed installation. The installation checks the built
+// implementation against it.
+type manifest struct {
+	// Version is the Version() the implementation reports.
+	Version string
+	// Over lists the versions of an active implementation it installs over
+	// ("" at bootstrap); it always re-installs over its own version. nil
+	// installs over any.
+	Over []string
+	// KeepsControls declares that it implements ControlsLogic.
+	KeepsControls bool
+}
+
+// accepts reports whether m installs over an active implementation of
+// version prev.
+func (m manifest) accepts(prev string) bool {
+	if m.Over == nil || prev == m.Version {
+		return true
+	}
+	for _, v := range m.Over {
+		if v == prev {
+			return true
+		}
+	}
+	return false
+}
+
+// newManifest builds a manifest in this realm's storage: the caller's slice
+// stays the caller's.
+func newManifest(version string, over []string, keepsControls bool) manifest {
+	m := manifest{Version: version, KeepsControls: keepsControls}
+	if over != nil {
+		m.Over = append([]string{}, over...)
+	}
+	return m
+}
 
 // assertProxyRealm guards the exported store mutators, the value moves and
 // the Emit* wrappers. The active implementation is always invoked
@@ -124,8 +168,12 @@ func assertProxyRealm(_ int, rlm realm) {
 // set of installable implementations is confined to this realm's own
 // namespace. Registration alone activates nothing, except for the very first
 // one while no implementation is installed (bootstrap). Every later switch
-// requires UpdateImpl.
-func RegisterImpl(cur realm, ctor func(Store) Logic) {
+// requires UpdateImpl. version, over and keepsControls are its manifest: the
+// version it reports, the versions of an active implementation it installs
+// over ("" at bootstrap; its own version always; nil for any) and whether it
+// keeps the route controls, which the preflight reads instead of building
+// it.
+func RegisterImpl(cur realm, ctor func(Store) Logic, version string, over []string, keepsControls bool) {
 	caller := cur.Previous().PkgPath()
 	if !strings.HasPrefix(caller, implPathPrefix) {
 		panic(ufmt.Sprintf("RegisterImpl: caller %s is not under %s", caller, implPathPrefix))
@@ -133,7 +181,11 @@ func RegisterImpl(cur realm, ctor func(Store) Logic) {
 	if ctor == nil {
 		panic("RegisterImpl: nil constructor")
 	}
+	if version == "" {
+		panic("RegisterImpl: the manifest names no version")
+	}
 	implCtors.Set(caller, ctor)
+	implManifests.Set(caller, newManifest(version, over, keepsControls))
 	if impl == nil {
 		install(0, cur, caller)
 	}
@@ -154,12 +206,18 @@ func install(_ int, rlm realm, path string) {
 	if v == nil {
 		panic(ufmt.Sprintf("no implementation registered at %s", path))
 	}
+	// Only here, in an authorized installation (bootstrap or a governed
+	// UpdateImpl), is candidate code given the store.
 	ctor := v.(func(Store) Logic)
 	l := ctor(store)
 	if l == nil {
 		panic(ufmt.Sprintf("implementation %s returned a nil Logic", path))
 	}
-	if refusal := controlsContinuity(l); refusal != "" {
+	_, keeps := l.(ControlsLogic)
+	if m := implManifests.Get(path).(manifest); l.Version() != m.Version || keeps != m.KeepsControls {
+		panic(ufmt.Sprintf("implementation %s is not what its manifest declared (version %s, keeps controls %t)", path, m.Version, m.KeepsControls))
+	}
+	if refusal := controlsContinuity(keeps); refusal != "" {
 		panic(refusal)
 	}
 	// A panic in the hook unwinds the transaction: nothing below runs and
@@ -176,33 +234,23 @@ func install(_ int, rlm realm, path string) {
 	)
 }
 
-// InstallChecker is implemented by an implementation that tells, without a
-// change, why its OnInstall would refuse to install over the active
-// implementation (prevPath, prevVersion), or nil.
-type InstallChecker interface {
-	CheckInstall(prevPath, prevVersion string) error
-}
-
 // CheckUpdateImpl is why UpdateImpl(path) would fail now, or "", with no
-// change: path is not registered, or its implementation refuses the active
-// one as its predecessor. A governed switch that would fail is refused (and
-// its decision spent) instead of aborting and staying pending.
+// change: path is not registered, its manifest does not install over the
+// active version, or it drops the route controls. A governed switch that
+// would fail is refused (and its decision spent) instead of aborting and
+// staying pending. It reads the manifest only: no candidate code runs and
+// nothing reaches the store.
 func CheckUpdateImpl(path string) string {
-	v := implCtors.Get(path)
+	v := implManifests.Get(path)
 	if v == nil {
 		return "no implementation registered at " + path
 	}
-	l := v.(func(Store) Logic)(store)
-	if l == nil {
-		return "implementation " + path + " returned a nil Logic"
-	}
-	if refusal := controlsContinuity(l); refusal != "" {
+	m := v.(manifest)
+	if refusal := controlsContinuity(m.KeepsControls); refusal != "" {
 		return refusal
 	}
-	if ic, ok := l.(InstallChecker); ok {
-		if err := ic.CheckInstall(implPath, implVersion); err != nil {
-			return err.Error()
-		}
+	if !m.accepts(implVersion) {
+		return ufmt.Sprintf("transfer impl %s cannot install over version %s", m.Version, implVersion)
 	}
 	return ""
 }
@@ -212,8 +260,8 @@ func CheckUpdateImpl(path string) string {
 // routes without keeping their send records, meters and supply accounting,
 // so a reinstalled controls implementation would trust stale state (refund
 // a packet a second time). The controls are never rolled back.
-func controlsContinuity(l Logic) string {
-	if _, ok := l.(ControlsLogic); ok {
+func controlsContinuity(keepsControls bool) string {
+	if keepsControls {
 		return ""
 	}
 	if rd, ok := store.ExtView("controls").(interface{ Routes() []string }); ok && len(rd.Routes()) > 0 {
@@ -222,15 +270,12 @@ func controlsContinuity(l Logic) string {
 	return ""
 }
 
-// KeepsControls reports whether the implementation registered at path keeps
-// the route controls (ControlsLogic), without installing it.
+// KeepsControls reports whether the implementation registered at path
+// declared it keeps the route controls (ControlsLogic), from its manifest:
+// nothing is built. The installation checks the declaration.
 func KeepsControls(path string) bool {
-	v := implCtors.Get(path)
-	if v == nil {
-		return false
-	}
-	_, ok := v.(func(Store) Logic)(store).(ControlsLogic)
-	return ok
+	v := implManifests.Get(path)
+	return v != nil && v.(manifest).KeepsControls
 }
 
 // ImplPath returns the realm path of the active implementation, "" if none.

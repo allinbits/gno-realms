@@ -66,7 +66,7 @@ func New(s transfer.Store) transfer.Logic {
 }
 
 func init(cur realm) {
-	transfer.RegisterImpl(cross(cur), New)
+	transfer.RegisterImpl(cross(cur), New, version, nil, true) // installs over any
 }
 
 func (l *logic) Version() string { return version }
