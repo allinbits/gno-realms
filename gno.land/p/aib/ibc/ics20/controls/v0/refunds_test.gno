@@ -856,3 +856,38 @@ func TestLossPages(t *testing.T) {
 		t.Fatalf("covered %d of %d, sum %d, pages %d", len(seen), 2*n, sum, pages)
 	}
 }
+
+// A settlement's escrow check counts every reservation the whole batch
+// releases (Codex round 12 #3): with an escrow of 1,000 and two queued
+// refunds of 1,000, paying genuine refund A and rejecting delivered B is
+// solvent, in either item order.
+func TestSettlementCountsEveryRelease(t *testing.T) {
+	for _, payFirst := range []bool{true, false} {
+		r, rt := newRoute(t)
+		rt.RecordSend(sendRec(1, "ugnot", KindUnescrow, 1_000))
+		rt.RecordSend(sendRec(2, "ugnot", KindUnescrow, 1_000))
+		rt.Settle(t0, 1, pk(1), OutcomeTimeout, true, 0) // queued under a hold
+		rt.Settle(t0, 1, pk(2), OutcomeTimeout, true, 0)
+		r.Replace("ethereum-1", "ethereum-2", 0, 1000)
+		rt.send(pk(1)).Proven = ProvenRefundable
+		rt.send(pk(2)).Proven = ProvenDelivered
+		pay, reject := SettleItem{Seq: 1, Action: SettlePay, Amount: 1_000}, SettleItem{Seq: 2, Action: SettleReject}
+		items := []SettleItem{reject, pay}
+		if payFirst {
+			items = []SettleItem{pay, reject}
+		}
+		ps, err := rt.SettleRecords("ethereum-1", items, "inc", lockOf(1_000), activeAll)
+		if err != nil || len(ps) != 1 || ps[0].Amount != 1_000 || rt.Denom("ugnot").Totals.QueuedRefunds != 0 {
+			t.Fatalf("pay first %v: %v %+v", payFirst, err, ps)
+		}
+	}
+	// One escrow short of the payment is still refused.
+	r, rt := newRoute(t)
+	rt.RecordSend(sendRec(1, "ugnot", KindUnescrow, 1_000))
+	rt.Settle(t0, 1, pk(1), OutcomeTimeout, true, 0)
+	r.Replace("ethereum-1", "ethereum-2", 0, 1000)
+	rt.send(pk(1)).Proven = ProvenRefundable
+	if _, err := rt.SettleRecords("ethereum-1", []SettleItem{{Seq: 1, Action: SettlePay, Amount: 1_000}}, "inc", lockOf(999), activeAll); err == nil {
+		t.Fatalf("paid beyond the escrow")
+	}
+}

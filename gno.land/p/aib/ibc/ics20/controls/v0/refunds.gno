@@ -471,7 +471,13 @@ func (rt *Route) SettleRecords(client string, items []SettleItem, incident strin
 	seen := map[uint64]bool{}
 	seenIn := map[uint64]bool{}
 	pays := map[string]int64{}
-	queued := map[string]int64{} // the queued remainders the payments settle: their own reserve
+	// What the batch takes off each liability that reserves the escrow,
+	// whatever the items' order: every settled record's queued refund (each
+	// action unqueues it), and every forged receive's unpaid claim remainder
+	// (owed or withheld). The payments are checked against the escrow the
+	// liabilities still reserve once the whole batch applies; each is exact
+	// on its own, so the subtraction happens before any saturating sum.
+	relQueued, relOwed, relWithheld := map[string]int64{}, map[string]int64{}, map[string]int64{}
 	lossTotals := map[string]int64{}
 	for i, it := range items {
 		key := PacketKey(client, it.Seq)
@@ -491,6 +497,14 @@ func (rt *Route) SettleRecords(client string, items []SettleItem, incident strin
 			if lossTotals[denom], ok = checkedAdd(lossTotals[denom], it.Amount); !ok {
 				return nil, ufmt.Errorf("controls: item %d: the settlement's losses overflow", i)
 			}
+			if c := rt.claim(key); c != nil {
+				switch c.State {
+				case Open:
+					relOwed[denom] += c.Remaining() // within Owed
+				case Withheld:
+					relWithheld[denom] += c.Remaining() // within Withheld
+				}
+			}
 			continue
 		}
 		r := rt.send(key)
@@ -503,6 +517,9 @@ func (rt *Route) SettleRecords(client string, items []SettleItem, incident strin
 			return nil, ufmt.Errorf("controls: item %d: send %s is settled already", i, key)
 		}
 		seen[it.Seq] = true
+		if r.Payment == PayQueued {
+			relQueued[r.Denom] += r.Amount - r.Refunded // within QueuedRefunds
+		}
 		// The action must match the outcome proven through the replacement
 		// client (ADR pr6375 §7.12): governance chooses, the proof decides.
 		switch {
@@ -526,11 +543,6 @@ func (rt *Route) SettleRecords(client string, items []SettleItem, incident strin
 			var ok bool
 			if pays[r.Denom], ok = checkedAdd(pays[r.Denom], it.Amount); !ok {
 				return nil, ufmt.Errorf("controls: item %d: the settlement's payments overflow", i)
-			}
-			if r.Payment == PayQueued {
-				if queued[r.Denom], ok = checkedAdd(queued[r.Denom], r.Amount-r.Refunded); !ok {
-					return nil, ufmt.Errorf("controls: item %d: the settlement's queued refunds overflow", i)
-				}
 			}
 		case SettleReject:
 			if r.Payment != PayQueued || it.Amount != 0 {
@@ -575,10 +587,9 @@ func (rt *Route) SettleRecords(client string, items []SettleItem, incident strin
 		if _, ok := checkedAdd(d.Totals.Outstanding, total); d.Config.Kind == KindMint && !ok {
 			return nil, errors.New("controls: the settlement's refunds would overflow the outstanding supply of " + denom)
 		}
-		// The escrow the other liabilities reserve: claims, and the queued
-		// refunds this settlement does not pay (never adding back to a
-		// saturated total).
-		reserved := boundAdd(boundAdd(d.Totals.Owed, d.Totals.Withheld), d.Totals.QueuedRefunds-queued[denom])
+		// The escrow the liabilities still reserve once the whole batch
+		// applies: claims and queued refunds, less what the batch releases.
+		reserved := boundAdd(boundAdd(d.Totals.Owed-relOwed[denom], d.Totals.Withheld-relWithheld[denom]), d.Totals.QueuedRefunds-relQueued[denom])
 		free := lock(denom) - reserved
 		if d.Config.Kind == KindUnescrow && total > free {
 			return nil, ufmt.Errorf("controls: %d of %s is above the free lock of %d", total, denom, free)
