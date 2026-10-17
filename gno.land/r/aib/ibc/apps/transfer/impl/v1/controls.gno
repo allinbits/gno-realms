@@ -396,24 +396,29 @@ func (l *logic) GovApply(_ int, rlm realm, op string, params []byte) string {
 	case controls.OpAccept:
 		err = rt.Accept(p.Denom, p.Amount, p.Incident)
 	case controls.OpSettle:
-		// Every refund checked before anything changes: one that would fail
-		// refuses the decision, the records unsettled.
+		// The settlement is planned first, changing nothing: which refunds
+		// it pays now and which minted ones it parks, the room left for
+		// minting bounded by the voucher token's supply too. Only the
+		// payments it makes now are checked against their token or the
+		// banker; one that would fail refuses the decision, the records
+		// unsettled. Then the plan applies whole.
+		var plan *controls.SettlePlan
+		plan, err = rt.PlanSettlement(p.Client, p.Items, p.Incident, func(denom string) int64 { return l.lockOf(rt, denom) }, l.mintRoom, verifierTrusted)
+		if err != nil {
+			break
+		}
 		var due []payout
-		for _, it := range p.Items {
-			if it.Action != controls.SettlePay || it.Amount <= 0 {
-				continue
-			}
-			if r, ok := rt.Send(controls.PacketKey(p.Client, it.Seq)); ok {
-				due = append(due, payout{r.Denom, r.Sender, it.Amount})
-			}
+		for _, x := range plan.Payments {
+			due = append(due, payout{x.Denom, x.To, x.Amount})
 		}
 		if refusal := l.payable(rt, due); refusal != "" {
 			return refusal
 		}
-		var ps []controls.RefundPayment
-		ps, err = rt.SettleRecords(p.Client, p.Items, p.Incident, func(denom string) int64 { return l.lockOf(rt, denom) }, verifierTrusted)
-		for _, x := range ps {
+		for _, x := range rt.ApplySettlement(plan) {
 			l.payOut(0, rlm, rt, x.Denom, x.To, x.Amount)
+		}
+		if parked := plan.Parked(); len(parked) > 0 {
+			note = "parked " + strconv.Itoa(len(parked)) + " refunds"
 		}
 	case controls.OpReopen:
 		var accepted int64

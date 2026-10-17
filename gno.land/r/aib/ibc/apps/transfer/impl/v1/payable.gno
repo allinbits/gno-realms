@@ -78,4 +78,14 @@ func (l *logic) payable(rt *controls.Route, ps []payout) string {
 	return ""
 }
 
+// mintRoom is how much of a minted denom its voucher token can still mint
+// under int64 (0 with no token: nothing is minted).
+func (l *logic) mintRoom(denom string) int64 {
+	tok := l.store.VoucherToken(denom)
+	if tok == nil {
+		return 0
+	}
+	return maxInt64 - tok.TotalSupply()
+}
+
 const maxInt64 = int64(1<<63 - 1)
