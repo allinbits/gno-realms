@@ -733,14 +733,27 @@ type Claim struct {
 	Paid    int64 // fee included
 	Reduced int64 // cut by liability reductions
 	// Fee is the denom's fee when the claim was credited, locked then: the
-	// claim's first installment and its later minimum installment, never
-	// moved by a later configuration change.
+	// claim's first installment and its later minimum installment are the
+	// lower of it and the denom's fee now (effectiveFee).
 	Fee    int64
 	At     int64 // credited at, unix time
 	Height int64 // credited at, block height
 	By     string
 	State  string
 	Seq    int64 // its place in the recipient's queue
+}
+
+// effectiveFee is the claim's fee: the lower of the fee locked when it was
+// credited and the denom's fee now. A raise never applies to a claim already
+// credited; a cut does, so a claim's first installment and its minimum
+// installment never exceed what the current configuration lets a recipient
+// meter (a quarter of a day cap at least the cap floor, the fee at most a
+// quarter of the cap floor) hold.
+func (c *Claim) effectiveFee(d *Denom) int64 {
+	if d.Config.Fee < c.Fee {
+		return d.Config.Fee
+	}
+	return c.Fee
 }
 
 // Remaining is what the claim still owes.
@@ -965,8 +978,9 @@ func (rt *Route) MeterLevels(now, epoch, epochAt int64, denom string, to address
 //   - a claim's first installment is its fee, whole, to the fee collector;
 //   - a later installment is paid only when both meters hold at least
 //     min(what the claim still owes, its fee): no slivers;
-//   - a claim's fee is the denom's fee when it was credited (Claim.Fee): a
-//     later fee change never applies to it.
+//   - a claim's fee is the lower of the denom's fee when it was credited
+//     (Claim.Fee) and its fee now: a later raise never applies to it, and a
+//     later cut (with the cap floor, which bounds the fee) never strands it.
 //   - a recipient whose meters hold less is passed over, its meter refilling
 //     for a later turn.
 //
@@ -1023,9 +1037,10 @@ func (rt *Route) PayClaimsSweeping(now, epoch, epochAt int64, denom string, n in
 			avail = lock - d.Totals.QueuedRefunds
 		}
 		rem := c.Remaining()
+		cfee := c.effectiveFee(d)
 		fee := int64(0)
 		if c.Paid == 0 {
-			fee = c.Fee
+			fee = cfee
 			if fee > rem {
 				fee = rem
 			}
@@ -1033,7 +1048,7 @@ func (rt *Route) PayClaimsSweeping(now, epoch, epochAt int64, denom string, n in
 				continue // dry: the fee is the first installment, whole
 			}
 		} else {
-			need := c.Fee
+			need := cfee
 			if need > rem {
 				need = rem
 			}
@@ -1048,7 +1063,7 @@ func (rt *Route) PayClaimsSweeping(now, epoch, epochAt int64, denom string, n in
 		if c.Paid == 0 && pay > 0 {
 			// No sliver after the fee either: the rest of a first installment
 			// is paid only if it is at least min(what remains, the fee).
-			need := c.Fee
+			need := cfee
 			if need > rem-fee {
 				need = rem - fee
 			}

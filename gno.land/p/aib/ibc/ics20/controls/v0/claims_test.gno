@@ -660,3 +660,62 @@ func TestClaimFeeLockedAtCredit(t *testing.T) {
 		t.Fatalf("%+v", ps)
 	}
 }
+
+// A claim's fee is the lower of its locked fee and the current one: lowering
+// the cap floor and the fee after a credit never strands the claim, unpaid,
+// paid in part, or withheld and restored (Codex round 22 #1).
+func TestClaimFeeFollowsACut(t *testing.T) {
+	raised := gnot()
+	raised.CapFloor, raised.Fee = 100_000, 20_000
+	lock := int64(100_000)
+	setup := func() *Route {
+		_, rt := newRoute(t)
+		if err := rt.SetDenom("ugnot", raised, t0, 0, 0); err != nil {
+			t.Fatal(err)
+		}
+		return rt
+	}
+	cut := func(rt *Route) {
+		if err := rt.SetDenom("ugnot", gnot(), t0, 0, 0); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// Unpaid: its locked fee (20,000) is above what a recipient meter can now
+	// hold (2,500); it is paid with the current fee.
+	rt := setup()
+	mustCredit(t, rt, t0, 1, "ugnot", alice, 30_000, lock)
+	cut(rt)
+	ps, _ := rt.PayClaims(t0+Day, 0, t0, "ugnot", 1, lock)
+	if len(ps) != 1 || ps[0].Fee != 20 || ps[0].Amount != 2_480 {
+		t.Fatalf("unpaid: %+v", ps)
+	}
+
+	// Paid in part: its minimum installment follows the cut too.
+	rt = setup()
+	mustCredit(t, rt, t0, 1, "ugnot", alice, 30_000, lock)
+	ps, _ = rt.PayClaims(t0+Day, 0, t0, "ugnot", 1, lock)
+	if len(ps) != 1 || ps[0].Fee != 20_000 || ps[0].Amount != 0 { // the fee alone: no sliver after it
+		t.Fatalf("first installment: %+v", ps)
+	}
+	cut(rt)
+	ps, _ = rt.PayClaims(t0+2*Day, 0, t0, "ugnot", 1, lock)
+	if len(ps) != 1 || ps[0].Fee != 0 || ps[0].Amount != 2_500 {
+		t.Fatalf("paid in part: %+v", ps)
+	}
+
+	// Withheld, then restored after the cut.
+	rt = setup()
+	mustCredit(t, rt, t0, 1, "ugnot", alice, 30_000, lock)
+	if err := rt.Void([]string{pk(1)}, false, "inc"); err != nil {
+		t.Fatal(err)
+	}
+	cut(rt)
+	if err := rt.Restore([]string{pk(1)}, t0, 0); err != nil {
+		t.Fatal(err)
+	}
+	ps, _ = rt.PayClaims(t0+Day, 0, t0, "ugnot", 1, lock)
+	if len(ps) != 1 || ps[0].Fee != 20 {
+		t.Fatalf("restored: %+v", ps)
+	}
+}
