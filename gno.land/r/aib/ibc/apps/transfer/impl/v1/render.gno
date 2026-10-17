@@ -4,7 +4,6 @@ import (
 	"strings"
 
 	"gno.land/p/aib/jsonmd/v0"
-	"gno.land/p/nt/markdown/sanitize/v0"
 
 	"gno.land/p/nt/mux/v0"
 	"gno.land/p/nt/ufmt/v0"
@@ -65,7 +64,7 @@ func (l *logic) home(w *mux.ResponseWriter, r *mux.Request) {
 		// Route keys are client ids the core made; denoms are written
 		// escaped all the same, and the JSON route holds everything else.
 		out.WriteString(ufmt.Sprintf("- `%s` (client `%s`): denoms %s, see [routes/%s](:routes/%s)\n",
-			k, l.reader().Client(k), sanitize.InlineText(strings.Join(l.reader().Denoms(k), ", ")), k, k))
+			k, l.reader().Client(k), jsonmd.Text(strings.Join(l.reader().Denoms(k), ", ")), k, k))
 	}
 	w.Write(out.String())
 }

@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"gno.land/p/aib/jsonmd/v0"
-	"gno.land/p/nt/markdown/sanitize/v0"
 
 	"gno.land/p/aib/ibc/lightclient/ethereum/v0"
 	"gno.land/p/aib/ibc/lightclient/tendermint/v0"
@@ -102,7 +101,7 @@ func (rd *Renderer) Home(w *mux.ResponseWriter, r *mux.Request) {
 				id, id,
 				lc.Status(), id,
 				RenderAddr(c.Creator()),
-				sanitize.TableCell(c.CounterpartyClientID()),
+				jsonmd.Cell(c.CounterpartyClientID()),
 				lc.LatestHeight().String(), id, lc.LatestHeight().RevisionNumber, lc.LatestHeight().RevisionHeight,
 				heightTime,
 				nConsStates, id,
@@ -123,7 +122,7 @@ func (rd *Renderer) Home(w *mux.ResponseWriter, r *mux.Request) {
 		out.WriteString("|------|-----|------|\n")
 		for _, port := range ports {
 			app := rd.store.Route(port)
-			out.WriteString(ufmt.Sprintf("| %s | %s | %s |\n", sanitize.TableCell(port), RenderPkgPath(app.PkgPath), RenderAddr(app.Address)))
+			out.WriteString(ufmt.Sprintf("| %s | %s | %s |\n", jsonmd.Cell(port), RenderPkgPath(app.PkgPath), RenderAddr(app.Address)))
 		}
 		out.WriteString("\n")
 	} else {

@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"gno.land/p/aib/jsonmd/v0"
-	"gno.land/p/nt/markdown/sanitize/v0"
 
 	"gno.land/p/aib/ibc/ics20/v0"
 	"gno.land/p/aib/ibc/lightclient/v0"
@@ -109,7 +108,7 @@ func (rd *Renderer) Home(w *mux.ResponseWriter, r *mux.Request) {
 			)
 			out.WriteString(ufmt.Sprintf(
 				"| [`%s`](/r/aib/ibc/apps/transfer:denoms/%s) | %s | %s | %s | %s | %s |\n",
-				ShortDenom(ibcDenom), ibcDenom, sanitize.TableCell(d.Base), sanitize.TableCell(d.Path()), supply, grc20link, actions,
+				ShortDenom(ibcDenom), ibcDenom, jsonmd.Cell(d.Base), jsonmd.Cell(d.Path()), supply, grc20link, actions,
 			))
 		}
 		out.WriteString("\n")
@@ -156,7 +155,7 @@ func escrowDenomCell(denom string) string {
 	for i := 0; i < len(denom); i++ {
 		c := denom[i]
 		if !(c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '/' || c == ':' || c == '.' || c == '_' || c == '-') {
-			return sanitize.TableCell(denom)
+			return jsonmd.Cell(denom)
 		}
 	}
 	return "[`" + denom + "`](/r/aib/ibc/apps/transfer:total_escrow/" + denom + ")"

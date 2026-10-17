@@ -32,3 +32,33 @@ func TestInert(t *testing.T) {
 		t.Errorf("Inert = %s\nwant    %s", got, want)
 	}
 }
+
+// Markdown cells and inline text keep gnoweb's own extensions inert: a
+// mention (@alice) and TeX math ($x$) in a token name a counterparty chose
+// become character references (Codex round 35 #4), next to what sanitize
+// escapes already.
+func TestMarkdownCellAndText(t *testing.T) {
+	cases := []struct{ in, cell, text string }{
+		{"@alice", "&#64;alice", "&#64;alice"},
+		{"$x$", "&#36;x&#36;", "&#36;x&#36;"},
+		{"uatom", "uatom", "uatom"},
+		{"a|b", `a\|b`, "a|b"},
+	}
+	for _, c := range cases {
+		if got := Cell(c.in); got != c.cell {
+			t.Errorf("Cell(%q) = %q, want %q", c.in, got, c.cell)
+		}
+		if got := Text(c.in); got != c.text {
+			t.Errorf("Text(%q) = %q, want %q", c.in, got, c.text)
+		}
+	}
+	for _, s := range []string{"@alice $x$", "[x](y) @b"} {
+		for _, out := range []string{Cell(s), Text(s)} {
+			for _, bad := range []string{"@", "$"} {
+				if strings.Contains(out, bad) {
+					t.Errorf("%q kept %q: %q", s, bad, out)
+				}
+			}
+		}
+	}
+}

@@ -8,6 +8,8 @@
 // "[claim](https://attacker.example)" becomes a link on the realm's page.
 package jsonmd
 
+import "gno.land/p/nt/markdown/sanitize/v0"
+
 const hexDigits = "0123456789abcdef"
 
 // Inert returns the JSON text doc with every Markdown- or HTML-active
@@ -94,4 +96,29 @@ func appendU(out []byte, r rune) []byte {
 		return appendU(out, 0xdc00+r&0x3ff)
 	}
 	return append(out, '\\', 'u', hexDigits[r>>12&0xf], hexDigits[r>>8&0xf], hexDigits[r>>4&0xf], hexDigits[r&0xf])
+}
+
+// Cell is s as a Markdown table cell, inert: sanitize.TableCell, then the
+// gnoweb extension delimiters it leaves active, TeX math ($) and mentions
+// (@), written as character references, which show the character and open
+// nothing.
+func Cell(s string) string { return gnowebInert(sanitize.TableCell(s)) }
+
+// Text is s as inline Markdown text, inert: sanitize.InlineText, then the
+// gnoweb extension delimiters as in Cell.
+func Text(s string) string { return gnowebInert(sanitize.InlineText(s)) }
+
+func gnowebInert(s string) string {
+	out := make([]byte, 0, len(s))
+	for i := 0; i < len(s); i++ {
+		switch s[i] {
+		case '$':
+			out = append(out, "&#36;"...)
+		case '@':
+			out = append(out, "&#64;"...)
+		default:
+			out = append(out, s[i])
+		}
+	}
+	return string(out)
 }

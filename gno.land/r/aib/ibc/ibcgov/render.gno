@@ -7,7 +7,6 @@ import (
 	"gno.land/p/aib/jsonmd/v0"
 
 	"gno.land/p/aib/decisions/v0"
-	"gno.land/p/nt/markdown/sanitize/v0"
 )
 
 // Render serves the governance state:
@@ -50,7 +49,7 @@ func home() string {
 		b.WriteString("- governance channel: not bound\n")
 	} else {
 		b.WriteString("- governance channel: epoch " + strconv.FormatUint(uint64(epoch), 10) + " over client " +
-			sanitize.InlineText(EpochClient()) + ", last seq " + u64s(LastSeq(epoch)) + "\n")
+			jsonmd.Text(EpochClient()) + ", last seq " + u64s(LastSeq(epoch)) + "\n")
 	}
 	if Held() {
 		b.WriteString("- **guardian hold** since " + itoa(holdSince) + ": queued decisions are deferred, unpauses are spent\n")
@@ -65,7 +64,7 @@ func home() string {
 		if holder == "" {
 			holder = "empty"
 		}
-		b.WriteString("- " + strconv.Itoa(i) + " (" + role + "): " + sanitize.InlineText(holder) + "\n")
+		b.WriteString("- " + strconv.Itoa(i) + " (" + role + "): " + jsonmd.Text(holder) + "\n")
 	}
 	b.WriteString("\n## Routes\n\n")
 	if routes.Size() == 0 {
@@ -75,9 +74,9 @@ func home() string {
 		r := v.(*routeRec)
 		// A flag line carries the packet keys a guardian named, whose client
 		// part is any text: every line is escaped as inline Markdown.
-		b.WriteString("- " + sanitize.InlineText(k) + " (payouts epoch " + itoa(r.epoch) + ")\n")
+		b.WriteString("- " + jsonmd.Text(k) + " (payouts epoch " + itoa(r.epoch) + ")\n")
 		for _, f := range Flags(k) {
-			b.WriteString("  - flag: " + sanitize.InlineText(f) + "\n")
+			b.WriteString("  - flag: " + jsonmd.Text(f) + "\n")
 		}
 		return false
 	})
