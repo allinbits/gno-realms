@@ -226,16 +226,20 @@ var (
 )
 
 const (
-	// maxNoticeSteps bounds k, the epochs a notice moves through at once.
-	maxNoticeSteps = 16
+	// maxNoticeSteps bounds k, the epochs a notice moves through at once:
+	// the graph's own bound, as a path of expected transitions never has
+	// more steps than the graph has transitions. Ethereum executes
+	// transitions with no cap of its own on how many come between two
+	// notices gno receives, so no shorter bound is assumed of it.
+	maxNoticeSteps = maxLive
 	// maxExpected bounds a router client's expected successors.
 	maxExpected = 4
 	// maxLive bounds the expected transitions kept, pending and active: a
 	// dispatch that would pass it is refused, and an epoch switch drops
 	// every transition no longer reachable from the new epoch's client. So
 	// every walk of the graph reads at most maxLive edges, exactly, with no
-	// "too many to tell" case. 64 holds 16 steps of 4 competing successors,
-	// more than any incident needs.
+	// "too many to tell" case. 64 holds a chain of 64 steps, or 16 steps of
+	// 4 competing successors, more than any incident needs.
 	maxLive = 64
 )
 
@@ -479,8 +483,8 @@ func pruneUnreachable() {
 
 // onExpectedPath reports whether the gno client c carries the governance
 // epoch or is the approved client of a transition, pending or active,
-// reachable from it at any distance (a later notice may bring it within a
-// notice's 16 steps): such a client is never retired for the gov port, so a
+// reachable from it at any distance (any path in the graph is within a
+// notice's maxNoticeSteps): such a client is never retired for the gov port, so a
 // notice over it can still arrive and the epoch's decisions still be
 // re-sent. Exact: the graph holds at most maxLive transitions.
 func onExpectedPath(c string) bool {
@@ -898,7 +902,7 @@ func pinsExpectations(client string) bool {
 // router counterparty, as comma-separated "routerClient/localClient" pairs
 // ending with the notice's source and client: each must be a recorded
 // expected transition with its local binding. Anyone may call it; it is
-// checked in O(k), k at most 16 (ADR pr6375 §7.12).
+// checked in O(k), k at most maxNoticeSteps, 64 (ADR pr6375 §7.12).
 func ApplyEpochNotice(cur realm, e uint32, client, path string) {
 	v := proven.Get(provenKey(e, client))
 	if v == nil {
