@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"gno.land/p/aib/ibc/types/v0"
+	"gno.land/p/nt/ufmt/v0"
 )
 
 // big is a lock that covers every refund.
@@ -214,23 +215,27 @@ func TestSettleRecords(t *testing.T) {
 	}
 	before := d.Totals
 	bad := [][]SettleItem{
-		{{Seq: 3, Action: SettleReject}},                                                         // no queued refund
-		{{Seq: 2, Action: SettlePay, Amount: 1_000}},                                             // cut short
-		{{Seq: 2, Action: SettlePay, Amount: 3_001}},                                             // more than owed
-		{{Seq: 1, Action: SettleLoss, Amount: 1}},                                                // not what was paid
-		{{Seq: 2, Action: SettleLoss, Amount: 0}},                                                // nothing was paid
-		{{Seq: 1, Action: SettleDelivered, Amount: 1}},                                           // an amount
-		{{Seq: 1, Action: 5}},                                                                    // unknown
-		{{Seq: 9, Action: SettleDelivered}},                                                      // no record
-		{{Seq: 3, Action: SettleDelivered}, {Seq: 3, Action: SettleDelivered}},                   // twice
-		{{Seq: 4, Action: SettlePay, Amount: 3_000}, {Seq: 5, Action: SettlePay, Amount: 3_000}}, // above the free lock below
+		{{Seq: 3, Action: SettleReject}},                                       // no queued refund
+		{{Seq: 2, Action: SettlePay, Amount: 1_000}},                           // cut short
+		{{Seq: 2, Action: SettlePay, Amount: 3_001}},                           // more than owed
+		{{Seq: 1, Action: SettleLoss, Amount: 1}},                              // not what was paid
+		{{Seq: 2, Action: SettleLoss, Amount: 0}},                              // nothing was paid
+		{{Seq: 1, Action: SettleDelivered, Amount: 1}},                         // an amount
+		{{Seq: 1, Action: 5}},                                                  // unknown
+		{{Seq: 9, Action: SettleDelivered}},                                    // no record
+		{{Seq: 3, Action: SettleDelivered}, {Seq: 3, Action: SettleDelivered}}, // twice
 	}
-	// The preparation reserved 4's and 5's 3000 each, which their own
-	// settlement releases: 5000 left free once it applies.
 	for i, b := range bad {
 		if _, err := settleProven(rt, "ethereum-1", b, "inc-1", lockOf(d.Reserved()-1_000)); err == nil {
 			t.Fatalf("bad settlement %d applied", i)
 		}
+	}
+	// The preparation reserved 4's and 5's 3000 each, which their own
+	// settlement releases: 5000 left free once it applies. 4 is paid; 5,
+	// which does not fit, is parked rather than the settlement refused.
+	rt.send(pk(4)).Proven, rt.send(pk(5)).Proven = ProvenRefundable, ProvenRefundable
+	if msg := planParks(rt, []SettleItem{{Seq: 4, Action: SettlePay, Amount: 3_000}, {Seq: 5, Action: SettlePay, Amount: 3_000}}, lockOf(d.Reserved()-1_000), activeAll, 1, 5); msg != "" {
+		t.Fatal(msg)
 	}
 	if _, err := settleProven(rt, "ethereum-1", items, "", lockOf(big)); err == nil {
 		t.Fatalf("settled without an incident")
@@ -689,8 +694,9 @@ func TestSettlementReserveBeyondMaxInt64(t *testing.T) {
 	rt.Settle(t0, 1, pk(1), OutcomeTimeout, true, 0) // queued under a hold
 	d.Totals.Owed = big5                             // claims owe 5e18 too
 	replaceReady(r, "ethereum-1", "ethereum-2", 0, 1000)
-	if _, err := settleProven(rt, "ethereum-1", []SettleItem{{Seq: 1, Action: SettlePay, Amount: big5}}, "inc", lockOf(maxInt64)); err == nil {
-		t.Fatalf("paid a refund out of the escrow the claims reserve")
+	ps, err := settleProven(rt, "ethereum-1", []SettleItem{{Seq: 1, Action: SettlePay, Amount: big5}}, "inc", lockOf(maxInt64))
+	if r1, _ := rt.Send(pk(1)); err != nil || len(ps) != 0 || r1.Payment != PayQueued || r1.Settlement != SettlePay || d.Totals.QueuedRefunds != big5 {
+		t.Fatalf("paid a refund out of the escrow the claims reserve, or refused to park it: %v %+v", err, ps)
 	}
 }
 
@@ -889,15 +895,38 @@ func TestSettlementCountsEveryRelease(t *testing.T) {
 			t.Fatalf("pay first %v: %v %+v", payFirst, err, ps)
 		}
 	}
-	// One escrow short of the payment is still refused.
+	// One escrow short of the payment parks it, owed, and paid once the
+	// escrow is whole.
 	r, rt := newRoute(t)
 	rt.RecordSend(sendRec(1, "ugnot", KindUnescrow, 1_000))
 	rt.Settle(t0, 1, pk(1), OutcomeTimeout, true, 0)
 	replaceReady(r, "ethereum-1", "ethereum-2", 0, 1000)
 	rt.send(pk(1)).Proven = ProvenRefundable
-	if _, err := rt.SettleRecords("ethereum-1", []SettleItem{{Seq: 1, Action: SettlePay, Amount: 1_000}}, "inc", lockOf(999), activeAll); err == nil {
-		t.Fatalf("paid beyond the escrow")
+	ps, err := rt.SettleRecords("ethereum-1", []SettleItem{{Seq: 1, Action: SettlePay, Amount: 1_000}}, "inc", lockOf(999), activeAll)
+	if r1, _ := rt.Send(pk(1)); err != nil || len(ps) != 0 || r1.Payment != PayQueued || rt.Denom("ugnot").Totals.QueuedRefunds != 1_000 {
+		t.Fatalf("paid beyond the escrow, or refused to park: %v %+v", err, ps)
 	}
+	if ps, err := rt.PayRefunds(t0+Day, "ugnot", 1, false, 1_000); err != nil || len(ps) != 1 || ps[0].Amount != 1_000 {
+		t.Fatalf("the parked refund was not paid: %v %+v", err, ps)
+	}
+}
+
+// planParks plans items and reports, unless the plan parks exactly the
+// sequences parked and pays the paid others, what it does instead.
+func planParks(rt *Route, items []SettleItem, lock func(string) int64, trusted func(string, uint64) bool, paid int, parked ...uint64) string {
+	plan, err := rt.PlanSettlement("ethereum-1", items, "inc", lock, nil, trusted)
+	if err != nil {
+		return "refused: " + err.Error()
+	}
+	if len(plan.Payments) != paid || len(plan.parked) != len(parked) {
+		return ufmt.Sprintf("paid %+v, parked %v", plan.Payments, plan.parked)
+	}
+	for _, seq := range parked {
+		if !plan.parked[seq] {
+			return ufmt.Sprintf("%d not parked: %v", seq, plan.parked)
+		}
+	}
+	return ""
 }
 
 // A forged-receive settlement of a claim moved to the sweep books what the
@@ -1464,15 +1493,16 @@ func TestStaggeredProofsKeepSiblingBacking(t *testing.T) {
 	if d.Totals.ProvenOwed != 200 {
 		t.Fatalf("reserved %d", d.Totals.ProvenOwed)
 	}
-	// The first refund cannot take the second's backing.
-	if err := pay(rt, 1, 150); err == nil {
-		t.Fatalf("paid the first refund out of the second's backing")
+	// The first refund cannot take the second's backing: it would park.
+	one := []SettleItem{{Seq: 1, Action: SettlePay, Amount: 100}}
+	if msg := planParks(rt, one, lockOf(150), activeAll, 0, 1); msg != "" {
+		t.Fatalf("the first refund against the second's backing: %s", msg)
 	}
 	// A proof of delivery releases nothing; the settlement applying it does,
 	// in the same batch as the first refund's payment.
 	prove(t, rt, 2, ProvenDelivered, activeAll)
-	if err := pay(rt, 1, 150); err == nil {
-		t.Fatalf("a delivery proof released the sibling's backing")
+	if msg := planParks(rt, one, lockOf(150), activeAll, 0, 1); msg != "" {
+		t.Fatalf("a delivery proof released the sibling's backing: %s", msg)
 	}
 	if _, err := rt.SettleRecords("ethereum-1", []SettleItem{{Seq: 1, Action: SettlePay, Amount: 100}, {Seq: 2, Action: SettleDelivered}}, "inc", lockOf(150), activeAll); err != nil {
 		t.Fatal(err)
@@ -1569,18 +1599,20 @@ func TestVoidedDeliveryKeepsBacking(t *testing.T) {
 		proveAt(rt, 1, ProvenDelivered) // false
 		gen = 2                         // the verifier frozen and recovered
 		proveAt(rt, 2, ProvenRefundable)
-		var err error
+		payB := SettleItem{Seq: 2, Action: SettlePay, Amount: 1_000}
 		if aFirst {
-			err = settle(rt, SettleItem{Seq: 1, Action: SettleDelivered}, SettleItem{Seq: 2, Action: SettlePay, Amount: 1_000})
-		} else {
-			err = settle(rt, SettleItem{Seq: 2, Action: SettlePay, Amount: 1_000})
-		}
-		if err == nil {
-			t.Fatalf("A first %v: B paid out of A's backing on a void delivery proof", aFirst)
+			// A's void delivery proof settles nothing.
+			if settle(rt, SettleItem{Seq: 1, Action: SettleDelivered}, payB) == nil {
+				t.Fatalf("settled A on a void delivery proof")
+			}
+		} else if msg := planParks(rt, []SettleItem{payB}, lockOf(1_000), trusted, 0, 2); msg != "" {
+			t.Fatalf("B against A's backing on a void delivery proof: %s", msg)
 		}
 		proveAt(rt, 1, ProvenRefundable)
-		if settle(rt, SettleItem{Seq: 2, Action: SettlePay, Amount: 1_000}) == nil || settle(rt, SettleItem{Seq: 1, Action: SettlePay, Amount: 1_000}) == nil {
-			t.Fatalf("A first %v: a refund paid out of its sibling's backing", aFirst)
+		for _, seq := range []uint64{1, 2} {
+			if msg := planParks(rt, []SettleItem{{Seq: seq, Action: SettlePay, Amount: 1_000}}, lockOf(1_000), trusted, 0, seq); msg != "" {
+				t.Fatalf("A first %v: refund %d against its sibling's backing: %s", aFirst, seq, msg)
+			}
 		}
 	}
 	// Honest: A delivered, settled in the batch that pays B.
@@ -1620,5 +1652,40 @@ func TestPrepareChargesEmptyClients(t *testing.T) {
 	}
 	if !rt.Prepared() || calls < 6 {
 		t.Fatalf("prepared %v after %d calls", rt.Prepared(), calls)
+	}
+}
+
+// An escrowed refund the drained escrow cannot pay is parked, not refused:
+// the route reopens with the forged payout accepted as a deficit, and the
+// refund is paid once the escrow is whole again (Codex design round 3 #3).
+func TestEscrowRefundParksThroughReopen(t *testing.T) {
+	r, rt := newRoute(t)
+	rt.RecordSend(sendRec(1, "ugnot", KindUnescrow, 100))
+	// A forged receive pays out of the escrow the send locked.
+	mustCredit(t, rt, t0, 5, "ugnot", alice, 3_000, big)
+	rt.PayClaims(t0+Day, 0, t0, "ugnot", 1, big)
+	c, _ := rt.Claim(pk(5))
+	if c.Paid == 0 {
+		t.Fatalf("setup: %+v", c)
+	}
+	replaceReady(r, "ethereum-1", "ethereum-2", 0, 1000)
+	items := []SettleItem{{Seq: 5, Action: SettleForgedReceive, Amount: c.Paid}, {Seq: 1, Action: SettlePay, Amount: 100}}
+	ps, err := settleProven(rt, "ethereum-1", items, "inc", lockOf(0))
+	r1, _ := rt.Send(pk(1))
+	d := rt.Denom("ugnot")
+	if err != nil || len(ps) != 0 || r1.Settlement != SettlePay || r1.Payment != PayQueued || d.Totals.QueuedRefunds != 100 {
+		t.Fatalf("the refund was not parked: %v %+v %+v", err, ps, r1)
+	}
+	accepted, done, err := rt.Reopen()
+	if err != nil || !done || accepted != c.Paid {
+		t.Fatalf("reopen: %d %v %v", accepted, done, err)
+	}
+	if ps, _ := rt.PayRefunds(t0+2*Day, "ugnot", 1, false, 0); len(ps) != 0 {
+		t.Fatalf("paid out of an empty escrow: %+v", ps)
+	}
+	// Recapitalized: the escrow holds the refund again.
+	ps, err = rt.PayRefunds(t0+2*Day, "ugnot", 1, false, 100)
+	if r1, _ = rt.Send(pk(1)); err != nil || len(ps) != 1 || ps[0].Amount != 100 || ps[0].To != r1.Sender || d.Totals.QueuedRefunds != 0 {
+		t.Fatalf("the parked refund was not paid: %v %+v", err, ps)
 	}
 }

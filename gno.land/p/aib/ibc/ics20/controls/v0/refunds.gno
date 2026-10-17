@@ -490,7 +490,8 @@ type SettleItem struct {
 // every record named is settled exactly once, after which no acknowledgement,
 // timeout or decision moves it again. A queued refund leaves the queue under
 // any action, paid only by SettlePay. lock is the escrow of an unescrowed
-// denom: payments never take what open claims reserve. Every item is checked
+// denom: payments never take what open claims reserve; a genuine refund the
+// free escrow cannot pay is parked, owed and queued, not refused. Every item is checked
 // before anything changes. It returns the refunds to pay. trusted reports
 // whether a verifier still vouches for what it proved under a trust
 // generation: Active, not retired, and that generation still current.
@@ -503,7 +504,7 @@ func (rt *Route) SettleRecords(client string, items []SettleItem, incident strin
 }
 
 // SettlePlan is a checked settlement, not applied yet: the refunds it pays
-// at once (Payments) and the minted refunds it parks. It holds for the
+// at once (Payments) and the refunds it parks. It holds for the
 // state it was planned on: apply it in the same transaction, nothing
 // changed in between.
 type SettlePlan struct {
@@ -514,7 +515,7 @@ type SettlePlan struct {
 	Payments []RefundPayment
 }
 
-// Parked lists the outbound sequences whose minted refund the plan parks.
+// Parked lists the outbound sequences whose refund the plan parks.
 func (p *SettlePlan) Parked() []uint64 {
 	var out []uint64
 	for _, it := range p.items {
@@ -527,8 +528,8 @@ func (p *SettlePlan) Parked() []uint64 {
 
 // PlanSettlement checks a reconciliation's outcomes (see SettleRecords) and
 // plans them without changing anything: which genuine refunds are paid at
-// once and which minted ones are parked, the supply then holding no room for
-// them. room is the room left for minting a denom (nil: what its outstanding
+// once and which are parked, the supply (a minted denom) or the free escrow
+// (an escrowed one) then holding no room for them. room is the room left for minting a denom (nil: what its outstanding
 // supply leaves under int64; a caller also bound by a token's supply passes
 // the lower of the two): the refunds take it in item order, and one that
 // does not fit is parked. The parked refunds are checked against their own
@@ -538,13 +539,9 @@ func (rt *Route) PlanSettlement(client string, items []SettleItem, incident stri
 	if err := rt.checkPrepared(); err != nil {
 		return nil, err
 	}
-	retired := false
-	for _, c := range rt.Replaced {
-		if c == client {
-			retired = true
-		}
-	}
-	if !retired {
+	// Indexed: every client a replacement retired has its suspect height
+	// recorded, read in logarithmic work whatever the route's history.
+	if !rt.retiredHere(client) {
 		return nil, errors.New("controls: " + client + " is no client a replacement retired from route " + rt.Key + ": only its sends are settled by reconciliation")
 	}
 	if len(items) == 0 || len(items) > MaxKeys {
@@ -659,8 +656,13 @@ func (rt *Route) PlanSettlement(client string, items []SettleItem, incident stri
 		}
 	}
 	plan := &SettlePlan{client: client, incident: incident, items: items, parked: map[uint64]bool{}}
-	// The minted refunds take the room left for minting, in item order; one
-	// that does not fit is parked, owed and reserved (see park).
+	// The genuine refunds take, in item order, what is left to pay them
+	// with: the room left for minting (a minted denom) or the free escrow
+	// once the whole batch applies (an escrowed one: the lock less what
+	// claims, queued refunds and proven reservations still reserve after the
+	// batch's releases). One that does not fit is parked, owed and reserved
+	// (see park), paid later as the backing allows: no settlement is refused
+	// for want of backing.
 	left := map[string]int64{}
 	for _, it := range items {
 		if it.Action != SettlePay || it.Amount <= 0 {
@@ -668,46 +670,25 @@ func (rt *Route) PlanSettlement(client string, items []SettleItem, incident stri
 		}
 		r := rt.send(PacketKey(client, it.Seq))
 		d := rt.Denom(r.Denom)
-		if d.Config.Kind == KindMint {
-			if _, ok := left[r.Denom]; !ok {
+		if _, ok := left[r.Denom]; !ok {
+			if d.Config.Kind == KindMint {
 				left[r.Denom] = maxInt64 - d.Totals.Outstanding
 				if room != nil {
 					if x := room(r.Denom); x < left[r.Denom] {
 						left[r.Denom] = x
 					}
 				}
+			} else {
+				reserved := boundAdd(boundAdd(boundAdd(d.Totals.Owed-relOwed[r.Denom], d.Totals.Withheld-relWithheld[r.Denom]), d.Totals.minusWideSat(wQueued, relQueued[r.Denom])), d.Totals.minusWideSat(wProven, relProven[r.Denom]))
+				left[r.Denom] = lock(r.Denom) - reserved
 			}
-			if it.Amount > left[r.Denom] {
-				plan.parked[it.Seq] = true
-				continue
-			}
-			left[r.Denom] -= it.Amount
 		}
-		plan.Payments = append(plan.Payments, RefundPayment{Key: r.Key, Denom: r.Denom, To: r.Sender, Amount: it.Amount})
-	}
-	// The escrowed refunds paid now must fit the free escrow, itself an
-	// int64: a sum past int64 could never be paid at once, and refuses the
-	// settlement (a smaller batch settles). The minted ones paid now are
-	// bounded by the room left for minting; the parked ones are no payment.
-	pays := map[string]int64{}
-	for _, x := range plan.Payments {
-		if rt.Denom(x.Denom).Config.Kind != KindUnescrow {
+		if it.Amount > left[r.Denom] {
+			plan.parked[it.Seq] = true
 			continue
 		}
-		var ok bool
-		if pays[x.Denom], ok = checkedAdd(pays[x.Denom], x.Amount); !ok {
-			return nil, errors.New("controls: the settlement's escrowed refunds of " + x.Denom + " overflow: settle fewer at once")
-		}
-	}
-	for denom, total := range pays {
-		d := rt.Denom(denom)
-		// The escrow the liabilities still reserve once the whole batch
-		// applies: claims and queued refunds, less what the batch releases.
-		reserved := boundAdd(boundAdd(boundAdd(d.Totals.Owed-relOwed[denom], d.Totals.Withheld-relWithheld[denom]), d.Totals.minusWideSat(wQueued, relQueued[denom])), d.Totals.minusWideSat(wProven, relProven[denom]))
-		free := lock(denom) - reserved
-		if total > free {
-			return nil, ufmt.Errorf("controls: %d of %s is above the free lock of %d", total, denom, free)
-		}
+		left[r.Denom] -= it.Amount
+		plan.Payments = append(plan.Payments, RefundPayment{Key: r.Key, Denom: r.Denom, To: r.Sender, Amount: it.Amount})
 	}
 	return plan, nil
 }
@@ -791,20 +772,25 @@ func (rt *Route) ApplySettlement(plan *SettlePlan) []RefundPayment {
 	return out
 }
 
-// park books a settled genuine refund of a minted denom that the outstanding
-// supply cannot hold now (its integer capacity is spent): the record is
+// park books a settled genuine refund that cannot be paid now: of a minted
+// denom whose outstanding supply cannot hold it (its integer capacity is
+// spent), or of an escrowed denom whose free escrow is short. The record is
 // settled, so it no longer blocks a reopening, and its refund is owed and
 // queued (PayQueued, counted in QueuedRefunds), paid later by PayRefunds
-// within the supply's headroom, the refund meter and any refunds hold, like
-// every queued refund. The amount is reserved again (Reservation, counted in
-// Parked, apart from the in-flight burns' Returning), so it counts against
-// the supply cap: no credit admitted meanwhile takes the capacity it needs,
-// and a voucher return is never refused for it.
+// within the supply's headroom or the free escrow, the refund meter and any
+// refunds hold, like every queued refund. An escrowed refund is reserved by
+// QueuedRefunds itself: no claim, sweep or receive takes the escrow it
+// waits for. A minted one is reserved again (Reservation, counted in Parked,
+// apart from the in-flight burns' Returning), so it counts against the
+// supply cap: no credit admitted meanwhile takes the capacity it needs, and
+// a voucher return is never refused for it.
 func (rt *Route) park(d *Denom, r *SendRecord, amount int64) {
-	d.queueRefund(r.Key, amount)
+	d.queueRefund(r.Key, amount) // an escrowed refund is reserved by QueuedRefunds
 	r.Payment = PayQueued
-	r.Reservation = amount
-	d.Totals.add(wParked, amount)
+	if d.Config.Kind == KindMint {
+		r.Reservation = amount
+		d.Totals.add(wParked, amount)
+	}
 }
 
 // forgedReceive is the denom and what the receive of key (an inbound
@@ -847,13 +833,7 @@ func (rt *Route) ProveOutcome(key string, packet types.Packet, outcome uint8, he
 	if string(types.CommitPacket(packet)) != string(r.Commitment) || key != PacketKey(packet.SourceClient, packet.Sequence) {
 		return errors.New("controls: the packet is not send " + key + "'s")
 	}
-	retired := false
-	for _, c := range rt.Replaced {
-		if c == packet.SourceClient {
-			retired = true
-		}
-	}
-	if !retired {
+	if !rt.retiredHere(packet.SourceClient) {
 		return errors.New("controls: " + packet.SourceClient + " is no client a replacement retired from route " + rt.Key)
 	}
 	if r.Settlement != 0 {
@@ -983,3 +963,7 @@ func (rt *Route) reserveHidden(r *SendRecord, h int64) bool {
 	d.Totals.add(wProven, owed)
 	return true
 }
+
+// retiredHere reports whether a replacement retired client from the route:
+// an indexed lookup (its suspect height is recorded at the replacement).
+func (rt *Route) retiredHere(client string) bool { return rt.suspect.Has(client) }

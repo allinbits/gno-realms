@@ -416,7 +416,7 @@ func (l *logic) GovApply(_ int, rlm realm, op string, params []byte) string {
 		err = rt.Accept(p.Denom, p.Amount, p.Incident)
 	case controls.OpSettle:
 		// The settlement is planned first, changing nothing: which refunds
-		// it pays now and which minted ones it parks, the room left for
+		// it pays now and which it parks, the room left for
 		// minting bounded by the voucher token's supply too. Only the
 		// payments it makes now are checked against their token or the
 		// banker; one that would fail refuses the decision, the records
