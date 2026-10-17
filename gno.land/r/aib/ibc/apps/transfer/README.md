@@ -289,8 +289,15 @@ gnokey query vm/qrender -data "gno.land/r/aib/ibc/apps/transfer:total_escrow/ugn
 ```
 
 ```json
-{ "denom": "ugnot", "amount": 100 }
+{ "denom": "ugnot", "amount": 100, "clients": [{ "client": "07-tendermint-1", "amount": 100 }] }
 ```
+
+Amounts in these JSON renders are written as JSON numbers converted from
+float64: an integer above 2^53 (9007199254740992) can lose precision
+(9007199254740993 renders as 9007199254740992). Read exact values from Gno
+code: `VoucherBalanceOf(ibcDenom, addr)` for a balance, the voucher token's
+`TotalSupply()` (via grc20reg) for a supply, and the route controls' totals
+for an Ethereum route.
 
 ## Helper functions
 
@@ -379,7 +386,9 @@ Voucher tokens can be discovered in two ways:
    `gno.land/r/aib/ibc/apps/transfer.` prefix.
 
 The token name is the base denomination (e.g. `uatom`) and the symbol is the
-truncated hash (e.g. `CAEF9CA8CE6`). For the full denom and richer metadata
+truncated hash (e.g. `CAEF9CA8CE6`). Every voucher has zero decimals: the
+counterparty's decimal metadata is not carried over, and balances are the
+unscaled base-unit amounts the packets carried. For the full denom and richer metadata
 (trace hops, total supply), query the render endpoint `voucher/ibc/{HASH}`.
 
 ### Trading
@@ -398,6 +407,13 @@ full `ibc/{HASH}` denom to distinguish them — the token symbol is only the
 truncated hash, so read the full denom from the `denom` field of the `vouchers`
 render endpoint — and query `denoms/ibc/{HASH}` to resolve the trace path for
 display purposes.
+
+grc20reg keys a voucher by this realm's path and its truncated symbol (the
+first 11 hex characters of the hash), not by the full-hash slug. Two
+vouchers whose hashes share those 11 characters would share a registry key:
+grc20reg refuses the second registration, so creating the second voucher
+aborts, and the receive that would have created it rolls back. The full-hash
+slug does not prevent this.
 
 ## Events
 
