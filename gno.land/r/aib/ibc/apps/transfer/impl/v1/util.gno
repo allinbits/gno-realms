@@ -54,7 +54,8 @@ func validateBaseDenomNoSlash(token ics20.Token) error {
 	return nil
 }
 
-// unmarshalPayload decodes the packet data of payload in its encoding.
+// unmarshalPayload decodes the packet data of payload, sent or received on
+// an Ethereum route, in its encoding.
 func unmarshalPayload(payload types.Payload) (ics20.FungibleTokenPacketData, ics20.Token, error) {
 	var (
 		data ics20.FungibleTokenPacketData
@@ -68,10 +69,14 @@ func unmarshalPayload(payload types.Payload) (ics20.FungibleTokenPacketData, ics
 	if err != nil {
 		return data, ics20.Token{}, ufmt.Errorf("decoding FungibleTokenPacketData: %v", err)
 	}
-	if err := data.ValidateBasic(); err != nil {
+	// An Ethereum route's data is validated by its own rules only
+	// (ValidateBasicEthereum), not the SDK's first: a router client id hop
+	// of more than 64 characters, or a blank receiver (an owed sweep), is
+	// valid here.
+	denom, err := data.ValidateBasicEthereum()
+	if err != nil {
 		return data, ics20.Token{}, ufmt.Errorf("invalid FungibleTokenPacketData: %v", err)
 	}
-	denom := ics20.ExtractDenomFromPathFunc(data.Denom, ics20.IsHopClientID)
 	token := ics20.Token{Denom: denom, Amount: data.Amount}
 	return data, token, nil
 }

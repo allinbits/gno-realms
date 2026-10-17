@@ -147,6 +147,15 @@ func main(cur realm) {
 	println("status:", res.Status == types.PacketStatus_Success, "| sweep:", e.To, e.Amount, e.Reason, "| swept", t.Swept)
 	println("a claim pays nothing:", transfer.Claim(cross(cur), route, "ugnot", 20))
 
+	// A blank receiver is no address either: an owed sweep with a success
+	// acknowledgement, not a refusal (Codex round 12 #5).
+	for i, blank := range []string{"", "   "} {
+		seq := uint64(10 + i)
+		res := recv(cur, route, seq, "transfer/client-0/ugnot", blank, 50)
+		e, _ := controlsView().Sweep(route, controls.PacketKey(route, seq))
+		println("receiver", strconv.Quote(blank)+":", res.Status == types.PacketStatus_Success, "| sweep:", strconv.Quote(e.To), e.Amount, e.Reason)
+	}
+
 	pay := govern(cur, ibcgov.NewSweepRequest(cross(cur), route, controls.PacketKey(route, 1), string(carol)))
 	println("before the delay:", decided(pay))
 	before := ugnot(carol)
@@ -158,5 +167,7 @@ func main(cur realm) {
 // Output:
 // status: true | sweep: cosmos1notgnoland 300 invalid receiver | swept 300
 // a claim pays nothing: 0
+// receiver "": true | sweep: "" 50 invalid receiver
+// receiver "   ": true | sweep: "   " 50 invalid receiver
 // before the delay: pending - queued 7 days
 // paid: applied - sweep | carol + 300 | entry paid to true

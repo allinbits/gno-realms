@@ -136,7 +136,12 @@ const denoms = "ugnot unescrow 10000 0 20 2 25000 40 10000 0x0000000000000000000
 func main(cur realm) {
 	alias := transfer.GRC20Alias(token)
 	transferAddr := chain.PackageAddress(transfer.PkgPath)
-	for _, remote := range []string{"gnoland", "gnoland." + strings.Repeat("x", 57), "gnoland." + strings.Repeat("y", 120)} {
+	// Router ids ending in "-1" look like SDK client ids: one of 64
+	// characters is a valid SDK id, one of 65 and one of 128 are router ids
+	// only, and the route checks them by the router's grammar alone (Codex
+	// round 12 #1).
+	for _, remote := range []string{"gnoland", "gnoland." + strings.Repeat("x", 57), "gnoland." + strings.Repeat("y", 120),
+		strings.Repeat("a", 62) + "-1", strings.Repeat("b", 63) + "-1", strings.Repeat("c", 126) + "-1"} {
 		client := core.CreateClient(cross(cur), ethtesting.ClientState(), ethtesting.ConsensusState())
 		core.RegisterCounterparty(cross(cur), client, [][]byte{{}}, remote)
 		execute(cur, govern(cur, ibcgov.NewEnrollRouteRequest(cross(cur), client, string(collector), bridge)))
@@ -164,3 +169,6 @@ func main(cur realm) {
 // 7 characters: true true | alice + 480 ugnot, holds 480 TEST
 // 65 characters: true true | alice + 480 ugnot, holds 960 TEST
 // 128 characters: true true | alice + 480 ugnot, holds 1440 TEST
+// 64 characters: true true | alice + 480 ugnot, holds 1920 TEST
+// 65 characters: true true | alice + 480 ugnot, holds 2400 TEST
+// 128 characters: true true | alice + 480 ugnot, holds 2880 TEST

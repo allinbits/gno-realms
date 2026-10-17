@@ -11,6 +11,7 @@ import (
 	"gno.land/p/aib/ibc/host/v0"
 	"gno.land/p/aib/ibc/types/v0"
 	"gno.land/p/nt/ufmt/v0"
+	"gno.land/p/onbloc/int256/v0"
 	"gno.land/p/onbloc/json/v0"
 )
 
@@ -206,4 +207,39 @@ func (h Hop) ValidateBasic() error {
 // <portID>/<clientID>
 func (h Hop) String() string {
 	return ufmt.Sprintf("%s/%s", h.PortId, h.ClientId)
+}
+
+// ValidateBasicEthereum validates the packet data of an Ethereum route, by
+// the route's own rules alone (the SDK's ValidateBasic stays every other
+// route's): the amount strictly positive, the sender set, the denom's hops
+// recognized and checked by the ICS26 router's client id grammar
+// (IsHopClientID; a hop's client id is an ICS24 identifier or a router
+// client id of up to 128 characters), and its base set. The receiver is not
+// checked: an Ethereum route books a receive whose receiver is no address,
+// blank included, as an owed sweep entry (ADR pr6375 §6.8, §7.1). It returns
+// the denom it parsed.
+func (f FungibleTokenPacketData) ValidateBasicEthereum() (Denom, error) {
+	amount, err := int256.FromDecimal(f.Amount)
+	if err != nil {
+		return Denom{}, ufmt.Errorf("unable to parse transfer amount %q: %v", f.Amount, err)
+	}
+	if amount.Sign() != 1 {
+		return Denom{}, ufmt.Errorf("amount must be strictly positive: got %s", amount)
+	}
+	if strings.TrimSpace(f.Sender) == "" {
+		return Denom{}, ufmt.Errorf("sender address cannot be blank")
+	}
+	d := ExtractDenomFromPathFunc(f.Denom, IsHopClientID)
+	if strings.TrimSpace(d.Base) == "" {
+		return Denom{}, ufmt.Errorf("base denomination cannot be blank")
+	}
+	for _, h := range d.Trace {
+		if host.PortIdentifierValidator(h.PortId) != nil {
+			return Denom{}, ufmt.Errorf("invalid hop source port ID %s", h.PortId)
+		}
+		if host.ClientIdentifierValidator(h.ClientId) != nil && !types.IsValidRouterClientID(h.ClientId) {
+			return Denom{}, ufmt.Errorf("invalid hop source client ID %s", h.ClientId)
+		}
+	}
+	return d, nil
 }
