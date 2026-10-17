@@ -13,7 +13,11 @@ import (
 	_ "gno.land/r/aib/ibc/core/impl/v0"
 )
 
-// A received sequence takes no other packet (ADR pr6375 R19).
+// A received sequence takes no other packet (ADR pr6375 R19), on every
+// route, this Tendermint one included (ADR 0004, "Changes affecting every
+// route"): the same packet again is RESPONSE_NOOP, a different one aborts.
+// In the base (1e0c7c5) the receipt was the constant 0x02, so a different
+// packet at a received sequence returned RESPONSE_NOOP too.
 func main(cur realm) {
 	var (
 		chainID       = "chain-id-2"
@@ -132,7 +136,7 @@ func main(cur realm) {
 		SourcePort: "appID", DestinationPort: "appID", Encoding: "application/json",
 		Value: []byte(`{"forged":true}`), Version: "v1",
 	}}
-	println("different packet:", revive(func() { core.RecvPacket(cross(cur), other) }))
+	println("different packet (RESPONSE_NOOP in the base):", revive(func() { core.RecvPacket(cross(cur), other) }))
 	println("receipt unchanged:", hex.EncodeToString(core.PacketReceipt(clientID, 1)) == hex.EncodeToString(receipt))
 }
 
@@ -140,5 +144,5 @@ func main(cur realm) {
 // res: (2 gno.land/p/aib/ibc/types/v0.ResponseResultType)
 // receipt == CommitPacketReceipt: true
 // again: (1 gno.land/p/aib/ibc/types/v0.ResponseResultType)
-// different packet: a different packet was already received at sequence 1 on client 07-tendermint-1
+// different packet (RESPONSE_NOOP in the base): a different packet was already received at sequence 1 on client 07-tendermint-1
 // receipt unchanged: true
