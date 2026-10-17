@@ -149,7 +149,8 @@ func status(r types.RecvPacketResult) string {
 // A core implementation registered after the deployment is a bridge realm
 // at once (Codex round 15 #2): a native return addressed to it is swept at
 // receipt, and a claim booked to its address before it was registered is
-// swept at payout, never paid to a realm with no withdrawal entry point.
+// swept at payout, never paid to a realm with no withdrawal entry point,
+// its earlier installments kept on the entry (Codex round 16 #1).
 func main(cur realm) {
 	route := setupRoute(cur)
 	execute(cur, govern(cur, ibcgov.NewSetDenomRequest(cross(cur), route, "ugnot", "unescrow", 10_000, 0, 20, 2, 25_000, 40, 10_000, "0x0000000000000000000000000000000000c0ffee")))
@@ -160,6 +161,11 @@ func main(cur realm) {
 	println("ugnot 200 to v99's address:", status(recv(cur, route, 1, "transfer/client-0/ugnot", v99.String(), 200)))
 	_, isClaim := controlsView().Claim(route, controls.PacketKey(route, 1))
 	println("a claim:", isClaim)
+	// An hour later its first installment is paid: the claim is paid in part.
+	advance(time.Hour)
+	println("claim an hour later:", claim(cur, route, "ugnot"), "| v99 holds", ugnot(v99))
+	c, _ := controlsView().Claim(route, controls.PacketKey(route, 1))
+	println("claim 1:", c.Paid, "of", c.Amount, c.State)
 
 	registerV99(cur)
 	println("registered:", core.RegisteredImplPaths())
@@ -172,7 +178,8 @@ func main(cur realm) {
 	// At payout the earlier claim's recipient is a bridge realm: moved to
 	// the owed sweep, nothing paid.
 	advance(24 * time.Hour)
-	println("claim a day later:", claim(cur, route, "ugnot"), "| v99 holds", ugnot(v99))
+	held := ugnot(v99)
+	println("claim a day later:", claim(cur, route, "ugnot"), "| v99 received", ugnot(v99)-held)
 	_, isClaim = controlsView().Claim(route, controls.PacketKey(route, 1))
 	println("the earlier claim left:", !isClaim)
 	println(transfer.Render("routes/" + route + "/sweeps"))
@@ -183,11 +190,13 @@ func main(cur realm) {
 // Output:
 // ugnot 200 to v99's address: success ack
 // a claim: true
+// claim an hour later: 1 | v99 holds 84
+// claim 1: 104 of 200 open
 // registered: slice[("gno.land/r/aib/ibc/core/impl/v0" string),("gno.land/r/aib/ibc/core/impl/v1" string),("gno.land/r/aib/ibc/core/impl/v99" string)]
 // ugnot 300 to v99: success ack
 // swept at receipt: true 300 bridge realm
 // a claim: false
-// claim a day later: 0 | v99 holds 0
+// claim a day later: 0 | v99 received 0
 // the earlier claim left: true
-// {"entries":[{"key":"ethereum-1/00000000000000000001","denom":"ugnot","to":"g1zzy4djuac4g6lrugky35czv92pqhmxnv0j8exx","amount":200,"reduced":0,"reason":"bridge realm","height":123,"voided":false,"paid":false,"paid_to":"","from_claim":true,"claim_paid":0},{"key":"ethereum-1/00000000000000000002","denom":"ugnot","to":"g1zzy4djuac4g6lrugky35czv92pqhmxnv0j8exx","amount":300,"reduced":0,"reason":"bridge realm","height":123,"voided":false,"paid":false,"paid_to":""}],"next":""}
-// owed 0 | swept 500
+// {"entries":[{"key":"ethereum-1/00000000000000000001","denom":"ugnot","to":"g1zzy4djuac4g6lrugky35czv92pqhmxnv0j8exx","amount":96,"reduced":0,"reason":"bridge realm","height":123,"voided":false,"paid":false,"paid_to":"","from_claim":true,"claim_paid":104},{"key":"ethereum-1/00000000000000000002","denom":"ugnot","to":"g1zzy4djuac4g6lrugky35czv92pqhmxnv0j8exx","amount":300,"reduced":0,"reason":"bridge realm","height":123,"voided":false,"paid":false,"paid_to":""}],"next":""}
+// owed 0 | swept 396
