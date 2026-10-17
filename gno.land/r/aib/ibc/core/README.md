@@ -425,7 +425,10 @@ is installed by the governed, manifest-checked implementation upgrade;
 `impl/v1` itself declares none. No other code converts a verifier. The
 active implementation's preflight reads its declared pairs and the client's
 state (an Ethereum client, Active, its `VerifierVersion` the declared
-source); the conversion and every check on its result (it names the target
+source, and a verifier exposing its ethereum/v0 state through
+`Ethereum() *ethereum.EthLightClient`, which the read-only view is built
+from: a verifier keeping its state otherwise needs migration support of its
+own, and is refused, the decision spent); the conversion and every check on its result (it names the target
 version, is Active, keeps the latest height) run inside one recovered
 boundary in the core's realm: a panic or a mismatch refuses the migration
 with nothing changed, and the decision is spent; otherwise the verifier is
@@ -494,7 +497,12 @@ counterparty and the users keep using them. The steps are in
 the routes can follow the verifier they read across upgrades. The routes the
 relayer consumes (`clients`, `clients/{id}`, its consensus states, packet
 commitments and receipts) are a compatibility contract pinned by the `z0c`
-filetest: a change there means a relayer release.
+filetest: a change there means a relayer release. `clients/{id}/consensus_states`
+lists, paginated, an Ethereum client's consensus states as a Tendermint
+client's (`z16h`): those its verifier stores itself, a state below a
+recovery's cut-off listed as untrusted; after a verifier replacement, the
+retired verifier's states are served one height at a time
+(`clients/{id}/consensus_states/{revision}/{height}`).
 
 Emitted event:
 
