@@ -157,3 +157,21 @@ func ToRootRewriterPanicking(r *ethereum.Retired) lightclient.Interface {
 	rewriteRoot(r)
 	panic("rewrote a root")
 }
+
+// OpaqueVersion names OpaqueVerifier, a verifier version that keeps its
+// state behind the light-client interface alone: it exposes no Ethereum()
+// state, so no conversion can read it.
+const OpaqueVersion = "ethereum/testing-opaque"
+
+// OpaqueVerifier is a v0 verifier seen only through lightclient.Interface.
+type OpaqueVerifier struct {
+	lightclient.Interface
+}
+
+// VerifierVersion is OpaqueVersion.
+func (*OpaqueVerifier) VerifierVersion() string { return OpaqueVersion }
+
+// ToOpaqueVerifier converts a v0 verifier to OpaqueVerifier.
+func ToOpaqueVerifier(r *ethereum.Retired) lightclient.Interface {
+	return &OpaqueVerifier{Interface: ethereum.NewFrom(r)}
+}

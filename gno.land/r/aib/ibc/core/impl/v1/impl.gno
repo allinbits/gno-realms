@@ -202,6 +202,12 @@ func (l *logic) checkConversion(clientID, to string) error {
 	if st := c.LightClient().Status(); st != lightclient.Active {
 		return ufmt.Errorf("client %s is %s, not Active", clientID, st)
 	}
+	// The conversion reads the live verifier through its ethereum/v0 state:
+	// a verifier keeping its state otherwise needs migration support of its
+	// own.
+	if _, ok := c.LightClient().(ethState); !ok {
+		return ufmt.Errorf("client %s's verifier (%s) exposes no ethereum/v0 state to convert", clientID, from)
+	}
 	return nil
 }
 
