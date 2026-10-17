@@ -220,7 +220,7 @@ var (
 	// proven is the epoch notices the core proved over one of them, more
 	// than one step on, waiting for ApplyEpochNotice and their path.
 	approvedLocal avl.Tree // gno client id -> true
-	proven        avl.Tree // provenKey(epoch, client) -> the notice's router client
+	proven        avl.Tree // provenKey(epoch, client) -> *provenNotice
 )
 
 const (
@@ -643,7 +643,7 @@ func takeNotice(cur realm, source, client string, payload types.Payload) (uint32
 		if !approvedLocal.Has(client) {
 			return 0, 0, client + " is no client approved to carry a governance epoch"
 		}
-		proven.Set(provenKey(e, client), source)
+		proven.Set(provenKey(e, client), &provenNotice{source: source, gen: core.ClientTrustGeneration(client)})
 		chain.Emit("GovNotice", "client", client, "epoch", strconv.FormatUint(uint64(e), 10), "status", "proven")
 		return 0, 0, "epoch " + strconv.FormatUint(uint64(e), 10) + " is " + strconv.Itoa(k) + " steps on: recorded as proven, applied by ApplyEpochNotice with its path"
 	}
@@ -656,31 +656,61 @@ func takeNotice(cur realm, source, client string, payload types.Payload) (uint32
 	if !found {
 		return 0, 0, "epoch " + strconv.FormatUint(uint64(e), 10) + " is expected over no transition to " + source + " carried by " + client + " from " + core.CounterpartyClientID(EpochClient())
 	}
-	switchEpoch(cur, e, client)
+	switchEpoch(cur, e, client, nil)
 	return e, StatusRecorded, ""
 }
 
-// switchEpoch opens epoch e over client and retires the clients it passes
-// for governance: the old epoch's client, for good if its route replacement
-// executed here (it is retired for transfers already), otherwise for the gov
-// port, its replacement retiring the rest; and every client retired for
-// transfers while on an expected path, once no path from the new epoch's
-// client goes through it.
-func switchEpoch(cur realm, e uint32, client string) {
+// switchEpoch opens epoch e over client and retires for governance the
+// clients it passes: the old epoch's client and the local clients of the
+// path's intermediate steps (at most maxNoticeSteps), for good when their
+// route replacement executed here (they are retired for transfers already),
+// otherwise for the gov port, their replacement retiring the rest. Its work
+// is bounded: any other client a replacement retired for transfers while on
+// an expected path is retired by PruneGovRetirements, in bounded batches.
+func switchEpoch(cur realm, e uint32, client string, passed []string) {
 	old := EpochClient()
 	setEpoch(e, client)
 	retireForGov(cur, old)
+	awaitingGov.Remove(old)
+	for _, c := range passed {
+		retireForGov(cur, c)
+		awaitingGov.Remove(c)
+	}
+}
+
+// PruneGovRetirements retires for governance up to n (1 to 64) of the gno
+// clients a route replacement retired for transfers while they were on an
+// expected path of the governance epoch, once they no longer are: anyone may
+// call it. A client on a path, or one whose paths cannot be told within the
+// search's bounds, is kept for a later call. It returns how many it retired.
+func PruneGovRetirements(cur realm, n int) int {
+	if n < 1 || n > 64 {
+		panic("ibcgov: prune 1 to 64 clients a call")
+	}
 	var done []string
+	seen := 0
 	awaitingGov.Iterate("", "", func(c string, _ any) bool {
+		seen++
 		if !onExpectedPath(c) {
 			done = append(done, c)
 		}
-		return false
+		return seen >= n
 	})
 	for _, c := range done {
 		awaitingGov.Remove(c)
 		retireForGov(cur, c)
 	}
+	return len(done)
+}
+
+// AwaitingGovRetirement is how many clients wait for PruneGovRetirements.
+func AwaitingGovRetirement() int { return awaitingGov.Size() }
+
+// provenNotice is an epoch notice the core proved over a local client: the
+// router client it came from, and the local client's trust generation then.
+type provenNotice struct {
+	source string
+	gen    uint64
 }
 
 func provenKey(e uint32, client string) string { return epochKey(e) + "|" + client }
@@ -697,7 +727,20 @@ func ApplyEpochNotice(cur realm, e uint32, client, path string) {
 	if v == nil {
 		panic("ibcgov: no epoch notice of epoch " + strconv.FormatUint(uint64(e), 10) + " was proven over " + client)
 	}
-	source := v.(string)
+	pn := v.(*provenNotice)
+	source := pn.source
+	// The proof holds while the client that verified it does: Active, not
+	// retired, and at the trust generation it was proven under (no freeze,
+	// recovery, upgrade or migration since). Otherwise a freshly proven
+	// notice is needed.
+	switch {
+	case core.ClientStatus(client) != "Active":
+		panic("ibcgov: " + client + " is " + core.ClientStatus(client) + ": relay the notice again once it is Active")
+	case core.IsClientRetiredFor(client, GovPort):
+		panic("ibcgov: " + client + " is retired")
+	case core.ClientTrustGeneration(client) != pn.gen:
+		panic("ibcgov: " + client + "'s trust generation changed since the notice was proven: relay it again")
+	}
 	if epoch == 0 || e <= epoch || e-epoch > maxNoticeSteps {
 		panic("ibcgov: epoch " + strconv.FormatUint(uint64(e), 10) + " is not one of the next " + strconv.Itoa(maxNoticeSteps) + " after " + strconv.FormatUint(uint64(epoch), 10))
 	}
@@ -707,6 +750,7 @@ func ApplyEpochNotice(cur realm, e uint32, client, path string) {
 	}
 	prev := core.CounterpartyClientID(EpochClient())
 	var to, local string
+	var passed []string
 	for i, st := range steps {
 		j := strings.Index(st, "/")
 		if j < 0 {
@@ -722,13 +766,16 @@ func ApplyEpochNotice(cur realm, e uint32, client, path string) {
 		if !found {
 			panic("ibcgov: step " + strconv.Itoa(i+1) + ", " + prev + " -> " + to + " over " + local + ", is no expected transition")
 		}
+		if i < len(steps)-1 {
+			passed = append(passed, local)
+		}
 		prev = to
 	}
 	if to != source || local != client {
 		panic("ibcgov: the path ends at " + to + " over " + local + ", not the notice's " + source + " over " + client)
 	}
 	proven.Remove(provenKey(e, client))
-	switchEpoch(cur, e, client)
+	switchEpoch(cur, e, client, passed)
 	chain.Emit("GovNotice", "client", client, "epoch", strconv.FormatUint(uint64(e), 10), "status", "applied")
 }
 
