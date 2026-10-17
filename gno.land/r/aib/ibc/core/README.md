@@ -37,7 +37,7 @@ Emitted events: `app_registered`, `app_registration_pending`, `app_approved`,
 
 ## CreateClient
 
-See [`zz_create_client_example_filetest.gno`](./zz_create_client_example_filetest.gno)
+See [`zz_create_client_example_filetest.gno`](./filetests/zz_create_client_example_filetest.gno)
 
 Emitted event:
 ```json
@@ -63,11 +63,11 @@ Emitted event:
 
 ## RegisterCounterparty
 
-See [`zz_register_counterparty_example_filetest.gno`](./zz_register_counterparty_example_filetest.gno)
+See [`zz_register_counterparty_example_filetest.gno`](./filetests/zz_register_counterparty_example_filetest.gno)
 
 ## UpdateClient
 
-See [`zz_update_client_example_filetest.gno`](./zz_update_client_example_filetest.gno)
+See [`zz_update_client_example_filetest.gno`](./filetests/zz_update_client_example_filetest.gno)
 
 Emitted event:
 ```json
@@ -93,7 +93,7 @@ Emitted event:
 
 ## SendPacket
 
-See [`zz_send_packet_example_filetest.gno`](./zz_send_packet_example_filetest.gno)
+See [`zz_send_packet_example_filetest.gno`](./filetests/zz_send_packet_example_filetest.gno)
 
 A packet must carry **exactly one** payload; `SendPacket` and `RecvPacket` both
 reject any other count. The restriction matches ibc-go and keeps `RecvPacket`
@@ -143,7 +143,7 @@ subsequent `OnAcknowledgementPacket` or `OnTimeoutPacket` callback while
 forwarding the parent packet). Only the realm whose `OnRecvPacket` returned
 async is authorized to write the ack.
 
-See [`z10a_async_ack_filetest.gno`](./z10a_async_ack_filetest.gno) for the
+See [`z10a_async_ack_filetest.gno`](./filetests/z10a_async_ack_filetest.gno) for the
 full A → B → C forward-and-ack call graph.
 
 Emitted event:
@@ -182,7 +182,7 @@ Emitted event:
 
 ## Acknowledgement
 
-See [`zz_acknowledgement_example_filetest.gno`](./zz_acknowledgement_example_filetest.gno)
+See [`zz_acknowledgement_example_filetest.gno`](./filetests/zz_acknowledgement_example_filetest.gno)
 
 Emitted event:
 ```json
@@ -218,10 +218,24 @@ Emitted event:
 
 ## RecoverClient
 
-See [`zz_recover_client_example_filetest.gno`](./zz_recover_client_example_filetest.gno)
+See [`zz_recover_client_example_filetest.gno`](./filetests/zz_recover_client_example_filetest.gno)
 
 See [`recover-client.md`](./recover-client.md) for the end-to-end flow and
-which parameters can be adjusted during recovery.
+which parameters a Tendermint recovery can adjust.
+
+Recovery is a governed decision (7 days). The subject must be Frozen or
+Expired, the substitute Active, the two of the same client type, and neither
+retired. For an Ethereum client (`ethereum.CheckRecovery`) the substitute must
+track the same chain and router: the same chain id, genesis validators root,
+genesis time and slot, fork schedule, sync committee size, seconds per slot,
+slots per epoch, epochs per sync committee period, router (IBC contract)
+address and commitment slot; its latest slot must be strictly ahead of the
+subject's, with a consensus state there. `ethereum.RecoverClient` then copies
+the substitute's latest consensus state into the subject, adopts its latest
+slot and execution block number and its minimum sync committee
+participation, unfreezes the subject, and trusts nothing older: consensus
+states below the copied one stop verifying proofs. The client's trust
+generation grows with the recovery.
 
 Emitted event:
 ```json
@@ -247,7 +261,7 @@ Emitted event:
 
 ## UpgradeClient
 
-See [`zz_upgrade_client_example_filetest.gno`](./zz_upgrade_client_example_filetest.gno)
+See [`zz_upgrade_client_example_filetest.gno`](./filetests/zz_upgrade_client_example_filetest.gno)
 
 See [`upgrade-client.md`](./upgrade-client.md) for the lifecycle, the
 proof shape, and the field mapping between the current client and the
@@ -317,13 +331,21 @@ Administration is split by direction (ADR pr6375 R14):
   are gated by an authority (`p/aib/authority`) whose members are fixed at
   init to the GovDAO proxy `gno.land/r/gov/dao` and the governance realm
   `gno.land/r/aib/ibc/ibcgov` (`IBCGovPath`). There is no deployer member.
-- **Loosening operations** (`Unpause`, `UnpauseApp`, `ApproveApp`,
+- **Governed operations** (`Unpause`, `UnpauseApp`, `ApproveApp`,
   `AddRelayer`, `RemoveRelayer`, `RecoverClient`, `UpdateImpl`,
   `MigrateClient`, `RetireClient`, `AddAuthorityMember`,
-  `RemoveAuthorityMember`) are decisions of `gno.land/r/aib/ibc/ibcgov` alone:
-  its decision ledger applies the 7-day delay, the governor's one-way yield to
-  GovDAO and the guardians' holds. A call from anyone else, GovDAO's proxy
-  included, panics with `only gno.land/r/aib/ibc/ibcgov decides this`.
+  `RemoveAuthorityMember`) are decisions of `gno.land/r/aib/ibc/ibcgov` alone,
+  under its decision ledger, the governor's one-way yield to GovDAO and the
+  guardians' holds. The loosening ones wait 7 days: `ApproveApp`,
+  `AddRelayer`, `RecoverClient`, `UpdateImpl`, `MigrateClient`,
+  `AddAuthorityMember`, and `RemoveRelayer` of the last listed relayer (an
+  empty whitelist lets anyone relay). The others apply at once: `Unpause` and
+  `UnpauseApp` (spent under a guardian hold), `RemoveAuthorityMember`, and
+  `RemoveRelayer` while other relayers stay listed (the whitelist is read
+  when the decision is recorded). `RetireClient` is not a decision of its
+  own: a route replacement retires the route's old client. A call from anyone
+  else, GovDAO's proxy included, panics with
+  `only gno.land/r/aib/ibc/ibcgov decides this`.
 
 The principal is the caller of the realm function, `cur.Previous()`, not the
 transaction signer.
@@ -368,13 +390,32 @@ refused.
 
 ## Client migration and retirement
 
-`MigrateClient(clientID, migration, params)` replaces the verifier of a live
-client while keeping its id, consensus states and packet state (ADR pr6375
-R16), through an implementation that implements `core.ClientMigrator`
-(`impl/v1`: migration `ethereum-fork-schedule`, params
-`ethereum.EncodeForkParameters(...)`). `RetireClient(clientID)` refuses every
-later packet message, update and registration naming the client, for a route
-replacement (ADR pr6375 §7.12, R18). Both are governance decisions.
+`MigrateClient(clientID, migration, params)` migrates a live client while
+keeping its id, consensus states and packet state, through an implementation
+that implements `core.ClientMigrator`. This covers ADR pr6375 R16 in part:
+the only migration is `impl/v1`'s `ethereum-fork-schedule` (params
+`ethereum.EncodeForkParameters(...)`), which changes the fork schedule of the
+existing Ethereum verifier in place; the verifier is not replaced, and ibcgov
+refuses any other migration name. The new schedule is checked
+(`ethereum.CheckForkParameters`, through `CheckMigrateClient`) when the
+decision executes, before anything changes: the client must be Active, the schedule must differ from the current
+one, the genesis fork version and slot never change, every fork already
+active at the current epoch (the later of the latest trusted slot's and the
+block time's) keeps its version and epoch, every changed fork activates after
+the current epoch, and the fork epochs stay in order. A fork whose containers
+change needs a new package version, which this migration does not provide.
+
+`RetireClient(clientID)` marks the client retired in the proxy, for a route
+replacement (ADR pr6375 §7.12, R18; the parent ADR freezes the old client,
+the retirement marker stands in for that). It refuses every later packet
+message, update, registration and recovery naming the client, with one
+exception: the app that registered a packet's port may still write a pending
+asynchronous acknowledgement for a packet the client received before its
+retirement (`WriteAcknowledgement`), so the packet reaches a terminal state.
+The verifier itself is untouched: its status stays what it was (the `z16b`
+filetest reports `retired: true status: Active`), and `IsClientRetired`, not
+the status, tells a retired client apart. Both are governance decisions; the
+retirement happens inside a route replacement.
 
 The read accessors `ClientType`, `CounterpartyClientID`, `IsClientRetired`,
 `PacketCommitment`, `PacketReceipt`, `PacketAcknowledgement` and
