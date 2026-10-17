@@ -50,4 +50,4 @@ func main(cur realm) {
 }
 
 // Output:
-// clientMessage.ValidateBasic(): validate error
+// clientMessage.ValidateBasic(): the client message must be a light client's own type

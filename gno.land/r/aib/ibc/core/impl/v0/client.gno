@@ -2,6 +2,7 @@ package impl
 
 import (
 	"chain/runtime/unsafe"
+	"errors"
 
 	"gno.land/p/aib/ibc/host/v0"
 	"gno.land/p/aib/ibc/lightclient/ethereum/v0"
@@ -20,9 +21,40 @@ func (l *logic) mustClient(clientID string) core.Client {
 	return c
 }
 
+// checkStates refuses client and consensus states that are not the light
+// client packages' own concrete types, by value, before any of their methods
+// runs: a caller-supplied implementation would run its own code in the
+// core's realm context.
+func checkStates(cs lightclient.ClientState, cons lightclient.ConsensusState) error {
+	switch cs.(type) {
+	case tendermint.ClientState:
+		if _, ok := cons.(tendermint.ConsensusState); ok {
+			return nil
+		}
+	case ethereum.ClientState:
+		if _, ok := cons.(ethereum.ConsensusState); ok {
+			return nil
+		}
+	}
+	return errors.New("the client and consensus states must be a light client's own types")
+}
+
+// checkClientMessage refuses a client message that is not a light client
+// package's own concrete type, before any of its methods runs.
+func checkClientMessage(m lightclient.ClientMessage) error {
+	switch m.(type) {
+	case *tendermint.MsgHeader, *tendermint.Misbehaviour, *ethereum.Header, *ethereum.Misbehaviour:
+		return nil
+	}
+	return errors.New("the client message must be a light client's own type")
+}
+
 // CreateClient initializes the light client of the given type with the
 // states and records relayer as its creator.
 func (l *logic) CreateClient(_ int, rlm realm, relayer address, clientState lightclient.ClientState, consensusState lightclient.ConsensusState) string {
+	if err := checkStates(clientState, consensusState); err != nil {
+		panic(err)
+	}
 	if clientState.ClientType() != consensusState.ClientType() {
 		panic("client type for client state and consensus state do not match")
 	}
@@ -96,6 +128,9 @@ func (l *logic) RegisterCounterparty(_ int, rlm realm, clientID string, counterp
 // UpdateClient updates the given light client with a new header, or submits a
 // misbehaviour (clientMessage can be either).
 func (l *logic) UpdateClient(_ int, rlm realm, clientID string, clientMessage lightclient.ClientMessage) {
+	if err := checkClientMessage(clientMessage); err != nil {
+		panic(err)
+	}
 	if err := clientMessage.ValidateBasic(); err != nil {
 		panic(err)
 	}

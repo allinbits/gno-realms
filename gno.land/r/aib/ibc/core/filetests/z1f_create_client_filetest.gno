@@ -25,4 +25,4 @@ func main(cur realm) {
 }
 
 // Error:
-// client type for client state and consensus state do not match
+// the client and consensus states must be a light client's own types

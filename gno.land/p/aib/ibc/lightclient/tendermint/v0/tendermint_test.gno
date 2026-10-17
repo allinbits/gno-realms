@@ -472,3 +472,21 @@ func TestInitializeOnce(t *testing.T) {
 	uassert.Error(t, tm.Initialize(evil, *cs))
 	uassert.Equal(t, h1.String(), tm.LatestHeight().String())
 }
+
+type ownProof struct{}
+
+func (ownProof) GetExist() *ics23.ExistenceProof       { panic("caller code ran") }
+func (ownProof) GetNonexist() *ics23.NonExistenceProof { panic("caller code ran") }
+
+// Membership and absence proofs of a caller's own type are refused before
+// any of their code runs (Codex round 19).
+func TestVerifyRefusesOwnProofTypes(t *testing.T) {
+	tm := tendermint.NewTMLightClient()
+	h := types.NewHeight(0, 1)
+	cs := &tendermint.ConsensusState{Timestamp: time.Now().UTC(), Root: tendermint.NewMerkleRoot([]byte("root")), NextValidatorsHash: []byte("vals")}
+	urequire.NoError(t, tm.Initialize(*tendermint.NewClientState(chainID, tendermint.DefaultTrustLevel, trustingPeriod, ubdPeriod, maxClockDrift, h, ics23.GetSDKProofSpecs(), upgradePath), *cs))
+	proofs := []ics23.CommitmentProof{ownProof{}, ownProof{}}
+	path := types.MerklePath{KeyPath: [][]byte{[]byte("a"), []byte("b")}}
+	uassert.ErrorContains(t, tm.VerifyMembership(h, proofs, path, []byte("v")), "not an ics23 proof")
+	uassert.ErrorContains(t, tm.VerifyNonMembership(h, proofs, path), "not an ics23 proof")
+}

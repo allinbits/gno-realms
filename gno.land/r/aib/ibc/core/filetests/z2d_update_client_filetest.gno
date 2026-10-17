@@ -39,4 +39,4 @@ func main(cur realm) {
 }
 
 // Error:
-// client type for client state and client message do not match
+// the client message must be a light client's own type

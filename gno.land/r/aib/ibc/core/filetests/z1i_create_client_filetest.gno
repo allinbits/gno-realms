@@ -50,5 +50,5 @@ func main(cur realm) {
 }
 
 // Output:
-// clientState.ValidateBasic: validate error
-// consensusState.ValidateBasic: validate error
+// clientState.ValidateBasic: the client and consensus states must be a light client's own types
+// consensusState.ValidateBasic: the client and consensus states must be a light client's own types

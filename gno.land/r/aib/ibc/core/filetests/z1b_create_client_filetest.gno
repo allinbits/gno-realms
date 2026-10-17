@@ -23,4 +23,4 @@ func main(cur realm) {
 }
 
 // Error:
-// unhandled light client type 06-solomachine
+// the client and consensus states must be a light client's own types

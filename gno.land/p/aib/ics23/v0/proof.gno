@@ -12,6 +12,22 @@ type CommitmentProof interface {
 	GetNonexist() *NonExistenceProof
 }
 
+// CheckProofs refuses any proof that is not one of this package's own
+// concrete types, CommitmentProof_Exist or CommitmentProof_Nonexist, by
+// value, before any of its methods runs: a caller-supplied implementation
+// would run its own code in the verifier's realm context. Call it on every
+// caller-supplied proof list before calling GetExist or GetNonexist.
+func CheckProofs(proofs []CommitmentProof) error {
+	for i, p := range proofs {
+		switch p.(type) {
+		case CommitmentProof_Exist, CommitmentProof_Nonexist:
+		default:
+			return ufmt.Errorf("commitment proof #%d is not an ics23 proof", i)
+		}
+	}
+	return nil
+}
+
 type CommitmentProof_Exist struct {
 	Exist *ExistenceProof
 }

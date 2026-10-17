@@ -193,6 +193,9 @@ func (tm *TMLightClient) UpdateState(clientMsg lightclient.ClientMessage) []type
 func (tm *TMLightClient) VerifyMembership(height types.Height,
 	proofs []ics23.CommitmentProof, path types.MerklePath,
 	value []byte) error {
+	if err := ics23.CheckProofs(proofs); err != nil {
+		return err
+	}
 	if tm.ClientState.LatestHeight.LT(height) {
 		return ufmt.Errorf(
 			"client state height < proof height (%s < %s), please ensure the client has been updated", tm.ClientState.LatestHeight, height,
@@ -222,6 +225,9 @@ func (tm *TMLightClient) VerifyMembership(height types.Height,
 // Implements lightclient.Interface
 func (tm *TMLightClient) VerifyNonMembership(height types.Height,
 	proofs []ics23.CommitmentProof, path types.MerklePath) error {
+	if err := ics23.CheckProofs(proofs); err != nil {
+		return err
+	}
 	if tm.ClientState.LatestHeight.LT(height) {
 		return ufmt.Errorf(
 			"client state height < proof height (%d < %d), please ensure the client has been updated", tm.ClientState.LatestHeight, height,

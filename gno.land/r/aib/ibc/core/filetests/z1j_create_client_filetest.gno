@@ -22,4 +22,4 @@ func main(cur realm) {
 }
 
 // Error:
-// client type does not meet naming constraints: not a valid clientID: wrong---0
+// the client and consensus states must be a light client's own types
