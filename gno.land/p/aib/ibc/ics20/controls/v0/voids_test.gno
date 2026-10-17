@@ -1,6 +1,7 @@
 package controls
 
 import (
+	"errors"
 	"strings"
 	"testing"
 )
@@ -978,5 +979,142 @@ func TestRecapitalizeAcceptedDeficit(t *testing.T) {
 	}
 	if _, err := rt.AuthorizeRecap("ugnot", 1, "inc"); err == nil {
 		t.Fatalf("authorized beyond the unrecovered losses")
+	}
+}
+
+// remedyRoute is a route with an open claim (1), a withheld claim (2) and an
+// owed sweep entry (20), a replacement closing it, and a loss of 100 of
+// incident "inc".
+func remedyRoute(t *testing.T) *Route {
+	r, rt := newRoute(t)
+	lock := int64(100_000)
+	mustCredit(t, rt, t0, 1, "ugnot", alice, 50_000, lock)
+	mustCredit(t, rt, t0, 2, "ugnot", bob, 3_000, lock)
+	if _, err := rt.Credit(t0, 10, 0, pk(20), "ugnot", alice, 500, ByPacket, "bridge realm", big); err != nil {
+		t.Fatal(err)
+	}
+	if err := rt.Void([]string{pk(2)}, false, "inc"); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.Replace("ethereum-1", "ethereum-2", 0, 1000); err != nil {
+		t.Fatal(err)
+	}
+	if err := rt.RecordLoss(pk(10), "ugnot", 100, ChainGno, "inc", "collision"); err != nil {
+		t.Fatal(err)
+	}
+	return rt
+}
+
+// A reduction repairs an accepted deficit, of each kind of liability: it is
+// bounded by the unrecovered losses, not the unresolved ones (Codex round 15
+// #1).
+func TestReduceAcceptedDeficit(t *testing.T) {
+	for _, key := range []string{pk(1), pk(2), pk(20)} {
+		rt := remedyRoute(t)
+		d := rt.Denom("ugnot")
+		if err := rt.Accept("ugnot", 100, "inc"); err != nil {
+			t.Fatal(err)
+		}
+		if err := rt.Reduce(key, 100, "inc"); err != nil {
+			t.Fatalf("%s: an accepted deficit not reduced: %v", key, err)
+		}
+		it := rt.Incident("ugnot", "inc")
+		if d.Totals.Unrecovered() != 0 || d.Totals.Unresolved() != 0 || it.OpenUnrecovered != 0 || it.Reduced != 100 || it.Accepted != 100 {
+			t.Fatalf("%s: %+v %+v", key, d.Totals, it)
+		}
+		if rt.Reduce(key, 1, "inc") == nil {
+			t.Fatalf("%s: reduced beyond the unrecovered losses", key)
+		}
+	}
+}
+
+// Every loss-resolution path follows one rule, before and after an
+// acceptance (by Accept or by a reopening): a recapitalization or a
+// reduction is bounded by the unrecovered losses and lowers the unresolved
+// ones only as far as they remain; an acceptance lowers only the unresolved
+// ones; a revocation changes neither.
+func TestRemedyOrder(t *testing.T) {
+	const incident = "inc"
+	paths := []struct {
+		name     string
+		apply    func(rt *Route) error
+		recovers bool
+		accepts  bool
+	}{
+		{"recapitalize", func(rt *Route) error {
+			id, err := rt.AuthorizeRecap("ugnot", 60, incident)
+			if err != nil {
+				return err
+			}
+			return rt.Recapitalize(id, "ugnot", 60, alice)
+		}, true, false},
+		{"reduce claim", func(rt *Route) error { return rt.Reduce(pk(1), 60, incident) }, true, false},
+		{"reduce withheld", func(rt *Route) error { return rt.Reduce(pk(2), 60, incident) }, true, false},
+		{"reduce sweep", func(rt *Route) error { return rt.Reduce(pk(20), 60, incident) }, true, false},
+		{"accept", func(rt *Route) error { return rt.Accept("ugnot", 60, incident) }, false, true},
+		{"revoke", func(rt *Route) error {
+			id, err := rt.AuthorizeRecap("ugnot", 60, incident)
+			if err != nil {
+				return err
+			}
+			return rt.RevokeRecap(id)
+		}, false, false},
+	}
+	acceptances := []struct {
+		name string
+		run  func(rt *Route) error
+	}{
+		{"Accept", func(rt *Route) error {
+			if rest := rt.Incident("ugnot", incident).OpenUnresolved; rest > 0 {
+				return rt.Accept("ugnot", rest, incident)
+			}
+			return nil
+		}},
+		{"reopen", func(rt *Route) error {
+			_, done, err := rt.Reopen()
+			if err == nil && !done {
+				return errors.New("reopen not done")
+			}
+			return err
+		}},
+	}
+	for _, p := range paths {
+		for _, a := range acceptances {
+			for _, after := range []bool{false, true} {
+				name := p.name + " before " + a.name
+				if after {
+					name = p.name + " after " + a.name
+				}
+				rt := remedyRoute(t)
+				var perr error
+				if after {
+					if err := a.run(rt); err != nil {
+						t.Fatalf("%s: %v", name, err)
+					}
+					perr = p.apply(rt)
+				} else {
+					perr = p.apply(rt)
+					if err := a.run(rt); err != nil {
+						t.Fatalf("%s: %v", name, err)
+					}
+				}
+				// Only an acceptance needs something unresolved left.
+				if refused := after && p.accepts; (perr != nil) != refused {
+					t.Fatalf("%s: refused %v, want %v (%v)", name, perr != nil, refused, perr)
+				}
+				wantUnrec := int64(100)
+				if p.recovers {
+					wantUnrec = 40
+				}
+				d := rt.Denom("ugnot")
+				it := rt.Incident("ugnot", incident)
+				if it.OpenUnresolved != 0 || d.Totals.Unresolved() != 0 || it.OpenUnrecovered != wantUnrec || d.Totals.Unrecovered() != wantUnrec {
+					t.Fatalf("%s: unresolved %d, unrecovered %d, want 0 and %d", name, it.OpenUnresolved, it.OpenUnrecovered, wantUnrec)
+				}
+				if it.Accepted+it.Reduced+it.Recapitalized < 100 {
+					t.Fatalf("%s: resolved %+v", name, it)
+				}
+			}
+		}
 	}
 }

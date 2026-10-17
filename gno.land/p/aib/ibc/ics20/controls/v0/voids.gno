@@ -217,28 +217,31 @@ func (rt *Route) voidClaim(c *Claim, forged bool, incident string) {
 	}
 }
 
-// resolve takes amount, which its caller checked is within the incident's
-// unresolved losses, off the outstanding balances of the denom and the
-// incident: off the unresolved ones always, off the unrecovered ones too when
-// it recovers (a recapitalization or a reduction, not an accepted deficit).
-func (rt *Route) resolve(denom, incident string, amount int64, recovers bool) {
+// The loss ledger's remedies follow one rule (ADR 0004, R13). A remedy that
+// restores backing or lowers liabilities (a paid recapitalization, a
+// reduction) is bounded by the incident's unrecovered losses and lowers the
+// unresolved ones only as far as they remain: it may repair an accepted
+// deficit. An accepted deficit (Accept, or a reopening) is bounded by the
+// unresolved losses and lowers only them: the loss stays unrecovered.
+
+// accept records amount, which its caller checked is within the incident's
+// unresolved losses, as an accepted deficit: off the unresolved balances of
+// the denom and the incident only.
+func (rt *Route) accept(denom, incident string, amount int64) {
 	t := &rt.Denom(denom).Totals
 	it := rt.incident(denom, incident)
 	if amount > it.OpenUnresolved || amount > t.OpenUnresolved {
-		panic("controls: a resolution beyond the unresolved losses")
+		panic("controls: an acceptance beyond the unresolved losses")
 	}
 	t.OpenUnresolved -= amount
 	it.OpenUnresolved -= amount
-	if recovers {
-		t.OpenUnrecovered -= amount
-		it.OpenUnrecovered -= amount
-	}
+	t.Accepted, it.Accepted = statAdd(t.Accepted, amount), statAdd(it.Accepted, amount)
 }
 
-// recover takes a paid recapitalization off the outstanding balances: off
-// the unrecovered losses, and off the unresolved ones as far as they go (an
-// accepted deficit it restores is resolved already). Its caller checked
-// amount is within the incident's unrecovered losses.
+// recover takes a paid recapitalization or a reduction off the outstanding
+// balances: off the unrecovered losses, and off the unresolved ones as far
+// as they go (an accepted deficit it repairs is resolved already). Its
+// caller checked amount is within the incident's unrecovered losses.
 func (rt *Route) recover(denom, incident string, amount int64) {
 	t := &rt.Denom(denom).Totals
 	it := rt.incident(denom, incident)
@@ -549,17 +552,24 @@ func (rt *Route) openRecaps(denom, incident string, skip int64) int64 {
 }
 
 // unresolvedOf is what of an incident's losses on denom no decision resolved
-// (recapitalized, reduced or accepted), unpaid authorizations aside.
+// (recapitalized, reduced or accepted), unpaid authorizations aside: what an
+// acceptance may take.
 func (rt *Route) unresolvedOf(denom, incident string) int64 {
-	it := rt.Incident(denom, incident)
-	return it.OpenUnresolved
+	return rt.Incident(denom, incident).OpenUnresolved
+}
+
+// unrecoveredOf is what of an incident's losses on denom is not recovered
+// (recapitalized or reduced), accepted deficits included: what a reduction
+// may take.
+func (rt *Route) unrecoveredOf(denom, incident string) int64 {
+	return rt.Incident(denom, incident).OpenUnrecovered
 }
 
 // revokeConflicting revokes the newest unpaid recapitalization authorizations
 // of an incident until a reduction of amount leaves them within what the
 // incident still has unrecovered: a reduction decided later supersedes them
 // (ADR pr6375 §7.9). An accepted deficit supersedes none: a recapitalization
-// may still restore it. The caller checked amount fits unresolvedOf.
+// may still restore it. The caller checked amount fits unrecoveredOf.
 func (rt *Route) revokeConflicting(denom, incident string, amount int64) {
 	var open []*Recap
 	rt.recaps.Iterate("", "", func(_ string, v any) bool {
@@ -643,13 +653,13 @@ func (rt *Route) Reduce(key string, amount int64, incident string) error {
 	if incident == "" {
 		return errors.New("controls: a reduction names its incident")
 	}
-	if amount <= 0 || amount > c.Remaining() || amount > rt.unresolvedOf(c.Denom, incident) {
-		return ufmt.Errorf("controls: %d is not within the claim's remainder and incident %s's unresolved losses", amount, incident)
+	if amount <= 0 || amount > c.Remaining() || amount > rt.unrecoveredOf(c.Denom, incident) {
+		return ufmt.Errorf("controls: %d is not within the claim's remainder and incident %s's unrecovered losses", amount, incident)
 	}
 	rt.revokeConflicting(c.Denom, incident, amount)
 	c.Amount -= amount
 	c.Reduced += amount // at most the claim's amount
-	rt.resolve(c.Denom, incident, amount, true)
+	rt.recover(c.Denom, incident, amount)
 	it := rt.incident(c.Denom, incident)
 	d.Totals.Reduced, it.Reduced = statAdd(d.Totals.Reduced, amount), statAdd(it.Reduced, amount)
 	if c.State == Open {
@@ -677,15 +687,15 @@ func (rt *Route) reduceSweep(key string, amount int64, incident string) error {
 	if incident == "" {
 		return errors.New("controls: a reduction names its incident")
 	}
-	if amount <= 0 || amount > e.Amount || amount > rt.unresolvedOf(e.Denom, incident) {
-		return ufmt.Errorf("controls: %d is not within the sweep entry's amount and incident %s's unresolved losses", amount, incident)
+	if amount <= 0 || amount > e.Amount || amount > rt.unrecoveredOf(e.Denom, incident) {
+		return ufmt.Errorf("controls: %d is not within the sweep entry's amount and incident %s's unrecovered losses", amount, incident)
 	}
 	rt.revokeConflicting(e.Denom, incident, amount)
 	d := rt.Denom(e.Denom)
 	e.Amount -= amount
 	e.Reduced += amount // at most the entry's amount
 	d.Totals.Swept -= amount
-	rt.resolve(e.Denom, incident, amount, true)
+	rt.recover(e.Denom, incident, amount)
 	it := rt.incident(e.Denom, incident)
 	d.Totals.Reduced, it.Reduced = statAdd(d.Totals.Reduced, amount), statAdd(it.Reduced, amount)
 	if e.Amount == 0 {
@@ -709,8 +719,6 @@ func (rt *Route) Accept(denom string, amount int64, incident string) error {
 	if amount <= 0 || amount > rt.unresolvedOf(denom, incident) {
 		return ufmt.Errorf("controls: %d is not within incident %s's unresolved losses", amount, incident)
 	}
-	rt.resolve(denom, incident, amount, false)
-	it := rt.incident(denom, incident)
-	d.Totals.Accepted, it.Accepted = statAdd(d.Totals.Accepted, amount), statAdd(it.Accepted, amount)
+	rt.accept(denom, incident, amount)
 	return nil
 }

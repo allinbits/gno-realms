@@ -370,9 +370,8 @@ func (rt *Route) reopenBatch() (int64, bool, error) {
 		}
 		it := v.(*IncidentTotals)
 		if rest := it.OpenUnresolved; rest > 0 {
-			t := &rt.Denom(k[:strings.Index(k, "|")]).Totals
-			it.Accepted, t.Accepted = statAdd(it.Accepted, rest), statAdd(t.Accepted, rest)
-			it.OpenUnresolved, t.OpenUnresolved = 0, t.OpenUnresolved-rest
+			i := strings.Index(k, "|")
+			rt.accept(k[:i], k[i+1:], rest)
 			accepted = statAdd(accepted, rest)
 		}
 		rt.reopenIncident = k
