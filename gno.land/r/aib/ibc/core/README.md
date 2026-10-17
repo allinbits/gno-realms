@@ -98,6 +98,32 @@ Emitted event:
 }
 ```
 
+## Packet limits
+
+The core checks these on every client's packets, the same on send and on
+receive (`types.Packet.ValidateBasic`; on an Ethereum client's packets
+`types.Packet.ValidateBasicRouter`, which differs only in the client ids):
+
+| Field | Limit |
+|---|---|
+| payloads | exactly one (see SendPacket) |
+| payload data | at most `types.MaximumPayloadsSize`, 262,144 bytes (256 KiB), counted as the sum of `len(Payload.Value)`: the application's encoded packet data only. The ports, version, encoding, client ids and timeout are not counted, nor is the message carrying the packet (its proofs, or the `ethrelay` wire argument) |
+| payload value | not empty |
+| source and destination port | 2 to 128 characters of `a-z A-Z 0-9 . _ + - # [ ] < >` (no `/`) |
+| payload version and encoding | not blank; anything else is the application's to check (transfer: `ics20-1`, and `application/x-protobuf` or `application/x-solidity-abi`) |
+| source and destination client id | 4 to 64 characters of the same alphabet. On an Ethereum client's packets either may instead be an ICS26 router client id: `client-N` (N a decimal uint64 of at most 20 digits, no leading zero) or a custom id of 4 to 128 characters of that alphabet, not starting with `client-` or `channel-`. `SendPacket` also checks its source client against the first rule before it builds the packet |
+| sequence | not 0 |
+| timeout timestamp | not 0 (Unix seconds). On send: after the current block time, at most 24 hours after it (`maxTimeoutDelta`), and after the sending client's latest consensus timestamp. On receive: refused at or after the current block time |
+
+A packet over a limit is never committed or received. On send, `SendPacket`
+panics and the whole transaction aborts: nothing is escrowed or burned and no
+sequence is used. On receive, `RecvPacket` refuses the message before it
+verifies a proof, writes a receipt or calls the application, on every route,
+Ethereum's included. This is a core refusal, not an application error
+acknowledgement: no receipt and no acknowledgement are written, so the
+packet stays pending at its source until its timeout, when the source
+refunds it (a timeout proves the receipt absent).
+
 ## SendPacket
 
 See [`zz_send_packet_example_filetest.gno`](./filetests/zz_send_packet_example_filetest.gno)
