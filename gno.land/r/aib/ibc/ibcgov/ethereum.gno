@@ -99,8 +99,8 @@ const (
 	KindRouteSettings   = uint8(11)
 	KindSettle          = uint8(12)
 	KindReopen          = uint8(13)
-	maxSettleItems      = 8 // what a 1024-byte envelope holds with a 64-byte client id
-	maxCancelRanges     = 16
+	maxSettleItems      = 8          // what a 1024-byte envelope holds with a 64-byte client id
+	maxCancelRanges     = 14         // what a 1024-byte envelope holds: 78 + 64 bytes a range
 	adminRoleID         = uint64(0)  // AccessManager's ADMIN_ROLE: never granted or revoked by kind 8
 	publicRoleID        = ^uint64(0) // AccessManager's PUBLIC_ROLE
 	maxEthSeatsPerCall  = 6
@@ -574,13 +574,14 @@ func ethAddrText(a [20]byte) string { return ethaddr.Address(a).String() }
 
 // NewEthCancelRequest (kind 1) cancels Ethereum-bound decisions of the
 // current epoch: ranges is a comma-separated list of "from-to" (inclusive,
-// at most 16), each within the numbers already dispatched. IBCAdmin applies
+// at most 14, what the 1024-byte envelope holds), each within the numbers
+// already dispatched. IBCAdmin applies
 // it at recording, whatever its own seq. It is spent if a route replacement
 // opens another epoch before it is recorded.
 func NewEthCancelRequest(cur realm, ranges string) Request {
 	items := splitList(ranges)
 	if len(items) == 0 || len(items) > maxCancelRanges {
-		panic("ibcgov: name 1 to 16 ranges")
+		panic("ibcgov: name 1 to " + strconv.Itoa(maxCancelRanges) + " ranges: no more fit the 1024-byte envelope")
 	}
 	last := LastSeq(epoch)
 	var vals []abi.Value

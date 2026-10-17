@@ -4,6 +4,7 @@ package main
 import (
 	"encoding/hex"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -126,7 +127,17 @@ func main(cur realm) {
 	}))
 	println("unpause object 2 with a client:", revive(func() { govern(cur, ibcgov.NewEthUnpauseRequest(cross(cur), 2, "client-0")) }))
 	println("bad address:", revive(func() { govern(cur, ibcgov.NewEthVoucherRequest(cross(cur), "client-0", "ugnot", "0x1234", hash)) }))
+	ranges := func(n int) string {
+		var r []string
+		for i := 0; i < n; i++ {
+			r = append(r, "1-2")
+		}
+		return strings.Join(r, ",")
+	}
+	println("fifteen cancel ranges:", revive(func() { govern(cur, ibcgov.NewEthCancelRequest(cross(cur), ranges(15))) }))
 	println("last seq after the refusals:", ibcgov.LastSeq(1))
+	govern(cur, ibcgov.NewEthCancelRequest(cross(cur), ranges(14)))
+	println("fourteen cancel ranges:", len(ibcgov.DispatchBody(1, ibcgov.LastSeq(1))), "bytes")
 }
 
 // Output:
@@ -150,4 +161,6 @@ func main(cur realm) {
 // three guardian seats: ibcgov: a decision changes at most two guardian seats
 // unpause object 2 with a client: ibcgov: object 2 (IBCAdmin) names no client
 // bad address: ibcgov: not an Ethereum address: want 0x and 40 hex digits
+// fifteen cancel ranges: ibcgov: name 1 to 14 ranges: no more fit the 1024-byte envelope
 // last seq after the refusals: 12
+// fourteen cancel ranges: 974 bytes
