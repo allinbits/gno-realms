@@ -9,26 +9,38 @@ import (
 	"gno.land/p/aib/ibc/types/v0"
 	"gno.land/p/nt/ufmt/v0"
 	"gno.land/r/aib/ibc/apps/transfer"
+	"gno.land/r/aib/ibc/core"
 	"gno.land/r/aib/ibc/ibcgov"
 )
 
-// bridgeRealms are the realms of the bridge: a credit to one of them is swept
-// (ADR pr6375 §7.1), never paid to an address whose code could not move it.
+// bridgeRealms are the realms of the bridge with no withdrawal entry point:
+// a credit to one of them is swept (ADR pr6375 §7.1), never paid to an
+// address whose code could not move it. Every implementation the core and
+// transfer proxies ever registered is one too, read from their registries
+// (isBridgeRealm), so a registration after deployment is covered at once.
 var bridgeRealms = []string{
 	"gno.land/r/aib/ibc/core",
-	"gno.land/r/aib/ibc/core/impl/v0",
-	"gno.land/r/aib/ibc/core/impl/v1",
-	"gno.land/r/aib/ibc/apps/transfer",
-	"gno.land/r/aib/ibc/apps/transfer/impl/v0",
-	"gno.land/r/aib/ibc/apps/transfer/impl/v1",
+	transfer.PkgPath,
 	"gno.land/r/aib/ibc/ibcgov",
 	"gno.land/r/aib/ibc/ethrelay",
+	// Kept as a library and never registered (a fresh deployment starts
+	// with impl/v1), so no registry lists it.
+	"gno.land/r/aib/ibc/apps/transfer/impl/v0",
 }
 
 func isBridgeRealm(a address) bool {
 	for _, p := range bridgeRealms {
 		if chain.PackageAddress(p) == a {
 			return true
+		}
+	}
+	// A registry only grows: an implementation stays listed when another
+	// replaces it.
+	for _, paths := range [][]string{core.RegisteredImplPaths(), transfer.RegisteredImplPaths()} {
+		for _, p := range paths {
+			if chain.PackageAddress(p) == a {
+				return true
+			}
 		}
 	}
 	return false
