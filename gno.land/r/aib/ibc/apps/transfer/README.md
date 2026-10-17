@@ -250,12 +250,17 @@ mapping: [ADR 0004](../../../../../../docs/adrs/0004-ethereum-route-controls.md)
   A governed reconciliation's refunds are the other exception: a
   settlement pays them on the closed route (that is how the retired
   client's sends are settled), subject to its own checks and deferred under
-  a `refunds` hold. A minted refund the outstanding supply cannot hold then
-  is parked instead of refused: its record is settled, the refund owed,
-  queued and reserved against the supply cap (apart from the returns in
-  flight, so it never refuses a return), and `ClaimRefunds` pays it after
-  the reopening in installments as the supply has room (a voucher return
-  makes some). The replacement client must authenticate the route's identity, the
+  a `refunds` hold. A genuine refund the settlement cannot pay then is
+  parked instead of refused: its record is settled, the refund owed and
+  queued. A minted one (the outstanding supply cannot hold it) is reserved
+  against the supply cap (apart from the returns in flight, so it never
+  refuses a return), and `ClaimRefunds` pays it after the reopening in
+  installments as the supply has room (a voucher return makes some). An
+  escrowed one (the free escrow is short, a forged receive having drained
+  it, say) is reserved by the queued refunds, so no claim, sweep or
+  receive takes the escrow it waits for, and `ClaimRefunds` pays it after
+  the reopening once the escrow is whole again (a recapitalization); the
+  route can reopen meanwhile, its losses accepted as a deficit. The replacement client must authenticate the route's identity, the
   Ethereum chain, router and commitments slot recorded at the enrolment
   (`ibcgov.RouteIdentity`). It reopens by a governed decision, refused
   while a send record of a retired client is still open (its commitment

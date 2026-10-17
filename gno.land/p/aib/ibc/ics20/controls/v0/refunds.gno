@@ -903,7 +903,9 @@ func (rt *Route) checkPrepared() error {
 // its settlement releases it (a proof, of a delivery too, never does), so no
 // payment for the route takes the backing a sibling's refund needs, whatever
 // the order its outcomes are proven in. Every record visited, and every move
-// to the next retired client, takes a step of n. Anyone may call it; it
+// to the next retired client, takes a step of n; once n are taken, one more
+// move past a client whose records the batch has just finished may follow.
+// Anyone may call it; it
 // returns how many it reserved and whether the walk is complete.
 func (rt *Route) PrepareReplacement(n int) (int, bool, error) {
 	if n < 1 || n > MaxKeys {

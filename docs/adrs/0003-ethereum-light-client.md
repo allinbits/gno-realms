@@ -148,8 +148,14 @@ unchanged.
   (`core/impl/v1` adds the client migrations: a fork schedule, or a verifier
   replacement by a conversion a later core implementation compiles in, the
   new verifier continuing the retired one's history read only through
-  `ethereum.NewFrom`: an index of the retired verifiers' own stores, read
-  in O(log replacements) however many replacements there were), and the
+  `ethereum.NewFrom`: an index of the retired verifiers' own stores, keyed
+  by each one's latest slot and holding non-overlapping intervals, read in
+  O(log replacements) however many replacements there were; a retired
+  store whose latest slot is not above the index's highest key, replaced
+  again before its finality advanced, is not indexed but its few states
+  are carried into the new verifier's own store as a head overlay, so no
+  key is re-pointed and no older interval lost; a conversion copies no
+  consensus-state history and costs O(log previous stores)), and the
   transfer
   app starts with `impl/v1`, the first implementation its proxy registers;
   the new `p/` packages deploy beside them.

@@ -42,7 +42,10 @@ the proxies and stay provable across the switch.
   switch, and `prevVersion` tells it which implementation was active, which
   is also the layout of the data as long as versions activate in sequence.
   Which predecessors a candidate installs over is declared by its manifest
-  (`over`, checked by the preflight and the installation) and, where it
+  (`over`, enforced by the governed preflight, `CheckUpdateImpl`, only: the
+  installation re-checks the built version and controls against the
+  manifest, not `over`; a hook that needs its own predecessor check makes
+  it in `OnInstall`) and, where it
   needs more, by its hook (`CheckInstall`/`OnInstall`). The shipped hooks:
   core `impl/v0`'s is empty (its manifest accepts any predecessor); core
   `impl/v1`'s accepts `""`, `v0` and itself and refuses any other; transfer
@@ -56,8 +59,11 @@ the proxies and stay provable across the switch.
   hook: an installation whose work grows with the state could one day
   exceed a transaction's gas and leave its decision pending for good. The
   implementations shipped so far install in constant work, and a verifier
-  replacement converts in constant work (`ethereum.NewFrom`; reads of the
-  retired history take O(log replacements)). A migration that is not additive forfeits the
+  replacement copies no consensus-state history (`ethereum.NewFrom`): it
+  costs O(log previous verifier stores), inserting the retired store into
+  the persistent history index, or carries a retired store that holds no
+  slot above the index's top into the new verifier as a head overlay (a
+  few states); reads of the retired history take O(log replacements). A migration that is not additive forfeits the
   rollback.
 - A migration rewrites the proxy's store in place. All the state lives in the
   proxy (clients, commitments, receipts, acknowledgements; escrow, vouchers,
@@ -292,7 +298,17 @@ Ethereum client carries nothing until a decision makes it a route.
    `ApplyEpochNotice(epoch, localClient, "router1/local1,...,routerK/localK")`
    with its path of expected transitions from the current epoch client
    (the client that proved it must still be Active, at the same trust
-   generation). If it is not, the notice must be proven afresh: relaying
+   generation). A notice may be any number of epochs on, up to the expected
+   graph's 64 transitions, as long as its whole path is recorded here: no
+   cap on Ethereum's side is assumed. A transition Ethereum cancelled or
+   never executed is removed at once with
+   `NewRemoveExpectationRequest(oldRouterClient, newRouterClient,
+   localClient)`, freeing its place; it is refused only while a notice
+   proven over a client the transition leads to could still be applied (its
+   epoch past the current, its client Active, not retired, at the same
+   generation). Once that client is frozen, expires, is recovered or has
+   its verifier replaced, or the epoch reaches the notice's, the removal
+   goes through. If it is not, the notice must be proven afresh: relaying
    the original packet again only returns `RESPONSE_NOOP` (its receipt
    exists); IBCAdmin sends the identical notice bytes in a fresh packet
    (`resendEpochNotice(epoch)`, a new transport sequence), and that packet
@@ -406,7 +422,8 @@ characters of `a-z`, `0-9`, `-`).
    notice refused with an error acknowledgement (sent before the
    replacement was recorded here) is sent again by IBCAdmin.
    The replacement reserves the refunds the retired client's records may
-   owe in its first batch (64 steps). The transfer app's `route_gov` event
+   owe in its first batch (64 steps, plus possibly one final move past a
+   client whose records it has just finished). The transfer app's `route_gov` event
    for the replacement says in its `note` attribute "prepare the rest with
    transfer.PrepareReplacement" when more remain (ibcgov's decision note
    does not carry it): then call `transfer.PrepareReplacement(R, 64)` until
@@ -443,9 +460,13 @@ characters of `a-z`, `0-9`, `-`).
 9. **Settle**, at most 64 items a decision, each record once:
    `NewSettleRequest(R, OLD, "seq:action:amount,…", INC)` (7 days):
    - proven refundable or collision: `1` with the amount minus `refunded`
-     (`0` for one refunded in full, which only settles it); a minted refund
-     the supply cannot hold now is parked, owed and reserved, and paid by
-     `ClaimRefunds` after the reopening;
+     (`0` for one refunded in full, which only settles it); a refund the
+     supply (minted) or the free escrow (escrowed) cannot pay now is parked,
+     owed and reserved, never refusing the settlement, and paid by
+     `ClaimRefunds` after the reopening, as the supply's headroom or the
+     escrow allows (an escrow a forged receive drained: recapitalize it, step
+     10, or accept the deficit and reopen, the refund then waiting for the
+     escrow to be whole);
    - proven delivered, a queued refund none of which was paid: `2`, amount
      `0`;
    - proven delivered, no refund paid: `3`, amount `0`;
@@ -455,6 +476,11 @@ characters of `a-z`, `0-9`, `-`).
      booked as a loss; its claim's remainder is dropped.
 
    A settlement paying refunds is deferred under a `refunds` flag (step 5).
+   A settlement is final once it applies: a hold or a new trust generation
+   of `NEW` before then stops it (its proofs void), but a compromise of
+   `NEW` found afterwards does not reopen it, and no governed path on
+   gno.land pays a refund it denied. Hold the decision (step 5) while `NEW`
+   is in doubt.
    Ethereum's records are settled by kind 12 (`NewEthSettleRequest`, at most
    8 items). Check: `settlement` set on every record of step 7, and
    `SuspectUnsettled(R, OLD)` 0.
