@@ -79,7 +79,15 @@ func (l *logic) CheckInstall(prevPath, prevVersion string) error {
 // ibcgov decided it and that the client is not retired.
 // migration resolves a migration's subject and parameters, or why it cannot
 // apply.
-func (l *logic) migration(clientID, migration string, params []byte) (*ethereum.EthLightClient, ethereum.ForkParameters, error) {
+// forkMigrator is a verifier whose fork schedule a governed migration can
+// change: ethereum/v0's verifier, and any later version that embeds it or
+// implements the same.
+type forkMigrator interface {
+	CheckForkParameters(fp ethereum.ForkParameters) error
+	MigrateForkParameters(fp ethereum.ForkParameters) error
+}
+
+func (l *logic) migration(clientID, migration string, params []byte) (forkMigrator, ethereum.ForkParameters, error) {
 	c := l.store.Client(clientID)
 	if c == nil {
 		return nil, ethereum.ForkParameters{}, ufmt.Errorf("client %s not found", clientID)
@@ -87,9 +95,12 @@ func (l *logic) migration(clientID, migration string, params []byte) (*ethereum.
 	if migration != MigrationEthereumForkSchedule {
 		return nil, ethereum.ForkParameters{}, ufmt.Errorf("unknown client migration %q", migration)
 	}
-	lc, ok := c.LightClient().(*ethereum.EthLightClient)
-	if !ok || c.Type() != ethereum.ClientType {
+	if c.Type() != ethereum.ClientType {
 		return nil, ethereum.ForkParameters{}, ufmt.Errorf("client %s is not an Ethereum client", clientID)
+	}
+	lc, ok := c.LightClient().(forkMigrator)
+	if !ok {
+		return nil, ethereum.ForkParameters{}, ufmt.Errorf("client %s's verifier (%s) does not support a fork-schedule migration", clientID, core.VerifierVersion(clientID))
 	}
 	fp, err := ethereum.DecodeForkParameters(params)
 	if err != nil {

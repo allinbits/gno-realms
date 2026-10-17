@@ -4,6 +4,7 @@ package main
 import (
 	"chain"
 	"chain/banker"
+	"encoding/hex"
 	"strconv"
 	"strings"
 	"testing"
@@ -206,6 +207,14 @@ func main(cur realm) {
 	println("proves the receipt:", proves(), "| renders its state:", strings.Contains(core.Render("clients/"+client), "\"latest_execution_block_number\""))
 	println("again:", revive(func() { ibcgov.NewReplaceVerifierRequest(cross(cur), client, nextPath) }))
 
+	// The converted verifier keeps the fork-schedule migration: it embeds
+	// the v0 verifier's (Codex docs round 4 #2).
+	fp := ethtesting.ClientState().ForkParameters
+	fp.Gloas = ethereum.Fork{Version: [4]byte{0x80, 0, 0, 0x38}, Epoch: 20}
+	forks := govern(cur, ibcgov.NewMigrateClientRequest(cross(cur), client, "ethereum-fork-schedule", hex.EncodeToString(ethereum.EncodeForkParameters(fp))))
+	execute(cur, forks)
+	println("fork schedule on the converted verifier:", decided(forks), "| still", core.VerifierVersion(client), "| proves the receipt:", proves())
+
 	// A replacement whose client expires during the delay is spent.
 	other := core.CreateClient(cross(cur), ethtesting.ClientState(), ethtesting.ConsensusState())
 	late := govern(cur, ibcgov.NewReplaceVerifierRequest(cross(cur), other, nextPath))
@@ -221,4 +230,5 @@ func main(cur realm) {
 // after: verifier ethereum/testing-next | same client: ethereum | status Active | trust generation advanced: true | payouts epoch 0 -> 1
 // proves the receipt: true | renders its state: true
 // again: ibcgov: client ethereum-1's verifier is ethereum/testing-next already
+// fork schedule on the converted verifier: applied - core migrate client: route ethereum-1's meters emptied | still ethereum/testing-next | proves the receipt: true
 // expired during the delay: spent - spent: client ethereum-2 is Expired, not Active | verifier ethereum/v0
