@@ -191,7 +191,7 @@ func main(cur realm) {
 //
 // ## Routes
 //
-// - ethereum-1 (payouts epoch 1)
+// - ethereum\-1 (payouts epoch 1)
 //   - flag: sends seat 0 at 1237678295
 //
 // ## Decisions

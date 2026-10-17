@@ -73,11 +73,11 @@ func home() string {
 	}
 	routes.Iterate("", "", func(k string, v any) bool {
 		r := v.(*routeRec)
-		// Route keys are core client ids; flag lines are route keys,
-		// function names, seats, times and parsed packet keys.
-		b.WriteString("- " + k + " (payouts epoch " + itoa(r.epoch) + ")\n")
+		// A flag line carries the packet keys a guardian named, whose client
+		// part is any text: every line is escaped as inline Markdown.
+		b.WriteString("- " + sanitize.InlineText(k) + " (payouts epoch " + itoa(r.epoch) + ")\n")
 		for _, f := range Flags(k) {
-			b.WriteString("  - flag: " + f + "\n")
+			b.WriteString("  - flag: " + sanitize.InlineText(f) + "\n")
 		}
 		return false
 	})
