@@ -5,6 +5,7 @@ import (
 
 	"gno.land/p/aib/ibc/lightclient/ethereum/v0"
 	"gno.land/p/aib/ibc/lightclient/v0"
+	"gno.land/p/aib/ibc/types/v0"
 )
 
 // NextVersion names NextVerifier, a second Ethereum verifier version for
@@ -68,4 +69,47 @@ func ToShortVerifier(lc lightclient.Interface) lightclient.Interface {
 		panic("ToShortVerifier converts an ethereum/v0 verifier")
 	}
 	return &ShortVerifier{EthLightClient: old}
+}
+
+// ToNilVerifier is a broken conversion for filetests: it returns a typed-nil
+// NextVerifier, which names NextVersion but panics on its first state read.
+func ToNilVerifier(lightclient.Interface) lightclient.Interface {
+	var v *NextVerifier
+	return v
+}
+
+// PanicVersion names PanicStatusVerifier and PanicHeightVerifier, broken
+// verifier versions for filetests.
+const PanicVersion = "ethereum/testing-panic"
+
+// PanicStatusVerifier panics when asked its status.
+type PanicStatusVerifier struct {
+	*ethereum.EthLightClient
+}
+
+// VerifierVersion is PanicVersion.
+func (*PanicStatusVerifier) VerifierVersion() string { return PanicVersion }
+
+// Status panics.
+func (*PanicStatusVerifier) Status() lightclient.Status { panic("status unavailable") }
+
+// ToPanicStatusVerifier converts to PanicStatusVerifier.
+func ToPanicStatusVerifier(lc lightclient.Interface) lightclient.Interface {
+	return &PanicStatusVerifier{EthLightClient: lc.(*ethereum.EthLightClient)}
+}
+
+// PanicHeightVerifier panics when asked its latest height.
+type PanicHeightVerifier struct {
+	*ethereum.EthLightClient
+}
+
+// VerifierVersion is PanicVersion.
+func (*PanicHeightVerifier) VerifierVersion() string { return PanicVersion }
+
+// LatestHeight panics.
+func (*PanicHeightVerifier) LatestHeight() types.Height { panic("height unavailable") }
+
+// ToPanicHeightVerifier converts to PanicHeightVerifier.
+func ToPanicHeightVerifier(lc lightclient.Interface) lightclient.Interface {
+	return &PanicHeightVerifier{EthLightClient: lc.(*ethereum.EthLightClient)}
 }
