@@ -108,6 +108,23 @@ func epochNow() string {
 	return "epoch " + string(rune('0'+ibcgov.Epoch())) + " over " + ibcgov.EpochClient()
 }
 
+// pendingExpect is the expectation decisions the kind 10s dispatched so far
+// recorded (each waits 7 days); expectAll applies them.
+var pendingExpect []int64
+
+func kind10(cur realm, from, to string, suspectFrom uint64, local string) {
+	govern(cur, ibcgov.NewEthRouteReplacementRequest(cross(cur), from, to, suspectFrom, local))
+	pendingExpect = append(pendingExpect, ibcgov.LastDecision())
+}
+
+func expectAll(cur realm) {
+	advance(7*24*time.Hour + time.Second)
+	for _, id := range pendingExpect {
+		ibcgov.Execute(cross(cur), id)
+	}
+	pendingExpect = nil
+}
+
 // A notice several steps on, over a branching graph of expected transitions
 // (Codex round 35 #2): client-0 → {b1, b2}, b1 → {c1, c2}, c1 → {d1, d2},
 // d1 → e1, each over its approved local client. Ethereum executed
@@ -130,8 +147,9 @@ func main(cur realm) {
 		{"gnoland-c1", "gnoland-d1", "ethereum-6"}, {"gnoland-c1", "gnoland-d2", "ethereum-7"},
 		{"gnoland-d1", "gnoland-e1", "ethereum-8"},
 	} {
-		govern(cur, ibcgov.NewEthRouteReplacementRequest(cross(cur), t[0], t[1], 1, t[2]))
+		kind10(cur, t[0], t[1], 1, t[2])
 	}
+	expectAll(cur)
 	println(epochNow())
 	println("e1's notice:", deliver(cur, e1, 0), "|", epochNow())
 	for _, path := range []string{

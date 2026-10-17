@@ -928,10 +928,18 @@ func (p *ethParams) apply(cur realm, t int64) (string, string) {
 	if refusal != "" {
 		return "", refusal
 	}
+	note := "dispatched as epoch " + strconv.FormatUint(uint64(epoch), 10) + " seq " + u64s(seq)
 	if p.to != "" {
-		expect(p.from, p.to, p.local)
+		// The packet goes at once; approving the local client to carry the
+		// epoch loosens, so the expectation is a decision of its own that
+		// waits 7 days and that a hold defers, as for an emergency recovery
+		// (NewExpectRecoveryRequest). A notice over it before then is
+		// refused, and IBCAdmin sends it again.
+		text := "expect the governance epoch to move from " + p.from + " to " + p.to + ", carried here by " + p.local + " (kind 10)"
+		d := decide(cur, "expect transition", text, &expectParams{from: p.from, to: p.to, local: p.local}, t, t, true)
+		note += "; its transition is expected from decision " + itoa(d.ID)
 	}
-	return "dispatched as epoch " + strconv.FormatUint(uint64(epoch), 10) + " seq " + u64s(seq), ""
+	return note, ""
 }
 
 func ethRequest(cur realm, name string, kind uint8, text string, params []byte) Request {

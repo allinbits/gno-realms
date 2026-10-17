@@ -167,6 +167,23 @@ func epochNow() string {
 	return "epoch " + string(rune('0'+ibcgov.Epoch())) + " over " + ibcgov.EpochClient()
 }
 
+// pendingExpect is the expectation decisions the kind 10s dispatched so far
+// recorded (each waits 7 days); expectAll applies them.
+var pendingExpect []int64
+
+func kind10(cur realm, from, to string, suspectFrom uint64, local string) {
+	govern(cur, ibcgov.NewEthRouteReplacementRequest(cross(cur), from, to, suspectFrom, local))
+	pendingExpect = append(pendingExpect, ibcgov.LastDecision())
+}
+
+func expectAll(cur realm) {
+	advance(7*24*time.Hour + time.Second)
+	for _, id := range pendingExpect {
+		ibcgov.Execute(cross(cur), id)
+	}
+	pendingExpect = nil
+}
+
 // A notice recorded as proven holds only while the client that proved it
 // does (Codex round 36 #1): Active, not retired, at the trust generation it
 // was proven under. c's epoch-3 notice is recorded; c's verifier is replaced
@@ -185,8 +202,9 @@ func main(cur realm) {
 	c := client(cur, "ethereum-3", "gnoland-c", notices...)
 	execute(cur, govern(cur, ibcgov.NewEnrollRouteRequest(cross(cur), "ethereum-1", string(collector), bridge)))
 	execute(cur, govern(cur, ibcgov.NewBindGovernanceRequest(cross(cur), "ethereum-1")))
-	govern(cur, ibcgov.NewEthRouteReplacementRequest(cross(cur), "client-0", "gnoland-b", 1, "ethereum-2"))
-	govern(cur, ibcgov.NewEthRouteReplacementRequest(cross(cur), "gnoland-b", "gnoland-c", 2, "ethereum-3"))
+	kind10(cur, "client-0", "gnoland-b", 1, "ethereum-2")
+	kind10(cur, "gnoland-b", "gnoland-c", 2, "ethereum-3")
+	expectAll(cur)
 	const path = "gnoland-b/ethereum-2,gnoland-c/ethereum-3"
 	apply := func() any { return revive(func() { ibcgov.ApplyEpochNotice(cross(cur), 3, "ethereum-3", path) }) }
 

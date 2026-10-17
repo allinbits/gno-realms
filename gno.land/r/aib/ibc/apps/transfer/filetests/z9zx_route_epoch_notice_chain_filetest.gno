@@ -167,6 +167,23 @@ func epochNow() string {
 	return "epoch " + string(rune('0'+ibcgov.Epoch())) + " over " + ibcgov.EpochClient()
 }
 
+// pendingExpect is the expectation decisions the kind 10s dispatched so far
+// recorded (each waits 7 days); expectAll applies them.
+var pendingExpect []int64
+
+func kind10(cur realm, from, to string, suspectFrom uint64, local string) {
+	govern(cur, ibcgov.NewEthRouteReplacementRequest(cross(cur), from, to, suspectFrom, local))
+	pendingExpect = append(pendingExpect, ibcgov.LastDecision())
+}
+
+func expectAll(cur realm) {
+	advance(7*24*time.Hour + time.Second)
+	for _, id := range pendingExpect {
+		ibcgov.Execute(cross(cur), id)
+	}
+	pendingExpect = nil
+}
+
 // Expected transitions (ADR pr6375 §7.12; Codex rounds 31 #3, 32 #1). Each
 // dispatched kind 10 makes its transition expected here, in router client
 // ids, never overwritten; a recovery's is recorded by a decision. Ethereum
@@ -201,8 +218,9 @@ func main(cur realm) {
 
 	// A→B and B→C: both kind 10s dispatched, both replacements executed here
 	// before any notice.
-	govern(cur, ibcgov.NewEthRouteReplacementRequest(cross(cur), "client-0", "gnoland-b", 1, "ethereum-2"))
-	govern(cur, ibcgov.NewEthRouteReplacementRequest(cross(cur), "gnoland-b", "gnoland-c", 2, "ethereum-3"))
+	kind10(cur, "client-0", "gnoland-b", 1, "ethereum-2")
+	kind10(cur, "gnoland-b", "gnoland-c", 2, "ethereum-3")
+	expectAll(cur)
 	execute(cur, govern(cur, ibcgov.NewReplaceRouteRequest(cross(cur), "ethereum-1", "ethereum-2", 0)))
 	execute(cur, govern(cur, ibcgov.NewReplaceRouteRequest(cross(cur), "ethereum-1", "ethereum-3", 0)))
 	println(epochNow(), "| route client", controlsView().Client("ethereum-1"))
@@ -216,8 +234,9 @@ func main(cur realm) {
 	// Competing kind 10s from C; gno.land's replacement by F is cancelled,
 	// by D executed. D's notice is accepted: the expectation of F stays,
 	// harmless.
-	govern(cur, ibcgov.NewEthRouteReplacementRequest(cross(cur), "gnoland-c", "gnoland-d", 3, "ethereum-4"))
-	govern(cur, ibcgov.NewEthRouteReplacementRequest(cross(cur), "gnoland-c", "gnoland-f", 3, "ethereum-5"))
+	kind10(cur, "gnoland-c", "gnoland-d", 3, "ethereum-4")
+	kind10(cur, "gnoland-c", "gnoland-f", 3, "ethereum-5")
+	expectAll(cur)
 	toF := govern(cur, ibcgov.NewReplaceRouteRequest(cross(cur), "ethereum-1", "ethereum-5", 0))
 	toD := govern(cur, ibcgov.NewReplaceRouteRequest(cross(cur), "ethereum-1", "ethereum-4", 0))
 	govern(cur, ibcgov.NewCancelRequest(cross(cur), toF))
@@ -243,8 +262,9 @@ func main(cur realm) {
 	println("g's notice:", deliver(cur, g, 1), "|", epochNow())
 
 	// G→H then H→E; H freezes before its notice is relayed.
-	govern(cur, ibcgov.NewEthRouteReplacementRequest(cross(cur), "gnoland-g", "gnoland-h", 4, "ethereum-7"))
-	govern(cur, ibcgov.NewEthRouteReplacementRequest(cross(cur), "gnoland-h", "gnoland-e", 5, "ethereum-8"))
+	kind10(cur, "gnoland-g", "gnoland-h", 4, "ethereum-7")
+	kind10(cur, "gnoland-h", "gnoland-e", 5, "ethereum-8")
+	expectAll(cur)
 	testing.SetRealm(testing.NewCodeRealm(freezeImpl))
 	core.RegisterImpl(cross(cur), func(s core.Store) core.Logic {
 		return implv1.NewWithConversions(s, "v1-freeze", []string{ethereum.Version}, []string{ethtesting.FreezingVersion},
@@ -279,9 +299,9 @@ func main(cur realm) {
 // c's notice: acknowledged | epoch 3 over ethereum-3 | b retired for good: true
 // replace by f: cancelled - queued 7 days | by d: applied - replace: client ethereum-3 retired for transfers, meters emptied; governance epoch 3 stays over ethereum-3 until IBCAdmin's epoch notices arrive
 // d's notice: acknowledged | epoch 4 over ethereum-4 | c retired for good: true
-// expect the recovery at once: ibcgov: decision 13 is due at 1238801496, not before
+// expect the recovery at once: ibcgov: decision 17 is due at 1240011098, not before
 // g's notice before it applies: error acknowledgement | epoch 4 over ethereum-4
-// during a hold: ibcgov: decision 13 is deferred: a guardian hold stands since 1238196696
+// during a hold: ibcgov: decision 17 is deferred: a guardian hold stands since 1239406298
 // expect the recovery: applied - expect the governance epoch to move from gnoland-d to gnoland-g over ethereum-6
 // g's notice: acknowledged | epoch 5 over ethereum-6
 // h: Frozen | e: Active | epoch 5 over ethereum-6

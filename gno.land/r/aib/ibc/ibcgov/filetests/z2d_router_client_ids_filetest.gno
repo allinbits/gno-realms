@@ -109,6 +109,6 @@ func main(cur realm) {
 // add abc: ibcgov: a router client id added by governance is a custom id: 4 to 128 characters of a-z A-Z 0-9 . _ + - # [ ] < >, not starting with client- or channel-: abc
 // add gno/land: ibcgov: a router client id added by governance is a custom id: 4 to 128 characters of a-z A-Z 0-9 . _ + - # [ ] < >, not starting with client- or channel-: gno/land
 // settings client-01: ibcgov: not an Ethereum router client id: client-01
-// - #7 applied: ethereum kind 11 \(route settings\): quarantine of \<bridge\>: 3600 s (recorded 1235777492, applied 1235777492) — dispatched as epoch 1 seq 5
-// - #6 applied: ethereum kind 11 \(route settings\): quarantine of \_eth\_: 3600 s (recorded 1235777492, applied 1235777492) — dispatched as epoch 1 seq 4
+// - #8 applied: ethereum kind 11 \(route settings\): quarantine of \<bridge\>: 3600 s (recorded 1235777492, applied 1235777492) — dispatched as epoch 1 seq 5
+// - #7 applied: ethereum kind 11 \(route settings\): quarantine of \_eth\_: 3600 s (recorded 1235777492, applied 1235777492) — dispatched as epoch 1 seq 4
 // receive from gnoland: true

@@ -18,7 +18,21 @@ import (
 
 const bridge = "0x1d95d544586eacb63b6154e9e45122b32ded11aa 0x00000000000000000000000000000000000b0002 0x00000000000000000000000000000000000b0003"
 
-var collector = testutils.TestAddress("collector")
+var (
+	collector = testutils.TestAddress("collector")
+	g0        = testutils.TestAddress("g0")
+	g1        = testutils.TestAddress("g1")
+)
+
+func flagAs(cur realm, who address, route, fn string, set bool) {
+	testing.SetRealm(testing.NewUserRealm(who))
+	if set {
+		ibcgov.SetFlag(cross(cur), route, fn, "")
+	} else {
+		ibcgov.ClearFlag(cross(cur), route, fn)
+	}
+	testing.SetRealm(testing.NewCodeRealm("gno.land/r/aib/main"))
+}
 
 func advance(d time.Duration) {
 	ctx := testing.GetContext()
@@ -125,7 +139,8 @@ func main(cur realm) {
 		noticePacket(2, "gnoland-b", "ethereum-2", 3, "gnoland-b"), // the wrong epoch
 		noticePacket(3, "gnoland-b", "ethereum-2", 2, "gnoland-z"), // names another client
 		noticePacket(4, "gnoland-b", "ethereum-2", 2, "gnoland-b"), // the notice
-		noticePacket(5, "gnoland-b", "ethereum-2", 2, "gnoland-b")) // re-sent
+		noticePacket(5, "gnoland-b", "ethereum-2", 2, "gnoland-b"), // re-sent
+		noticePacket(6, "gnoland-b", "ethereum-2", 2, "gnoland-b")) // before its expectation applies
 	x := client(cur, "ethereum-3", "gnoland-x", noticePacket(1, "gnoland-x", "ethereum-3", 2, "gnoland-x"))
 	c := client(cur, "ethereum-4", "gnoland-c", noticePacket(1, "gnoland-c", "ethereum-4", 3, "gnoland-c"))
 	// Anyone may create a client: one with a fabricated checkpoint whose root
@@ -137,6 +152,7 @@ func main(cur realm) {
 	core.RegisterCounterparty(cross(cur), tm, [][]byte{{}}, "gnoland-9")
 	execute(cur, govern(cur, ibcgov.NewEnrollRouteRequest(cross(cur), "ethereum-1", string(collector), bridge)))
 	execute(cur, govern(cur, ibcgov.NewBindGovernanceRequest(cross(cur), "ethereum-1")))
+	execute(cur, govern(cur, ibcgov.NewSetSeatsRequest(cross(cur), "0:"+string(g0)+",1:"+string(g1))))
 	println(epochNow())
 
 	// A notice before its kind 10 is dispatched is expected nowhere: refused.
@@ -150,6 +166,21 @@ func main(cur realm) {
 		govern(cur, ibcgov.NewEthRouteReplacementRequest(cross(cur), "client-0", "gnoland-9", 1, tm))
 	}))
 	govern(cur, ibcgov.NewEthRouteReplacementRequest(cross(cur), "client-0", "gnoland-b", 1, "ethereum-2"))
+	// The kind 10 goes at once, but approving ethereum-2 to carry the epoch
+	// is a decision of its own that waits 7 days, deferred by a hold (Codex
+	// round 39 #2): a notice before then is refused, and sent again.
+	expB := ibcgov.LastDecision()
+	println("its expectation:", decided(expB))
+	println("b's notice right after its kind 10:", deliver(cur, b, 5), "|", epochNow())
+	flagAs(cur, g0, "ethereum-1", ibcgov.FnSends, true)
+	flagAs(cur, g1, "ethereum-1", ibcgov.FnSends, true)
+	advance(7*24*time.Hour + time.Second)
+	println("the expectation under a hold:", revive(func() { ibcgov.Execute(cross(cur), expB) }))
+	flagAs(cur, g0, "ethereum-1", ibcgov.FnSends, false)
+	flagAs(cur, g1, "ethereum-1", ibcgov.FnSends, false)
+	advance(25 * time.Hour)
+	ibcgov.Execute(cross(cur), expB)
+	println("its expectation after the hold:", decided(expB))
 	execute(cur, govern(cur, ibcgov.NewReplaceRouteRequest(cross(cur), "ethereum-1", "ethereum-2", 0)))
 	println(epochNow(), "| old retired for transfers:", core.IsClientRetiredFor("ethereum-1", "transfer"),
 		"for governance:", core.IsClientRetiredFor("ethereum-1", ibcgov.GovPort))
@@ -176,7 +207,9 @@ func main(cur realm) {
 	// executes: the epoch moves, the old client is retired for governance
 	// and keeps the route until the replacement executes.
 	govern(cur, ibcgov.NewEthRouteReplacementRequest(cross(cur), "gnoland-b", "gnoland-c", 2, "ethereum-4"))
+	expC := ibcgov.LastDecision()
 	replace := govern(cur, ibcgov.NewReplaceRouteRequest(cross(cur), "ethereum-1", "ethereum-4", 0))
+	execute(cur, expC)
 	println("notice over c before its replacement executes:", deliver(cur, c, 0), "|", epochNow())
 	println("b retired for governance:", core.IsClientRetiredFor("ethereum-2", ibcgov.GovPort), "for transfers:", core.IsClientRetiredFor("ethereum-2", "transfer"))
 	execute(cur, replace)
@@ -188,6 +221,10 @@ func main(cur realm) {
 // epoch 1 over ethereum-1
 // notice over b before its kind 10: error acknowledgement | epoch 1 over ethereum-1
 // kind 10 carried by a Tendermint client: ibcgov: 07-tendermint-6 is not an Ethereum client
+// its expectation: pending - queued 7 days
+// b's notice right after its kind 10: error acknowledgement | epoch 1 over ethereum-1
+// the expectation under a hold: ibcgov: decision 5 is deferred: a guardian hold stands since 1236382293
+// its expectation after the hold: applied - expect the governance epoch to move from client-0 to gnoland-b over ethereum-2
 // epoch 1 over ethereum-1 | old retired for transfers: true for governance: false
 // a decision after the replacement: applied - dispatched as epoch 1 seq 2
 // notice over x (not expected): error acknowledgement | epoch 1 over ethereum-1

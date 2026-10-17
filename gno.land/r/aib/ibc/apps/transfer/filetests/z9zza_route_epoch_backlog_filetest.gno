@@ -173,6 +173,23 @@ func plain(cur realm, remote string) string {
 	return id
 }
 
+// pendingExpect is the expectation decisions the kind 10s dispatched so far
+// recorded (each waits 7 days); expectAll applies them.
+var pendingExpect []int64
+
+func kind10(cur realm, from, to string, suspectFrom uint64, local string) {
+	govern(cur, ibcgov.NewEthRouteReplacementRequest(cross(cur), from, to, suspectFrom, local))
+	pendingExpect = append(pendingExpect, ibcgov.LastDecision())
+}
+
+func expectAll(cur realm) {
+	advance(7*24*time.Hour + time.Second)
+	for _, id := range pendingExpect {
+		ibcgov.Execute(cross(cur), id)
+	}
+	pendingExpect = nil
+}
+
 // Switching the epoch does bounded work (Codex round 36 #2). An expected
 // graph whose fourth step reaches more than 64 router clients cannot be
 // searched within bounds, so every client a route replacement retires then
@@ -189,7 +206,7 @@ func main(cur realm) {
 	execute(cur, govern(cur, ibcgov.NewEnrollRouteRequest(cross(cur), "ethereum-1", string(collector), bridge)))
 	execute(cur, govern(cur, ibcgov.NewBindGovernanceRequest(cross(cur), "ethereum-1")))
 	expect := func(from, to, local string) {
-		govern(cur, ibcgov.NewEthRouteReplacementRequest(cross(cur), from, to, 1, local))
+		kind10(cur, from, to, 1, local)
 	}
 	// client-0 -> b1..b4 -> c.. (16) -> d.. (64) -> e.. (65)
 	var level []string
@@ -224,6 +241,7 @@ func main(cur realm) {
 			expect(p, r, plain(cur, r))
 		}
 	}
+	expectAll(cur)
 	println(epochNow(), "| expectations recorded")
 
 	// Route replacements now: the graph cannot be searched within bounds,
