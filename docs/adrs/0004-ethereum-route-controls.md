@@ -352,7 +352,9 @@ for governance (for good if their route replacement executed here,
 otherwise for the gov port, the replacement retiring the rest): the switch
 does bounded work. Every other client retired for transfers while on a path
 (`awaitingGov`) is retired for good by the permissionless
-`PruneGovRetirements(n)` (1 to 64 a call) once no path from the epoch's
+`PruneGovRetirements(n)` (1 to 64 a call, each resuming where the last
+stopped and wrapping round, so a client kept never holds back those after
+it) once no path from the epoch's
 client goes through it; a client whose paths cannot be told within the
 search's bounds (more than 64 router clients at a step) is kept for a later
 call, never on the switch's path (z9zza: such a backlog, a switch retiring
