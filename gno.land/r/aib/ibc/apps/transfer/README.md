@@ -209,7 +209,9 @@ mapping: [ADR 0004](../../../../../../docs/adrs/0004-ethereum-route-controls.md)
   recipients it looked at may have had empty meters while others wait. It
   pays the oldest claim first per recipient, within the bridge meter (day cap
   `max(capFloor, lock/10)`, or the mint cap) and the recipient's meter (a
-  quarter of it), the fee as the first installment, no slivers (a later
+  quarter of it), the fee as the first installment (`min(remainder, the
+  claim's fee, the denom's fee now)`: a claim reduced below its fee can
+  finish as a fee payment alone), no slivers (a later
   installment needs at least `min(remainder, fee)` in both meters). A claim's
   fee is locked when it is credited (`fee` in the claims JSON), and the fee
   it pays is the lower of its fee and the denom's fee now, written back at
