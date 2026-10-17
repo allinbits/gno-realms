@@ -54,6 +54,23 @@ of solidity-ibc-eureka (client type `ethereum`):
   excepted), but never as the anchor of an update,
   so a past sync committee, rotated out and no longer slashable, cannot
   insert state roots below the latest slot or freeze the client.
+- An update is accepted only if its slots satisfy `signatureSlot >
+  attestedSlot >= finalizedSlot`, the finalized slot is not the genesis
+  slot, and `signatureSlot` is not after the current slot, which the client
+  derives from gno.land's block time (genesis time, seconds per slot): a
+  relayer must wait for gno.land's block time to reach a signature slot
+  before submitting it. The header names the signing committee
+  (`ActiveIsNext`): the trusted current committee for an update signed in the
+  stored period, the trusted next committee for one signed in the following
+  period; any other choice, or a signature period beyond the next, is
+  refused. An update's next committee is accepted only when its branch
+  verifies, and, for an attested header in the stored period signed by the
+  trusted next committee, only when it equals that committee.
+- An update that crosses into the next period promotes the trusted next
+  committee to current and takes the update's next committee, if it carries
+  one, as the new next; an update without one leaves the next committee
+  unknown, and the client then needs a later update in the new period that
+  reveals it before it can follow the following rotation.
 - An update must carry at least the client state's
   `MinSyncCommitteeParticipants` signers (`validateUpdate`), and to move the
   client a 2/3 supermajority of the committee besides: participants * 3 >=
@@ -85,7 +102,12 @@ of solidity-ibc-eureka (client type `ethereum`):
 - Membership is proven with account and storage MPT proofs against the
   finalized execution state root, at the router's
   `commitments[keccak256(path)]` slot. Non-membership is a proof of the zero
-  value.
+  value. Consensus states are stored at height
+  `{RevisionNumber: 0, RevisionHeight: <finalized beacon slot>}`: a proof
+  height names a beacon slot, never an execution block number. A proof is
+  refused at a nonzero revision, at a slot after the client's `LatestSlot`,
+  and at a slot with no trusted consensus state stored (not one the client
+  was updated to, or one from before a recovery).
 
 **Transport.** Relayers send client messages and packets as `[]byte`
 `MsgCall` arguments to `r/aib/ibc/ethrelay`, in the positional wire format of
