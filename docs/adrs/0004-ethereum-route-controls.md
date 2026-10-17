@@ -540,6 +540,15 @@ client's packets, and denom hops take it only where an Ethereum route
 extracts its own denoms (types `TestPacketClientIDsAreTheBase`, ics20
 `TestHopValidationIsTheBase`).
 
+Nor are the packet limits (core README, Packet limits): every route keeps the
+SDK's `types.MaximumPayloadsSize`, 262,144 bytes of payload data (the sum of
+`len(Payload.Value)`, not the wire message), its port and id lengths and its
+timeout bounds (on send, at most 24 hours ahead). An oversized send aborts.
+An oversized receive, an Ethereum route's included, is a core refusal before
+the transfer app runs: no claim or sweep entry is booked, and no receipt or
+error acknowledgement is written, so the packet stays pending at the router
+until it times out and is refunded there.
+
 ### Deployment manifest
 
 `scripts/packages.sh` lists every package in deploy order;

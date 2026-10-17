@@ -116,6 +116,12 @@ them and forwards them to the core. `MsgRun` scripts paid 1,250 gas per byte
 of preprocessing on update literals; a `[]byte` argument is base64-decoded
 natively. Together with the non-signer scheme this took a live Sepolia
 finality update from 641M gas to 40M, with messages of about 2.5 KB.
+The core bounds a packet's payload data, not the message:
+`types.MaximumPayloadsSize`, 262,144 bytes, is the sum of
+`len(Payload.Value)`, the same on every route. A packet from the router over
+it is refused by the core before any proof is verified, with no receipt and
+no error acknowledgement, so it stays pending on Ethereum until it times out
+(core README, Packet limits).
 
 **Encoding.** `p/aib/ibc/ics20/abi/v0` encodes and decodes the Solidity layout.
 The transfer implementation accepts either encoding on receive, ack and
