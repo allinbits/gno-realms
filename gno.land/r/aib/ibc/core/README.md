@@ -413,7 +413,9 @@ migrations.
 verifier by another verifier version. The conversion is code of a core
 implementation: a later implementation compiles it in and declares it as
 plain values (`implv1.NewWithConversions(store, version, from, to,
-convert)`, each `convert` a function of the new verifier's /p/ package), and
+convert)`, each `convert` a function of the new verifier's /p/ package
+receiving a read-only view of the live verifier, `ethereum.Retired`, so it
+cannot write to it), and
 is installed by the governed, manifest-checked implementation upgrade;
 `impl/v1` itself declares none. No other code converts a verifier. The
 active implementation's preflight reads its declared pairs and the client's
