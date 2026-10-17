@@ -16,8 +16,9 @@ import (
 // bridgeRealms are the realms of the bridge with no withdrawal entry point:
 // a credit to one of them is swept (ADR pr6375 §7.1), never paid to an
 // address whose code could not move it. Every implementation the core and
-// transfer proxies ever registered is one too, read from their registries
-// (isBridgeRealm), so a registration after deployment is covered at once.
+// transfer proxies ever registered, and every verifier version the core
+// registered, is one too, read from their registries (isBridgeRealm), so a
+// registration after deployment is covered at once.
 var bridgeRealms = []string{
 	"gno.land/r/aib/ibc/core",
 	transfer.PkgPath,
@@ -35,8 +36,8 @@ func isBridgeRealm(a address) bool {
 		}
 	}
 	// A registry only grows: an implementation stays listed when another
-	// replaces it.
-	for _, paths := range [][]string{core.RegisteredImplPaths(), transfer.RegisteredImplPaths()} {
+	// replaces it, a verifier registration is permanent.
+	for _, paths := range [][]string{core.RegisteredImplPaths(), transfer.RegisteredImplPaths(), core.RegisteredVerifierPaths()} {
 		for _, p := range paths {
 			if chain.PackageAddress(p) == a {
 				return true
