@@ -396,9 +396,10 @@ func NewMigrateClientRequest(cur realm, clientID, migration, paramsHex string) R
 // compiles in (installed beforehand by a governed implementation upgrade).
 // The client keeps its id, every trusted consensus state and its packet
 // state; its trust generation advances and its route's payout meters start
-// empty. When it executes, a conversion the active implementation does not
-// declare, a client not Active, or a converted verifier failing its checks
-// spends the decision.
+// empty. An Expired client is converted too and stays Expired (an ordinary
+// governed recovery follows). When it executes, a conversion the active
+// implementation does not declare, a client neither Active nor Expired
+// (Frozen), or a converted verifier failing its checks spends the decision.
 func NewReplaceVerifierRequest(cur realm, clientID, toVersion string) Request {
 	return NewMigrateClientRequest(cur, clientID, "ethereum-verifier", hex.EncodeToString([]byte(toVersion)))
 }

@@ -199,8 +199,13 @@ func (l *logic) checkConversion(clientID, to string) error {
 	if l.conversion(from, to) == nil {
 		return ufmt.Errorf("core impl %s converts no %s verifier to %s", l.ver, from, to)
 	}
-	if st := c.LightClient().Status(); st != lightclient.Active {
-		return ufmt.Errorf("client %s is %s, not Active", clientID, st)
+	// An Expired client is converted too, keeping its status (ADR pr6375
+	// R16): a fork or a verifier defect may stop its updates long enough for
+	// it to expire before the conversion lands, and an ordinary governed
+	// recovery then follows. A Frozen client is not: its misbehaviour is
+	// resolved by a recovery first.
+	if st := c.LightClient().Status(); st != lightclient.Active && st != lightclient.Expired {
+		return ufmt.Errorf("client %s is %s, not Active or Expired", clientID, st)
 	}
 	// The conversion reads the live verifier through its ethereum/v0 state:
 	// a verifier keeping its state otherwise needs migration support of its
@@ -213,8 +218,10 @@ func (l *logic) checkConversion(clientID, to string) error {
 
 // replaceVerifier converts clientID's verifier to version to with this
 // implementation's conversion and installs the result. The conversion and
-// every check on its result (it names version to, is Active, keeps the
-// latest height) run inside one recovered boundary in the core's realm: a
+// every check on its result (it names version to, keeps the live verifier's
+// status, Active or Expired, and its latest height and, for a verifier
+// exposing ethereum/v0 state, the slot from which it trusts consensus states)
+// run inside one recovered boundary in the core's realm: a
 // panic or a mismatch is a refusal, with nothing changed. Only then is the
 // new verifier installed.
 func (l *logic) replaceVerifier(_ int, rlm realm, clientID, to string) error {
@@ -228,7 +235,7 @@ func (l *logic) replaceVerifier(_ int, rlm realm, clientID, to string) error {
 		return ufmt.Errorf("client %s's verifier keeps no ethereum/v0 state to convert", clientID)
 	}
 	// The conversion sees the live verifier only through a read-only view.
-	cand, err := convertAndCheck(l.conversion(core.VerifierVersion(clientID), to), ethereum.Retire(es.Ethereum()), to, live.LatestHeight())
+	cand, err := convertAndCheck(l.conversion(core.VerifierVersion(clientID), to), ethereum.Retire(es.Ethereum()), to, live.Status(), live.LatestHeight(), es.Ethereum().TrustedFromSlot)
 	if err != nil {
 		return err
 	}
@@ -247,7 +254,7 @@ type ethState interface {
 // verifier and checks the result, any panic on the way returned as a
 // refusal: the view gives the conversion nothing to write with, so a
 // refused conversion leaves nothing half-written.
-func convertAndCheck(convert func(*ethereum.Retired) lightclient.Interface, view *ethereum.Retired, want string, height types.Height) (cand lightclient.Interface, err error) {
+func convertAndCheck(convert func(*ethereum.Retired) lightclient.Interface, view *ethereum.Retired, want string, status lightclient.Status, height types.Height, trustedFrom uint64) (cand lightclient.Interface, err error) {
 	defer func() {
 		if r := recover(); r != nil {
 			cand, err = nil, ufmt.Errorf("the converted verifier failed its checks: %v", r)
@@ -265,11 +272,14 @@ func convertAndCheck(convert func(*ethereum.Retired) lightclient.Interface, view
 		}
 		return nil, errors.New("the converted verifier is " + got + ", not " + want)
 	}
-	if st := cand.Status(); st != lightclient.Active {
-		return nil, ufmt.Errorf("the converted verifier is %s, not Active", st)
+	if st := cand.Status(); st != status {
+		return nil, ufmt.Errorf("the converted verifier is %s, not %s", st, status)
 	}
 	if h := cand.LatestHeight(); !h.EQ(height) {
 		return nil, ufmt.Errorf("the converted verifier's latest height is %s, not %s", h, height)
+	}
+	if es, ok := cand.(ethState); ok && es.Ethereum().TrustedFromSlot != trustedFrom {
+		return nil, ufmt.Errorf("the converted verifier trusts consensus states from slot %d, not %d", es.Ethereum().TrustedFromSlot, trustedFrom)
 	}
 	return cand, nil
 }

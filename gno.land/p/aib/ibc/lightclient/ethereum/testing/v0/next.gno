@@ -175,3 +175,33 @@ func (*OpaqueVerifier) VerifierVersion() string { return OpaqueVersion }
 func ToOpaqueVerifier(r *ethereum.Retired) lightclient.Interface {
 	return &OpaqueVerifier{Interface: ethereum.NewFrom(r)}
 }
+
+// FreezingVersion names FreezingVerifier, a verifier version for filetests
+// of a client that is Frozen when a verifier replacement executes.
+const FreezingVersion = "ethereum/testing-freezing"
+
+// FreezingVerifier is the v0 verifier reporting Frozen once the block time is
+// ShortTrust slots past its latest slot, as if a misbehaviour had frozen it,
+// and the v0 verifier's status before that.
+type FreezingVerifier struct {
+	*ethereum.EthLightClient
+}
+
+// VerifierVersion is FreezingVersion.
+func (*FreezingVerifier) VerifierVersion() string { return FreezingVersion }
+
+// Status is Frozen once the block time is ShortTrust slots past the latest
+// slot.
+func (v *FreezingVerifier) Status() lightclient.Status {
+	cs := v.ClientState
+	now := uint64(time.Now().Unix())
+	if now >= cs.GenesisTime && (now-cs.GenesisTime)/cs.SecondsPerSlot+cs.GenesisSlot > cs.LatestSlot+ShortTrust {
+		return lightclient.Frozen
+	}
+	return v.EthLightClient.Status()
+}
+
+// ToFreezingVerifier converts a v0 verifier to FreezingVerifier.
+func ToFreezingVerifier(r *ethereum.Retired) lightclient.Interface {
+	return &FreezingVerifier{EthLightClient: ethereum.NewFrom(r)}
+}

@@ -232,12 +232,13 @@ func main(cur realm) {
 	execute(cur, forks)
 	println("fork schedule on the converted verifier:", decided(forks), "| still", core.VerifierVersion(client), "| proves the receipt:", proves())
 
-	// A replacement whose client expires during the delay is spent.
+	// A client that expires during the delay is converted all the same,
+	// staying Expired (design review #6; a recovery follows, z9zu).
 	other := core.CreateClient(cross(cur), ethtesting.ClientState(), ethtesting.ConsensusState())
 	late := govern(cur, ibcgov.NewReplaceVerifierRequest(cross(cur), other, ethtesting.NextVersion))
 	setTime(time.Unix(int64(ethtesting.ClientState().GenesisTime)+5000, 0))
 	execute(cur, late)
-	println("expired during the delay:", decided(late), "| verifier", core.VerifierVersion(other))
+	println("expired during the delay:", decided(late), "| verifier", core.VerifierVersion(other), "| status", core.ClientStatus(other))
 
 	// A replaced client stays recoverable (Codex docs round 5 #2): the
 	// route's client, now expired, is recovered with a later client whose
@@ -264,6 +265,6 @@ func main(cur realm) {
 // proves the receipt at the pre-replacement height: true | renders its state: true
 // again: spent - spent: core impl v1-next converts no ethereum/testing-next verifier to ethereum/testing-next
 // fork schedule on the converted verifier: applied - core migrate client: route ethereum-1's meters emptied | still ethereum/testing-next | proves the receipt: true
-// expired during the delay: spent - spent: client ethereum-2 is Expired, not Active | verifier ethereum/v0
+// expired during the delay: applied - core migrate client | verifier ethereum/testing-next | status Expired
 // subject: Expired ethereum/testing-next | substitute: Active ethereum/testing-next
 // recovery: applied - core recover client | subject now Active ethereum/testing-next 0/5000000
