@@ -17,7 +17,10 @@ the proxies and stay provable across the switch.
 
 - The candidate is a realm under the proxy's `impl/` namespace,
   `gno.land/r/aib/ibc/core/impl/vN` or
-  `gno.land/r/aib/ibc/apps/transfer/impl/vN` (the suffix must be `v<N>`). It
+  `gno.land/r/aib/ibc/apps/transfer/impl/vN`. The `v<N>` suffix is a
+  convention: registration checks only that the path is under the proxy's
+  `/impl/` namespace, and ibcgov's update builders that it starts with
+  `/impl/v`; neither parses a number. It
   implements the proxy's `Logic`, registers itself from `init` with
   `RegisterImpl`, and reuses from `impl/v0` what it does not change (`New`, the
   exported `Renderer`).
@@ -38,17 +41,23 @@ the proxies and stay provable across the switch.
 - `OnInstall` is the migration hook. It runs inside `UpdateImpl` before the
   switch, and `prevVersion` tells it which implementation was active, which
   is also the layout of the data as long as versions activate in sequence.
-  Its contract: do nothing when `prevVersion` is its own version (a
-  re-install), migrate when it is the version it was written to follow, panic
-  otherwise. Keep the migration bounded: constant work, whatever the number
+  Which predecessors a candidate installs over is declared by its manifest
+  (`over`, checked by the preflight and the installation) and, where it
+  needs more, by its hook (`CheckInstall`/`OnInstall`). The shipped hooks:
+  core `impl/v0`'s is empty (its manifest accepts any predecessor); core
+  `impl/v1`'s accepts `""`, `v0` and itself and refuses any other; transfer
+  `impl/v1`'s accepts any predecessor and initializes the route controls'
+  extension, idempotently (`InitExt`, a no-op once it exists). A new hook
+  should do nothing on a re-install, migrate from the version it follows,
+  and refuse the rest. Keep the migration bounded: constant work, whatever the number
   of clients, packets, denoms or records. Anything proportional to them is
   converted lazily on access, or by a permissionless continuation that does
   a bounded batch a call (as `transfer.ContinueReopen` does), never in the
   hook: an installation whose work grows with the state could one day
   exceed a transaction's gas and leave its decision pending for good. The
-  implementations shipped so far install in constant work (their hooks only
-  check `prevVersion`), and a verifier replacement converts in constant work
-  (`ethereum.NewFrom`). A migration that is not additive forfeits the
+  implementations shipped so far install in constant work, and a verifier
+  replacement converts in constant work (`ethereum.NewFrom`; reads of the
+  retired history take O(log replacements)). A migration that is not additive forfeits the
   rollback.
 - A migration rewrites the proxy's store in place. All the state lives in the
   proxy (clients, commitments, receipts, acknowledgements; escrow, vouchers,
@@ -283,9 +292,16 @@ Ethereum client carries nothing until a decision makes it a route.
    `ApplyEpochNotice(epoch, localClient, "router1/local1,...,routerK/localK")`
    with its path of expected transitions from the current epoch client
    (the client that proved it must still be Active, at the same trust
-   generation, or the notice is relayed again). After switches, anyone
-   calls `ibcgov.PruneGovRetirements(64)` until `AwaitingGovRetirement()`
-   is 0 to retire the replaced clients for good. The local client is the new gno
+   generation). If it is not, the notice must be proven afresh: relaying
+   the original packet again only returns `RESPONSE_NOOP` (its receipt
+   exists); IBCAdmin sends the identical notice bytes in a fresh packet
+   (`resendEpochNotice(epoch)`, a new transport sequence), and that packet
+   is relayed. After switches, anyone calls
+   `ibcgov.PruneGovRetirements(64)` to retire for good the replaced clients
+   no longer reachable on the expected graph; the count
+   (`AwaitingGovRetirement()`) need not reach 0: clients still reachable
+   are kept, and a later switch or removal makes them eligible, so call it
+   again then. The local client is the new gno
    client tracking the new router client, Active, its counterparty set. A notice that
    arrives before the replacement executes here moves the epoch all the
    same.
@@ -349,11 +365,16 @@ characters of `a-z`, `0-9`, `-`).
    (`NewEthCancelRequest`).
 3. **Choose `suspectFrom`.** It is the gno.land height from which
    acknowledgements and timeouts processed through `OLD` are suspect: the
-   height of `OLD`'s first update after its last consensus state you have
-   authenticated independently (step 0 of §7). When in doubt, take an
-   earlier height: every record processed from it on must be settled, and
-   one too many costs a proof, one too few a forged refund kept. `0` takes
-   every record; the controls raise it to the previous replacement's height.
+   earliest verification operation (an update, or a membership or absence
+   proof checked) that may have been compromised, considering verifier
+   defects and the implementation versions affected. The default is `0`
+   (every record; the controls raise it to the previous replacement's
+   height): an authenticated consensus root proves that root genuine, not
+   that every proof checked against it was verified correctly. Only when the
+   compromise is established to be header-only (forged updates, the verifier
+   sound) may it start at the height of `OLD`'s first update after its last
+   consensus state authenticated independently (step 0 of §7). One record
+   too many costs a proof; one too few keeps a forged refund.
    Ethereum's kind 10 takes its own `suspectFrom`, an Ethereum block.
 4. **Prepare `NEW`.** Authenticate a
    checkpoint independently (§7 step 0), create `NEW` from it with the
@@ -385,16 +406,21 @@ characters of `a-z`, `0-9`, `-`).
    notice refused with an error acknowledgement (sent before the
    replacement was recorded here) is sent again by IBCAdmin.
    The replacement reserves the refunds the retired client's records may
-   owe in its first batch (64 records); if its note says so, call
-   `transfer.PrepareReplacement(R, 64)` until it returns true. No
+   owe in its first batch (64 steps). The transfer app's `route_gov` event
+   for the replacement says in its `note` attribute "prepare the rest with
+   transfer.PrepareReplacement" when more remain (ibcgov's decision note
+   does not carry it): then call `transfer.PrepareReplacement(R, 64)` until
+   it returns true; a settlement refused as "not prepared" says the same. No
    settlement, sweep payment, credit by vote or reopening applies before.
 7. **Enumerate the records to settle.** Every send record of `OLD` that is
    open (outcome `""`, its commitment outstanding, or payment `queued`), and
    every one processed at or after `suspectFrom` (`processed_height`) whose
    `settlement` is 0, read from the pages of
-   `Render("routes/R/sends?from=<next>")` (keys `OLD/…`). Their count is
-   `SuspectUnsettled(R, OLD)` on the controls reader
-   (`transfer.ExtView("controls")`) plus the open ones. A record carries the
+   `Render("routes/R/sends?from=<next>")` (keys `OLD/…`): the union of the
+   two sets by packet key, records already settled (`settlement` not 0)
+   excluded. `SuspectUnsettled(R, OLD)` on the controls reader
+   (`transfer.ExtView("controls")`) counts the second set, which may hold
+   queued refunds of the first: do not add the two counts. A record carries the
    full packet, so a record whose commitment the core already deleted (an
    acknowledgement or a timeout processed it) is proven and settled the same
    way. Receives of `OLD` whose claims or sweep entries paid out and that
@@ -441,8 +467,10 @@ characters of `a-z`, `0-9`, `-`).
     stays unresolved, the reopening accepts. Check: `Unresolved(R)`.
 11. **Reopen.** `NewReopenRouteRequest(R)` (7 days) is refused while a
     record of step 7 is unsettled. When it applies, it accepts the remaining
-    losses and revokes unpaid recapitalizations in batches; if its note says
-    so, call `transfer.ContinueReopen(R)` until it returns true. Ethereum
+    losses and revokes unpaid recapitalizations in batches; when the transfer
+    app's `route_gov` event says in its `note` "continue with
+    transfer.ContinueReopen" (ibcgov's decision note does not carry it),
+    call `transfer.ContinueReopen(R)` until it returns true. Ethereum
     reopens by kind 13 (`NewEthReopenRequest(RNEW)`). Check:
     `Closed(R)` false.
 12. **Clear the flags.** The watch keys and guardians clear their own flags
