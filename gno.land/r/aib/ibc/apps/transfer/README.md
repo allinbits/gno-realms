@@ -197,7 +197,11 @@ mapping: [ADR 0004](../../../../../../docs/adrs/0004-ethereum-route-controls.md)
   enrolls it as a route (there is no migration from impl/v0).
 - **Receives** are refused with an error acknowledgement, before any state
   change, under a `credits` flag, on a closed route, for a denom not enabled,
-  past a minted denom's supply cap, or for a blocked receiver. Otherwise they
+  past a minted denom's supply cap (what is booked against it,
+  `Outstanding + Returning + Owed + Withheld + Swept`, plus the receive; the
+  cap governs admission only: lowering it below what is booked refuses new
+  credits and keeps every booked obligation payable), or for a blocked
+  receiver. Otherwise they
   are booked as a claim keyed by the packet (or a sweep entry: below the fee,
   above the free lock, to a bridge realm, or to a receiver that is no gno.land
   address, kept raw), with a success acknowledgement.
@@ -237,7 +241,11 @@ mapping: [ADR 0004](../../../../../../docs/adrs/0004-ethereum-route-controls.md)
   record. Queued refunds are reserved: no receive or claim payout takes
   their escrow.
 - **Closed routes.** A route replacement closes the route: no send, credit,
-  claim payout or refund payout. It reopens by a governed decision, refused
+  claim payout, acknowledgement or timeout refund payout, or `ClaimRefunds`
+  payout. A governed reconciliation's refunds are the exception: a
+  settlement pays them on the closed route (that is how the retired
+  client's sends are settled), subject to its own checks and deferred under
+  a `refunds` hold. It reopens by a governed decision, refused
   while a send record of a retired client is still open (its commitment
   outstanding or its refund queued, not settled by a reconciliation) or was
   processed (acknowledged or timed out) at or after the replacement's
