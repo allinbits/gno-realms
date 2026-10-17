@@ -9,10 +9,11 @@ import (
 )
 
 // NextVersion names NextVerifier, a second Ethereum verifier version for
-// filetests of a governed verifier replacement (ADR pr6375 R16): it is the
-// v0 verifier under another package and type, so a replacement visibly
-// changes the stored verifier while every consensus state and proof keeps
-// verifying.
+// filetests of a governed verifier replacement (ADR pr6375 R16): a v0
+// verifier continuing the retired one (ethereum.NewFrom) under another
+// package and type, so a replacement visibly changes the stored verifier
+// while every consensus state and proof keeps verifying. A test core
+// implementation compiles its conversion in (implv1.NewWithConversions).
 const NextVersion = "ethereum/testing-next"
 
 // NextVerifier is the v0 verifier converted to the next version.
@@ -23,14 +24,14 @@ type NextVerifier struct {
 // VerifierVersion is NextVersion.
 func (*NextVerifier) VerifierVersion() string { return NextVersion }
 
-// ToNextVerifier converts a v0 verifier, keeping its client state and every
-// consensus state; it is the conversion a replacement runs at installation.
+// ToNextVerifier converts a v0 verifier: a new verifier continuing it, its
+// client state copied and its consensus states served read only.
 func ToNextVerifier(lc lightclient.Interface) lightclient.Interface {
 	old, ok := lc.(*ethereum.EthLightClient)
 	if !ok {
 		panic("ToNextVerifier converts an ethereum/v0 verifier")
 	}
-	return &NextVerifier{EthLightClient: old}
+	return &NextVerifier{EthLightClient: ethereum.NewFrom(old)}
 }
 
 // ShortVersion names ShortVerifier, a verifier version for filetests of a
@@ -68,7 +69,7 @@ func ToShortVerifier(lc lightclient.Interface) lightclient.Interface {
 	if !ok {
 		panic("ToShortVerifier converts an ethereum/v0 verifier")
 	}
-	return &ShortVerifier{EthLightClient: old}
+	return &ShortVerifier{EthLightClient: ethereum.NewFrom(old)}
 }
 
 // ToNilVerifier is a broken conversion for filetests: it returns a typed-nil
@@ -78,24 +79,27 @@ func ToNilVerifier(lightclient.Interface) lightclient.Interface {
 	return v
 }
 
-// PanicVersion names PanicStatusVerifier and PanicHeightVerifier, broken
-// verifier versions for filetests.
-const PanicVersion = "ethereum/testing-panic"
+// PanicStatusVersion and PanicHeightVersion name PanicStatusVerifier and
+// PanicHeightVerifier, broken verifier versions for filetests.
+const (
+	PanicStatusVersion = "ethereum/testing-panic-status"
+	PanicHeightVersion = "ethereum/testing-panic-height"
+)
 
 // PanicStatusVerifier panics when asked its status.
 type PanicStatusVerifier struct {
 	*ethereum.EthLightClient
 }
 
-// VerifierVersion is PanicVersion.
-func (*PanicStatusVerifier) VerifierVersion() string { return PanicVersion }
+// VerifierVersion is PanicStatusVersion.
+func (*PanicStatusVerifier) VerifierVersion() string { return PanicStatusVersion }
 
 // Status panics.
 func (*PanicStatusVerifier) Status() lightclient.Status { panic("status unavailable") }
 
 // ToPanicStatusVerifier converts to PanicStatusVerifier.
 func ToPanicStatusVerifier(lc lightclient.Interface) lightclient.Interface {
-	return &PanicStatusVerifier{EthLightClient: lc.(*ethereum.EthLightClient)}
+	return &PanicStatusVerifier{EthLightClient: ethereum.NewFrom(lc.(*ethereum.EthLightClient))}
 }
 
 // PanicHeightVerifier panics when asked its latest height.
@@ -103,13 +107,13 @@ type PanicHeightVerifier struct {
 	*ethereum.EthLightClient
 }
 
-// VerifierVersion is PanicVersion.
-func (*PanicHeightVerifier) VerifierVersion() string { return PanicVersion }
+// VerifierVersion is PanicHeightVersion.
+func (*PanicHeightVerifier) VerifierVersion() string { return PanicHeightVersion }
 
 // LatestHeight panics.
 func (*PanicHeightVerifier) LatestHeight() types.Height { panic("height unavailable") }
 
 // ToPanicHeightVerifier converts to PanicHeightVerifier.
 func ToPanicHeightVerifier(lc lightclient.Interface) lightclient.Interface {
-	return &PanicHeightVerifier{EthLightClient: lc.(*ethereum.EthLightClient)}
+	return &PanicHeightVerifier{EthLightClient: ethereum.NewFrom(lc.(*ethereum.EthLightClient))}
 }

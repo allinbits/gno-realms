@@ -22,7 +22,7 @@ import (
 	_ "gno.land/r/aib/ibc/apps/transfer/impl/v1"
 	"gno.land/r/aib/ibc/core"
 	_ "gno.land/r/aib/ibc/core/impl/v0"
-	_ "gno.land/r/aib/ibc/core/impl/v1"
+	implv1 "gno.land/r/aib/ibc/core/impl/v1"
 	"gno.land/r/aib/ibc/ibcgov"
 )
 
@@ -165,15 +165,11 @@ func setTime(t time.Time) {
 	testing.SetContext(ctx)
 }
 
-// register registers a verifier version from the verifiers realm at path.
-func register(cur realm, path, version string, convert func(lightclient.Interface) lightclient.Interface) {
-	testing.SetRealm(testing.NewCodeRealm(path))
-	core.RegisterVerifier(cross(cur), ethereum.ClientType, version, []string{ethereum.Version}, convert)
-	testing.SetRealm(testing.NewCodeRealm("gno.land/r/aib/main"))
-}
+const brokenImpl = "gno.land/r/aib/ibc/core/impl/v1broken"
 
 // Every check on a converted verifier runs inside the recovered refusal
-// boundary (Codex round 25 #1): a conversion returning a typed-nil verifier,
+// boundary (Codex round 25 #1), in the core's realm, the conversions being
+// the active core implementation's own: one returning a typed-nil verifier,
 // or a verifier whose status or latest height panics, is refused, the
 // decision spent, the live verifier, trust generation and payouts epoch
 // unchanged.
@@ -181,21 +177,24 @@ func main(cur realm) {
 	client := core.CreateClient(cross(cur), ethtesting.ClientState(), ethtesting.ConsensusState())
 	core.RegisterCounterparty(cross(cur), client, [][]byte{{}}, "client-0")
 	execute(cur, govern(cur, ibcgov.NewEnrollRouteRequest(cross(cur), client, string(collector), bridge)))
-	execute(cur, govern(cur, ibcgov.NewCoreUpdateImplRequest(cross(cur), "gno.land/r/aib/ibc/core/impl/v1")))
+	testing.SetRealm(testing.NewCodeRealm(brokenImpl))
+	core.RegisterImpl(cross(cur), func(s core.Store) core.Logic {
+		return implv1.NewWithConversions(s, "v1-broken",
+			[]string{ethereum.Version, ethereum.Version, ethereum.Version},
+			[]string{ethtesting.NextVersion, ethtesting.PanicStatusVersion, ethtesting.PanicHeightVersion},
+			[]func(lightclient.Interface) lightclient.Interface{ethtesting.ToNilVerifier, ethtesting.ToPanicStatusVerifier, ethtesting.ToPanicHeightVerifier})
+	}, "v1-broken", []string{"v0", "v1"})
+	testing.SetRealm(testing.NewCodeRealm("gno.land/r/aib/main"))
+	execute(cur, govern(cur, ibcgov.NewCoreUpdateImplRequest(cross(cur), brokenImpl)))
 
-	cases := []struct {
-		name, path, version string
-		convert             func(lightclient.Interface) lightclient.Interface
-	}{
-		{"typed nil", "gno.land/r/aib/ibc/core/verifiers/typed-nil", ethtesting.NextVersion, ethtesting.ToNilVerifier},
-		{"panicking status", "gno.land/r/aib/ibc/core/verifiers/panic-status", ethtesting.PanicVersion, ethtesting.ToPanicStatusVerifier},
-		{"panicking height", "gno.land/r/aib/ibc/core/verifiers/panic-height", ethtesting.PanicVersion, ethtesting.ToPanicHeightVerifier},
-	}
-	for _, tc := range cases {
-		register(cur, tc.path, tc.version, tc.convert)
+	for _, tc := range []struct{ name, to string }{
+		{"typed nil", ethtesting.NextVersion},
+		{"panicking status", ethtesting.PanicStatusVersion},
+		{"panicking height", ethtesting.PanicHeightVersion},
+	} {
 		gen := core.ClientTrustGeneration(client)
 		epoch, _ := ibcgov.PayoutsEpoch(client)
-		replace := govern(cur, ibcgov.NewReplaceVerifierRequest(cross(cur), client, tc.path))
+		replace := govern(cur, ibcgov.NewReplaceVerifierRequest(cross(cur), client, tc.to))
 		execute(cur, replace)
 		epoch2, _ := ibcgov.PayoutsEpoch(client)
 		println(tc.name+":", decided(replace))

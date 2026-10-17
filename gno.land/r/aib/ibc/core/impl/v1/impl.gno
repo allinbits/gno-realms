@@ -26,16 +26,24 @@ const version = "v1"
 // ethereum.EncodeForkParameters of the new schedule.
 const MigrationEthereumForkSchedule = "ethereum-fork-schedule"
 
-// MigrationEthereumVerifier replaces an Ethereum client's verifier by a
-// verifier version registered with core.RegisterVerifier; params is the
-// registration's realm path. The conversion keeps the client's id, client
-// state, consensus states and packet state; it runs only here, at the
-// governed installation.
+// MigrationEthereumVerifier replaces an Ethereum client's verifier by
+// another verifier version; params is the target version. Only a conversion
+// this implementation compiles in, declared as plain values (from, to), is
+// run: none in impl/v1 itself; a later implementation declares its own
+// (NewWithConversions), installed by a governed, manifest-checked upgrade.
+// The conversion keeps the client's id, its consensus states (the new
+// verifier serves the retired one's, read only) and its packet state.
 const MigrationEthereumVerifier = "ethereum-verifier"
 
 type logic struct {
 	core.Logic // impl/v0's lifecycle
 	store      core.Store
+	ver        string
+
+	// The verifier conversions this implementation compiles in: the i-th
+	// converts version convFrom[i] to convTo[i].
+	convFrom, convTo []string
+	convert          []func(lightclient.Interface) lightclient.Interface
 }
 
 var (
@@ -46,7 +54,36 @@ var (
 
 // New builds the implementation against the proxy's store.
 func New(s core.Store) core.Logic {
-	return &logic{Logic: implv0.New(s), store: s}
+	return &logic{Logic: implv0.New(s), store: s, ver: version}
+}
+
+// NewWithConversions is impl/v1's logic under version ver with verifier
+// conversions compiled in, the i-th from verifier version from[i] to version
+// to[i] (the three slices of one length): the constructor of a later core
+// implementation that brings new verifier versions, registered under its own
+// path and installed by a governed upgrade. Each convert[i] must be a
+// function of the new verifier's /p/ package; it receives the live verifier,
+// must not write to it, and returns the new one.
+func NewWithConversions(s core.Store, ver string, from, to []string, convert []func(lightclient.Interface) lightclient.Interface) core.Logic {
+	if len(from) != len(to) || len(to) != len(convert) {
+		panic("NewWithConversions: from, to and convert differ in length")
+	}
+	l := &logic{Logic: implv0.New(s), store: s, ver: ver}
+	l.convFrom = append(l.convFrom, from...)
+	l.convTo = append(l.convTo, to...)
+	l.convert = append(l.convert, convert...)
+	return l
+}
+
+// conversion is the conversion of from to to this implementation compiles
+// in, or nil.
+func (l *logic) conversion(from, to string) func(lightclient.Interface) lightclient.Interface {
+	for i := range l.convFrom {
+		if l.convFrom[i] == from && l.convTo[i] == to {
+			return l.convert[i]
+		}
+	}
+	return nil
 }
 
 func init(cur realm) {
@@ -54,7 +91,7 @@ func init(cur realm) {
 }
 
 func (l *logic) Version() string {
-	return version
+	return l.ver
 }
 
 // OnInstall has nothing to migrate: v1 keeps v0's store layout. It installs
@@ -70,7 +107,7 @@ func (l *logic) OnInstall(_ int, rlm realm, prevPath, prevVersion string) {
 // itself, as its manifest declares.
 func (l *logic) CheckInstall(prevPath, prevVersion string) error {
 	switch prevVersion {
-	case "", "v0", version:
+	case "", "v0", version, l.ver:
 		return nil
 	}
 	return ufmt.Errorf("core impl %s cannot install over version %s", version, prevVersion)
@@ -116,10 +153,7 @@ func (l *logic) migration(clientID, migration string, params []byte) (forkMigrat
 // conversion runs.
 func (l *logic) CheckMigrateClient(clientID, migration string, params []byte) error {
 	if migration == MigrationEthereumVerifier {
-		if r := core.CheckVerifierReplacement(clientID, string(params)); r != "" {
-			return errors.New(r)
-		}
-		return nil
+		return l.checkConversion(clientID, string(params))
 	}
 	lc, fp, err := l.migration(clientID, migration, params)
 	if err != nil {
@@ -148,39 +182,58 @@ func (l *logic) MigrateClient(_ int, rlm realm, clientID, migration string, para
 	return nil
 }
 
-// replaceVerifier installs the verifier version registered at path on
-// clientID. The conversion runs on a detached snapshot of the live verifier
-// (its client state and latest trusted consensus state), and the result must
-// name the registered version, be Active and keep the latest height; the
-// conversion and every check on its result run inside one recovered
-// boundary, so a panic there (a typed-nil verifier, a method that panics) is
-// a refusal like any failed check. Only then is it installed. Any failure is
-// returned with nothing changed.
-func (l *logic) replaceVerifier(_ int, rlm realm, clientID, path string) error {
-	if r := core.CheckVerifierReplacement(clientID, path); r != "" {
-		return errors.New(r)
+// checkConversion is why clientID's verifier cannot be converted to version
+// to now, or nil, from plain values alone (this implementation's declared
+// conversion, the client's type, status and verifier version): nothing is
+// converted.
+func (l *logic) checkConversion(clientID, to string) error {
+	c := l.store.Client(clientID)
+	switch {
+	case c == nil:
+		return ufmt.Errorf("client %s not found", clientID)
+	case c.Type() != ethereum.ClientType:
+		return ufmt.Errorf("client %s is not an Ethereum client", clientID)
 	}
-	convert, want, _ := core.VerifierConversion(path)
+	from := core.VerifierVersion(clientID)
+	if l.conversion(from, to) == nil {
+		return ufmt.Errorf("core impl %s converts no %s verifier to %s", l.ver, from, to)
+	}
+	if st := c.LightClient().Status(); st != lightclient.Active {
+		return ufmt.Errorf("client %s is %s, not Active", clientID, st)
+	}
+	return nil
+}
+
+// replaceVerifier converts clientID's verifier to version to with this
+// implementation's conversion and installs the result. The conversion and
+// every check on its result (it names version to, is Active, keeps the
+// latest height) run inside one recovered boundary in the core's realm: a
+// panic or a mismatch is a refusal, with nothing changed. Only then is the
+// new verifier installed.
+func (l *logic) replaceVerifier(_ int, rlm realm, clientID, to string) error {
+	if err := l.checkConversion(clientID, to); err != nil {
+		return err
+	}
 	c := l.store.Client(clientID)
 	live := c.LightClient()
-	cand, err := convertAndCheck(convert, live.(core.SnapshotVerifier).Snapshot(), want, live.LatestHeight())
+	cand, err := convertAndCheck(l.conversion(core.VerifierVersion(clientID), to), live, to, live.LatestHeight())
 	if err != nil {
 		return err
 	}
 	c.SetLightClient(0, rlm, func(lightclient.Interface) lightclient.Interface { return cand })
-	core.EmitMigrateClient(0, rlm, clientID, c.Type(), MigrationEthereumVerifier+" "+want)
+	core.EmitMigrateClient(0, rlm, clientID, c.Type(), MigrationEthereumVerifier+" "+to)
 	return nil
 }
 
-// convertAndCheck runs a registered conversion on a snapshot and checks the
+// convertAndCheck runs the conversion on the live verifier and checks the
 // result, any panic on the way returned as a refusal.
-func convertAndCheck(convert func(lightclient.Interface) lightclient.Interface, snap lightclient.Interface, want string, height types.Height) (cand lightclient.Interface, err error) {
+func convertAndCheck(convert func(lightclient.Interface) lightclient.Interface, live lightclient.Interface, want string, height types.Height) (cand lightclient.Interface, err error) {
 	defer func() {
 		if r := recover(); r != nil {
 			cand, err = nil, ufmt.Errorf("the converted verifier failed its checks: %v", r)
 		}
 	}()
-	cand = convert(snap)
+	cand = convert(live)
 	if cand == nil {
 		return nil, errors.New("the conversion returned no verifier")
 	}

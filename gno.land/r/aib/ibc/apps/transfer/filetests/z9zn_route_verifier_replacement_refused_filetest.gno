@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"gno.land/p/aib/ibc/lightclient/ethereum/v0"
+	"gno.land/p/aib/ibc/lightclient/v0"
 
 	"gno.land/p/aib/ibc/ics20/abi/v0"
 	"gno.land/p/aib/ibc/ics20/controls/v0"
@@ -21,7 +22,7 @@ import (
 	_ "gno.land/r/aib/ibc/apps/transfer/impl/v1"
 	"gno.land/r/aib/ibc/core"
 	_ "gno.land/r/aib/ibc/core/impl/v0"
-	_ "gno.land/r/aib/ibc/core/impl/v1"
+	implv1 "gno.land/r/aib/ibc/core/impl/v1"
 	"gno.land/r/aib/ibc/ibcgov"
 )
 
@@ -164,27 +165,30 @@ func setTime(t time.Time) {
 	testing.SetContext(ctx)
 }
 
-const shortPath = "gno.land/r/aib/ibc/core/verifiers/testing-short"
+const shortImpl = "gno.land/r/aib/ibc/core/impl/v1short"
 
 // A verifier replacement whose converted verifier fails its checks is
 // refused, nothing changed, and the decision spent (Codex round 24): the
-// conversion runs on a detached snapshot and is installed only once it
-// passes. ShortVerifier has a shorter trusting window: at the execution the
+// result of the active core implementation's conversion is installed only
+// once it passes. ShortVerifier has a shorter trusting window: at the execution the
 // live client is still Active, the converted one Expired. With the block
 // time back where the conversion would pass, the spent decision cannot run.
 func main(cur realm) {
 	client := core.CreateClient(cross(cur), ethtesting.ClientState(), ethtesting.ConsensusState())
 	core.RegisterCounterparty(cross(cur), client, [][]byte{{}}, "client-0")
 	execute(cur, govern(cur, ibcgov.NewEnrollRouteRequest(cross(cur), client, string(collector), bridge)))
-	execute(cur, govern(cur, ibcgov.NewCoreUpdateImplRequest(cross(cur), "gno.land/r/aib/ibc/core/impl/v1")))
-
-	testing.SetRealm(testing.NewCodeRealm(shortPath))
-	core.RegisterVerifier(cross(cur), ethereum.ClientType, ethtesting.ShortVersion, []string{ethereum.Version}, ethtesting.ToShortVerifier)
+	// A core implementation compiling in the conversion to ShortVerifier.
+	testing.SetRealm(testing.NewCodeRealm(shortImpl))
+	core.RegisterImpl(cross(cur), func(s core.Store) core.Logic {
+		return implv1.NewWithConversions(s, "v1-short", []string{ethereum.Version}, []string{ethtesting.ShortVersion},
+			[]func(lightclient.Interface) lightclient.Interface{ethtesting.ToShortVerifier})
+	}, "v1-short", []string{"v0", "v1"})
 	testing.SetRealm(testing.NewCodeRealm("gno.land/r/aib/main"))
+	execute(cur, govern(cur, ibcgov.NewCoreUpdateImplRequest(cross(cur), shortImpl)))
 
 	gen := core.ClientTrustGeneration(client)
 	epoch, _ := ibcgov.PayoutsEpoch(client)
-	replace := govern(cur, ibcgov.NewReplaceVerifierRequest(cross(cur), client, shortPath))
+	replace := govern(cur, ibcgov.NewReplaceVerifierRequest(cross(cur), client, ethtesting.ShortVersion))
 
 	// 600 seconds after genesis: slot 300, past ShortVerifier's window (72 +
 	// 100), within the v0 verifier's.

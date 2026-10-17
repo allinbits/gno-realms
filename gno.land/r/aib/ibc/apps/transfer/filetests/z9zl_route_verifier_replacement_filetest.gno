@@ -12,6 +12,7 @@ import (
 
 	"gno.land/p/aib/ibc/host/v0"
 	"gno.land/p/aib/ibc/lightclient/ethereum/v0"
+	"gno.land/p/aib/ibc/lightclient/v0"
 
 	"gno.land/p/aib/ibc/ics20/abi/v0"
 	"gno.land/p/aib/ibc/ics20/controls/v0"
@@ -23,7 +24,7 @@ import (
 	_ "gno.land/r/aib/ibc/apps/transfer/impl/v1"
 	"gno.land/r/aib/ibc/core"
 	_ "gno.land/r/aib/ibc/core/impl/v0"
-	_ "gno.land/r/aib/ibc/core/impl/v1"
+	implv1 "gno.land/r/aib/ibc/core/impl/v1"
 	"gno.land/r/aib/ibc/ibcgov"
 )
 
@@ -166,14 +167,27 @@ func setTime(t time.Time) {
 	testing.SetContext(ctx)
 }
 
-const nextPath = "gno.land/r/aib/ibc/core/verifiers/testing-next"
+const nextImpl = "gno.land/r/aib/ibc/core/impl/v1next"
 
-// A governed verifier replacement (ADR pr6375 R16, Codex round 22 #2): a
-// live Ethereum client's verifier is converted to a verifier version of
-// another package, registered from the verifiers namespace. Its id,
-// consensus states and proofs stay, its trust generation advances, its
-// route's payout meters start empty; the preflight reads the registration's
-// declared values only.
+// installNext registers and installs, by a governed upgrade, a core
+// implementation that compiles in the conversion of ethereum/v0 verifiers to
+// NextVerifier.
+func installNext(cur realm) {
+	testing.SetRealm(testing.NewCodeRealm(nextImpl))
+	core.RegisterImpl(cross(cur), func(s core.Store) core.Logic {
+		return implv1.NewWithConversions(s, "v1-next", []string{ethereum.Version}, []string{ethtesting.NextVersion},
+			[]func(lightclient.Interface) lightclient.Interface{ethtesting.ToNextVerifier})
+	}, "v1-next", []string{"v0", "v1"})
+	testing.SetRealm(testing.NewCodeRealm("gno.land/r/aib/main"))
+	execute(cur, govern(cur, ibcgov.NewCoreUpdateImplRequest(cross(cur), nextImpl)))
+}
+
+// A governed verifier replacement (ADR pr6375 R16, Codex round 26 #2, #3):
+// the conversion is code of the active core implementation, which declares
+// it as plain values; a live Ethereum client's verifier becomes NextVerifier,
+// which serves every consensus state the retired verifier trusted (read
+// only) and stores its own apart. Its id, consensus states and proofs stay,
+// its trust generation advances, its route's payout meters start empty.
 func main(cur realm) {
 	router := ethtesting.NewRouter()
 	packet := types.Packet{Sequence: 1, SourceClient: "ethereum-1", DestinationClient: "client-0", TimeoutTimestamp: 1,
@@ -192,20 +206,23 @@ func main(cur realm) {
 	gen := core.ClientTrustGeneration(client)
 	epoch, _ := ibcgov.PayoutsEpoch(client)
 	println("before: verifier", core.VerifierVersion(client), "| proves the receipt:", proves())
-	println("unregistered:", revive(func() { ibcgov.NewReplaceVerifierRequest(cross(cur), client, nextPath) }))
+	// impl/v1 compiles no conversion in: the replacement is spent.
+	none := govern(cur, ibcgov.NewReplaceVerifierRequest(cross(cur), client, ethtesting.NextVersion))
+	execute(cur, none)
+	println("under impl/v1:", decided(none), "| verifier", core.VerifierVersion(client))
 
-	testing.SetRealm(testing.NewCodeRealm(nextPath))
-	core.RegisterVerifier(cross(cur), ethereum.ClientType, ethtesting.NextVersion, []string{ethereum.Version}, ethtesting.ToNextVerifier)
-	testing.SetRealm(testing.NewCodeRealm("gno.land/r/aib/main"))
-
-	replace := govern(cur, ibcgov.NewReplaceVerifierRequest(cross(cur), client, nextPath))
+	installNext(cur)
+	replace := govern(cur, ibcgov.NewReplaceVerifierRequest(cross(cur), client, ethtesting.NextVersion))
 	execute(cur, replace)
 	epoch2, _ := ibcgov.PayoutsEpoch(client)
-	println("replace:", decided(replace))
+	println("under", core.ImplVersion()+":", decided(replace))
 	println("after: verifier", core.VerifierVersion(client), "| same client:", core.ClientType(client), "| status", core.ClientStatus(client),
 		"| trust generation advanced:", core.ClientTrustGeneration(client) > gen, "| payouts epoch", epoch, "->", epoch2)
-	println("proves the receipt:", proves(), "| renders its state:", strings.Contains(core.Render("clients/"+client), "\"latest_execution_block_number\""))
-	println("again:", revive(func() { ibcgov.NewReplaceVerifierRequest(cross(cur), client, nextPath) }))
+	// Slot 72 is the retired verifier's: proven through the new one.
+	println("proves the receipt at the pre-replacement height:", proves(), "| renders its state:", strings.Contains(core.Render("clients/"+client), "\"latest_execution_block_number\""))
+	again := govern(cur, ibcgov.NewReplaceVerifierRequest(cross(cur), client, ethtesting.NextVersion))
+	execute(cur, again)
+	println("again:", decided(again))
 
 	// The converted verifier keeps the fork-schedule migration: it embeds
 	// the v0 verifier's (Codex docs round 4 #2).
@@ -217,7 +234,7 @@ func main(cur realm) {
 
 	// A replacement whose client expires during the delay is spent.
 	other := core.CreateClient(cross(cur), ethtesting.ClientState(), ethtesting.ConsensusState())
-	late := govern(cur, ibcgov.NewReplaceVerifierRequest(cross(cur), other, nextPath))
+	late := govern(cur, ibcgov.NewReplaceVerifierRequest(cross(cur), other, ethtesting.NextVersion))
 	setTime(time.Unix(int64(ethtesting.ClientState().GenesisTime)+5000, 0))
 	execute(cur, late)
 	println("expired during the delay:", decided(late), "| verifier", core.VerifierVersion(other))
@@ -232,7 +249,7 @@ func main(cur realm) {
 	cons.Slot = 5_000_000
 	substitute := core.CreateClient(cross(cur), cs, cons)
 	core.RegisterCounterparty(cross(cur), substitute, [][]byte{{}}, "client-0")
-	execute(cur, govern(cur, ibcgov.NewReplaceVerifierRequest(cross(cur), substitute, nextPath)))
+	execute(cur, govern(cur, ibcgov.NewReplaceVerifierRequest(cross(cur), substitute, ethtesting.NextVersion)))
 	println("subject:", core.ClientStatus(client), core.VerifierVersion(client), "| substitute:", core.ClientStatus(substitute), core.VerifierVersion(substitute))
 	recovery := govern(cur, ibcgov.NewRecoverClientRequest(cross(cur), client, substitute))
 	execute(cur, recovery)
@@ -241,11 +258,11 @@ func main(cur realm) {
 
 // Output:
 // before: verifier ethereum/v0 | proves the receipt: true
-// unregistered: ibcgov: no verifier registered at gno.land/r/aib/ibc/core/verifiers/testing-next
-// replace: applied - core migrate client: route ethereum-1's meters emptied
+// under impl/v1: spent - spent: core impl v1 converts no ethereum/v0 verifier to ethereum/testing-next | verifier ethereum/v0
+// under v1-next: applied - core migrate client: route ethereum-1's meters emptied
 // after: verifier ethereum/testing-next | same client: ethereum | status Active | trust generation advanced: true | payouts epoch 0 -> 1
-// proves the receipt: true | renders its state: true
-// again: ibcgov: client ethereum-1's verifier is ethereum/testing-next already
+// proves the receipt at the pre-replacement height: true | renders its state: true
+// again: spent - spent: core impl v1-next converts no ethereum/testing-next verifier to ethereum/testing-next
 // fork schedule on the converted verifier: applied - core migrate client: route ethereum-1's meters emptied | still ethereum/testing-next | proves the receipt: true
 // expired during the delay: spent - spent: client ethereum-2 is Expired, not Active | verifier ethereum/v0
 // subject: Expired ethereum/testing-next | substitute: Active ethereum/testing-next

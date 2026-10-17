@@ -344,40 +344,65 @@ func TestInitializeOnce(t *testing.T) {
 	}
 }
 
-// A replacement's snapshot is constant-size whatever the client's history:
-// the client state and the latest trusted consensus state, no older one
-// (Codex round 25 #2).
-func TestSnapshotLatestOnly(t *testing.T) {
+// A replacement keeps every trusted height without copying it (ADR pr6375
+// R16): NewFrom does constant work whatever the retired verifier's history,
+// serves each of its consensus states, stores its own apart, and never writes
+// to the retired verifier (Codex round 26 #2).
+func TestNewFromKeepsHistory(t *testing.T) {
 	f := fixtureNative()
-	c := NewEthLightClient()
-	urequire.NoError(t, c.Initialize(f.clientState, f.consensusState))
+	old := NewEthLightClient()
+	urequire.NoError(t, old.Initialize(f.clientState, f.consensusState))
 	base := f.consensusState
 	for i := uint64(1); i <= 250; i++ {
 		cons := copyConsensusState(base)
 		cons.Slot = base.Slot + i
 		cons.StateRoot = []byte{byte(i), 1, 2, 3}
-		c.setConsensusState(&cons)
+		old.setConsensusState(&cons)
 	}
-	cs := *c.ClientState
+	cs := *old.ClientState
 	cs.LatestSlot = base.Slot + 250
-	c.ClientState = &cs
-	if n := c.ConsensusStateByHeight.Size(); n != 251 {
-		t.Fatalf("history: %d", n)
+	old.ClientState = &cs
+
+	c := NewFrom(old)
+	if n := c.ConsensusStateByHeight.Size(); n != 0 {
+		t.Fatalf("NewFrom copied %d consensus states", n)
 	}
-	snap := c.Snapshot().(*EthLightClient)
-	if n := snap.ConsensusStateByHeight.Size(); n != 1 {
-		t.Fatalf("snapshot holds %d consensus states", n)
+	for i := uint64(0); i <= 250; i++ {
+		got, ok := c.GetConsensusState(heightAtSlot(base.Slot + i))
+		want, _ := old.GetConsensusState(heightAtSlot(base.Slot + i))
+		if !ok || got != want {
+			t.Fatalf("height %d not served from the retired verifier", base.Slot+i)
+		}
 	}
-	got, ok := snap.GetConsensusState(snap.LatestHeight())
-	want, _ := c.GetConsensusState(c.LatestHeight())
-	if !ok || !bytesEqual(got.StateRoot, want.StateRoot) || got == want || snap.TrustedFromSlot != cs.LatestSlot {
-		t.Fatalf("latest state: %+v", got)
+	if c.LatestHeight() != old.LatestHeight() || c.Status() != old.Status() {
+		t.Fatalf("head: %v %v", c.LatestHeight(), c.Status())
 	}
-	if _, ok := snap.GetConsensusState(heightAtSlot(base.Slot)); ok {
-		t.Fatalf("an older consensus state was carried over")
+
+	// The new verifier's own states, a later one and one at a retired
+	// height, never reach the retired verifier.
+	later := copyConsensusState(base)
+	later.Slot = base.Slot + 300
+	c.setConsensusState(&later)
+	again := copyConsensusState(base)
+	again.Slot = base.Slot + 10
+	again.StateRoot = []byte{0xee}
+	c.setConsensusState(&again)
+	if n := old.ConsensusStateByHeight.Size(); n != 251 {
+		t.Fatalf("the retired verifier changed: %d states", n)
 	}
-	got.StateRoot[0] = 0xff
-	if want.StateRoot[0] == 0xff {
-		t.Fatalf("the snapshot shares the live state root")
+	if got, _ := old.GetConsensusState(heightAtSlot(base.Slot + 10)); got.StateRoot[0] != 10 {
+		t.Fatalf("the retired verifier's state changed")
+	}
+	if got, _ := c.GetConsensusState(heightAtSlot(base.Slot + 10)); got.StateRoot[0] != 0xee {
+		t.Fatalf("the new verifier's own state is not served first")
+	}
+	if c.ClientState == old.ClientState {
+		t.Fatalf("the client state is shared")
+	}
+	// A recovery of the new verifier stops trusting every height below the
+	// state it copies, retired ones included.
+	c.TrustedFromSlot = base.Slot + 300
+	if _, ok := c.GetConsensusState(heightAtSlot(base.Slot + 5)); ok {
+		t.Fatalf("a height below TrustedFromSlot was served")
 	}
 }
