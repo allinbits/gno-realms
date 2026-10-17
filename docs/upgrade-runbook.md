@@ -272,9 +272,13 @@ Ethereum client carries nothing until a decision makes it a route.
    the new client when IBCAdmin's epoch notice arrives over it (sent when
    Ethereum executes the matching kind 10, or its emergency recovery), and
    the old client is then retired for good. The notice is accepted only
-   along a transition ibcgov expects: dispatching the kind 10 records it;
-   for an emergency recovery, record `NewExpectRecoveryRequest(oldRouterClient,
-   newRouterClient)` (at once) before relaying its notice. A notice that
+   along a transition ibcgov expects, and over the local client it names
+   only: dispatching the kind 10
+   (`NewEthRouteReplacementRequest(old, new, suspectFrom, localClient)`)
+   records it; for an emergency recovery, record
+   `NewExpectRecoveryRequest(oldRouterClient, newRouterClient, localClient)`
+   (at once) before relaying its notice. The local client is the new gno
+   client tracking the new router client, Active, its counterparty set. A notice that
    arrives before the replacement executes here moves the epoch all the
    same.
 7. A client's verifier is replaced by another verifier version (ADR pr6375
@@ -358,14 +362,14 @@ characters of `a-z`, `0-9`, `-`).
    would only defer the settlements that pay genuine refunds (step 9).
 6. **Replace, on both chains.** Record `NewReplaceRouteRequest(R, NEW,
    suspectFrom)` (7 days) and Ethereum's kind 10,
-   `NewEthRouteReplacementRequest(ROLD, RNEW, suspectFromBlock)` (sent at
+   `NewEthRouteReplacementRequest(ROLD, RNEW, suspectFromBlock, NEW)` (sent at
    once; IBCAdmin applies its own delay). The gno.land replacement closes
    `R` (voucher returns over `NEW` still go: exit only) and retires `OLD`
    for transfers; while the governance epoch runs over `OLD` it stays there,
    so the kind 10 and every decision in flight can still be re-sent
    (`Redispatch`). When IBCAdmin executes kind 10 (or Ethereum's emergency
    recovery, if `OLD` cannot carry it; then first record
-   `NewExpectRecoveryRequest(ROLD, RNEW)` here) it sends the epoch notice
+   `NewExpectRecoveryRequest(ROLD, RNEW, NEW)` here) it sends the epoch notice
    over `NEW`;
    relay it (`RecvPacket` on `NEW`, port `gov`). Check: `ibcgov.Epoch()` one
    higher, `ibcgov.EpochClient() == NEW`, `core.IsClientRetired(OLD)`. A

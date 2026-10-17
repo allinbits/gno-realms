@@ -297,10 +297,18 @@ delay leaves the decision spent. The channel thus always rides a route, and
 moves with a route replacement in two phases (ADR pr6375 §7.12, "Governance
 epoch switch, two-phase and authenticated"; z9zv, z9zx). ibcgov records the
 transitions it expects Ethereum to make, in router client ids, kept apart
-from the transfer app's route aliases (`expected`): a kind 10 records its
-old → new client when it is dispatched, and `NewExpectRecoveryRequest(old,
-new)` (at once) records an emergency recovery's, which ibcgov does not
-dispatch. A router client has at most 4 expected successors (only one of
+from the transfer app's route aliases (`expected`), each bound to the local
+gno client governance approves to carry the epoch over the new router
+client: `NewEthRouteReplacementRequest(old, new, suspectFrom, localClient)`
+records its transition when the kind 10 is dispatched, and
+`NewExpectRecoveryRequest(old, new, localClient)` (at once) records an
+emergency recovery's, which ibcgov does not dispatch. The local client must
+be an Active Ethereum client, not retired, its counterparty the new router
+client, authenticating the identity of the route the channel was bound
+over, checked when the decision is built and again when it applies; its
+identity alone proves nothing (a client created from a fabricated
+checkpoint can copy it), so only the named client is accepted. A router
+client has at most 4 expected successors (only one of
 competing kind 10s executes on Ethereum); an expectation is never
 overwritten or removed, and one never confirmed by a notice (a cancelled or
 failed transition) costs nothing. IBCAdmin, when it executes a kind 10 or
@@ -311,11 +319,12 @@ comes from, the rest of the bytes), version `ibcgov-1`, encoding
 `application/x-ibcgov` (gno-eth-ibc `gov-vectors.json` `epochNotice` at
 0c55d28, checked in z2c). It is the only packet ibcgov receives
 (`App.OnRecvPacket`). A notice of epoch current + k (k from 1 to 16) is
-accepted only when its source is reached from the epoch client's
-counterparty through exactly k expected transitions (a breadth-first search
-of k steps keeping at most 64 router clients a step: at most 16 × 64 × 4
-reads), naming the client it came from, its proof verified by the core
-through the gno client it arrives on (Active, its counterparty the
+accepted only when the k-th step of a path of expected transitions from
+the epoch client's counterparty (a breadth-first search of k steps keeping
+at most 64 router clients a step: at most 16 × 64 × 4 reads) leads to its
+source and is bound to exactly the local client it arrives on, the epoch
+then adopting that client; it names the client it came from, its proof
+verified by the core through that local client (Active, its counterparty the
 notice's source); the epoch then opens there, past any step in between (a
 step whose client failed before its notice arrived is skipped: z9zx freezes
 one). A gno client on an expected path from the epoch's client (the epoch's
@@ -397,10 +406,7 @@ saturates statistics no check reads. Audited:
 
 | Aggregate | Rule |
 |---|---|
-| `InFlight` (open sends' amounts) | checked at every send: bounds every refund owed |
-| `QueuedRefunds`, `Returning` | must (≤ `InFlight`, for `Returning`, the in-flight burns only; `QueuedRefunds` also holds the parked refunds, checked net of what the batch unqueues: `TestSettlementNetReservations`) |
-| `ProvenOwed` (refunds proven owed on sends a forged success released) | checked when an outcome is proven; reserved until the settlement |
-| `Parked` (settled minted refunds owed) | checked when a settlement parks; `booked` counts it against the supply cap, and admission subtracts (`SupplyCap - booked`, saturating) |
+| `InFlight` (what the open sends may still owe: their amounts less what was refunded, an installment coming off at once), `Returning` (the in-flight burns' reservations), `QueuedRefunds` (refunds owed, the parked ones included), `Parked` (settled minted refunds owed), `ProvenOwed` (refunds proven owed on sends a forged success released, reserved until their settlement) | wide: each can genuinely pass 2^63 (coins escrowed or burned by an open send can be paid out by a claim and sent again while it is open), and no send, acknowledgement, timeout, settlement or proof is refused for it; kept exact beyond int64 (`wide`, two limbs), its int64 view saturating; the checks reading them bound what is reserved (`Reserved`, `booked`, a settlement's free escrow, computed exactly net of what its batch releases), so a saturated view only refuses more (`TestAggregatesNeverWrap`, `TestReturnAfterPartialRefund`) |
 | `Owed`, `Withheld`, `Swept` | checked as their sum at every credit (`liabilities`); moves between them must |
 | `Outstanding` | checked before every minted payout (a settlement's refund beyond a released reservation is parked when it would overflow: see §7.12 above): a sweep payment that would overflow it is refused whole, its entries kept (the decision spent); a claim installment and a queued refund installment are capped to the headroom, the remainder kept; an immediate refund that would not fit is queued (`TestMintedPayoutHeadroom`) |
 | `OpenUnrecovered`, `OpenUnresolved` (denom and incident): the outstanding loss balances | checked (`lossFits` admits a loss against `OpenUnrecovered`, which bounds `OpenUnresolved`), batch sums checked per addition; a recovery (a paid recapitalization, a reduction: `recover`) takes off `OpenUnrecovered`, freeing admission capacity, and off `OpenUnresolved` as far as it remains; an accepted deficit (`accept`) takes off `OpenUnresolved` only and frees no admission capacity |
