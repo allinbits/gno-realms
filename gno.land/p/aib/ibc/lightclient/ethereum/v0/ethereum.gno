@@ -118,16 +118,37 @@ func Retire(c *EthLightClient) *Retired {
 // verifier: r is the only reference, and it only reads.
 func NewFrom(r *Retired) *EthLightClient {
 	cs := r.ClientState()
-	// The retired verifier's own store joins the history, unless it holds
-	// nothing of its own (a replacement right after another): the tree is
-	// persistent, so the retired verifier's own history is not changed.
+	// Each store in the history owns the interval of slots above the
+	// previous one's key and up to its own: non-overlapping. The retired
+	// verifier's own store joins it only when it holds a slot above every
+	// key (its finality advanced since it was created); otherwise it holds
+	// at most the head slot again, rewritten by a next-committee-only update
+	// (an overlay), and that head is carried into the new verifier's own
+	// store instead, so the earlier store keeps its interval. The tree is
+	// persistent: the retired verifier's own history is not changed.
 	hist := r.c.history
+	own := bptree.NewBPTree32()
 	if r.c.ConsensusStateByHeight.Size() > 0 {
-		hist, _ = hist.Set(historyKey(r.upTo), r.c)
+		var top uint64
+		hasTop := false
+		hist.ReverseIterate("", "", func(n *avl.Node) bool {
+			top, _ = strconv.ParseUint(n.Key(), 10, 64)
+			hasTop = true
+			return true
+		})
+		if !hasTop || r.upTo > top {
+			hist, _ = hist.Set(historyKey(r.upTo), r.c)
+		} else {
+			r.c.ConsensusStateByHeight.Iterate("", "", func(k string, v any) bool {
+				copied := copyConsensusState(*v.(*ConsensusState))
+				own.Set(k, &copied)
+				return false
+			})
+		}
 	}
 	return &EthLightClient{
 		ClientState:            &cs,
-		ConsensusStateByHeight: bptree.NewBPTree32(),
+		ConsensusStateByHeight: own,
 		TrustedFromSlot:        r.c.TrustedFromSlot,
 		history:                hist,
 	}
