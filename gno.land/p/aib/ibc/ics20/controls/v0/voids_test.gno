@@ -71,7 +71,7 @@ func TestVoidForgedBooksPaidPartAsLoss(t *testing.T) {
 		t.Fatalf("unrecovered %d", d.Totals.Unrecovered())
 	}
 	lj := Reader{}.LossesJSON("x", "") // an invalid reader reads empty
-	if lj != "[]" {
+	if lj != emptyPage {
 		t.Fatalf("%s", lj)
 	}
 	// A forged void and a voided sweep entry are final.

@@ -330,22 +330,34 @@ func LossJSON(l Loss) string {
 		",\"incident\":" + q(l.Incident) + ",\"cause\":" + q(l.Cause) + "}"
 }
 
-// page walks a tree from the first key at or after from, up to PageLines.
+// page walks a tree from the first storage key at or after from, up to
+// PageLines entries: {"entries":[...],"next":<cursor>}. next is the storage
+// key of the first entry left out, the from of the following page, or ""
+// when the page reaches the end. The cursor is opaque: a claim's, sweep
+// entry's or send record's storage key is its packet key, a loss's is its
+// direction and packet key.
 func page(t *avl.Tree, from string, fn func(v any) string) string {
 	var parts []string
-	t.Iterate(from, "", func(_ string, v any) bool {
+	next := ""
+	t.Iterate(from, "", func(k string, v any) bool {
+		if len(parts) == PageLines {
+			next = k
+			return true
+		}
 		parts = append(parts, fn(v))
-		return len(parts) >= PageLines
+		return false
 	})
-	return "[" + strings.Join(parts, ",") + "]"
+	return "{\"entries\":[" + strings.Join(parts, ",") + "],\"next\":" + q(next) + "}"
 }
+
+const emptyPage = "{\"entries\":[],\"next\":\"\"}"
 
 // ClaimsJSON is a page of a route's claims (every state), by packet key from
 // from on.
 func (rd Reader) ClaimsJSON(route, from string) string {
 	rt := rd.route(route)
 	if rt == nil {
-		return "[]"
+		return emptyPage
 	}
 	return page(&rt.claims, from, func(v any) string { return ClaimJSON(*v.(*Claim)) })
 }
@@ -354,7 +366,7 @@ func (rd Reader) ClaimsJSON(route, from string) string {
 func (rd Reader) SweepsJSON(route, from string) string {
 	rt := rd.route(route)
 	if rt == nil {
-		return "[]"
+		return emptyPage
 	}
 	return page(&rt.sweeps, from, func(v any) string { return SweepJSON(*v.(*SweepEntry)) })
 }
@@ -363,7 +375,7 @@ func (rd Reader) SweepsJSON(route, from string) string {
 func (rd Reader) SendsJSON(route, from string) string {
 	rt := rd.route(route)
 	if rt == nil {
-		return "[]"
+		return emptyPage
 	}
 	return page(&rt.sends, from, func(v any) string { return SendJSON(*v.(*SendRecord)) })
 }
@@ -372,7 +384,7 @@ func (rd Reader) SendsJSON(route, from string) string {
 func (rd Reader) LossesJSON(route, from string) string {
 	rt := rd.route(route)
 	if rt == nil {
-		return "[]"
+		return emptyPage
 	}
 	return page(&rt.losses, from, func(v any) string { return LossJSON(*v.(*Loss)) })
 }

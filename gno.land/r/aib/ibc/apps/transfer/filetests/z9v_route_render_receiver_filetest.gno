@@ -156,7 +156,7 @@ func main(cur realm) {
 
 // Output:
 // kept raw: true
-// [{"key":"ethereum-1/00000000000000000001","denom":"ugnot","to":"\u005bclaim refund\u005d\u0028https://attacker.example\u0029 \u003cimg src=x\u003e \u0060x\u0060 \u002a\u002ay\u002a\u002a","amount":300,"reduced":0,"reason":"invalid receiver","height":123,"voided":false,"paid":false,"paid_to":""}]
+// {"entries":[{"key":"ethereum-1/00000000000000000001","denom":"ugnot","to":"\u005bclaim refund\u005d\u0028https://attacker.example\u0029 \u003cimg src=x\u003e \u0060x\u0060 \u002a\u002ay\u002a\u002a","amount":300,"reduced":0,"reason":"invalid receiver","height":123,"voided":false,"paid":false,"paid_to":""}],"next":""}
 // active markdown on the page: false
 // {"error":"invalid sequence \"\u005bx\u005d\u0028https:attacker\u0029\": strconv.ParseUint: parsing \"\u005bx\u005d\u0028https:attacker\u0029\": invalid syntax"}
 // {"error":"denom ibc/\u005bx\u005d\u0028https:attacker\u0029 not found"}

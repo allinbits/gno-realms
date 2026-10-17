@@ -198,7 +198,9 @@ mapping: [ADR 0004](../../../../../../docs/adrs/0004-ethereum-route-controls.md)
   settlements of a retired client's sends, route replacement and reopening.
 - **Renders**: `routes`, `routes/{route}`, `routes/{route}/claims`,
   `routes/{route}/sweeps`, `routes/{route}/sends`, `routes/{route}/losses`
-  (JSON, `?from=<packet key>` to page), and the `route_*` events (`credit`,
+  (JSON pages `{"entries":[...],"next":<cursor>}`: pass `next` as
+  `?from=` for the following page, `""` when there is none; losses are
+  ordered by direction then packet key), and the `route_*` events (`credit`,
   `claim`, `settle`, `refund`, `recapitalize`, `gov`).
 
 ## Query endpoints

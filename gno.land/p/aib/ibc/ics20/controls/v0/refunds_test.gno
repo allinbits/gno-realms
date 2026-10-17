@@ -1,6 +1,7 @@
 package controls
 
 import (
+	"strconv"
 	"strings"
 	"testing"
 
@@ -806,5 +807,52 @@ func TestLossesByDirection(t *testing.T) {
 		if rt.Denom("ugnot").Totals.Lost != 300 || rt.Incident("ugnot", "inc").Lost != 300 {
 			t.Fatalf("totals: %+v", rt.Denom("ugnot").Totals)
 		}
+	}
+}
+
+// The loss ledger pages by an explicit cursor (Codex round 11 #3): with both
+// directions and more entries than a page, following next covers every
+// entry exactly once, and the entries sum to the totals.
+func TestLossPages(t *testing.T) {
+	r, rt := newRoute(t)
+	n := PageLines + 7
+	for i := 1; i <= n; i++ {
+		if err := rt.RecordLoss(pk(uint64(i)), "ugnot", 1, ChainGno, "inc", "forged-delivery"); err != nil {
+			t.Fatal(err)
+		}
+		if err := rt.RecordLoss(pk(uint64(i)), "ugnot", 2, ChainEthereum, "inc", "collision"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	seen := map[string]bool{}
+	var sum int64
+	from, pages := "", 0
+	for {
+		js := (Reader{r: r}).LossesJSON("ethereum-1", from)
+		pages++
+		for _, part := range strings.Split(js, "},{") {
+			k := part[strings.Index(part, `"key":"`)+7:]
+			k = k[:strings.Index(k, `"`)]
+			d := part[strings.Index(part, `"direction":"`)+13:]
+			d = d[:strings.Index(d, `"`)]
+			if seen[d+k] {
+				t.Fatalf("%s %s listed twice", d, k)
+			}
+			seen[d+k] = true
+			a := part[strings.Index(part, `"amount":`)+9:]
+			a = a[:strings.Index(a, ",")]
+			v, _ := strconv.ParseInt(a, 10, 64)
+			sum += v
+		}
+		next := js[strings.LastIndex(js, `"next":"`)+8:]
+		next = next[:strings.Index(next, `"`)]
+		next = strings.ReplaceAll(next, "\\"+"u007c", "|") // the cursor is a JSON string
+		if next == "" {
+			break
+		}
+		from = next
+	}
+	if len(seen) != 2*n || sum != rt.Denom("ugnot").Totals.Lost || sum != int64(3*n) || pages < 3 {
+		t.Fatalf("covered %d of %d, sum %d, pages %d", len(seen), 2*n, sum, pages)
 	}
 }

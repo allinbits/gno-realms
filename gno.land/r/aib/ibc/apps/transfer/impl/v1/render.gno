@@ -19,10 +19,13 @@ import (
 //	routes/{route}               a route: client, fee collector, refused
 //	                             recipients, and per denom its configuration,
 //	                             meters and accounting terms
-//	routes/{route}/claims        claims by packet key (?from=<key>)
-//	routes/{route}/sweeps        sweep entries (?from=<key>)
-//	routes/{route}/sends         send records with their outcomes (?from=<key>)
-//	routes/{route}/losses        the loss ledger (?from=<key>)
+//	routes/{route}/claims        claims by packet key
+//	routes/{route}/sweeps        sweep entries by packet key
+//	routes/{route}/sends         send records with their outcomes, by packet key
+//	routes/{route}/losses        the loss ledger, by direction and packet key
+//
+// Each of the last four is a page {"entries":[...],"next":<cursor>}: pass
+// next as ?from= for the following page ("" when there is none).
 func (l *logic) Render(path string) string {
 	router := mux.NewRouter()
 	router.HandleFunc("", l.home)
