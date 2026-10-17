@@ -30,10 +30,12 @@ func evil(s core.Store) core.Logic {
 	return implv0.New(s)
 }
 
-// The preflight of an implementation switch is store-free (Codex round 17):
-// CheckUpdateImpl answers from the manifest the candidate registered, so an
-// unapproved candidate's constructor never runs, never sees the store, and
-// cannot touch a stored client.
+// The preflight of an implementation switch never hands candidate code the
+// live store (Codex rounds 17, 29): CheckUpdateImpl builds the candidate
+// against a fresh, empty store, so a malicious constructor finds no client
+// there and cannot touch a stored one; the candidate it builds (v0's logic
+// under a manifest declaring v66) is refused for disagreeing with its
+// manifest.
 func main(cur realm) {
 	target = core.CreateClient(cross(cur), ethtesting.ClientState(), ethtesting.ConsensusState())
 	height, gen := core.ClientLatestHeight(target), core.ClientTrustGeneration(target)
@@ -42,14 +44,14 @@ func main(cur realm) {
 	core.RegisterImpl(cross(cur), evil, "v66", nil)
 	testing.SetRealm(testing.NewCodeRealm("gno.land/r/aib/main"))
 
-	println("check:", core.CheckUpdateImpl(evilPath) == "")
-	println("constructor runs:", calls, "| store kept:", stash != nil)
+	println("check:", core.CheckUpdateImpl(evilPath))
+	println("constructor runs:", calls, "| the store it got holds the client:", stash.Client(target) != nil)
 	println("trusted state unchanged:", core.ClientLatestHeight(target) == height, "| trust generation unchanged:", core.ClientTrustGeneration(target) == gen)
 	println("active:", core.ImplVersion())
 }
 
 // Output:
-// check: true
-// constructor runs: 0 | store kept: false
+// check: implementation gno.land/r/aib/ibc/core/impl/v66 declared version v66 but builds version v0
+// constructor runs: 1 | the store it got holds the client: false
 // trusted state unchanged: true | trust generation unchanged: true
 // active: v0

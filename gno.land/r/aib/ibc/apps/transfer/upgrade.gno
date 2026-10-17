@@ -234,12 +234,24 @@ func install(_ int, rlm realm, path string) {
 	)
 }
 
+// InstallChecker is implemented by an implementation whose OnInstall
+// refuses some predecessors: CheckInstall is why it would, or nil, as a
+// pure function of the plain values the proxy passes (the active
+// implementation's path and version), so the preflight evaluates exactly
+// what OnInstall will.
+type InstallChecker interface {
+	CheckInstall(prevPath, prevVersion string) error
+}
+
 // CheckUpdateImpl is why UpdateImpl(path) would fail now, or "", with no
 // change: path is not registered, its manifest does not install over the
-// active version, or it drops the route controls. A governed switch that
-// would fail is refused (and its decision spent) instead of aborting and
-// staying pending. It reads the manifest only: no candidate code runs and
-// nothing reaches the store.
+// active version, it drops the route controls, or the implementation its
+// constructor builds disagrees with its manifest or refuses the active
+// implementation (InstallChecker). A governed switch that would fail is
+// refused (and its decision spent) instead of aborting and staying pending.
+// The candidate is built against an empty sandbox store (sandboxStore),
+// never the live one: the live store reaches candidate code only in an
+// authorized installation.
 func CheckUpdateImpl(path string) string {
 	v := implManifests.Get(path)
 	if v == nil {
@@ -251,6 +263,20 @@ func CheckUpdateImpl(path string) string {
 	}
 	if !m.accepts(implVersion) {
 		return ufmt.Sprintf("transfer impl %s cannot install over version %s", m.Version, implVersion)
+	}
+	l := implCtors.Get(path).(func(Store) Logic)(sandboxStore{})
+	if l == nil {
+		return "implementation " + path + " returned a nil Logic"
+	}
+	_, keeps := l.(ControlsLogic)
+	if l.Version() != m.Version || keeps != m.KeepsControls {
+		return ufmt.Sprintf("implementation %s is not what its manifest declared (version %s, keeps controls %t): it builds version %s, keeps controls %t",
+			path, m.Version, m.KeepsControls, l.Version(), keeps)
+	}
+	if ic, ok := l.(InstallChecker); ok {
+		if err := ic.CheckInstall(implPath, implVersion); err != nil {
+			return err.Error()
+		}
 	}
 	return ""
 }

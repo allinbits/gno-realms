@@ -206,18 +206,44 @@ func install(_ int, rlm realm, path string) {
 	)
 }
 
+// InstallChecker is implemented by an implementation whose OnInstall
+// refuses some predecessors: CheckInstall is why it would, or nil, as a
+// pure function of the plain values the proxy passes (the active
+// implementation's path and version), so the preflight evaluates exactly
+// what OnInstall will.
+type InstallChecker interface {
+	CheckInstall(prevPath, prevVersion string) error
+}
+
 // CheckUpdateImpl is why UpdateImpl(path) would fail now, or "", with no
-// change: path is not registered, or its manifest does not install over the
-// active version. A governed switch that would fail is refused (and its
-// decision spent) instead of aborting and staying pending. It reads the
-// manifest only: no candidate code runs and nothing reaches the store.
+// change: path is not registered, its manifest does not install over the
+// active version, or the implementation its constructor builds disagrees
+// with its manifest or refuses the active implementation (InstallChecker).
+// A governed switch that would fail is refused (and its decision spent)
+// instead of aborting and staying pending. The candidate is built against a
+// fresh, empty store (newStore), holding no live object and no reference to
+// this realm's store: the live store reaches candidate code only in an
+// authorized installation.
 func CheckUpdateImpl(path string) string {
 	v := implManifests.Get(path)
 	if v == nil {
 		return "no implementation registered at " + path
 	}
-	if m := v.(manifest); !m.accepts(implVersion) {
+	m := v.(manifest)
+	if !m.accepts(implVersion) {
 		return ufmt.Sprintf("core impl %s cannot install over version %s", m.Version, implVersion)
+	}
+	l := implCtors.Get(path).(func(Store) Logic)(newStore())
+	if l == nil {
+		return "implementation " + path + " returned a nil Logic"
+	}
+	if l.Version() != m.Version {
+		return ufmt.Sprintf("implementation %s declared version %s but builds version %s", path, m.Version, l.Version())
+	}
+	if ic, ok := l.(InstallChecker); ok {
+		if err := ic.CheckInstall(implPath, implVersion); err != nil {
+			return err.Error()
+		}
 	}
 	return ""
 }
