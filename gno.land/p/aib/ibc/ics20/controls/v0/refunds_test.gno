@@ -1356,3 +1356,63 @@ func TestReturnAfterPartialRefund(t *testing.T) {
 		}
 	}
 }
+
+// A settlement's releases are wide (Codex round 34 #1): rejecting queued
+// refunds of 6e18 and 4e18 (proven delivered) while paying a genuine 1000
+// releases more than int64 holds, and settles with the 1000 of escrow, in
+// either order.
+func TestSettlementReleasesBeyondInt64(t *testing.T) {
+	const six, four = int64(6_000_000_000_000_000_000), int64(4_000_000_000_000_000_000)
+	for _, order := range [][]uint64{{1, 2, 3}, {3, 2, 1}} {
+		r, rt := newRoute(t)
+		rt.RecordSend(sendRec(1, "ugnot", KindUnescrow, six))
+		rt.RecordSend(sendRec(2, "ugnot", KindUnescrow, four))
+		rt.RecordSend(sendRec(3, "ugnot", KindUnescrow, 1_000))
+		for seq := uint64(1); seq <= 3; seq++ {
+			rt.Settle(t0, 1, pk(seq), OutcomeTimeout, true, 0) // queued under a hold
+		}
+		d := rt.Denom("ugnot")
+		r.Replace("ethereum-1", "ethereum-2", 0, 1000)
+		item := map[uint64]SettleItem{1: {Seq: 1, Action: SettleReject}, 2: {Seq: 2, Action: SettleReject}, 3: {Seq: 3, Action: SettlePay, Amount: 1_000}}
+		var items []SettleItem
+		for _, seq := range order {
+			items = append(items, item[seq])
+		}
+		ps, err := settleProven(rt, "ethereum-1", items, "inc", lockOf(1_000))
+		if err != nil || len(ps) != 1 || ps[0].Amount != 1_000 || d.Totals.QueuedRefunds != 0 || rt.OpenSends("ethereum-1") != 0 {
+			t.Fatalf("order %v: %v %+v %+v", order, err, ps, d.Totals)
+		}
+	}
+}
+
+// Minted refunds summing past int64 are planned item by item (Codex round 34
+// #2): two genuine refunds of 6e18 with the whole supply's room free pay the
+// first and park the second, in either order; both records settle.
+func TestMintedRefundsBeyondInt64(t *testing.T) {
+	const six = int64(6_000_000_000_000_000_000)
+	for _, order := range [][]uint64{{1, 2}, {2, 1}} {
+		r, rt := newRoute(t)
+		cfg := DenomConfig{Kind: KindMint, CapFloor: maxInt64, SupplyCap: maxInt64, Fee: 10, FeeFloor: 1, RefundCap: maxInt64}
+		rt.SetDenom("ibc/BIG", cfg, t0, 0, six)
+		d := rt.Denom("ibc/BIG")
+		rt.RecordSend(sendRec(1, "ibc/BIG", KindMint, six))
+		rt.Settle(t0, 1, pk(1), OutcomeSuccess, false, 0) // forged: released
+		d.Totals.Outstanding = six                        // reused by later transfers
+		rt.RecordSend(sendRec(2, "ibc/BIG", KindMint, six))
+		rt.Settle(t0, 1, pk(2), OutcomeSuccess, false, 0)
+		r.Replace("ethereum-1", "ethereum-2", 0, 1000)
+		var items []SettleItem
+		for _, seq := range order {
+			items = append(items, SettleItem{Seq: seq, Action: SettlePay, Amount: six})
+		}
+		ps, err := settleProven(rt, "ethereum-1", items, "inc", lockOf(0))
+		if err != nil || len(ps) != 1 || ps[0].Key != pk(order[0]) || d.Totals.Outstanding != six || d.Totals.Parked != six {
+			t.Fatalf("order %v: %v %+v %+v", order, err, ps, d.Totals)
+		}
+		for _, seq := range order {
+			if rec, _ := rt.Send(pk(seq)); rec.Settlement != SettlePay {
+				t.Fatalf("order %v: send %d unsettled", order, seq)
+			}
+		}
+	}
+}

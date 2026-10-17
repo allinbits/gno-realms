@@ -453,6 +453,8 @@ func (rt *Route) PaySweeps(keys []string, to address, lock int64) ([]Payment, er
 			return nil, errors.New("controls: a sweep payment names entries of one denom")
 		}
 		var ok bool
+		// A payment past int64 could never be made at once (the escrow and
+		// the supply are int64): refused, a smaller decision pays.
 		if total, ok = checkedAdd(total, e.Amount); !ok {
 			return nil, errors.New("controls: the sweep payment's total would overflow")
 		}

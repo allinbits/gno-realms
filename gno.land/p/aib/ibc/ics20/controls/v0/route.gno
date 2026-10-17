@@ -624,6 +624,9 @@ func (t *Totals) sub(f int, x int64) { t.w[f].sub(x); t.sync(f) }
 // minusSat is counter f less x, exact, as a saturated int64.
 func (t *Totals) minusSat(f int, x int64) int64 { return t.w[f].minusSat(x) }
 
+// minusWideSat is counter f less x, exact, as a saturated int64.
+func (t *Totals) minusWideSat(f int, x wide) int64 { return t.w[f].minusWideSat(x) }
+
 func (t *Totals) sync(f int) {
 	v := t.w[f].sat()
 	switch f {

@@ -370,7 +370,7 @@ func (rt *Route) PayRefunds(now int64, denom string, n int, hold bool, lock int6
 	}
 	d.refundMeter.Refill(now, d.Config.RefundCap, d.Config.RefundCap, 0, 0)
 	// The escrow proven refunds reserve is theirs: a queued refund never
-	// takes it.
+	// takes it. (A saturated view can only leave less, never more.)
 	lock -= d.Totals.ProvenOwed
 	var out []RefundPayment
 	for len(out) < n {
@@ -552,14 +552,20 @@ func (rt *Route) PlanSettlement(client string, items []SettleItem, incident stri
 	}
 	seen := map[uint64]bool{}
 	seenIn := map[uint64]bool{}
-	pays := map[string]int64{}
 	// What the batch takes off each liability that reserves the escrow,
 	// whatever the items' order: every settled record's queued refund (each
 	// action unqueues it), and every forged receive's unpaid claim remainder
 	// (owed or withheld). The payments are checked against the escrow the
 	// liabilities still reserve once the whole batch applies; each is exact
 	// on its own, so the subtraction happens before any saturating sum.
-	relQueued, relOwed, relWithheld, relProven := map[string]int64{}, map[string]int64{}, map[string]int64{}, map[string]int64{}
+	// The releases of the queued refunds and proven reservations are wide:
+	// a batch may release more than int64 holds (each is within its wide
+	// total). Claims' remainders are not: the distinct claims a batch names
+	// owe at most Owed, or Withheld, each an int64 checked at every credit.
+	relQueued, relProven := map[string]wide{}, map[string]wide{}
+	relOwed, relWithheld := map[string]int64{}, map[string]int64{}
+	// A batch's losses must fit the loss ledger (lossFits refuses them
+	// otherwise): their int64 sum is checked, a sum past it refused.
 	lossTotals := map[string]int64{}
 	for i, it := range items {
 		key := PacketKey(client, it.Seq)
@@ -599,9 +605,13 @@ func (rt *Route) PlanSettlement(client string, items []SettleItem, incident stri
 			return nil, ufmt.Errorf("controls: item %d: send %s is settled already", i, key)
 		}
 		seen[it.Seq] = true
-		relProven[r.Denom] += r.ProvenReserve // within ProvenOwed
+		wp := relProven[r.Denom]
+		wp.add(r.ProvenReserve) // within ProvenOwed
+		relProven[r.Denom] = wp
 		if r.Payment == PayQueued {
-			relQueued[r.Denom] += r.Amount - r.Refunded // within QueuedRefunds
+			wq := relQueued[r.Denom]
+			wq.add(r.Amount - r.Refunded) // within QueuedRefunds
+			relQueued[r.Denom] = wq
 		}
 		// The action must match the outcome proven through the replacement
 		// client (ADR pr6375 §7.12): governance chooses, the proof decides.
@@ -622,10 +632,6 @@ func (rt *Route) PlanSettlement(client string, items []SettleItem, incident stri
 			}
 			if it.Amount == 0 {
 				break // paid in full already: settles the record, moves nothing
-			}
-			var ok bool
-			if pays[r.Denom], ok = checkedAdd(pays[r.Denom], it.Amount); !ok {
-				return nil, ufmt.Errorf("controls: item %d: the settlement's payments overflow", i)
 			}
 		case SettleReject:
 			if r.Payment != PayQueued || it.Amount != 0 {
@@ -690,16 +696,27 @@ func (rt *Route) PlanSettlement(client string, items []SettleItem, incident stri
 		}
 		plan.Payments = append(plan.Payments, RefundPayment{Key: r.Key, Denom: r.Denom, To: r.Sender, Amount: it.Amount})
 	}
-	for denom, total := range pays {
-		d := rt.Denom(denom)
-		if d.Config.Kind == KindMint {
+	// The escrowed refunds paid now must fit the free escrow, itself an
+	// int64: a sum past int64 could never be paid at once, and refuses the
+	// settlement (a smaller batch settles). The minted ones paid now are
+	// bounded by the room left for minting; the parked ones are no payment.
+	pays := map[string]int64{}
+	for _, x := range plan.Payments {
+		if rt.Denom(x.Denom).Config.Kind != KindUnescrow {
 			continue
 		}
+		var ok bool
+		if pays[x.Denom], ok = checkedAdd(pays[x.Denom], x.Amount); !ok {
+			return nil, errors.New("controls: the settlement's escrowed refunds of " + x.Denom + " overflow: settle fewer at once")
+		}
+	}
+	for denom, total := range pays {
+		d := rt.Denom(denom)
 		// The escrow the liabilities still reserve once the whole batch
 		// applies: claims and queued refunds, less what the batch releases.
-		reserved := boundAdd(boundAdd(boundAdd(d.Totals.Owed-relOwed[denom], d.Totals.Withheld-relWithheld[denom]), d.Totals.minusSat(wQueued, relQueued[denom])), d.Totals.minusSat(wProven, relProven[denom]))
+		reserved := boundAdd(boundAdd(boundAdd(d.Totals.Owed-relOwed[denom], d.Totals.Withheld-relWithheld[denom]), d.Totals.minusWideSat(wQueued, relQueued[denom])), d.Totals.minusWideSat(wProven, relProven[denom]))
 		free := lock(denom) - reserved
-		if d.Config.Kind == KindUnescrow && total > free {
+		if total > free {
 			return nil, ufmt.Errorf("controls: %d of %s is above the free lock of %d", total, denom, free)
 		}
 	}
