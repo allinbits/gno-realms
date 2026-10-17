@@ -7,14 +7,19 @@ import (
 	"time"
 
 	ethtesting "gno.land/p/aib/ibc/lightclient/ethereum/testing/v0"
+	"gno.land/p/aib/ibc/lightclient/ethereum/v0"
 	"gno.land/p/aib/ibc/lightclient/extproof/v0"
+	"gno.land/p/aib/ibc/lightclient/v0"
 	"gno.land/p/aib/ibc/types/v0"
 	"gno.land/p/nt/testutils/v0"
 	_ "gno.land/r/aib/ibc/apps/transfer/impl/v1"
 	"gno.land/r/aib/ibc/core"
 	_ "gno.land/r/aib/ibc/core/impl/v0"
+	implv1 "gno.land/r/aib/ibc/core/impl/v1"
 	"gno.land/r/aib/ibc/ibcgov"
 )
+
+const freezeImpl = "gno.land/r/aib/ibc/core/impl/v1freeze"
 
 const bridge = "0x1d95d544586eacb63b6154e9e45122b32ded11aa 0x00000000000000000000000000000000000b0002 0x00000000000000000000000000000000000b0003"
 
@@ -127,8 +132,10 @@ func epochNow() string {
 // router counterparty became active, then Ethereum's recoveries were
 // cancelled. A fifth expectation is refused, the cap full; the dead
 // transitions are removed at once (a tightening), except one a notice
-// recorded as proven may still need; the fifth then applies and its notice
-// moves the epoch.
+// recorded as proven may still need. Once that notice's client no longer
+// vouches for it (a verifier replacement: a new trust generation), it pins
+// nothing (design review r3 #4): r1 is removed too, and its place alone
+// takes the fifth, whose notice moves the epoch.
 func main(cur realm) {
 	client(cur, "ethereum-1", "client-0")
 	for i := 1; i <= 4; i++ {
@@ -155,12 +162,20 @@ func main(cur realm) {
 	println("remove r1 (s1's proven notice may need it):", revive(func() {
 		govern(cur, ibcgov.NewRemoveExpectationRequest(cross(cur), "client-0", "gnoland-r1", "ethereum-2"))
 	}))
-	for i := 2; i <= 4; i++ {
-		id := govern(cur, ibcgov.NewRemoveExpectationRequest(cross(cur), "client-0", "gnoland-r"+strconv.Itoa(i), "ethereum-"+strconv.Itoa(i+1)))
-		println("remove r"+strconv.Itoa(i)+":", decided(id))
-	}
-	println("remove r2 again:", revive(func() {
-		govern(cur, ibcgov.NewRemoveExpectationRequest(cross(cur), "client-0", "gnoland-r2", "ethereum-3"))
+	// s1's verifier is replaced: its trust generation advances, and the
+	// notice proven under the last one can no longer be applied.
+	testing.SetRealm(testing.NewCodeRealm(freezeImpl))
+	core.RegisterImpl(cross(cur), func(s core.Store) core.Logic {
+		return implv1.NewWithConversions(s, "v1-next", []string{ethereum.Version}, []string{ethtesting.NextVersion},
+			[]func(*ethereum.Retired) lightclient.Interface{ethtesting.ToNextVerifier})
+	}, "v1-next", []string{"v0", "v1"})
+	testing.SetRealm(testing.NewCodeRealm("gno.land/r/aib/main"))
+	execute(cur, govern(cur, ibcgov.NewCoreUpdateImplRequest(cross(cur), freezeImpl)))
+	execute(cur, govern(cur, ibcgov.NewReplaceVerifierRequest(cross(cur), "ethereum-7", ethtesting.NextVersion)))
+	id := govern(cur, ibcgov.NewRemoveExpectationRequest(cross(cur), "client-0", "gnoland-r1", "ethereum-2"))
+	println("remove r1 (s1's notice void):", decided(id))
+	println("remove r1 again:", revive(func() {
+		govern(cur, ibcgov.NewRemoveExpectationRequest(cross(cur), "client-0", "gnoland-r1", "ethereum-2"))
 	}))
 	fifth := govern(cur, ibcgov.NewExpectRecoveryRequest(cross(cur), "client-0", "gnoland-r5", "ethereum-6"))
 	execute(cur, fifth)
@@ -172,9 +187,7 @@ func main(cur realm) {
 // s1's notice: error acknowledgement | epoch 1 over ethereum-1
 // a fifth expectation: ibcgov: router client client-0 has 4 expected successors already, intents included
 // remove r1 (s1's proven notice may need it): ibcgov: a notice proven over ethereum-7 may need the transition: apply it or let it lapse first
-// remove r2: applied - no longer expect the governance epoch to move from client-0 to gnoland-r2 over ethereum-3
-// remove r3: applied - no longer expect the governance epoch to move from client-0 to gnoland-r3 over ethereum-4
-// remove r4: applied - no longer expect the governance epoch to move from client-0 to gnoland-r4 over ethereum-5
-// remove r2 again: ibcgov: no active expected transition from client-0 to gnoland-r2 over ethereum-3
+// remove r1 (s1's notice void): applied - no longer expect the governance epoch to move from client-0 to gnoland-r1 over ethereum-2
+// remove r1 again: ibcgov: no active expected transition from client-0 to gnoland-r1 over ethereum-2
 // the fifth: applied - expect the governance epoch to move from client-0 to gnoland-r5 over ethereum-6
 // r5's notice: acknowledged | epoch 2 over ethereum-6

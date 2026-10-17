@@ -222,7 +222,7 @@ var (
 	approvedLocal avl.Tree // gno client id -> true
 	govPruneAfter string   // where PruneGovRetirements stopped
 	proven        avl.Tree // provenKey(epoch, client) -> *provenNotice
-	provenTop     avl.Tree // client -> the highest epoch a notice was recorded as proven over it
+	provenTop     avl.Tree // client -> *provenMark: the highest epoch a notice was recorded as proven over it, under its trust generation
 )
 
 const (
@@ -778,9 +778,12 @@ func takeNotice(cur realm, source, client string, payload types.Payload) (uint32
 		if !approvedLocal.Has(client) {
 			return 0, 0, client + " is no client approved to carry a governance epoch"
 		}
-		proven.Set(provenKey(e, client), &provenNotice{source: source, gen: core.ClientTrustGeneration(client)})
-		if v := provenTop.Get(client); v == nil || v.(uint32) < e {
-			provenTop.Set(client, e)
+		gen := core.ClientTrustGeneration(client)
+		proven.Set(provenKey(e, client), &provenNotice{source: source, gen: gen})
+		// The mark follows the client's trust generation: a notice proven
+		// under an earlier one is void, so a new generation starts afresh.
+		if v := provenTop.Get(client); v == nil || v.(*provenMark).gen != gen || v.(*provenMark).e < e {
+			provenTop.Set(client, &provenMark{e: e, gen: gen})
 		}
 		chain.Emit("GovNotice", "client", client, "epoch", strconv.FormatUint(uint64(e), 10), "status", "proven")
 		return 0, 0, "epoch " + strconv.FormatUint(uint64(e), 10) + " is " + strconv.Itoa(k) + " steps on: recorded as proven, applied by ApplyEpochNotice with its path"
@@ -864,6 +867,30 @@ type provenNotice struct {
 }
 
 func provenKey(e uint32, client string) string { return epochKey(e) + "|" + client }
+
+// provenMark is the highest epoch a notice was recorded as proven over a
+// client, under the client's trust generation then.
+type provenMark struct {
+	e   uint32
+	gen uint64
+}
+
+// pinsExpectations reports whether a notice recorded as proven over client
+// may still be applied, so the transitions leading to it must be kept: one
+// is of an epoch past the current, and the client still vouches for it
+// (Active, not retired for the gov port, at the trust generation it was
+// proven under), exactly what ApplyEpochNotice requires. Read live: a
+// freeze, expiry, recovery, verifier replacement or migration, the client's
+// retirement, or the epoch reaching the notice's ends the protection at
+// once, without any record to discard.
+func pinsExpectations(client string) bool {
+	v := provenTop.Get(client)
+	if v == nil {
+		return false
+	}
+	m := v.(*provenMark)
+	return m.e > epoch && core.ClientStatus(client) == "Active" && !core.IsClientRetiredFor(client, GovPort) && core.ClientTrustGeneration(client) == m.gen
+}
 
 // ApplyEpochNotice applies an epoch notice of epoch e that the core proved
 // over client (OnRecvPacket recorded it, being more than one step on), along
@@ -1415,8 +1442,9 @@ func (p *removeParams) apply(cur realm, t int64) (string, string) {
 // checkRemove is why the active transition from → to over local cannot be
 // removed, or "": it must be active (a pending one goes with its
 // expectations, cancelled), not lead to the epoch's own client, and lead to
-// no client a notice was recorded as proven over for a later epoch (its path
-// may need it).
+// no client over which a notice recorded as proven for a later epoch may
+// still be applied (its path may need it; see pinsExpectations: a notice
+// its client no longer vouches for pins nothing).
 func checkRemove(from, to, local string) string {
 	found := false
 	for _, x := range expectedOf(from) {
@@ -1449,7 +1477,7 @@ func checkRemove(from, to, local string) string {
 		front = next
 	}
 	for _, c := range locals {
-		if v := provenTop.Get(c); v != nil && v.(uint32) > epoch {
+		if pinsExpectations(c) {
 			return "a notice proven over " + c + " may need the transition: apply it or let it lapse first"
 		}
 	}
@@ -1465,7 +1493,9 @@ func checkRemove(from, to, local string) string {
 // transition Ethereum did execute costs only liveness if removed: it is
 // expected again through the 7-day expectation. Refused for the transition
 // to the epoch's own client, and while a notice recorded as proven over a
-// client it leads to may still need it.
+// client it leads to may still be applied and need it: once that client is
+// frozen, expired, recovered, converted or retired, or the epoch reaches the
+// notice's, the notice pins nothing.
 func NewRemoveExpectationRequest(cur realm, oldClientID, newClientID, localClientID string) Request {
 	if refusal := checkRemove(oldClientID, newClientID, localClientID); refusal != "" {
 		panic("ibcgov: " + refusal)
