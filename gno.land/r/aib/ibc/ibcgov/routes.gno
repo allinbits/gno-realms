@@ -60,6 +60,13 @@ func (p *routeParams) deferredBy() string {
 }
 
 func (p *routeParams) apply(cur realm, t int64) (string, string) {
+	if p.enroll {
+		// Re-check the client on the live state (ADR pr6375 §7.5): one that
+		// froze or expired during the delay takes no route, in neither realm.
+		if refusal := checkRouteClient(p.p.Route); refusal != "" {
+			return "", refusal
+		}
+	}
 	if p.replace != "" {
 		// Re-check the new client before retiring the old one.
 		if refusal := checkRouteClient(p.p.Client); refusal != "" {
@@ -187,7 +194,9 @@ func bridgeText(f []string) string {
 // of the transfer app after 7 days (enrolling a route loosens): its key is
 // clientID, its fee collector feeCollector, its protected bridge contracts
 // bridge ("router ics20 ibcAdmin", see mustBridge). Until a denom is enabled
-// on it (NewSetDenomRequest), the route refuses every send and receive.
+// on it (NewSetDenomRequest), the route refuses every send and receive. The
+// client is checked again when the decision executes: one no longer Active
+// leaves it spent, with no route in either realm.
 func NewEnrollRouteRequest(cur realm, clientID, feeCollector, bridge string) Request {
 	if refusal := checkRouteClient(clientID); refusal != "" {
 		panic("ibcgov: " + refusal)

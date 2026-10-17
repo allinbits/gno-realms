@@ -297,6 +297,7 @@ before crossing, or a refusal returned by the callee):
 | core/transfer add/remove member | member already / not a member / ibcgov itself |
 | transfer block/unblock | blocked already / not blocked |
 | route operations (`GovApply`) | every refusal returned, including no controls installed; a sweep payment under a payouts flag, or a settlement paying refunds under a refunds hold, is deferred (stays pending) rather than spent |
+| route enrollment | as `GovApply`; the client no longer usable (`checkRouteClient` again at execution: not Active, retired, not Ethereum, no counterparty, a route's already), before either realm changes |
 | route replacement | as `GovApply`; the new client unusable; the route's client moved; still closed from the previous replacement |
 | bind governance | bound already; not Active, or not the current client of an enrolled route |
 | seats | an address in two seats; nothing to change |
