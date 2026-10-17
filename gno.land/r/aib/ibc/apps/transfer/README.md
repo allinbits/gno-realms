@@ -209,9 +209,11 @@ mapping: [ADR 0004](../../../../../../docs/adrs/0004-ethereum-route-controls.md)
   recipients it looked at may have had empty meters while others wait. It
   pays the oldest claim first per recipient, within the bridge meter (day cap
   `max(capFloor, lock/10)`, or the mint cap) and the recipient's meter (a
-  quarter of it), the fee as the first installment (`min(remainder, the
-  claim's fee, the denom's fee now)`: a claim reduced below its fee can
-  finish as a fee payment alone), no slivers (a later
+  quarter of it). A claim's first payout has a fee portion,
+  `min(remainder, the claim's fee, the denom's fee now)` (a claim reduced
+  below its fee can finish as a fee payment alone), and, in the same turn, a
+  recipient portion if the meters hold more (at least `min(what remains,
+  fee)`, or nothing); no slivers (a later
   installment needs at least `min(remainder, fee)` in both meters). A claim's
   fee is locked when it is credited (`fee` in the claims JSON), and the fee
   it pays is the lower of its fee and the denom's fee now, written back at
@@ -275,12 +277,16 @@ All endpoints return JSON and are accessible via gnoweb or `gnokey query vm/qren
 
 | Path                                | Description                                                                        |
 | ----------------------------------- | ---------------------------------------------------------------------------------- |
-| `denoms`                            | List all registered IBC denominations                                              |
+| `denoms`                            | List the registered IBC denominations (paginated)                                  |
 | `denoms/ibc/{hash}`                 | Details for a specific IBC denom (base, path, denom)                               |
 | `total_escrow/{denom}`              | Total escrowed amount for a native denom                                           |
 | `vouchers`                          | List all voucher tokens (paginated, includes `grc20reg_key`)                       |
 | `voucher/ibc/{hash}`                | Voucher token metadata (denom, grc20reg_key, name, symbol, decimals, total supply) |
 | `voucher/ibc/{hash}/balance/{addr}` | Voucher balance for an address                                                     |
+
+`denoms` and `vouchers` are paginated: `?page=N&limit=M` (page 1 and 20
+entries by default, at most 100 entries a page), answered as
+`{"items":[...],"page":N,"total":T}` where `total` is the number of pages.
 
 Example:
 
@@ -380,13 +386,14 @@ Voucher tokens can be discovered in two ways:
 
 2. **From `grc20reg`** — `grc20reg` keys tokens by `rlmPath.symbol`, so voucher
    tokens are registered as `gno.land/r/aib/ibc/apps/transfer.{SYMBOL}`, where
-   `{SYMBOL}` is the uppercase hex SHA256 hash from the `ibc/{HASH}` denom
-   truncated to `grc20.MaxSymbolLen` (11 chars) — *not* the full hash, which
-   exceeds the symbol length limit. Enumerate entries with the
+   `{SYMBOL}` is allocated from a counter when the voucher is created
+   (`IBC-` and the voucher's id in base 36, upper case: `IBC-1`, `IBC-2`,
+   ...), not derived from its hash: read it from the `vouchers` render or
+   `VoucherSymbol(ibcDenom)`. Enumerate entries with the
    `gno.land/r/aib/ibc/apps/transfer.` prefix.
 
-The token name is the base denomination (e.g. `uatom`) and the symbol is the
-truncated hash (e.g. `CAEF9CA8CE6`). Every voucher has zero decimals: the
+The token name is the base denomination (e.g. `uatom`) and the symbol is
+allocated when the voucher is created (e.g. `IBC-1`). Every voucher has zero decimals: the
 counterparty's decimal metadata is not carried over, and balances are the
 unscaled base-unit amounts the packets carried. For the full denom and richer metadata
 (trace hops, total supply), query the render endpoint `voucher/ibc/{HASH}`.
@@ -403,17 +410,12 @@ unscaled base-unit amounts the packets carried. For the full denom and richer me
 
 The same base denomination (e.g. `uatom`) arriving from different chains
 produces distinct voucher tokens with different IBC hashes. A DEX should use the
-full `ibc/{HASH}` denom to distinguish them — the token symbol is only the
-truncated hash, so read the full denom from the `denom` field of the `vouchers`
-render endpoint — and query `denoms/ibc/{HASH}` to resolve the trace path for
-display purposes.
-
-grc20reg keys a voucher by this realm's path and its truncated symbol (the
-first 11 hex characters of the hash), not by the full-hash slug. Two
-vouchers whose hashes share those 11 characters would share a registry key:
-grc20reg refuses the second registration, so creating the second voucher
-aborts, and the receive that would have created it rolls back. The full-hash
-slug does not prevent this.
+full `ibc/{HASH}` denom to distinguish them — the token symbol is an
+allocated label, so read the full denom from the `denom` field of the
+`vouchers` render endpoint — and query `denoms/ibc/{HASH}` to resolve the
+trace path for display purposes. No two vouchers share a symbol, or a
+registry key, whatever their hashes (the full hash is kept as the grc20reg
+slug).
 
 ## Events
 
