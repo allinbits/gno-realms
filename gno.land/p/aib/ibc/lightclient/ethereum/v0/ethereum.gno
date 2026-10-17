@@ -16,6 +16,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"strconv"
+	"strings"
 	"time"
 
 	"crypto/bls12381"
@@ -24,6 +25,7 @@ import (
 	"gno.land/p/aib/ibc/lightclient/v0"
 	"gno.land/p/aib/ibc/types/v0"
 	"gno.land/p/aib/ics23/v0"
+	"gno.land/p/nt/avl/v0"
 	"gno.land/p/nt/bptree/v0"
 	"gno.land/p/nt/ufmt/v0"
 )
@@ -37,10 +39,13 @@ type EthLightClient struct {
 	// the states below it were trusted by the verifier the recovery replaced,
 	// so no proof, timestamp or update is ever read from them again.
 	TrustedFromSlot uint64
-	// retired is the verifier a replacement retired for this one (NewFrom),
-	// read only: the consensus states at or below its latest slot that this
-	// verifier does not hold itself.
-	retired *Retired
+	// history is the verifiers replacements retired before this one
+	// (NewFrom), read only, keyed by the latest slot each had when it was
+	// retired (zero-padded): a persistent tree, shared with the verifiers it
+	// came from and never written through, so a height none of the newer
+	// stores holds is found by one ordered lookup, in O(log replacements),
+	// however many replacements there were (no chain of delegations).
+	history *avl.Node
 }
 
 var (
@@ -113,13 +118,49 @@ func Retire(c *EthLightClient) *Retired {
 // verifier: r is the only reference, and it only reads.
 func NewFrom(r *Retired) *EthLightClient {
 	cs := r.ClientState()
+	// The retired verifier's own store joins the history, unless it holds
+	// nothing of its own (a replacement right after another): the tree is
+	// persistent, so the retired verifier's own history is not changed.
+	hist := r.c.history
+	if r.c.ConsensusStateByHeight.Size() > 0 {
+		hist, _ = hist.Set(historyKey(r.upTo), r.c)
+	}
 	return &EthLightClient{
 		ClientState:            &cs,
 		ConsensusStateByHeight: bptree.NewBPTree32(),
 		TrustedFromSlot:        r.c.TrustedFromSlot,
-		retired:                r,
+		history:                hist,
 	}
 }
+
+// historyKey orders the retired verifiers by the latest slot they had.
+func historyKey(slot uint64) string {
+	s := strconv.FormatUint(slot, 10)
+	return strings.Repeat("0", 20-len(s)) + s
+}
+
+// fromHistory is the consensus state at height a retired verifier stores
+// itself: the first one retired at a latest slot at or above it holds it,
+// if any does (their own stores cover disjoint ranges of slots).
+func (c *EthLightClient) fromHistory(height types.Height) (*ConsensusState, bool) {
+	var owner *EthLightClient
+	c.history.Iterate(historyKey(height.RevisionHeight), "", func(n *avl.Node) bool {
+		owner = n.Value().(*EthLightClient)
+		return true
+	})
+	if owner == nil {
+		return nil, false
+	}
+	v := owner.ConsensusStateByHeight.Get(height.StringNatSort())
+	if v == nil {
+		return nil, false
+	}
+	return v.(*ConsensusState), true
+}
+
+// HistoryDepth is how many retired verifiers' stores this one reads through
+// its history: each lookup is one ordered search of them.
+func (c *EthLightClient) HistoryDepth() int { return c.history.Size() }
 
 // Retired is a read-only view of a verifier a replacement retires: the
 // consensus states it trusted, at or below upTo, and nothing to write with.
@@ -842,7 +883,7 @@ func (c *EthLightClient) GetConsensusState(height types.Height) (*ConsensusState
 		// A height the retired verifier trusted before a replacement: a
 		// copy, so no pointer into the retired verifier ever escapes, to a
 		// later conversion least of all.
-		cons, ok := c.retired.consensusState(height)
+		cons, ok := c.fromHistory(height)
 		if !ok {
 			return nil, false
 		}

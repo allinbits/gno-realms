@@ -414,3 +414,52 @@ func TestNewFromKeepsHistory(t *testing.T) {
 		t.Fatalf("a height below TrustedFromSlot was served")
 	}
 }
+
+// Successive verifier replacements keep every trusted height provable with
+// no chain of delegations (design review r2 #4): five replacements, each
+// verifier storing states of its own, and the last still serves a height
+// from before the first, through one ordered lookup of a history holding
+// one store per verifier.
+func TestNewFromFlatHistory(t *testing.T) {
+	f := fixtureNative()
+	c := NewEthLightClient()
+	urequire.NoError(t, c.Initialize(f.clientState, f.consensusState))
+	base := f.consensusState
+	first := base.Slot
+	slot := base.Slot
+	for gen := 1; gen <= 5; gen++ {
+		for i := 0; i < 3; i++ {
+			slot++
+			cons := copyConsensusState(base)
+			cons.Slot = slot
+			cons.StateRoot = []byte{byte(gen), byte(i), 3}
+			c.setConsensusState(&cons)
+		}
+		cs := *c.ClientState
+		cs.LatestSlot = slot
+		c.ClientState = &cs
+		c = NewFrom(Retire(c))
+		if c.HistoryDepth() != gen {
+			t.Fatalf("after %d replacements the history holds %d stores", gen, c.HistoryDepth())
+		}
+		// A replacement right after another adds no store.
+		if gen == 3 {
+			c = NewFrom(Retire(c))
+			if c.HistoryDepth() != gen {
+				t.Fatalf("an empty verifier joined the history: %d", c.HistoryDepth())
+			}
+		}
+	}
+	got, ok := c.GetConsensusState(heightAtSlot(first))
+	if !ok || got.Slot != first {
+		t.Fatalf("the height before the first replacement is not served: %v", ok)
+	}
+	for s := first + 1; s <= slot; s++ {
+		if got, ok := c.GetConsensusState(heightAtSlot(s)); !ok || got.Slot != s {
+			t.Fatalf("slot %d not served", s)
+		}
+	}
+	if _, ok := c.GetConsensusState(heightAtSlot(slot + 1)); ok {
+		t.Fatalf("served a slot nobody trusted")
+	}
+}
