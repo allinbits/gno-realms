@@ -185,8 +185,9 @@ mapping: [ADR 0004](../../../../../../docs/adrs/0004-ethereum-route-controls.md)
   zero, not reserved, not a refused bridge contract and not the denom's own
   Ethereum token; a `sends` flag stops them. A voucher going back is never
   limited by the send minimum and maximum, charged a fee or stopped by a
-  `sends` flag (or by a loss without a restoring decision), but waits until
-  its denom is enabled on the route, is refused on a closed route, and its
+  `sends` flag (or by a loss without a restoring decision), and is taken on
+  a route a replacement closed too (exit only: it lowers the supply and adds
+  no exposure), but waits until its denom is enabled on the route, and its
   receiver passes the same recipient checks: a valid Ethereum address, not
   zero, not reserved, not a refused bridge contract and not the token itself
   (the voucher's base denom). Every send writes an immutable send record (full packet, commitment,
@@ -240,12 +241,20 @@ mapping: [ADR 0004](../../../../../../docs/adrs/0004-ethereum-route-controls.md)
   local processing height and the payment state are attached to the send
   record. Queued refunds are reserved: no receive or claim payout takes
   their escrow.
-- **Closed routes.** A route replacement closes the route: no send, credit,
-  claim payout, acknowledgement or timeout refund payout, or `ClaimRefunds`
-  payout. A governed reconciliation's refunds are the exception: a
+- **Closed routes.** A route replacement closes the route: no gno-native
+  send, credit, claim payout, acknowledgement or timeout refund payout, or
+  `ClaimRefunds` payout. A voucher return is still taken over the route's
+  new client (exit only), and its "send back" link stays on the home page.
+  A governed reconciliation's refunds are the other exception: a
   settlement pays them on the closed route (that is how the retired
   client's sends are settled), subject to its own checks and deferred under
-  a `refunds` hold. It reopens by a governed decision, refused
+  a `refunds` hold. A minted refund the outstanding supply cannot hold then
+  is parked instead of refused: its record is settled, the refund owed,
+  queued and reserved against the supply cap, and `ClaimRefunds` pays it
+  after the reopening once the supply has room (a voucher return makes
+  some). The replacement client must authenticate the route's identity, the
+  Ethereum chain, router and commitments slot recorded at the enrolment
+  (`ibcgov.RouteIdentity`). It reopens by a governed decision, refused
   while a send record of a retired client is still open (its commitment
   outstanding or its refund queued, not settled by a reconciliation) or was
   processed (acknowledged or timed out) at or after the replacement's
