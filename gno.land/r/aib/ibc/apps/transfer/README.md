@@ -212,8 +212,10 @@ mapping: [ADR 0004](../../../../../../docs/adrs/0004-ethereum-route-controls.md)
   quarter of it), the fee as the first installment, no slivers (a later
   installment needs at least `min(remainder, fee)` in both meters). A claim's
   fee is locked when it is credited (`fee` in the claims JSON), and the fee
-  it pays is the lower of that and the denom's fee now: a raise by a later
-  decision never applies to a claim already credited, a cut always does.
+  it pays is the lower of its fee and the denom's fee now, written back at
+  each payout turn: the fee locked at credit is a ceiling a later raise
+  never passes, and a cut applies and, once a payout turn has seen it, is
+  kept.
   Meters start empty and restart empty when a `payouts` flag is cleared;
   nothing is paid under one.
 - **Refunds** (error acknowledgement, timeout) are paid at once only when the
@@ -481,11 +483,12 @@ queued refund, in each later `route_refund` event of `ClaimRefunds`. The same
    acknowledgement; the value moves later, when `Claim` pays the claim
    within the meters or a governed decision pays the sweep entry.
 
-3. **Acknowledgement** -- On success, a non-Ethereum client emits only a
-   `fungible_token_packet` event; on an Ethereum route the send record is
-   settled as delivered (its supply reservation released) and a
-   `route_settle` event (`outcome`, `payment`, `refunded` 0) follows. On
-   failure, the sender is refunded (re-mint vouchers, unescrow
+3. **Acknowledgement** -- On success, a non-Ethereum client emits two
+   `fungible_token_packet` events (the acknowledgement's attributes, then
+   `success`); on an Ethereum route the send record is first settled as
+   delivered (its supply reservation released), emitting `route_settle`
+   (`outcome`, `payment`, `refunded` 0), then the same two
+   `fungible_token_packet` events. On failure, the sender is refunded (re-mint vouchers, unescrow
    native/GRC20): at once on a non-Ethereum client; on an Ethereum route,
    at once only when the whole refund fits, otherwise queued and paid by
    `ClaimRefunds` (see the route controls section).
