@@ -216,6 +216,11 @@ var (
 	// transfers only, being on an expected path of the epoch: each is
 	// retired for good once the epoch moved off every path through it.
 	awaitingGov avl.Tree // gno client id -> true
+	// approvedLocal is every local client an expected transition approves;
+	// proven is the epoch notices the core proved over one of them, more
+	// than one step on, waiting for ApplyEpochNotice and their path.
+	approvedLocal avl.Tree // gno client id -> true
+	proven        avl.Tree // provenKey(epoch, client) -> the notice's router client
 )
 
 const (
@@ -298,6 +303,7 @@ func expect(old, next, local string) {
 		}
 	}
 	expected.Set(old, append(append([]expEdge{}, succ...), expEdge{to: next, local: local}))
+	approvedLocal.Set(local, true)
 	chain.Emit("GovExpect", "from", old, "to", next, "client", local)
 }
 
@@ -627,28 +633,42 @@ func takeNotice(cur realm, source, client string, payload types.Payload) (uint32
 	// exactly k expected transitions: Ethereum raised its epoch once per
 	// kind 10 or recovery it executed, and sent a notice over each step's
 	// new client. A later notice moves the epoch past the steps in between,
-	// whose notices may never come (a client that failed meanwhile).
+	// whose notices may never come (a client that failed meanwhile). The
+	// next step (k = 1) is checked here, among at most maxExpected edges; a
+	// later one is recorded as proven, and applied by anyone who names its
+	// path (ApplyEpochNotice), checked in O(k): no search of the expected
+	// graph, however it branches, ever refuses an authentic notice.
 	k := int(e - epoch)
-	edges, bounded := stepEdges(k)
-	if !bounded {
-		return 0, 0, "too many expected transitions to search " + strconv.Itoa(k) + " steps"
+	if k > 1 {
+		if !approvedLocal.Has(client) {
+			return 0, 0, client + " is no client approved to carry a governance epoch"
+		}
+		proven.Set(provenKey(e, client), source)
+		chain.Emit("GovNotice", "client", client, "epoch", strconv.FormatUint(uint64(e), 10), "status", "proven")
+		return 0, 0, "epoch " + strconv.FormatUint(uint64(e), 10) + " is " + strconv.Itoa(k) + " steps on: recorded as proven, applied by ApplyEpochNotice with its path"
 	}
 	found := false
-	for _, x := range edges {
+	for _, x := range expectedOf(core.CounterpartyClientID(EpochClient())) {
 		if x.to == source && x.local == client {
 			found = true
 		}
 	}
 	if !found {
-		return 0, 0, "epoch " + strconv.FormatUint(uint64(e), 10) + " is expected over no transition to " + source + " carried by " + client + ", " + strconv.Itoa(k) + " expected transitions from " + core.CounterpartyClientID(EpochClient())
+		return 0, 0, "epoch " + strconv.FormatUint(uint64(e), 10) + " is expected over no transition to " + source + " carried by " + client + " from " + core.CounterpartyClientID(EpochClient())
 	}
+	switchEpoch(cur, e, client)
+	return e, StatusRecorded, ""
+}
+
+// switchEpoch opens epoch e over client and retires the clients it passes
+// for governance: the old epoch's client, for good if its route replacement
+// executed here (it is retired for transfers already), otherwise for the gov
+// port, its replacement retiring the rest; and every client retired for
+// transfers while on an expected path, once no path from the new epoch's
+// client goes through it.
+func switchEpoch(cur realm, e uint32, client string) {
 	old := EpochClient()
 	setEpoch(e, client)
-	// The old epoch's client is retired for governance: for good if its route
-	// replacement executed here (it is retired for transfers already),
-	// otherwise for the gov port, its replacement retiring the rest. Every
-	// client retired for transfers while on an expected path is retired for
-	// good once no path from the new epoch's client goes through it.
 	retireForGov(cur, old)
 	var done []string
 	awaitingGov.Iterate("", "", func(c string, _ any) bool {
@@ -661,7 +681,55 @@ func takeNotice(cur realm, source, client string, payload types.Payload) (uint32
 		awaitingGov.Remove(c)
 		retireForGov(cur, c)
 	}
-	return e, StatusRecorded, ""
+}
+
+func provenKey(e uint32, client string) string { return epochKey(e) + "|" + client }
+
+// ApplyEpochNotice applies an epoch notice of epoch e that the core proved
+// over client (OnRecvPacket recorded it, being more than one step on), along
+// path, the k = e - current expected transitions from the epoch client's
+// router counterparty, as comma-separated "routerClient/localClient" pairs
+// ending with the notice's source and client: each must be a recorded
+// expected transition with its local binding. Anyone may call it; it is
+// checked in O(k), k at most 16 (ADR pr6375 §7.12).
+func ApplyEpochNotice(cur realm, e uint32, client, path string) {
+	v := proven.Get(provenKey(e, client))
+	if v == nil {
+		panic("ibcgov: no epoch notice of epoch " + strconv.FormatUint(uint64(e), 10) + " was proven over " + client)
+	}
+	source := v.(string)
+	if epoch == 0 || e <= epoch || e-epoch > maxNoticeSteps {
+		panic("ibcgov: epoch " + strconv.FormatUint(uint64(e), 10) + " is not one of the next " + strconv.Itoa(maxNoticeSteps) + " after " + strconv.FormatUint(uint64(epoch), 10))
+	}
+	steps := splitList(path)
+	if len(steps) != int(e-epoch) {
+		panic("ibcgov: the path names " + strconv.Itoa(len(steps)) + " transitions, not " + strconv.FormatUint(uint64(e-epoch), 10))
+	}
+	prev := core.CounterpartyClientID(EpochClient())
+	var to, local string
+	for i, st := range steps {
+		j := strings.Index(st, "/")
+		if j < 0 {
+			panic("ibcgov: a step is routerClient/localClient, not " + st)
+		}
+		to, local = st[:j], st[j+1:]
+		found := false
+		for _, x := range expectedOf(prev) {
+			if x.to == to && x.local == local {
+				found = true
+			}
+		}
+		if !found {
+			panic("ibcgov: step " + strconv.Itoa(i+1) + ", " + prev + " -> " + to + " over " + local + ", is no expected transition")
+		}
+		prev = to
+	}
+	if to != source || local != client {
+		panic("ibcgov: the path ends at " + to + " over " + local + ", not the notice's " + source + " over " + client)
+	}
+	proven.Remove(provenKey(e, client))
+	switchEpoch(cur, e, client)
+	chain.Emit("GovNotice", "client", client, "epoch", strconv.FormatUint(uint64(e), 10), "status", "applied")
 }
 
 // retireForGov retires the gno client c for governance: for good if a route
@@ -1107,11 +1175,14 @@ func (p *expectParams) apply(cur realm, t int64) (string, string) {
 	return "expect the governance epoch to move from " + p.from + " to " + p.to + " over " + p.local, ""
 }
 
-// NewExpectRecoveryRequest records, at once, that Ethereum's emergency
+// NewExpectRecoveryRequest records, after 7 days, that Ethereum's emergency
 // recovery is to move the governance epoch from the router client
 // oldClientID to newClientID (ADR pr6375 §7.12): ibcgov dispatches no
 // emergency recovery, so this decision is what lets the recovery's epoch
-// notice be accepted, over localClientID only (checked as for a kind 10).
+// notice be accepted, over localClientID only (checked as for a kind 10,
+// and again when it executes). Approving a local verifier loosens, so it
+// waits 7 days and a guardian hold defers it, within Ethereum's own 30-day
+// recovery delay.
 // An expectation never confirmed by a notice costs nothing; a router client
 // has at most 4 expected successors.
 func NewExpectRecoveryRequest(cur realm, oldClientID, newClientID, localClientID string) Request {
@@ -1126,7 +1197,7 @@ func NewExpectRecoveryRequest(cur realm, oldClientID, newClientID, localClientID
 	text := "expect the emergency recovery of " + oldClientID + " by " + newClientID + ", carried here by " + localClientID
 	p := &expectParams{from: oldClientID, to: newClientID, local: localClientID}
 	return propose(cur, "expect recovery", text, func(cur realm, made, t int64) {
-		decide(cur, "expect recovery", text, p, made, t, false)
+		decide(cur, "expect recovery", text, p, made, t, true)
 	})
 }
 

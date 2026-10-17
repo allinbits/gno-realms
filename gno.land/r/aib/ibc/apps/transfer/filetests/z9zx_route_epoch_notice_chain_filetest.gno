@@ -22,7 +22,23 @@ import (
 
 const bridge = "0x1d95d544586eacb63b6154e9e45122b32ded11aa 0x00000000000000000000000000000000000b0002 0x00000000000000000000000000000000000b0003"
 
-var collector = testutils.TestAddress("collector")
+var (
+	collector = testutils.TestAddress("collector")
+	g0        = testutils.TestAddress("g0")
+	g1        = testutils.TestAddress("g1")
+)
+
+func flagAs(cur realm, who address, route, fn string) {
+	testing.SetRealm(testing.NewUserRealm(who))
+	ibcgov.SetFlag(cross(cur), route, fn, "")
+	testing.SetRealm(testing.NewCodeRealm("gno.land/r/aib/main"))
+}
+
+func clearAs(cur realm, who address, route, fn string) {
+	testing.SetRealm(testing.NewUserRealm(who))
+	ibcgov.ClearFlag(cross(cur), route, fn)
+	testing.SetRealm(testing.NewCodeRealm("gno.land/r/aib/main"))
+}
 
 func advance(d time.Duration) {
 	ctx := testing.GetContext()
@@ -173,13 +189,15 @@ func main(cur realm) {
 		noticePacket(2, "gnoland-c", "ethereum-3", 3, "gnoland-c"))
 	d := client(cur, "ethereum-4", "gnoland-d", noticePacket(1, "gnoland-d", "ethereum-4", 4, "gnoland-d"))
 	client(cur, "ethereum-5", "gnoland-f")
-	g := client(cur, "ethereum-6", "gnoland-g", noticePacket(1, "gnoland-g", "ethereum-6", 5, "gnoland-g"))
+	g := client(cur, "ethereum-6", "gnoland-g", noticePacket(1, "gnoland-g", "ethereum-6", 5, "gnoland-g"),
+		noticePacket(2, "gnoland-g", "ethereum-6", 5, "gnoland-g")) // re-sent once the expectation applies
 	h := client(cur, "ethereum-7", "gnoland-h", noticePacket(1, "gnoland-h", "ethereum-7", 6, "gnoland-h"))
 	e := healthyClient(cur, "ethereum-8", "gnoland-e",
 		noticePacket(1, "gnoland-e", "ethereum-8", 8, "gnoland-e"), // one step too far
 		noticePacket(2, "gnoland-e", "ethereum-8", 7, "gnoland-e"))
 	execute(cur, govern(cur, ibcgov.NewEnrollRouteRequest(cross(cur), "ethereum-1", string(collector), bridge)))
 	execute(cur, govern(cur, ibcgov.NewBindGovernanceRequest(cross(cur), "ethereum-1")))
+	execute(cur, govern(cur, ibcgov.NewSetSeatsRequest(cross(cur), "0:"+string(g0)+",1:"+string(g1))))
 
 	// A→B and B→C: both kind 10s dispatched, both replacements executed here
 	// before any notice.
@@ -209,8 +227,20 @@ func main(cur realm) {
 
 	// Ethereum's emergency recovery moves D's route to G: expected by a
 	// decision here, its notice is accepted.
-	println("expect the recovery:", decided(govern(cur, ibcgov.NewExpectRecoveryRequest(cross(cur), "gnoland-d", "gnoland-g", "ethereum-6"))))
-	println("g's notice:", deliver(cur, g, 0), "|", epochNow())
+	// It loosens: it waits 7 days, and a hold defers it.
+	expectG := govern(cur, ibcgov.NewExpectRecoveryRequest(cross(cur), "gnoland-d", "gnoland-g", "ethereum-6"))
+	println("expect the recovery at once:", revive(func() { ibcgov.Execute(cross(cur), expectG) }))
+	println("g's notice before it applies:", deliver(cur, g, 0), "|", epochNow())
+	flagAs(cur, g0, "ethereum-1", ibcgov.FnSends)
+	flagAs(cur, g1, "ethereum-1", ibcgov.FnSends)
+	advance(7*24*time.Hour + time.Second)
+	println("during a hold:", revive(func() { ibcgov.Execute(cross(cur), expectG) }))
+	clearAs(cur, g0, "ethereum-1", ibcgov.FnSends)
+	clearAs(cur, g1, "ethereum-1", ibcgov.FnSends)
+	advance(25 * time.Hour)
+	ibcgov.Execute(cross(cur), expectG)
+	println("expect the recovery:", decided(expectG))
+	println("g's notice:", deliver(cur, g, 1), "|", epochNow())
 
 	// G→H then H→E; H freezes before its notice is relayed.
 	govern(cur, ibcgov.NewEthRouteReplacementRequest(cross(cur), "gnoland-g", "gnoland-h", 4, "ethereum-7"))
@@ -228,8 +258,16 @@ func main(cur realm) {
 	// H's notice can no longer be relayed: the core refuses a packet on a
 	// Frozen client.
 	_ = h
+	// More than one step on, a notice is recorded as proven (its error
+	// acknowledgement has IBCAdmin send it again) and anyone applies it with
+	// its path, each step a recorded expected transition.
 	println("e's notice one step too far:", deliver(cur, e, 0), "|", epochNow())
+	println("applied with a two-step path:", revive(func() {
+		ibcgov.ApplyEpochNotice(cross(cur), 8, "ethereum-8", "gnoland-h/ethereum-7,gnoland-e/ethereum-8")
+	}))
 	println("e's notice:", deliver(cur, e, 1), "|", epochNow())
+	ibcgov.ApplyEpochNotice(cross(cur), 7, "ethereum-8", "gnoland-h/ethereum-7,gnoland-e/ethereum-8")
+	println("applied with its path:", epochNow())
 }
 
 // Output:
@@ -241,8 +279,13 @@ func main(cur realm) {
 // c's notice: acknowledged | epoch 3 over ethereum-3 | b retired for good: true
 // replace by f: cancelled - queued 7 days | by d: applied - replace: client ethereum-3 retired for transfers, meters emptied; governance epoch 3 stays over ethereum-3 until IBCAdmin's epoch notices arrive
 // d's notice: acknowledged | epoch 4 over ethereum-4 | c retired for good: true
+// expect the recovery at once: ibcgov: decision 13 is due at 1238801496, not before
+// g's notice before it applies: error acknowledgement | epoch 4 over ethereum-4
+// during a hold: ibcgov: decision 13 is deferred: a guardian hold stands since 1238196696
 // expect the recovery: applied - expect the governance epoch to move from gnoland-d to gnoland-g over ethereum-6
 // g's notice: acknowledged | epoch 5 over ethereum-6
 // h: Frozen | e: Active | epoch 5 over ethereum-6
 // e's notice one step too far: error acknowledgement | epoch 5 over ethereum-6
-// e's notice: acknowledged | epoch 7 over ethereum-8
+// applied with a two-step path: ibcgov: the path names 2 transitions, not 3
+// e's notice: error acknowledgement | epoch 5 over ethereum-6
+// applied with its path: epoch 7 over ethereum-8
