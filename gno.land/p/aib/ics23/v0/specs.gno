@@ -84,6 +84,36 @@ type ProofSpec struct {
 // isLeftMost(spec: InnerSpec, op: InnerOp)
 // isRightMost(spec: InnerSpec, op: InnerOp)
 // isLeftNeighbor(spec: InnerSpec, left: InnerOp, right: InnerOp)
+// Clone is a deep copy of s: no slice or pointer is shared, so a verifier
+// that keeps the copy is unaffected by later writes to s.
+func (s *ProofSpec) Clone() *ProofSpec {
+	if s == nil {
+		return nil
+	}
+	out := *s
+	if s.LeafSpec != nil {
+		leaf := *s.LeafSpec
+		leaf.Prefix = cloneBytes(s.LeafSpec.Prefix)
+		out.LeafSpec = &leaf
+	}
+	if s.InnerSpec != nil {
+		inner := *s.InnerSpec
+		if s.InnerSpec.ChildOrder != nil {
+			inner.ChildOrder = append([]int32{}, s.InnerSpec.ChildOrder...)
+		}
+		inner.EmptyChild = cloneBytes(s.InnerSpec.EmptyChild)
+		out.InnerSpec = &inner
+	}
+	return &out
+}
+
+func cloneBytes(b []byte) []byte {
+	if b == nil {
+		return nil
+	}
+	return append([]byte{}, b...)
+}
+
 type InnerSpec struct {
 	// Child order is the ordering of the children node, must count from 0
 	// iavl tree is [0, 1] (left then right)

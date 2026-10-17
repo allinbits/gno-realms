@@ -41,7 +41,9 @@ func (tm *TMLightClient) Initialize(clientState lightclient.ClientState, consens
 		return errors.New("tendermint client initialized already")
 	}
 	cs := clientState.(ClientState)
-	tm.ClientState = &cs
+	// Deep copies throughout: the caller keeps its own slices and may
+	// write to them after the call; the trusted state must not follow.
+	tm.ClientState = cs.clone()
 	in := consensusState.(ConsensusState)
 	// Construct a fresh ConsensusState in our own (caller's) realm context
 	// rather than mutating the inbound value: the inbound value carries the
@@ -49,8 +51,8 @@ func (tm *TMLightClient) Initialize(clientState lightclient.ClientState, consens
 	// foreign-stamped fields panic with "readonly tainted object".
 	consState := ConsensusState{
 		Timestamp:          in.Timestamp,
-		Root:               in.Root,
-		NextValidatorsHash: in.NextValidatorsHash,
+		Root:               NewMerkleRoot(in.Root.Hash),
+		NextValidatorsHash: cloneBytes(in.NextValidatorsHash),
 		processedTime:      time.Now(),
 		processedHeight:    types.GetSelfHeight(),
 	}
@@ -178,8 +180,8 @@ func (tm *TMLightClient) UpdateState(clientMsg lightclient.ClientMessage) []type
 	// Build and store new consensus state from clientMsg
 	consState := &ConsensusState{
 		Timestamp:          msg.Header.Time,
-		Root:               NewMerkleRoot(msg.Header.AppHash),
-		NextValidatorsHash: msg.Header.NextValidatorsHash,
+		Root:               NewMerkleRoot(msg.Header.AppHash), // a copy
+		NextValidatorsHash: cloneBytes(msg.Header.NextValidatorsHash),
 		processedTime:      time.Now(),
 		processedHeight:    types.GetSelfHeight(),
 	}
@@ -321,7 +323,14 @@ func (tm *TMLightClient) RecoverClient(substitute lightclient.Interface) error {
 		ProofSpecs:      tm.ClientState.ProofSpecs,
 		UpgradePath:     tm.ClientState.UpgradePath,
 	}
-	tm.SetConsensusState(subLatest, subConsState)
+	// A copy: the substitute keeps its own.
+	tm.SetConsensusState(subLatest, &ConsensusState{
+		Timestamp:          subConsState.Timestamp,
+		Root:               NewMerkleRoot(subConsState.Root.Hash),
+		NextValidatorsHash: cloneBytes(subConsState.NextValidatorsHash),
+		processedTime:      subConsState.processedTime,
+		processedHeight:    subConsState.processedHeight,
+	})
 	return nil
 }
 
@@ -505,8 +514,8 @@ func (tm *TMLightClient) VerifyUpgradeAndUpdateState(newClient, newConsState,
 		MaxClockDrift:   tm.ClientState.MaxClockDrift,
 		FrozenHeight:    types.ZeroHeight(),
 		LatestHeight:    upgradedClientState.LatestHeight,
-		ProofSpecs:      upgradedClientState.ProofSpecs,
-		UpgradePath:     upgradedClientState.UpgradePath,
+		ProofSpecs:      cloneProofSpecs(upgradedClientState.ProofSpecs),
+		UpgradePath:     cloneStrings(upgradedClientState.UpgradePath),
 	}
 	if err := newClientState.ValidateBasic(); err != nil {
 		return ufmt.Errorf("upgraded client state failed basic validation: %v", err)
@@ -522,7 +531,7 @@ func (tm *TMLightClient) VerifyUpgradeAndUpdateState(newClient, newConsState,
 	newConsensusState := ConsensusState{
 		Timestamp:          upgradedConsensusState.Timestamp,
 		Root:               NewMerkleRoot([]byte(SentinelRoot)),
-		NextValidatorsHash: upgradedConsensusState.NextValidatorsHash,
+		NextValidatorsHash: cloneBytes(upgradedConsensusState.NextValidatorsHash),
 		processedTime:      time.Now(),
 		processedHeight:    types.GetSelfHeight(),
 	}

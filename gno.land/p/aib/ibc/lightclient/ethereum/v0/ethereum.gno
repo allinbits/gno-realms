@@ -485,7 +485,7 @@ func (c *EthLightClient) UpdateState(clientMsg lightclient.ClientMessage) []type
 	}
 	if trusted.NextSyncCommittee != nil {
 		if finalizedPeriod == storePeriod+1 {
-			next.CurrentSyncCommittee = *trusted.NextSyncCommittee
+			next.CurrentSyncCommittee = cloneSummary(*trusted.NextSyncCommittee)
 			next.NextSyncCommittee = updateNext
 		}
 	} else {
