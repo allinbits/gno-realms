@@ -804,7 +804,9 @@ func NewEthSettleRequest(cur realm, clientID, items string) Request {
 	if len(list) == 0 || len(list) > maxSettleItems {
 		panic("ibcgov: name 1 to " + strconv.Itoa(maxSettleItems) + " settlement items")
 	}
-	seen := map[uint64]bool{}
+	// A sequence is named once per direction: action 5 names an inbound
+	// sequence, the others an outbound one, separate spaces.
+	seen := map[string]bool{}
 	var vals []abi.Value
 	for _, it := range list {
 		parts := strings.Split(it, ":")
@@ -813,15 +815,15 @@ func NewEthSettleRequest(cur realm, clientID, items string) Request {
 		}
 		seq, err1 := strconv.ParseUint(parts[0], 10, 64)
 		action, err2 := strconv.ParseUint(parts[1], 10, 8)
-		if err1 != nil || err2 != nil || seq == 0 || seen[seq] || action < 1 || action > 5 {
-			panic("ibcgov: not a settlement item, or a sequence named twice: " + it)
+		if err1 != nil || err2 != nil || seq == 0 || seen[settleItemKey(seq, action)] || action < 1 || action > 5 {
+			panic("ibcgov: not a settlement item, or a sequence named twice in its direction: " + it)
 		}
 		amount := mustUint256("amount", parts[2])
 		zero := strings.TrimLeft(parts[2], "0") == ""
 		if ((action == 4 || action == 5) && zero) || ((action == 2 || action == 3) && !zero) {
 			panic("ibcgov: a forged refund or receive names its positive amount, a rejection or a delivery 0: " + it)
 		}
-		seen[seq] = true
+		seen[settleItemKey(seq, action)] = true
 		vals = append(vals, abi.Tuple(abi.Uint64(seq), abi.Uint64(action), amount))
 	}
 	return ethRequest(cur, "settle", KindSettle, "settle sends of "+clientID+": "+strings.Join(list, ","),

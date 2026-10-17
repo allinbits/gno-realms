@@ -111,9 +111,9 @@ func main(cur realm) {
 // 1:2:5: ibcgov: a forged refund or receive names its positive amount, a rejection or a delivery 0: 1:2:5
 // 1:3:1: ibcgov: a forged refund or receive names its positive amount, a rejection or a delivery 0: 1:3:1
 // 1:5:0: ibcgov: a forged refund or receive names its positive amount, a rejection or a delivery 0: 1:5:0
-// 1:6:0: ibcgov: not a settlement item, or a sequence named twice: 1:6:0
-// 0:3:0: ibcgov: not a settlement item, or a sequence named twice: 0:3:0
-// 1:3:0,1:2:0: ibcgov: not a settlement item, or a sequence named twice: 1:2:0
+// 1:6:0: ibcgov: not a settlement item, or a sequence named twice in its direction: 1:6:0
+// 0:3:0: ibcgov: not a settlement item, or a sequence named twice in its direction: 0:3:0
+// 1:3:0,1:2:0: ibcgov: not a settlement item, or a sequence named twice in its direction: 1:2:0
 // 1:1:x: ibcgov: amount: abi: not a decimal number
 // 1:3:0,2:3:0,3:3:0,4:3:0,5:3:0,6:3:0,7:3:0,8:3:0,9:3:0: ibcgov: name 1 to 8 settlement items
 // settle of no router client: ibcgov: not an Ethereum router client id: abc

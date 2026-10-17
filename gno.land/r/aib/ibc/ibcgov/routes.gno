@@ -516,7 +516,9 @@ func NewSettleRequest(cur realm, route, client, items, incident string) Request 
 		panic("ibcgov: name 1 to " + strconv.Itoa(controls.MaxKeys) + " settlement items")
 	}
 	var parsed []controls.SettleItem
-	seen := map[uint64]bool{}
+	// A sequence is named once per direction: action 5 names an inbound
+	// sequence, the others an outbound one, separate spaces.
+	seen := map[string]bool{}
 	for _, it := range list {
 		parts := strings.Split(it, ":")
 		if len(parts) != 3 {
@@ -525,18 +527,27 @@ func NewSettleRequest(cur realm, route, client, items, incident string) Request 
 		seq, err1 := strconv.ParseUint(parts[0], 10, 64)
 		action, err2 := strconv.ParseUint(parts[1], 10, 8)
 		amount, err3 := strconv.ParseInt(parts[2], 10, 64)
-		if err1 != nil || err2 != nil || err3 != nil || seq == 0 || seen[seq] || action < 1 || action > 5 || amount < 0 {
-			panic("ibcgov: not a settlement item, or a sequence named twice: " + it)
+		if err1 != nil || err2 != nil || err3 != nil || seq == 0 || seen[settleItemKey(seq, action)] || action < 1 || action > 5 || amount < 0 {
+			panic("ibcgov: not a settlement item, or a sequence named twice in its direction: " + it)
 		}
 		if ((action == 4 || action == 5) && amount == 0) || ((action == 2 || action == 3) && amount != 0) {
 			panic("ibcgov: a forged refund or receive names a positive amount, a rejection or a delivery none: " + it)
 		}
-		seen[seq] = true
+		seen[settleItemKey(seq, action)] = true
 		parsed = append(parsed, controls.SettleItem{Seq: seq, Action: uint8(action), Amount: amount})
 	}
 	text := "settle sends of " + client + " on route " + route + " (incident " + incident + "): " + strings.Join(list, ",")
 	return routeRequest(cur, controls.OpSettle, "settle", text,
 		controls.Params{Route: route, Client: client, Items: parsed, Incident: incident}, true)
+}
+
+// settleItemKey is a settlement item's packet identity: its sequence in its
+// direction (action 5 an inbound sequence, actions 1 to 4 an outbound one).
+func settleItemKey(seq, action uint64) string {
+	if action == 5 {
+		return "in|" + strconv.FormatUint(seq, 10)
+	}
+	return "out|" + strconv.FormatUint(seq, 10)
 }
 
 // NewReplaceRouteRequest replaces route's Ethereum client by newClientID after
