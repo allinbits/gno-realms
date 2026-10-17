@@ -383,6 +383,10 @@ characters of `a-z`, `0-9`, `-`).
    higher, `ibcgov.EpochClient() == NEW`, `core.IsClientRetired(OLD)`. A
    notice refused with an error acknowledgement (sent before the
    replacement was recorded here) is sent again by IBCAdmin.
+   The replacement reserves the refunds the retired client's records may
+   owe in its first batch (64 records); if its note says so, call
+   `transfer.PrepareReplacement(R, 64)` until it returns true. No
+   settlement, sweep payment, credit by vote or reopening applies before.
 7. **Enumerate the records to settle.** Every send record of `OLD` that is
    open (outcome `""`, its commitment outstanding, or payment `queued`), and
    every one processed at or after `suspectFrom` (`processed_height`) whose
