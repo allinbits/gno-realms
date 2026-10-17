@@ -748,9 +748,10 @@ type Claim struct {
 	Seq    int64 // its place in the recipient's queue
 }
 
-// effectiveFee is the claim's fee: the lower of the fee locked when it was
-// credited and the denom's fee now. A raise never applies to a claim already
-// credited; a cut does, so a claim's first installment and its minimum
+// effectiveFee is the claim's fee: the lower of its fee (locked when it was
+// credited, lowered by every cut seen at a payout since, as PayClaims keeps
+// it) and the denom's fee now. A raise never applies to a claim already
+// credited; a cut does, and stays, so a claim's first installment and its minimum
 // installment never exceed what the current configuration lets a recipient
 // meter (a quarter of a day cap at least the cap floor, the fee at most a
 // quarter of the cap floor) hold.
@@ -983,9 +984,11 @@ func (rt *Route) MeterLevels(now, epoch, epochAt int64, denom string, to address
 //   - a claim's first installment is its fee, whole, to the fee collector;
 //   - a later installment is paid only when both meters hold at least
 //     min(what the claim still owes, its fee): no slivers;
-//   - a claim's fee is the lower of the denom's fee when it was credited
-//     (Claim.Fee) and its fee now: a later raise never applies to it, and a
-//     later cut (with the cap floor, which bounds the fee) never strands it.
+//   - a claim's fee is the lower of its own (Claim.Fee: the denom's fee when
+//     it was credited, lowered by every cut a payout turn has seen since)
+//     and the denom's fee now, written back: a later raise never applies to
+//     it, and a cut (with the cap floor, which bounds the fee) never strands
+//     it and is kept.
 //   - a recipient whose meters hold less is passed over, its meter refilling
 //     for a later turn.
 //
@@ -1042,7 +1045,9 @@ func (rt *Route) PayClaimsSweeping(now, epoch, epochAt int64, denom string, n in
 			avail = lock - d.Totals.QueuedRefunds
 		}
 		rem := c.Remaining()
+		// A cut is kept for good: a later raise never brings it back up.
 		cfee := c.effectiveFee(d)
+		c.Fee = cfee
 		fee := int64(0)
 		if c.Paid == 0 {
 			fee = cfee

@@ -719,3 +719,37 @@ func TestClaimFeeFollowsACut(t *testing.T) {
 		t.Fatalf("restored: %+v", ps)
 	}
 }
+
+// A fee cut a payout turn has seen is kept: a later raise never brings a
+// claim's fee back up (docs-vs-code review round 4 #1).
+func TestClaimFeeCutKept(t *testing.T) {
+	_, rt := newRoute(t)
+	lock := int64(100_000) // a recipient 2500 a day
+	mustCredit(t, rt, t0, 1, "ugnot", alice, 3_000, lock)
+	if ps, _ := rt.PayClaims(t0+Day, 0, t0, "ugnot", 1, lock); len(ps) != 1 || ps[0].Fee != 20 {
+		t.Fatalf("first installment: %+v", ps)
+	}
+	setFee := func(fee int64) {
+		c := gnot()
+		c.Fee = fee
+		if err := rt.SetDenom("ugnot", c, t0, 0, 0); err != nil {
+			t.Fatal(err)
+		}
+	}
+	setFee(2)
+	// A turn a second later pays nothing (the recipient meter is dry) but
+	// sees the cut.
+	if ps, _ := rt.PayClaims(t0+Day+1, 0, t0, "ugnot", 1, lock); len(ps) != 0 {
+		t.Fatalf("paid with a dry meter: %+v", ps)
+	}
+	setFee(10)
+	// 200 seconds refill about 5: enough for an installment of at least the
+	// kept fee (2), not the raised one (10).
+	ps, _ := rt.PayClaims(t0+Day+201, 0, t0, "ugnot", 1, lock)
+	if len(ps) != 1 || ps[0].Amount < 2 || ps[0].Amount >= 10 {
+		t.Fatalf("after the raise: %+v", ps)
+	}
+	if c, _ := rt.Claim(pk(1)); c.Fee != 2 {
+		t.Fatalf("fee %d", c.Fee)
+	}
+}
