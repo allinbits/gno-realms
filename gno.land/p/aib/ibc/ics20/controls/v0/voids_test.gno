@@ -360,13 +360,13 @@ func TestReduceSweep(t *testing.T) {
 
 func TestRegistryReplace(t *testing.T) {
 	r, rt := newRoute(t)
-	if err := r.Replace("ethereum-1", "ethereum-1", 0, 1000); err == nil {
+	if err := replaceReady(r, "ethereum-1", "ethereum-1", 0, 1000); err == nil {
 		t.Fatalf("replaced with itself")
 	}
-	if err := r.Replace("ethereum-9", "ethereum-2", 0, 1000); err == nil {
+	if err := replaceReady(r, "ethereum-9", "ethereum-2", 0, 1000); err == nil {
 		t.Fatalf("replaced an unknown route")
 	}
-	if err := r.Replace("ethereum-1", "ethereum-2", 0, 1000); err != nil {
+	if err := replaceReady(r, "ethereum-1", "ethereum-2", 0, 1000); err != nil {
 		t.Fatal(err)
 	}
 	if r.RouteOf("ethereum-2") != rt || r.RouteOf("ethereum-1") != nil || r.RetiredRouteOf("ethereum-1") != "ethereum-1" {
@@ -383,12 +383,12 @@ func TestRegistryReplace(t *testing.T) {
 	if _, err := r.Enroll("ethereum-2", collector, t0, 1); err == nil {
 		t.Fatalf("enrolled a route's client")
 	}
-	if err := r.Replace("ethereum-1", "ethereum-1", 0, 1000); err == nil {
+	if err := replaceReady(r, "ethereum-1", "ethereum-1", 0, 1000); err == nil {
 		t.Fatalf("re-used a retired client")
 	}
 	// The route's current client is replaced while the route is still
 	// closed from the previous replacement (Codex round 13 #2).
-	if err := r.Replace("ethereum-1", "ethereum-3", 0, 2000); err != nil {
+	if err := replaceReady(r, "ethereum-1", "ethereum-3", 0, 2000); err != nil {
 		t.Fatal(err)
 	}
 	if len(rt.Replaced) != 2 || r.RetiredRouteOf("ethereum-2") != "ethereum-1" {
@@ -400,7 +400,7 @@ func TestRegistryReplace(t *testing.T) {
 		t.Fatalf("suspect from %d", v)
 	}
 	// A retired client id is final: never migrated back to.
-	if err := r.Replace("ethereum-1", "ethereum-2", 0, 1000); err == nil {
+	if err := replaceReady(r, "ethereum-1", "ethereum-2", 0, 1000); err == nil {
 		t.Fatalf("migrated back to a retired client")
 	}
 }
@@ -696,7 +696,7 @@ func TestReplaceClosesUntilReopened(t *testing.T) {
 	rt.RecordSend(sendRec(1, "ugnot", KindUnescrow, 1_000)) // in flight
 	rt.RecordSend(sendRec(2, "ugnot", KindUnescrow, 1_000))
 	rt.Settle(t0, 1, pk(2), OutcomeSuccess, false, big) // closed
-	if err := r.Replace("ethereum-1", "ethereum-2", 2, 1000); err != nil {
+	if err := replaceReady(r, "ethereum-1", "ethereum-2", 2, 1000); err != nil {
 		t.Fatal(err)
 	}
 	if !rt.IsClosed() || !(Reader{r: r}).Closed("ethereum-1") || rt.OpenSends("ethereum-1") != 1 {
@@ -803,7 +803,7 @@ func TestBatchLossesNeverWrap(t *testing.T) {
 		rec.Refunded, rec.Outcome = 1<<62, OutcomeTimeout
 		rt.sends.Set(rec.Key, &rec)
 	}
-	r.Replace("ethereum-1", "ethereum-2", 0, 1000)
+	replaceReady(r, "ethereum-1", "ethereum-2", 0, 1000)
 	var items []SettleItem
 	for i := uint64(1); i <= 4; i++ {
 		items = append(items, SettleItem{Seq: i, Action: SettleLoss, Amount: 1 << 62})
@@ -817,7 +817,7 @@ func TestBatchLossesNeverWrap(t *testing.T) {
 // anyone; the route opens with the last (ADR pr6375 §5.4 kind 13).
 func TestReopenInBatches(t *testing.T) {
 	r, rt := newRoute(t)
-	r.Replace("ethereum-1", "ethereum-2", 0, 1000)
+	replaceReady(r, "ethereum-1", "ethereum-2", 0, 1000)
 	n := ReopenBatch*2 + 5
 	for i := 0; i < n; i++ {
 		rt.RecordLoss(pk(uint64(1000+i)), "ugnot", 1, ChainGno, "inc-"+itoa(int64(i)), "collision")
@@ -874,7 +874,7 @@ func TestForgedVoidOfPaidSweep(t *testing.T) {
 	if rt.Void([]string{pk(6)}, true, "inc") == nil || rt.RecordLoss(pk(6), "ugnot", 400, ChainGno, "inc", "forged-delivery") == nil {
 		t.Fatalf("booked the paid sweep's loss twice")
 	}
-	r.Replace("ethereum-1", "ethereum-2", 0, 1000)
+	replaceReady(r, "ethereum-1", "ethereum-2", 0, 1000)
 	if _, err := rt.SettleRecords("ethereum-1", []SettleItem{{Seq: 6, Action: SettleForgedReceive, Amount: 400}}, "inc", lockOf(big), activeAll); err == nil {
 		t.Fatalf("settled the voided sweep's loss again")
 	}
@@ -921,14 +921,14 @@ func TestLossCapacityFreedByRecovery(t *testing.T) {
 // reopening starts again from a decision.
 func TestReplacementAbortsReopening(t *testing.T) {
 	r, rt := newRoute(t)
-	r.Replace("ethereum-1", "ethereum-2", 0, 1000)
+	replaceReady(r, "ethereum-1", "ethereum-2", 0, 1000)
 	for i := 0; i < ReopenBatch+5; i++ {
 		rt.RecordLoss(pk(uint64(1000+i)), "ugnot", 1, ChainGno, "inc-"+itoa(int64(i)), "collision")
 	}
 	if _, done, err := rt.Reopen(); err != nil || done || !rt.Reopening {
 		t.Fatalf("%v %v", done, err)
 	}
-	if err := r.Replace("ethereum-1", "ethereum-3", 0, 2000); err != nil {
+	if err := replaceReady(r, "ethereum-1", "ethereum-3", 0, 2000); err != nil {
 		t.Fatal(err)
 	}
 	if rt.Reopening || !rt.IsClosed() || rt.Client != "ethereum-3" || len(rt.Replaced) != 2 {
@@ -954,7 +954,7 @@ func TestReplacementAbortsReopening(t *testing.T) {
 func TestRecapitalizeAcceptedDeficit(t *testing.T) {
 	r, rt := newRoute(t)
 	d := rt.Denom("ugnot")
-	r.Replace("ethereum-1", "ethereum-2", 0, 1000)
+	replaceReady(r, "ethereum-1", "ethereum-2", 0, 1000)
 	rt.RecordLoss(pk(10), "ugnot", 100, ChainGno, "inc", "collision")
 	if _, done, err := rt.Reopen(); err != nil || !done || d.Totals.Unresolved() != 0 || d.Totals.Unrecovered() != 100 {
 		t.Fatalf("%v %+v", err, d.Totals)
@@ -996,7 +996,7 @@ func remedyRoute(t *testing.T) *Route {
 	if err := rt.Void([]string{pk(2)}, false, "inc"); err != nil {
 		t.Fatal(err)
 	}
-	if err := r.Replace("ethereum-1", "ethereum-2", 0, 1000); err != nil {
+	if err := replaceReady(r, "ethereum-1", "ethereum-2", 0, 1000); err != nil {
 		t.Fatal(err)
 	}
 	if err := rt.RecordLoss(pk(10), "ugnot", 100, ChainGno, "inc", "collision"); err != nil {

@@ -535,6 +535,9 @@ func (p *SettlePlan) Parked() []uint64 {
 // total (Parked), apart from the in-flight burns' reservations (Returning),
 // and the queued refunds net of what the batch unqueues.
 func (rt *Route) PlanSettlement(client string, items []SettleItem, incident string, lock func(denom string) int64, room func(denom string) int64, trusted func(client string, gen uint64) bool) (*SettlePlan, error) {
+	if err := rt.checkPrepared(); err != nil {
+		return nil, err
+	}
 	retired := false
 	for _, c := range rt.Replaced {
 		if c == client {
@@ -885,7 +888,7 @@ func (rt *Route) ProveOutcome(key string, packet types.Packet, outcome uint8, he
 	// void proof's reservation is released, the new proof's taken).
 	d := rt.Denom(r.Denom)
 	owed := int64(0)
-	if r.Outcome == OutcomeSuccess && (outcome == ProvenRefundable || outcome == ProvenCollision) {
+	if hiddenRefund(r, d) && (outcome == ProvenRefundable || outcome == ProvenCollision) {
 		owed = r.Amount - r.Refunded
 	}
 	d.Totals.sub(wProven, r.ProvenReserve)
@@ -903,4 +906,91 @@ func (rt *Route) unqueue(d *Denom, r *SendRecord) {
 		d.refundIdx.Remove(r.Key)
 	}
 	d.Totals.sub(wQueued, r.Amount-r.Refunded)
+}
+
+// hiddenRefund reports whether r, a record of a retired client, may owe a
+// refund nothing reserves: a success a forged acknowledgement may have
+// released, or an escrowed send still pending (its escrow is reserved by no
+// total; a minted one keeps its supply reservation).
+func hiddenRefund(r *SendRecord, d *Denom) bool {
+	return r.Outcome == OutcomeSuccess || r.Outcome == OutcomePending && d.Config.Kind == KindUnescrow
+}
+
+// Prepared reports whether every client a replacement retired from the
+// route had its records walked by PrepareReplacement: until then no
+// settlement, sweep payment, credit by vote or reopening applies.
+func (rt *Route) Prepared() bool { return rt.prepIdx >= len(rt.Replaced) }
+
+func (rt *Route) checkPrepared() error {
+	if !rt.Prepared() {
+		return errors.New("controls: route " + rt.Key + "'s replacement is not prepared: its suspect records' refunds are not all reserved yet (PrepareReplacement)")
+	}
+	return nil
+}
+
+// PrepareReplacement walks up to n (1 to MaxKeys) send records of the
+// clients replacements retired from the route, from where the last call
+// stopped, and reserves every refund one of them may still owe and nothing
+// reserves (ADR pr6375 §7.12): a success processed at or after its client's
+// suspect height (a forged acknowledgement may have released what it held),
+// and an escrowed send still pending. Each is reserved in ProvenOwed until a
+// proof of its outcome through the replacement client decides (a delivery
+// releases it, a refund keeps it) or its settlement releases it, so no
+// payment for the route takes the backing a sibling's refund needs, whatever
+// the order its outcomes are proven in. Anyone may call it; it returns how
+// many it reserved and whether the walk is complete.
+func (rt *Route) PrepareReplacement(n int) (int, bool, error) {
+	if n < 1 || n > MaxKeys {
+		return 0, false, ufmt.Errorf("controls: prepare 1 to %d records a call", MaxKeys)
+	}
+	reserved, visited := 0, 0
+	for visited < n && rt.prepIdx < len(rt.Replaced) {
+		client := rt.Replaced[rt.prepIdx]
+		var h int64
+		if v := rt.suspect.Get(client); v != nil {
+			h = v.(int64)
+		}
+		start := client + "/"
+		if rt.prepCursor != "" {
+			start = after(rt.prepCursor)
+		}
+		last := ""
+		more := rt.sends.Iterate(start, client+"0", func(k string, v any) bool { // '0' follows '/'
+			if visited == n {
+				return true
+			}
+			visited++
+			last = k
+			if rt.reserveHidden(v.(*SendRecord), h) {
+				reserved++
+			}
+			return false
+		})
+		if more {
+			rt.prepCursor = last
+			break
+		}
+		rt.prepIdx++
+		rt.prepCursor = ""
+	}
+	return reserved, rt.Prepared(), nil
+}
+
+// reserveHidden reserves the refund r may owe, if it is a hidden one of the
+// suspect interval starting at h and nothing decided it yet.
+func (rt *Route) reserveHidden(r *SendRecord, h int64) bool {
+	d := rt.Denom(r.Denom)
+	if r.Settlement != 0 || r.Proven != ProvenNone || r.ProvenReserve != 0 || !hiddenRefund(r, d) {
+		return false
+	}
+	if r.Outcome == OutcomeSuccess && r.ProcessedHeight < h {
+		return false // processed before the suspect interval: trusted
+	}
+	owed := r.Amount - r.Refunded
+	if owed <= 0 {
+		return false
+	}
+	r.ProvenReserve = owed
+	d.Totals.add(wProven, owed)
+	return true
 }

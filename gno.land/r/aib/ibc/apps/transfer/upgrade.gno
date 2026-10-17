@@ -70,7 +70,7 @@ type Logic interface {
 // route controls of ADR pr6375 §7 (impl/v1): the permissionless payouts of
 // the claim queue and of the queued refunds, the recapitalization of a route's escrow, and the
 // governance operations ibcgov decides. The proxy's entry points Claim,
-// ClaimRefunds, ProveOutcome, ContinueReopen, Recapitalize and GovApply forward to it
+// ClaimRefunds, ProveOutcome, ContinueReopen, PrepareReplacement, Recapitalize and GovApply forward to it
 // non-crossing, as the other entry points do; an implementation without it
 // refuses them.
 type ControlsLogic interface {
@@ -86,6 +86,10 @@ type ControlsLogic interface {
 	// ContinueReopen runs the next batch of a route's reopening and
 	// reports whether the route is open.
 	ContinueReopen(_ int, rlm realm, route string) bool
+	// PrepareReplacement walks the next batch of a replaced route's retired
+	// records, reserving the refunds they may owe, and reports whether the
+	// preparation is complete.
+	PrepareReplacement(_ int, rlm realm, route string, n int) bool
 	// Recapitalize pays an authorized recapitalization into the escrow of
 	// route: sent is the send envelope of a direct user call (a native
 	// denom), empty otherwise (a GRC20, taken from the caller's allowance).

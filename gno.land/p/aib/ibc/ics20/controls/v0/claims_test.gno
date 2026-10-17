@@ -39,6 +39,19 @@ func newRoute(t *testing.T) (*Registry, *Route) {
 	return r, rt
 }
 
+// replaceReady replaces a route's client and prepares the replacement whole
+// (PrepareReplacement), as a test that settles or reopens right after needs.
+func replaceReady(r *Registry, key, newClient string, suspectFrom, height int64) error {
+	if err := r.Replace(key, newClient, suspectFrom, height); err != nil {
+		return err
+	}
+	for {
+		if _, done, _ := r.Route(key).PrepareReplacement(MaxKeys); done {
+			return nil
+		}
+	}
+}
+
 func pk(seq uint64) string { return PacketKey("ethereum-1", seq) }
 
 func mustCredit(t *testing.T, rt *Route, now int64, seq uint64, denom string, to address, amount, lock int64) bool {

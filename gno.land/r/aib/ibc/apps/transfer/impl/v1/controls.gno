@@ -176,6 +176,18 @@ func (l *logic) ContinueReopen(_ int, rlm realm, route string) bool {
 	return done
 }
 
+// PrepareReplacement walks the next batch of a replaced route's retired
+// records (ADR pr6375 §7.12); anyone may.
+func (l *logic) PrepareReplacement(_ int, rlm realm, route string, n int) bool {
+	rt := l.routeFor(0, rlm, route)
+	reserved, done, err := rt.PrepareReplacement(n)
+	if err != nil {
+		panic(err)
+	}
+	transfer.EmitRoute(0, rlm, "prepare", "route", rt.Key, "reserved", strconv.Itoa(reserved), "done", strconv.FormatBool(done))
+	return done
+}
+
 // Recapitalize pays an authorized recapitalization into the route's escrow
 // (ADR pr6375 §7.9): exactly its amount, credited to the accounted backing
 // and debited from the unrecovered losses. A plain transfer to the escrow
@@ -440,6 +452,15 @@ func (l *logic) GovApply(_ int, rlm realm, op string, params []byte) string {
 			return p.Client + " is no usable Ethereum client"
 		}
 		err = reg.Replace(rt.Key, p.Client, p.Height, chainHeight())
+		if err == nil {
+			// The first batch of the preparation runs with the replacement:
+			// a retired client of at most MaxKeys records is prepared at once.
+			var done bool
+			_, done, err = rt.PrepareReplacement(controls.MaxKeys)
+			if err == nil && !done {
+				note = "prepare the rest with transfer.PrepareReplacement"
+			}
+		}
 	default:
 		return "unknown operation " + op
 	}

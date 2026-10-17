@@ -347,6 +347,9 @@ func (rt *Route) restoreClaim(c *Claim, now, epoch int64) {
 // through Reduce), at least the fee, and for an unescrowed denom never above
 // the free lock.
 func (rt *Route) CreditByVote(now, height, epoch int64, key, denom string, to address, amount, lock int64) error {
+	if err := rt.checkPrepared(); err != nil {
+		return err
+	}
 	if _, _, ok := ParsePacketKey(key); !ok {
 		return errors.New("controls: not a packet key: " + key)
 	}
@@ -434,6 +437,9 @@ func (rt *Route) CreditPending(now, height, epoch int64, key, denom string, to a
 // reserve). It books them and returns the
 // payments.
 func (rt *Route) PaySweeps(keys []string, to address, lock int64) ([]Payment, error) {
+	if err := rt.checkPrepared(); err != nil {
+		return nil, err
+	}
 	if err := parseKeys(keys); err != nil {
 		return nil, err
 	}

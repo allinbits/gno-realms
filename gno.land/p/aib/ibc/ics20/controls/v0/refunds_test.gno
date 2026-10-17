@@ -209,7 +209,7 @@ func TestSettleRecords(t *testing.T) {
 	if _, err := settleProven(rt, "ethereum-1", items, "inc-1", lockOf(big)); err == nil {
 		t.Fatalf("settled the sends of a live client")
 	}
-	if err := r.Replace("ethereum-1", "ethereum-2", 0, 1000); err != nil {
+	if err := replaceReady(r, "ethereum-1", "ethereum-2", 0, 1000); err != nil {
 		t.Fatal(err)
 	}
 	before := d.Totals
@@ -273,7 +273,7 @@ func TestSettleReleasesSupply(t *testing.T) {
 	d.Totals.Outstanding = 1_000
 	rt.RecordSend(sendRec(1, "ibc/WETH", KindMint, 400))
 	rt.RecordSend(sendRec(2, "ibc/WETH", KindMint, 300))
-	r.Replace("ethereum-1", "ethereum-2", 0, 1000)
+	replaceReady(r, "ethereum-1", "ethereum-2", 0, 1000)
 	ps, err := settleProven(rt, "ethereum-1", []SettleItem{{Seq: 1, Action: SettleDelivered}, {Seq: 2, Action: SettlePay, Amount: 300}}, "inc", lockOf(0))
 	if err != nil || len(ps) != 1 {
 		t.Fatalf("%+v %v", ps, err)
@@ -347,7 +347,9 @@ func TestPendingReturnReservesSupply(t *testing.T) {
 	// A rejected refund frees what it did not refund.
 	rt.RecordSend(sendRec(3, "ibc/WETH", KindMint, 300))
 	rt.Settle(t0+50*Day, 1, pk(3), OutcomeTimeout, true, 0)
-	reg.Replace("ethereum-1", "ethereum-2", 0, 1000)
+	// The suspect interval starts after the success (processed at height
+	// 1): it is trusted, nothing reserves it again.
+	replaceReady(reg, "ethereum-1", "ethereum-2", 2, 1000)
 	if _, err := settleProven(rt, "ethereum-1", []SettleItem{{Seq: 3, Action: SettleReject}}, "inc", lockOf(0)); err != nil {
 		t.Fatal(err)
 	}
@@ -374,7 +376,7 @@ func TestReservationReleasedOnce(t *testing.T) {
 	if err := rt.CheckCredit("ibc/WETH", 1); err == nil {
 		t.Fatalf("over the cap")
 	}
-	r.Replace("ethereum-1", "ethereum-2", 0, 1000)
+	replaceReady(r, "ethereum-1", "ethereum-2", 0, 1000)
 	// Send 1 delivered; send 2's success was forged: its refund is paid.
 	ps, err := settleProven(rt, "ethereum-1", []SettleItem{{Seq: 1, Action: SettleDelivered}, {Seq: 2, Action: SettlePay, Amount: 300}}, "inc", lockOf(0))
 	if err != nil || len(ps) != 1 {
@@ -401,7 +403,7 @@ func TestSettleRefundPaidInFull(t *testing.T) {
 	rt.RecordSend(sendRec(2, "ugnot", KindUnescrow, 1_000))
 	rt.Settle(t0+Day, 1, pk(1), OutcomeTimeout, false, big) // paid at once
 	rt.Settle(t0+Day, 1, pk(2), OutcomeTimeout, false, big) // paid at once
-	r.Replace("ethereum-1", "ethereum-2", 0, 1000)
+	replaceReady(r, "ethereum-1", "ethereum-2", 0, 1000)
 	for _, bad := range []SettleItem{{Seq: 1, Action: SettlePay, Amount: 1}, {Seq: 1, Action: SettleDelivered}} {
 		if _, err := settleProven(rt, "ethereum-1", []SettleItem{bad}, "inc", lockOf(big)); err == nil {
 			t.Fatalf("applied %+v", bad)
@@ -436,10 +438,10 @@ func TestSuspectIntervalBlocksReopen(t *testing.T) {
 	rt.Settle(t0, 20, pk(2), OutcomeSuccess, false, big)
 	rt.Settle(t0, 30, pk(3), OutcomeSuccess, false, big)
 	rt.Settle(t0, 30, pk(4), OutcomeSuccess, false, big)
-	if err := r.Replace("ethereum-1", "ethereum-2", -1, 1000); err == nil {
+	if err := replaceReady(r, "ethereum-1", "ethereum-2", -1, 1000); err == nil {
 		t.Fatalf("a negative suspect height")
 	}
-	if err := r.Replace("ethereum-1", "ethereum-2", 20, 1000); err != nil {
+	if err := replaceReady(r, "ethereum-1", "ethereum-2", 20, 1000); err != nil {
 		t.Fatal(err)
 	}
 	if n := rt.SuspectUnsettled("ethereum-1"); n != 3 {
@@ -519,7 +521,7 @@ func TestAggregatesNeverWrap(t *testing.T) {
 	rt2.RecordSend(sendRec(1, "ibc/WETH", KindMint, 100))
 	rt2.Settle(t0, 1, pk(1), OutcomeSuccess, false, 0) // releases the reservation
 	w.Totals.Outstanding = maxInt64 - 50
-	r2.Replace("ethereum-1", "ethereum-2", 2, 1000)
+	replaceReady(r2, "ethereum-1", "ethereum-2", 2, 1000)
 	if ps, err := settleProven(rt2, "ethereum-1", []SettleItem{{Seq: 1, Action: SettlePay, Amount: 100}}, "inc", lockOf(0)); err != nil || len(ps) != 0 || w.Totals.Outstanding != maxInt64-50 {
 		t.Fatalf("the outstanding supply wrapped: %v %+v %d", err, ps, w.Totals.Outstanding)
 	}
@@ -541,7 +543,7 @@ func TestZeroSettlementIgnoresCapacity(t *testing.T) {
 	mustCredit(t, rt, t0, 5, "ugnot", alice, 1_000, big)    // a claim owes 1000
 	rt.RecordLoss(pk(9), "ugnot", 1_000, ChainGno, "inc", "collision")
 	rt.Accept("ugnot", 1_000, "inc")
-	r.Replace("ethereum-1", "ethereum-2", 0, 1000)
+	replaceReady(r, "ethereum-1", "ethereum-2", 0, 1000)
 	// The escrow is empty: free escrow is -1000.
 	if _, err := settleProven(rt, "ethereum-1", []SettleItem{{Seq: 1, Action: SettlePay}}, "inc", lockOf(0)); err != nil {
 		t.Fatal(err)
@@ -581,7 +583,7 @@ func TestProvenOutcomes(t *testing.T) {
 	if err := rt.ProveOutcome(pk(1), rec.Packet, ProvenDelivered, 10, "ethereum-2", 0, activeAll); err == nil {
 		t.Fatalf("proved the outcome of a live client's send")
 	}
-	r.Replace("ethereum-1", "ethereum-2", 0, 1000)
+	replaceReady(r, "ethereum-1", "ethereum-2", 0, 1000)
 	other := rec.Packet
 	other.TimeoutTimestamp++
 	if err := rt.ProveOutcome(pk(1), other, ProvenDelivered, 10, "ethereum-2", 0, activeAll); err == nil {
@@ -618,7 +620,7 @@ func TestProvenOutcomes(t *testing.T) {
 	reg3, rt3 := newRoute(t)
 	rt3.RecordSend(sendRec(1, "ugnot", KindUnescrow, 1_000))
 	rec3, _ := rt3.Send(pk(1))
-	reg3.Replace("ethereum-1", "ethereum-2", 0, 1000)
+	replaceReady(reg3, "ethereum-1", "ethereum-2", 0, 1000)
 	gen := uint64(4)
 	current := func(_ string, g uint64) bool { return g == gen }
 	if err := rt3.ProveOutcome(pk(1), rec3.Packet, ProvenDelivered, 10, "ethereum-2", gen, current); err != nil {
@@ -642,7 +644,7 @@ func TestProvenOutcomes(t *testing.T) {
 	c, _ := rt2.Claim(pk(5))
 	rt2.Credit(t0, 10, 0, pk(6), "ugnot", alice, 400, ByPacket, "bridge realm", big)
 	rt2.PaySweeps([]string{pk(6)}, bob, big)
-	r2.Replace("ethereum-1", "ethereum-2", 0, 1000)
+	replaceReady(r2, "ethereum-1", "ethereum-2", 0, 1000)
 	if _, err := rt2.SettleRecords("ethereum-1", []SettleItem{{Seq: 5, Action: SettleForgedReceive, Amount: c.Paid + 1}}, "inc", lockOf(big), activeAll); err == nil {
 		t.Fatalf("booked more than the receive paid out")
 	}
@@ -684,7 +686,7 @@ func TestSettlementReserveBeyondMaxInt64(t *testing.T) {
 	rt.RecordSend(sendRec(1, "ugnot", KindUnescrow, big5))
 	rt.Settle(t0, 1, pk(1), OutcomeTimeout, true, 0) // queued under a hold
 	d.Totals.Owed = big5                             // claims owe 5e18 too
-	r.Replace("ethereum-1", "ethereum-2", 0, 1000)
+	replaceReady(r, "ethereum-1", "ethereum-2", 0, 1000)
 	if _, err := settleProven(rt, "ethereum-1", []SettleItem{{Seq: 1, Action: SettlePay, Amount: big5}}, "inc", lockOf(maxInt64)); err == nil {
 		t.Fatalf("paid a refund out of the escrow the claims reserve")
 	}
@@ -700,7 +702,7 @@ func TestRefundForDeliveredOnlyBySettlement(t *testing.T) {
 	if err := rt.RecordLoss(pk(1), "ugnot", 1_000, ChainGno, "inc", CauseRefundForDelivered); err == nil {
 		t.Fatalf("recorded a refund-for-delivered loss outside its settlement")
 	}
-	r.Replace("ethereum-1", "ethereum-2", 0, 1000)
+	replaceReady(r, "ethereum-1", "ethereum-2", 0, 1000)
 	if _, err := settleProven(rt, "ethereum-1", []SettleItem{{Seq: 1, Action: SettleLoss, Amount: 1_000}}, "inc", lockOf(big)); err != nil {
 		t.Fatal(err)
 	}
@@ -731,7 +733,7 @@ func TestOneLossPerPacket(t *testing.T) {
 	if err := rt.Void([]string{pk(5)}, true, "inc"); err != nil {
 		t.Fatal(err)
 	}
-	r.Replace("ethereum-1", "ethereum-2", 0, 1000)
+	replaceReady(r, "ethereum-1", "ethereum-2", 0, 1000)
 	if _, err := rt.SettleRecords("ethereum-1", []SettleItem{{Seq: 5, Action: SettleForgedReceive, Amount: paid}}, "inc", lockOf(big), activeAll); err == nil {
 		t.Fatalf("settled a voided receive's loss again")
 	}
@@ -743,7 +745,7 @@ func TestOneLossPerPacket(t *testing.T) {
 	}
 	// Settle as a forged receive, then void as forged: once.
 	r, rt, paid = setup()
-	r.Replace("ethereum-1", "ethereum-2", 0, 1000)
+	replaceReady(r, "ethereum-1", "ethereum-2", 0, 1000)
 	if _, err := rt.SettleRecords("ethereum-1", []SettleItem{{Seq: 5, Action: SettleForgedReceive, Amount: paid}}, "inc", lockOf(big), activeAll); err != nil {
 		t.Fatal(err)
 	}
@@ -760,7 +762,7 @@ func TestOneLossPerPacket(t *testing.T) {
 		rt.RecordSend(sendRec(1, "ugnot", KindUnescrow, 1_000))
 		rt.Settle(t0, 1, pk(1), OutcomeTimeout, false, big)
 		rt.PayRefunds(t0+Day, "ugnot", 5, false, big)
-		r.Replace("ethereum-1", "ethereum-2", 0, 1000)
+		replaceReady(r, "ethereum-1", "ethereum-2", 0, 1000)
 		rec, _ := rt.Send(pk(1))
 		record := func() error { return rt.RecordLoss(pk(1), "ugnot", rec.Refunded, ChainEthereum, "inc", "collision") }
 		settle := func() error {
@@ -872,7 +874,7 @@ func TestSettlementCountsEveryRelease(t *testing.T) {
 		rt.RecordSend(sendRec(2, "ugnot", KindUnescrow, 1_000))
 		rt.Settle(t0, 1, pk(1), OutcomeTimeout, true, 0) // queued under a hold
 		rt.Settle(t0, 1, pk(2), OutcomeTimeout, true, 0)
-		r.Replace("ethereum-1", "ethereum-2", 0, 1000)
+		replaceReady(r, "ethereum-1", "ethereum-2", 0, 1000)
 		rt.send(pk(1)).Proven = ProvenRefundable
 		rt.send(pk(2)).Proven = ProvenDelivered
 		pay, reject := SettleItem{Seq: 1, Action: SettlePay, Amount: 1_000}, SettleItem{Seq: 2, Action: SettleReject}
@@ -889,7 +891,7 @@ func TestSettlementCountsEveryRelease(t *testing.T) {
 	r, rt := newRoute(t)
 	rt.RecordSend(sendRec(1, "ugnot", KindUnescrow, 1_000))
 	rt.Settle(t0, 1, pk(1), OutcomeTimeout, true, 0)
-	r.Replace("ethereum-1", "ethereum-2", 0, 1000)
+	replaceReady(r, "ethereum-1", "ethereum-2", 0, 1000)
 	rt.send(pk(1)).Proven = ProvenRefundable
 	if _, err := rt.SettleRecords("ethereum-1", []SettleItem{{Seq: 1, Action: SettlePay, Amount: 1_000}}, "inc", lockOf(999), activeAll); err == nil {
 		t.Fatalf("paid beyond the escrow")
@@ -913,7 +915,7 @@ func TestSettleForgedReceiveOfMovedClaim(t *testing.T) {
 	}
 	d := rt.Denom("ugnot")
 	swept := d.Totals.Swept
-	r.Replace("ethereum-1", "ethereum-2", 0, 1000)
+	replaceReady(r, "ethereum-1", "ethereum-2", 0, 1000)
 	if _, err := rt.SettleRecords("ethereum-1", []SettleItem{{Seq: 5, Action: SettleForgedReceive, Amount: c.Paid}}, "inc", lockOf(big), activeAll); err != nil {
 		t.Fatal(err)
 	}
@@ -948,7 +950,7 @@ func TestMintedPayoutHeadroom(t *testing.T) {
 		t.Fatalf("sweep entry: %v", err)
 	}
 	mustCredit(t, rt, t0, 21, "ibc/BIG", bob, 1_000, 0)
-	r.Replace("ethereum-1", "ethereum-2", 0, 1000)
+	replaceReady(r, "ethereum-1", "ethereum-2", 0, 1000)
 	if _, err := settleProven(rt, "ethereum-1", []SettleItem{{Seq: 1, Action: SettlePay, Amount: five}}, "inc", lockOf(0)); err != nil {
 		t.Fatal(err)
 	}
@@ -1002,7 +1004,7 @@ func TestParkedSettlementRefund(t *testing.T) {
 	}
 	// The replacement proves the return refundable: its genuine refund
 	// cannot be minted now, so it is parked.
-	r.Replace("ethereum-1", "ethereum-2", 0, 1000)
+	replaceReady(r, "ethereum-1", "ethereum-2", 0, 1000)
 	ps, err := settleProven(rt, "ethereum-1", []SettleItem{{Seq: 1, Action: SettlePay, Amount: a}}, "inc", lockOf(0))
 	if err != nil || len(ps) != 0 {
 		t.Fatalf("settlement: %v %+v", err, ps)
@@ -1083,7 +1085,7 @@ func TestBoundedIndexes(t *testing.T) {
 
 	// Many replacements: only the client with an open record blocks.
 	for i := 2; i <= 30; i++ {
-		if err := r.Replace("ethereum-1", "ethereum-"+strconv.Itoa(i), 0, int64(1000+i)); err != nil {
+		if err := replaceReady(r, "ethereum-1", "ethereum-"+strconv.Itoa(i), 0, int64(1000+i)); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -1125,7 +1127,7 @@ func TestSettlementNetReservations(t *testing.T) {
 		rt.RecordSend(sendRec(1, "ibc/BIG", KindMint, five))  // still reserved
 		rt.RecordSend(sendRec(2, "ibc/BIG", KindMint, three)) // a forged success releases it
 		rt.Settle(t0, 1, pk(2), OutcomeSuccess, false, 0)
-		r.Replace("ethereum-1", "ethereum-2", 0, 1000)
+		replaceReady(r, "ethereum-1", "ethereum-2", 0, 1000)
 		return rt, rt.Denom("ibc/BIG")
 	}
 
@@ -1179,7 +1181,7 @@ func TestParkedRefundLetsReturnsBurn(t *testing.T) {
 	rt.RecordSend(sendRec(1, "ibc/BIG", KindMint, maxInt64))
 	rt.Settle(t0, 1, pk(1), OutcomeSuccess, false, 0)
 	d.Totals.Outstanding = maxInt64
-	r.Replace("ethereum-1", "ethereum-2", 0, 1000)
+	replaceReady(r, "ethereum-1", "ethereum-2", 0, 1000)
 	if ps, err := settleProven(rt, "ethereum-1", []SettleItem{{Seq: 1, Action: SettlePay, Amount: maxInt64}}, "inc", lockOf(0)); err != nil || len(ps) != 0 {
 		t.Fatalf("settlement: %v %+v", err, ps)
 	}
@@ -1221,7 +1223,7 @@ func TestSettlementReleasesBeforeParking(t *testing.T) {
 		rt.Settle(t0, 1, pk(1), OutcomeSuccess, false, 0)
 		rt.RecordSend(sendRec(2, "ibc/BIG", KindMint, four)) // delivered, still reserving four
 		d.Totals.Outstanding = maxInt64 - four
-		r.Replace("ethereum-1", "ethereum-2", 0, 1000)
+		replaceReady(r, "ethereum-1", "ethereum-2", 0, 1000)
 		amount := map[uint64]int64{1: six, 2: 0}
 		action := map[uint64]uint8{1: SettlePay, 2: SettleDelivered}
 		var items []SettleItem
@@ -1261,7 +1263,7 @@ func TestProvenRefundReservedUntilSettled(t *testing.T) {
 	rt.RecordSend(sendRec(2, "ugnot", KindUnescrow, 1_000))
 	rt.Settle(t0, 1, pk(1), OutcomeSuccess, false, 2_000)
 	rt.Settle(t0, 1, pk(2), OutcomeSuccess, false, 2_000)
-	r.Replace("ethereum-1", "ethereum-2", 0, 1000)
+	replaceReady(r, "ethereum-1", "ethereum-2", 0, 1000)
 	prove(t, rt, 1, ProvenRefundable, activeAll)
 	prove(t, rt, 2, ProvenCollision, activeAll)
 	d := rt.Denom("ugnot")
@@ -1298,7 +1300,7 @@ func TestProvenRefundReservedUntilSettled(t *testing.T) {
 	if err := rt.CheckCredit("ibc/W", 2_000); err != nil {
 		t.Fatalf("setup: %v", err)
 	}
-	r.Replace("ethereum-1", "ethereum-2", 0, 1000)
+	replaceReady(r, "ethereum-1", "ethereum-2", 0, 1000)
 	prove(t, rt, 1, ProvenRefundable, activeAll)
 	prove(t, rt, 2, ProvenRefundable, activeAll)
 	if _, err := rt.SettleRecords("ethereum-1", []SettleItem{{Seq: 1, Action: SettlePay, Amount: 1_000}}, "inc", lockOf(0), activeAll); err != nil {
@@ -1372,7 +1374,7 @@ func TestSettlementReleasesBeyondInt64(t *testing.T) {
 			rt.Settle(t0, 1, pk(seq), OutcomeTimeout, true, 0) // queued under a hold
 		}
 		d := rt.Denom("ugnot")
-		r.Replace("ethereum-1", "ethereum-2", 0, 1000)
+		replaceReady(r, "ethereum-1", "ethereum-2", 0, 1000)
 		item := map[uint64]SettleItem{1: {Seq: 1, Action: SettleReject}, 2: {Seq: 2, Action: SettleReject}, 3: {Seq: 3, Action: SettlePay, Amount: 1_000}}
 		var items []SettleItem
 		for _, seq := range order {
@@ -1400,7 +1402,7 @@ func TestMintedRefundsBeyondInt64(t *testing.T) {
 		d.Totals.Outstanding = six                        // reused by later transfers
 		rt.RecordSend(sendRec(2, "ibc/BIG", KindMint, six))
 		rt.Settle(t0, 1, pk(2), OutcomeSuccess, false, 0)
-		r.Replace("ethereum-1", "ethereum-2", 0, 1000)
+		replaceReady(r, "ethereum-1", "ethereum-2", 0, 1000)
 		var items []SettleItem
 		for _, seq := range order {
 			items = append(items, SettleItem{Seq: seq, Action: SettlePay, Amount: six})
@@ -1414,5 +1416,107 @@ func TestMintedRefundsBeyondInt64(t *testing.T) {
 				t.Fatalf("order %v: send %d unsettled", order, seq)
 			}
 		}
+	}
+}
+
+// A replacement reserves every refund its suspect records may owe before
+// any payment for the route (Ethereum review round 20): two escrowed sends
+// of 100 whose forged successes released them, the escrow at 150 after a
+// forged receive took 50. Until the preparation, run in bounded batches,
+// has walked every record, no settlement applies; then a settlement paying
+// the first refund, proven first, finds only 50 free (the second refund,
+// still unproven, keeps its 100), whatever the order the proofs come in.
+// With the escrow whole, the staggered proofs pay both.
+func TestStaggeredProofsKeepSiblingBacking(t *testing.T) {
+	setup := func() (*Route, *Denom) {
+		r, rt := newRoute(t)
+		rt.RecordSend(sendRec(1, "ugnot", KindUnescrow, 100))
+		rt.RecordSend(sendRec(2, "ugnot", KindUnescrow, 100))
+		rt.Settle(t0, 5, pk(1), OutcomeSuccess, false, 200)
+		rt.Settle(t0, 5, pk(2), OutcomeSuccess, false, 200)
+		if err := r.Replace("ethereum-1", "ethereum-2", 3, 1000); err != nil {
+			t.Fatal(err)
+		}
+		return rt, rt.Denom("ugnot")
+	}
+	pay := func(rt *Route, seq uint64, lock int64) error {
+		_, err := rt.SettleRecords("ethereum-1", []SettleItem{{Seq: seq, Action: SettlePay, Amount: 100}}, "inc", lockOf(lock), activeAll)
+		return err
+	}
+
+	rt, d := setup()
+	// One record a batch: the walk crosses a batch boundary.
+	if n, done, _ := rt.PrepareReplacement(1); n != 1 || done {
+		t.Fatalf("first batch: %d %v", n, done)
+	}
+	prove(t, rt, 1, ProvenRefundable, activeAll)
+	if err := pay(rt, 1, 150); err == nil || !strings.Contains(err.Error(), "not prepared") {
+		t.Fatalf("paid before the preparation completed: %v", err)
+	}
+	if n, done, _ := rt.PrepareReplacement(1); n != 1 || !done {
+		t.Fatalf("second batch: %d %v", n, done)
+	}
+	if d.Totals.ProvenOwed != 200 {
+		t.Fatalf("reserved %d", d.Totals.ProvenOwed)
+	}
+	// The first refund cannot take the second's backing.
+	if err := pay(rt, 1, 150); err == nil {
+		t.Fatalf("paid the first refund out of the second's backing")
+	}
+	// A proof of delivery releases the sibling's reservation; the first is
+	// then paid.
+	prove(t, rt, 2, ProvenDelivered, activeAll)
+	if err := pay(rt, 1, 150); err != nil {
+		t.Fatal(err)
+	}
+
+	// The escrow whole: proven one after the other, both are paid.
+	rt, d = setup()
+	for done := false; !done; {
+		_, done, _ = rt.PrepareReplacement(1)
+	}
+	prove(t, rt, 1, ProvenRefundable, activeAll)
+	if err := pay(rt, 1, 200); err != nil {
+		t.Fatal(err)
+	}
+	prove(t, rt, 2, ProvenRefundable, activeAll)
+	if err := pay(rt, 2, 100); err != nil || d.Totals.ProvenOwed != 0 {
+		t.Fatalf("%v %d", err, d.Totals.ProvenOwed)
+	}
+}
+
+// The same for a minted denom: the returns' supply is reserved again by the
+// preparation, so no credit takes a sibling's capacity before its proof.
+func TestStaggeredProofsKeepSiblingSupply(t *testing.T) {
+	r, rt := newRoute(t)
+	d := rt.Denom("ibc/WETH")
+	d.Totals.Outstanding = d.Config.SupplyCap
+	rt.RecordSend(sendRec(1, "ibc/WETH", KindMint, 100))
+	rt.RecordSend(sendRec(2, "ibc/WETH", KindMint, 100))
+	rt.Settle(t0, 5, pk(1), OutcomeSuccess, false, 0)
+	rt.Settle(t0, 5, pk(2), OutcomeSuccess, false, 0)
+	if err := rt.CheckCredit("ibc/WETH", 200); err != nil {
+		t.Fatalf("setup: %v", err)
+	}
+	r.Replace("ethereum-1", "ethereum-2", 3, 1000)
+	if _, err := rt.SettleRecords("ethereum-1", []SettleItem{{Seq: 1, Action: SettlePay, Amount: 100}}, "inc", lockOf(0), activeAll); err == nil {
+		t.Fatalf("settled before the preparation")
+	}
+	for done := false; !done; {
+		_, done, _ = rt.PrepareReplacement(1)
+	}
+	if err := rt.CheckCredit("ibc/WETH", 1); err == nil {
+		t.Fatalf("a credit took the suspect returns' supply")
+	}
+	prove(t, rt, 1, ProvenRefundable, activeAll)
+	if _, err := rt.SettleRecords("ethereum-1", []SettleItem{{Seq: 1, Action: SettlePay, Amount: 100}}, "inc", lockOf(0), activeAll); err != nil {
+		t.Fatal(err)
+	}
+	if err := rt.CheckCredit("ibc/WETH", 1); err == nil {
+		t.Fatalf("a credit took the unproven sibling's supply")
+	}
+	prove(t, rt, 2, ProvenDelivered, activeAll)
+	if err := rt.CheckCredit("ibc/WETH", 100); err != nil {
+		t.Fatalf("the delivered sibling's supply stays reserved: %v", err)
 	}
 }

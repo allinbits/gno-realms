@@ -256,6 +256,8 @@ type Route struct {
 	unresolvedDenoms int64 // denoms with an unresolved loss: ExposureClosed in constant work
 
 	reopenIncident, reopenRecap string   // where a batched reopening stopped
+	prepIdx                     int      // the retired clients (Replaced) whose records PrepareReplacement walked
+	prepCursor                  string   // where its walk of Replaced[prepIdx] stopped
 	lossesBooked                int64    // every loss booked: a reopening restarts its scan when it changes
 	reopenLosses                int64    // lossesBooked when the reopening's incident scan started
 	losses                      avl.Tree // lossID(direction, packet key) -> *Loss: one per packet and direction
@@ -330,6 +332,9 @@ func (rt *Route) noteUnresolved(d *Denom, was int64) {
 func (rt *Route) Reopen() (int64, bool, error) {
 	if !rt.Closed {
 		return 0, false, errors.New("controls: route " + rt.Key + " is not closed")
+	}
+	if err := rt.checkPrepared(); err != nil {
+		return 0, false, err
 	}
 	if rt.Reopening {
 		return 0, false, errors.New("controls: route " + rt.Key + " is reopening already: continue it")

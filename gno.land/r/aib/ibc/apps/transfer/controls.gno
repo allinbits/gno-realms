@@ -47,6 +47,18 @@ func ContinueReopen(cur realm, route string) bool {
 	return mustControls().ContinueReopen(0, cur, route)
 }
 
+// PrepareReplacement walks up to n (1 to 64) send records of the clients a
+// replacement retired from route, from where the last call stopped, and
+// reserves every refund they may owe and nothing reserves: a success in the
+// suspect interval (a forged acknowledgement may have released it) and an
+// escrowed send still pending (ADR pr6375 §7.12). Until the walk is complete
+// no settlement, sweep payment, credit by vote or reopening applies on the
+// route; the replacement itself runs the first batch. It reports whether the
+// preparation is complete. Anyone may call it.
+func PrepareReplacement(cur realm, route string, n int) bool {
+	return mustControls().PrepareReplacement(0, cur, route, n)
+}
+
 // Recapitalize pays recapitalization id of route, which an ibcgov decision
 // authorized, into the route's escrow (ADR pr6375 §7.9). For a native denom
 // it must be a direct user call sending exactly the amount; for a GRC20, the
