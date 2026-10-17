@@ -293,7 +293,7 @@ against gno-eth-ibc 6f94541's vectors.
 
 | Rule | Code |
 |---|---|
-| R8, §7.1 meters, claims, fee first, no slivers, round-robin, two accountings, sweeps, meters start empty; a credit to a bridge realm is an owed sweep entry, never a claim: the core and transfer proxies, ibcgov, ethrelay, transfer impl/v0 (never registered) and every implementation either proxy's registry lists, read at each receive, so one registered after deployment is covered at once and a replaced one stays covered; the recipient is checked again at payout (`PayClaimsSweeping`): a claim whose recipient became a bridge realm after its credit is not paid but moved to the owed sweep under its packet key, exactly (its remainder leaves `Owed` for `Swept`; the entry carries what the claim paid, which a forged void or forged-receive settlement books as the loss while dropping the remainder; a credit by vote cannot re-credit it, a sweep decision pays it) | `controls/route.gno` (`Credit`, `PayClaims`), `meter.gno` (`Meter`), `transfer/impl/v1/recv.gno`, `controls.gno` (`Claim`), ibcgov `PayoutsEpoch` |
+| R8, §7.1 meters, claims, fee first, no slivers, round-robin, two accountings, sweeps, meters start empty; a claim's fee is locked when it is credited (`Claim.Fee`): its first installment and its later minimum installment `min(remainder, fee)` use it, so a fee changed by a later decision never applies to a claim already credited (sweep entries, refunds and settlements take no fee and pay whole entitlements, so no other entry reads a configuration that could cut one); sweep payments (`PaySweeps`) take live entries of one denom, each paid whole to the decision's payee with no claim fee and outside the payout meters, their total for an `unescrow` denom within the free escrow (what open and withheld claims and queued refunds do not reserve), deferred under a payouts flag; a credit to a bridge realm is an owed sweep entry, never a claim: the core and transfer proxies, ibcgov, ethrelay, transfer impl/v0 (never registered) and every implementation either proxy's registry lists, read at each receive, so one registered after deployment is covered at once and a replaced one stays covered; the recipient is checked again at payout (`PayClaimsSweeping`): a claim whose recipient became a bridge realm after its credit is not paid but moved to the owed sweep under its packet key, exactly (its remainder leaves `Owed` for `Swept`; the entry carries what the claim paid, which a forged void or forged-receive settlement books as the loss while dropping the remainder; a credit by vote cannot re-credit it, a sweep decision pays it) | `controls/route.gno` (`Credit`, `PayClaims`), `meter.gno` (`Meter`), `transfer/impl/v1/recv.gno`, `controls.gno` (`Claim`), ibcgov `PayoutsEpoch` |
 | R8 reachable `Claim` | `transfer/controls.gno`, `ControlsLogic` |
 | R9, §7.5, §7.7 ledger, delays, deadline, governor, yield | `decisions/v0`, `ibcgov/governor.gno`, `ledger.gno` |
 | R10, §7.4 seats, flags, holds, day 21, naming suspects; a seat's key leaving ends its flags in constant work (seat generations, live flag counts per seat, payouts epochs counting a departed key's payouts flags as cleared then, as of the end of the flag's own seat generation (kept per generation in `genEnds` while entries of that generation remain, so a later key leaving the same seat does not move it, before or after pruning), entries pruned by the permissionless bounded `PruneFlags`; vacating a seat measured at 1,123,231 gas after 5 and after 40 flagged clients); every Ethereum client flaggable, so a client about to become a route's is held beforehand; every flag operation and check resolves a client to its route's stable key (`routeKeyOf`), and a replacement moves the flags standing under the new client's id to the route (`foldFlags`) | `ibcgov/guardians.gno` (`flaggable`, `routeKeyOf`, `foldFlags`), `routes.gno` (`mustRoute`) |
@@ -356,7 +356,8 @@ whole execution and a queued decision stays pending:
 | core add/remove relayer | listed already / not listed |
 | core recover client | unknown, retired, mismatched or wrong-status clients; the light client's own check (`CheckRecoverClient`) |
 | core migrate client | unknown, retired or non-Ethereum client; no migrating implementation; the light client's check (`CheckMigrateClient`) |
-| core approve/reject app | no pending registration; port taken |
+| core approve app | no pending registration; port taken |
+| core reject app | no pending registration |
 | core pause / pause app / unpause / unpause app | paused already / no app / not paused |
 | core/transfer add/remove member | member already / not a member / ibcgov itself |
 | transfer block/unblock | blocked already / not blocked |
@@ -374,7 +375,9 @@ Tests: z1e, z1f, z1h, z1i, z1j, z2e (ibcgov), z9zj, z9zk (transfer).
 ### Parameters (§9)
 
 Compiled: 7-day delay, 14-day deadline, 24-hour hold linger, day 21 of a hold,
-`MaxClaims` 20, `MaxKeys` 64, envelope 1024 bytes, gov packet timeout 6 hours,
+`MaxClaims` 20, `MaxKeys` 64, `ReopenBatch` 64 (a reopening batch takes at
+most 64 incidents, then at most 64 authorizations), `PageLines` 100 (each
+paginated controls page returns at most 100 entries), envelope 1024 bytes, gov packet timeout 6 hours,
 the governor key (placeholder). Per route and denom, set by decision at
 launch: the cap floor (10,000 tokens/day in base units), fee (20, floor 2,
 ceiling cap/4), send max 25,000 and min 40, refund cap (the day cap), the
@@ -538,8 +541,7 @@ does not list before it.
   walks the route's enabled denoms; settling or rejecting a queued refund
   finds it by walking the denom's refund queue (`unqueue`); authorizing or
   paying a recapitalization sums every authorization of the route
-  (`openRecaps`); a reopening's blocker check walks each retired client's
-  open and suspect records (`reopenBlocker`). A hold's seat count and a seat's
+  (`openRecaps`); a reopening's blocker check (`reopenBlocker`) loops over the route's retired clients, reading each one's open-record count and counting its records processed in the suspect interval in logarithmic work (an `avl.Node` by processing height), never walking the records. A hold's seat count and a seat's
   removal are constant work (live flag counts per seat, seat generations).
 - **Pre-recovery consensus states of a Tendermint client** stay usable, as in
   ibc-go: only the Ethereum light client marks them untrusted, and only
