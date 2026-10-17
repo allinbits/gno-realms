@@ -80,7 +80,11 @@ gnokey maketx call -pkgpath gno.land/r/aib/ibc/apps/transfer -func Transfer \
 
 ### GRC20 token
 
-The caller must first approve the transfer app realm to spend the tokens.
+The caller must first approve the transfer app realm to spend the tokens,
+and attach no native coins to the `Transfer` call. On an Ethereum route the
+route fee is drawn from the same allowance, separately and first, so the
+allowance and the balance must cover `amount + fee` (the denom's current
+`fee`, shown at `routes/{route}`); on other clients `amount` is enough.
 
 From Gno code (e.g. in a `MsgRun` script):
 
@@ -200,9 +204,12 @@ mapping: [ADR 0004](../../../../../../docs/adrs/0004-ethereum-route-controls.md)
 - **`Claim(clientID, denom, n)`** (anyone, n ≤ 20) pays claims round-robin,
   oldest first per recipient, within the bridge meter (day cap
   `max(capFloor, lock/10)`, or the mint cap) and the recipient's meter (a
-  quarter of it), the fee as the first installment, no slivers. Meters start
-  empty and restart empty when a `payouts` flag is cleared; nothing is paid
-  under one.
+  quarter of it), the fee as the first installment, no slivers (a later
+  installment needs at least `min(remainder, fee)` in both meters). A claim's
+  fee is the denom's fee when the claim was credited, recorded on it (`fee`
+  in the claims JSON): a fee changed by a later decision never applies to a
+  claim already credited. Meters start empty and restart empty when a
+  `payouts` flag is cleared; nothing is paid under one.
 - **Refunds** (error acknowledgement, timeout) are paid at once only when the
   whole refund fits: no `refunds` hold and the route not closed, no older
   refund of the denom waiting, the refund meter (`RefundCap` a day) holding
@@ -224,14 +231,19 @@ mapping: [ADR 0004](../../../../../../docs/adrs/0004-ethereum-route-controls.md)
   suspect height and is not settled; records completed and paid before the
   suspect interval need no settlement. The reopening records the remaining
   losses as an accepted deficit and revokes unpaid recapitalization
-  authorizations, in bounded batches continued by anyone with
+  authorizations, in batches of at most 64 incidents, then at most 64
+  authorizations (`ReopenBatch`), continued by anyone with
   **`ContinueReopen(route)`**. A loss of any denom without a
   restoring decision stops new exposure only (gno-native sends, credits,
   claim payouts, sweep payments): voucher returns, acknowledgements, timeouts
   and refunds go on.
 - **Governance** (`GovApply`, ibcgov only): enrolment, denom limits, fee
   collector, refused recipients, voids and restores of withheld claims, credit
-  by vote, sweep payments, losses, recapitalization authorizations (only for
+  by vote, sweep payments (live entries of one denom, each paid whole to the
+  decision's payee, with no claim fee and outside the payout meters; for an
+  `unescrow` denom their total must fit the free escrow, what open and withheld claims and
+  queued refunds do not reserve; deferred under a `payouts` flag), losses,
+  recapitalization authorizations (only for
   an `unescrow` denom, the only kind recapitalized on gno.land; paid by
   anyone with **`Recapitalize(route, id)`**: for a native coin, a direct
   user call sending exactly the authorized amount; for a GRC20, no coins
@@ -240,8 +252,9 @@ mapping: [ADR 0004](../../../../../../docs/adrs/0004-ethereum-route-controls.md)
   settlements of a retired client's sends, route replacement and reopening.
 - **Renders**: `routes`, `routes/{route}`, `routes/{route}/claims`,
   `routes/{route}/sweeps`, `routes/{route}/sends`, `routes/{route}/losses`
-  (JSON pages `{"entries":[...],"next":<cursor>}`: pass `next` as
-  `?from=` for the following page, `""` when there is none; losses are
+  (JSON pages of at most 100 entries, `{"entries":[...],"next":<cursor>}`:
+  pass `next` as `?from=` for the following page, `""` when there is none;
+  losses are
   ordered by direction then packet key), and the `route_*` events (`credit`,
   `claim`, `settle`, `refund`, `recapitalize`, `gov`).
 
@@ -479,7 +492,7 @@ refund is paid in the same transaction; the send record tracks the payment.
 Native coins and non-IBC GRC20 tokens are escrowed at the transfer realm's
 single account (Gno realms cannot own multiple addresses, so the ibc-go
 per-channel escrow address approach is not available). Per-client isolation is
-tracked in the realm store instead:
+tracked in the realm store instead. For non-Ethereum clients:
 
 - Escrow is tracked per `(client, denom)` in the realm store, not as a single
   global per-denom pool.
@@ -498,6 +511,14 @@ This prevents the shared-escrow drain: an attacker who creates their own client
 and forges a valid proof against it cannot unescrow funds that honest users
 locked under a different client. See
 `z4f_on_recv_packet_drain_filetest.gno` for the regression test.
+
+On an Ethereum route the escrow is keyed by the route's stable key (its first
+client id), so it follows the route across client replacements. A send
+escrows under it; a receive moves no value: it books a claim or a sweep
+entry, and the escrow is released later, by `Claim` within the meters or by
+a governed sweep payment. A receive above the free escrow (what open and withheld claims and
+queued refunds do not reserve) is not refused: it becomes an owed sweep
+entry, acknowledged with success.
 
 ## Upgrades
 
