@@ -66,10 +66,42 @@ var (
 	// entries are removed lazily: by a later flag at the same key, an
 	// unpause, a fold, or PruneFlags, which anyone may call.
 	seatGen    [SeatCount]uint64
-	seatGenAt  [SeatCount]int64 // when the seat's generation last grew
 	seatFlags  [SeatCount]int64
 	pruneAfter string // where PruneFlags resumes
+	// genEnds records when each ended seat generation ended, kept while
+	// entries of its flags remain: a flag reads its own generation's end, so
+	// a later generation of the seat ending does not move an earlier one's.
+	// A record goes with the last entry of its generation, so there is at
+	// most one per stale entry.
+	genEnds avl.Tree // seat|gen -> *genEnd
 )
+
+// genEnd is when a seat generation ended and how many of its flags'
+// entries remain.
+type genEnd struct {
+	at   int64
+	left int64
+}
+
+func genKey(seat int, gen uint64) string {
+	return strconv.Itoa(seat) + "|" + strconv.FormatUint(gen, 10)
+}
+
+// endedAt is when the generation of a flag that no longer counts ended.
+func (f *flag) endedAt() int64 {
+	return genEnds.Get(genKey(f.seat, f.gen)).(*genEnd).at
+}
+
+// dropStale removes the entry at k of a flag that no longer counts, and its
+// generation's record with the last of its entries.
+func dropStale(k string, f *flag) {
+	flags.Remove(k)
+	gk := genKey(f.seat, f.gen)
+	e := genEnds.Get(gk).(*genEnd)
+	if e.left--; e.left == 0 {
+		genEnds.Remove(gk)
+	}
+}
 
 type flag struct {
 	seat int
@@ -157,11 +189,12 @@ func foldFlags(from, to string, t int64) int {
 		return false
 	})
 	for _, k := range keys {
-		v, _ := flags.Remove(k)
-		f := v.(*flag)
+		f := flags.Get(k).(*flag)
 		if !f.live() {
-			continue // its seat's key left: it stopped counting then
+			pruneFlag(k, f) // its seat's key left: it stopped counting then
+			continue
 		}
+		flags.Remove(k)
 		fn := strings.Split(k, "|")[1]
 		if w := flags.Get(flagKey(to, fn, f.seat)); w != nil && !w.(*flag).live() {
 			pruneFlag(flagKey(to, fn, f.seat), w.(*flag))
@@ -224,8 +257,8 @@ func PayoutsEpoch(route string) (epoch, at int64) {
 	flags.Iterate(flagPrefix(route, FnPayouts), flagPrefix(route, FnPayouts)+"~", func(_ string, v any) bool {
 		if f := v.(*flag); !f.live() {
 			epoch++
-			if seatGenAt[f.seat] > at {
-				at = seatGenAt[f.seat]
+			if e := f.endedAt(); e > at {
+				at = e
 			}
 		}
 		return false
@@ -382,14 +415,15 @@ func clearFlag(route, fn string, seat int, t int64) {
 // counting then; a payouts flag's clearing is booked as of then, as
 // PayoutsEpoch already reads it.
 func pruneFlag(k string, f *flag) {
-	flags.Remove(k)
+	ended := f.endedAt()
+	dropStale(k, f)
 	parts := strings.Split(k, "|")
 	if parts[1] == FnPayouts {
 		if v := routes.Get(parts[0]); v != nil {
 			r := v.(*routeRec)
 			r.epoch++
-			if seatGenAt[f.seat] > r.epochAt {
-				r.epochAt = seatGenAt[f.seat]
+			if ended > r.epochAt {
+				r.epochAt = ended
 			}
 		}
 	}
@@ -471,8 +505,10 @@ func clearFns(route string, fns []string, t int64) int {
 // the seat's generation grows, so its flags stop counting; their entries
 // are pruned lazily.
 func clearSeat(seat int, t int64) {
+	if seatFlags[seat] > 0 {
+		genEnds.Set(genKey(seat, seatGen[seat]), &genEnd{at: t, left: seatFlags[seat]})
+	}
 	seatGen[seat]++
-	seatGenAt[seat] = t
 	seatFlags[seat] = 0
 	chain.Emit("SeatFlagsEnded", "seat", strconv.Itoa(seat))
 	updateHold(t)
