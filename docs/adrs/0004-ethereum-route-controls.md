@@ -102,9 +102,10 @@ starts with impl/v1 and there is no migration from impl/v0 (round 10).
 - **ibcgov**: `ledger`, `yielded`, `seats[6]`, `flags` (route|fn|seat),
   `routes` (route key → payouts epoch, the route's identity recorded at
   enrolment), `holdSince`/`belowSince`, `epoch`,
-  `epochs` (epoch → client, last seq), `govSucc` (the governance
-  transitions, kept apart from the transfer aliases: the old client of every
-  recorded route replacement → the client replacing it), `dispatches` ((epoch, seq) → bytes,
+  `epochs` (epoch → client, last seq), `expected` (the expected
+  governance transitions, kept apart from the transfer aliases, in router
+  client ids: an old client → up to 4 expected successors), `awaitingGov`
+  (gno clients retired for transfers only while on an expected path), `dispatches` ((epoch, seq) → bytes,
   status, transport sequence), `pendingAuth` (one-time, never persisted
   between transactions in practice: set and consumed in the same call).
 
@@ -294,42 +295,51 @@ both when the request is made and when it executes (`checkBindClient`); a
 standalone binding is refused, and a client that loses health during the
 delay leaves the decision spent. The channel thus always rides a route, and
 moves with a route replacement in two phases (ADR pr6375 §7.12, "Governance
-epoch switch, two-phase and authenticated"; z9zv, z9zx). Recording
-`NewReplaceRouteRequest` records the transition old client → new client
-(`govSucc`, kept apart from the transfer app's route aliases), so the
-recorded transitions chain, from the epoch's client, the clients the epoch is
-to move through, one epoch each, as Ethereum raises its epoch by one per
-kind 10 or emergency recovery it executes. A client on that chain (the
-epoch's, or one still ahead of it) is never retired for the gov port: when
-its replacement executes here the core retires it for the transfer port only
-(`RetireClientPort`), so a decision in flight, the kind 10 among them, can
-still be re-sent over the epoch's client, and a later step's notice can
-still arrive. IBCAdmin, when it executes the
-matching kind 10 or its emergency recovery, sends an epoch notice from its
-port `ibcgov` over the new client to port `gov`: `version u8 (1) ‖ epoch
-u32 ‖ newClient` (big-endian, `newClient` the router's client id it comes
-from, the rest of the bytes), version `ibcgov-1`, encoding
-`application/x-ibcgov`. It is the only packet ibcgov receives
-(`App.OnRecvPacket`). ibcgov accepts a notice of epoch current + k (k from 1
-to 16) only over the k-th recorded successor of the epoch's client, naming
-the client it came from, its proof verified by the core through that client
-(Active, its counterparty the notice's source); the epoch then opens there,
-past any step in between (a step whose client failed before its notice
-arrived is skipped: z9zx freezes one), and every client passed is retired
-for the gov port, for good once its replacement has executed here too. Two
-replacements executed here before any notice (A→B, then B→C) leave A and B
-retired for transfers only: B's notice moves the epoch to 2, C's to 3; C's
-notice for epoch 2 is refused. The app acknowledgement is `epoch u32 ‖ seq u64 (0) ‖ status u8 ‖
-redispatch u8 (0)`: status 1 when the notice switches the epoch, 3 for a
-notice of the epoch switched to already (a re-send). Anything else is
-refused with the universal error acknowledgement; a notice sent before its
-replacement is recorded here is refused, and IBCAdmin sends it again. The
-notice may arrive before the replacement executes here: the epoch moves
-then, the clients passed are retired for the gov port, and each one's
-replacement retires the rest. Until the notice arrives ibcgov never sends with the next
-epoch, so the two sides cannot disagree about the current epoch. The
-notice's layout follows ADR pr6375 §7.12; its vectors are to be checked
-against gno-eth-ibc's when IBCAdmin publishes them.
+epoch switch, two-phase and authenticated"; z9zv, z9zx). ibcgov records the
+transitions it expects Ethereum to make, in router client ids, kept apart
+from the transfer app's route aliases (`expected`): a kind 10 records its
+old → new client when it is dispatched, and `NewExpectRecoveryRequest(old,
+new)` (at once) records an emergency recovery's, which ibcgov does not
+dispatch. A router client has at most 4 expected successors (only one of
+competing kind 10s executes on Ethereum); an expectation is never
+overwritten or removed, and one never confirmed by a notice (a cancelled or
+failed transition) costs nothing. IBCAdmin, when it executes a kind 10 or
+its emergency recovery, raises its epoch by one and sends an epoch notice
+from its port `ibcgov` over the new client to port `gov`: `version u8 (1) ‖
+epoch u32 ‖ newClient` (big-endian, `newClient` the router's client id it
+comes from, the rest of the bytes), version `ibcgov-1`, encoding
+`application/x-ibcgov` (gno-eth-ibc `gov-vectors.json` `epochNotice` at
+0c55d28, checked in z2c). It is the only packet ibcgov receives
+(`App.OnRecvPacket`). A notice of epoch current + k (k from 1 to 16) is
+accepted only when its source is reached from the epoch client's
+counterparty through exactly k expected transitions (a breadth-first search
+of k steps keeping at most 64 router clients a step: at most 16 × 64 × 4
+reads), naming the client it came from, its proof verified by the core
+through the gno client it arrives on (Active, its counterparty the
+notice's source); the epoch then opens there, past any step in between (a
+step whose client failed before its notice arrived is skipped: z9zx freezes
+one). A gno client on an expected path from the epoch's client (the epoch's
+own, or one whose counterparty is reached within 16 steps) is never retired
+for the gov port: when its route replacement executes here the core retires
+it for the transfer port only (`RetireClientPort`), so a decision in flight,
+the kind 10 among them, can still be re-sent and a later step's notice can
+still arrive. When a notice moves the epoch, the old epoch's client is
+retired for governance (for good if its route replacement executed here,
+otherwise for the gov port, the replacement retiring the rest), and every
+client retired for transfers while on a path is retired for good once no
+path from the new epoch's client goes through it (`awaitingGov`). z9zx:
+A→B and B→C executed here before any notice, B's notice moves the epoch to
+2 and C's to 3, C's for epoch 2 refused; competing kind 10s C→D and C→F,
+gno.land's C→F replacement cancelled, D's notice accepted; an emergency
+recovery D→G expected by decision, G's notice accepted; G→H→E with H frozen,
+E's notice two steps on accepted and one three steps on refused. The app
+acknowledgement is `epoch u32 ‖ seq u64 (0) ‖ status u8 ‖ redispatch u8
+(0)`: status 1 when the notice switches the epoch, 3 for a notice of the
+epoch switched to already (a re-send). Anything else is refused with the
+universal error acknowledgement; a notice whose transition is not expected
+yet is refused, and IBCAdmin sends it again. Until a notice arrives ibcgov
+never sends with a later epoch, so the two sides cannot disagree about the
+current epoch.
 `seq` is bound in the transaction that records and dispatches the decision, so
 numbers are contiguous, never reused or skipped, and their bytes immutable.
 Each send is authorized once (client, epoch, seq, payload hash), consumed in
@@ -366,11 +376,11 @@ against gno-eth-ibc 6f94541's vectors.
 | R14 authorities | `core/admin.gno`, `app.gno`, `upgrade.gno`, `proposals.gno`; `transfer/admin.gno`, `upgrade.gno`, `proposals.gno`; `authority.NewWithMembers` |
 | R16 client migration, two kinds. A verifier replacement (`ethereum-verifier`, params the target version; ibcgov `NewReplaceVerifierRequest(clientID, toVersion)`, 7 days): the conversion is code of a core implementation, declared as plain values (`implv1.NewWithConversions`: from, to, conversion) and installed beforehand by the governed, manifest-checked implementation upgrade (impl/v1 itself declares none); no other code converts a verifier, so no foreign function or object runs. The active implementation's preflight reads its declared pairs and the client's type, status and `VerifierVersion`, and requires the live verifier to expose its ethereum/v0 state (`Ethereum() *EthLightClient`, which the read-only view is built from; a verifier keeping its state otherwise needs migration support of its own); any of these failing spends the decision (z9zl, z9zs); an Active or an Expired client is converted, a Frozen one refused (its misbehaviour is resolved by a recovery first), so a client whose updates stopped long enough to expire is still converted and an ordinary governed recovery then follows (z9zu); the conversion and every check on its result (it names the target version, keeps the live verifier's status, Active or Expired, its latest height and, for a verifier exposing ethereum/v0 state, the slot it trusts consensus states from) run inside one recovered boundary in the core's realm, so a panic (a typed-nil verifier, a status or height that panics) or a mismatch refuses the migration with nothing changed and the decision spent (transfer `z9zn`, `z9zo`); only then is the new verifier installed (`Client.SetLightClient`). The new verifier keeps the history without copying it: the conversion receives only a read-only view of the live verifier (`ethereum.Retire`: copies of its client and consensus states, its latest height, nothing to write with), so a refused conversion leaves nothing half-written (z9zo's tampering conversion); `ethereum.NewFrom` copies the client state and holds that view of the retired verifier (`Retired`), serving every consensus state at or below its latest slot, while the new verifier's own states are stored apart and nothing writes to the retired one again; constant work whatever the history (`TestNewFromKeepsHistory`), every pre-replacement trusted height stays provable (z9zl). The client keeps its id, consensus states, commitments, receipts and acknowledgements, its trust generation advances and its route's payout meters start empty; recovery and fork migration act on the new verifier's head. A fork-schedule migration (`ethereum-fork-schedule`) of the client's verifier, through the `CheckForkParameters`/`MigrateForkParameters` methods it implements (ethereum/v0's, and a later version embedding it, such as `NextVerifier`: z9zl), a verifier without them refused at preflight; `CheckForkParameters`: the client Active; the schedule changed; the genesis fork version and slot unchanged; every fork whose epoch is at or before the current epoch (the later of the latest trusted slot's and the block time's) unchanged, version and epoch; every changed fork activating after the current epoch; the fork epochs in order | `core/verifiers.gno` (`VerifierVersion`), `ethereum/v0` (`NewFrom`, `Retired`, `migrate.gno`), `core/client.gno` (`MigrateClient`), `core/impl/v1` (`NewWithConversions`), ibcgov `NewMigrateClientRequest`, `NewReplaceVerifierRequest`, `ethereum/testing` (`NextVerifier`) |
 | R17 flags keep returns open; public Ethereum relaying | `transfer/impl/v1` (flags never touch burns, acks, timeouts), `core/admin.gno` `ensureRelayerFor` |
-| R18 route replacement (the new client an Active Ethereum client that is no route's, which on a fresh deployment holds no transfer state, and that authenticates the route's identity: the Ethereum chain id and genesis validators root, the ICS26 router and its commitments slot, recorded from the client at the enrolment (whose bridge router must be the router the client reads) and never changed, checked when the replacement is requested and again when it executes, a client of another chain or router refused however genuine (it would prove that router's receipts: moving a route there is a migration of its own; `core.ClientRouteIdentity`, ibcgov `RouteIdentity`, z9zt); the old one may be frozen or expired; as in Ethereum's reconciliation state machine, it replaces the route's current client whether the route is open or closed, each replacement an incident of its own covering the client it retires, the earlier incidents' records, suspect intervals and counters untouched, a reopening under way aborted, and proofs of every incident's records going through the route's current client): closed until a governed reopening (its loss scan starting over if a loss was booked meanwhile), the payout meters (bridge and recipient) emptied through a new payouts epoch; a fork migration of a route's client empties them too. Refund meters always refill under epoch 0, so their state survives both. The suspect height is a past gno.land height (the builder refuses a negative or future one), and `Registry.Replace` raises one below the previous replacement's height (`ReplacedAt`) to it: a repeated replacement's interval never starts before the client it retires became current | `controls.Registry.Replace`, `Route.Reopen`, transfer `toWire`/`toInternal`, `core.RetireClient`/`RetireClientPort`, ibcgov `NewReplaceRouteRequest` (route identity, payouts epoch, the epoch notice it records), `NewReopenRouteRequest` |
+| R18 route replacement (the new client an Active Ethereum client that is no route's, which on a fresh deployment holds no transfer state, and that authenticates the route's identity: the Ethereum chain id and genesis validators root, the ICS26 router and its commitments slot, recorded from the client at the enrolment (whose bridge router must be the router the client reads) and never changed, checked when the replacement is requested and again when it executes, a client of another chain or router refused however genuine (it would prove that router's receipts: moving a route there is a migration of its own; `core.ClientRouteIdentity`, ibcgov `RouteIdentity`, z9zt); the old one may be frozen or expired; as in Ethereum's reconciliation state machine, it replaces the route's current client whether the route is open or closed, each replacement an incident of its own covering the client it retires, the earlier incidents' records, suspect intervals and counters untouched, a reopening under way aborted, and proofs of every incident's records going through the route's current client): closed until a governed reopening (its loss scan starting over if a loss was booked meanwhile), the payout meters (bridge and recipient) emptied through a new payouts epoch; a fork migration of a route's client empties them too. Refund meters always refill under epoch 0, so their state survives both. The suspect height is a past gno.land height (the builder refuses a negative or future one), and `Registry.Replace` raises one below the previous replacement's height (`ReplacedAt`) to it: a repeated replacement's interval never starts before the client it retires became current | `controls.Registry.Replace`, `Route.Reopen`, transfer `toWire`/`toInternal`, `core.RetireClient`/`RetireClientPort`, ibcgov `NewReplaceRouteRequest` (route identity, payouts epoch), the expected transitions (kind 10 dispatch, `NewExpectRecoveryRequest`), `NewReopenRouteRequest` |
 | R19 identifying receipts | `types.CommitPacketReceipt`, `core/store.gno`, `core/impl/v0/packet.gno` |
 | §7.3 refusals before state change | `transfer/impl/v1/recv.gno` (`refuse`) |
 | §7.11 on-chain records | `controls.Reader` JSON: route totals, and pages `{"entries":[...],"next":<cursor>}` of claims, sweeps, sends (by packet key) and losses (by direction and packet key), `next` being the storage key the following page starts at; `route_*` events. Every Render page is safe Markdown: JSON pages of transfer, core and ibcgov pass through `jsonmd.Inert` (the controls quote with `jsonmd.Quote`), so a raw receiver kept on an owed sweep entry or a path segment echoed in an error is inert text; tables escape counterparty base denoms, paths, counterparty ids and ports, and the route list its denoms (`sanitize.TableCell`, `InlineText`) |
-| §7.12 gno side | route replacement above, naming its suspect height; settlements of a retired client's sends (`Route.SettleRecords`, `NewSettleRequest` and `NewEthSettleRequest` naming a sequence once per direction, an outbound send and an inbound receive of one sequence together: payments checked against the escrow the liabilities still reserve once the whole batch applies, every queued refund and forged claim it releases counted in any item order; whole remainders, zero for a genuine refund paid in full, forged refunds, each record once; a settlement's refund is paid directly, outside the refund meter and, for a minted denom, outside the supply cap, while a refunds hold still defers the decision; the settlement is planned before anything changes (`PlanSettlement`): its genuine minted refunds take the room left for minting (the lower of what the outstanding supply and the voucher token's supply leave under int64) in item order, and one that does not fit is parked, never refused; only the refunds paid now are checked against their token or the banker (`payable`), then the plan applies whole (`ApplySettlement`, z9zw). A parked refund: its record is settled (it no longer blocks the reopening), the refund owed and queued (`PayQueued`, in `QueuedRefunds`) and reserved again against the supply cap (`Reservation`, `Returning`), so no credit takes the capacity it needs, and `ClaimRefunds` pays it once the route reopens, within the headroom (a voucher return frees it), the refund meter and any refunds hold, the record then `reconciled` (`TestParkedSettlementRefund`); a settlement marks the transfer app's send record and leaves the retired client's commitment in the core as it is); a reopening waits for every open record and every record processed in the suspect interval, and runs its deficit acceptance in batches (`ContinueReopen`); `NewRecordLossRequest`; owed refunds reserved; retired client ids final; a retired client takes the authorized app's pending asynchronous acknowledgements |
+| §7.12 gno side | route replacement above, naming its suspect height; settlements of a retired client's sends (`Route.SettleRecords`, `NewSettleRequest` and `NewEthSettleRequest` naming a sequence once per direction, an outbound send and an inbound receive of one sequence together: payments checked against the escrow the liabilities still reserve once the whole batch applies, every queued refund and forged claim it releases counted in any item order; whole remainders, zero for a genuine refund paid in full, forged refunds, each record once; a settlement's refund is paid directly, outside the refund meter and, for a minted denom, outside the supply cap, while a refunds hold still defers the decision; the settlement is planned before anything changes (`PlanSettlement`): its genuine minted refunds take the room left for minting (the lower of what the outstanding supply and the voucher token's supply leave under int64) in item order, and one that does not fit is parked, never refused; only the refunds paid now are checked against their token or the banker (`payable`), then the plan applies whole (`ApplySettlement`, z9zw). A parked refund (reserved in its own total, `Parked`, apart from the in-flight burns' `Returning`, so it never refuses a voucher return; a settlement first releases every reservation and queued refund its batch holds, then adds the parked refunds, then settles the records, so no intermediate sum overflows whatever the item order: `TestParkedRefundLetsReturnsBurn`, `TestSettlementReleasesBeforeParking`): its record is settled (it no longer blocks the reopening), the refund owed and queued (`PayQueued`, in `QueuedRefunds`) and reserved again against the supply cap (`Reservation`, `Parked`), so no credit takes the capacity it needs, and `ClaimRefunds` pays it once the route reopens, in installments as the headroom allows (whatever a voucher return frees, below the usual minimum installment if need be), the refund meter and any refunds hold, the record then `reconciled` (`TestParkedSettlementRefund`); a settlement marks the transfer app's send record and leaves the retired client's commitment in the core as it is); a reopening waits for every open record and every record processed in the suspect interval, and runs its deficit acceptance in batches (`ContinueReopen`); `NewRecordLossRequest`; owed refunds reserved; retired client ids final; a retired client takes the authorized app's pending asynchronous acknowledgements |
 | R17, §6.7 deployment | a fresh deployment: the transfer proxy's first registration is impl/v1, which serves non-Ethereum clients through impl/v0's logic and puts every Ethereum client under the controls; an Ethereum client carries nothing until `NewEnrollRouteRequest` makes it a route; impl/v0 registers nothing, and the proxy refuses an implementation without the controls once a route exists |
 | §7.12 proven outcomes | `transfer.ProveOutcome` reads the destination router's receipt (`ethereum.PacketReceiptCommitment`) and acknowledgement through the replacement client (`core.CounterpartyValue`, which refuses a verifier not Active or retired); an absence counts only at a destination time at or past the packet's timeout; with a matching receipt, the acknowledgement commitment must be exactly one of two: eureka's canonical success (one app acknowledgement, `{"result":"AQ=="}`, `successAckCommitment`), proving delivered, or the universal error acknowledgement, proving refundable; any other commitment, an unwritten one included, is refused ("the destination wrote no final acknowledgement of the packet"), narrower than §5.4's success or error acknowledgement and than ordinary acknowledgement processing (`ack.gno`), which takes any decodable success result; it is safe because an honest eureka ICS20 app writes exactly these two (see Known limits); an outcome is final while its verifier stays healthy under the trust generation it was proven in, and void (to be proven again) once the verifier froze, expired, or was recovered, upgraded, migrated or substituted, checked again when the settlement consumes it; a recovered Ethereum client proves nothing from its pre-recovery consensus states; settlement actions must match; action 5 makes a forged receive's claim forged and books what it paid once; a refund paid for a delivered packet is booked only by action 4 |
 | §7.13 refund meter, refunds hold, send records for every send | `controls/refunds.gno`, `transfer/impl/v1/ack.gno`, `send.gno`, `controls.gno` (`ClaimRefunds`) |
@@ -388,7 +398,8 @@ saturates statistics no check reads. Audited:
 | Aggregate | Rule |
 |---|---|
 | `InFlight` (open sends' amounts) | checked at every send: bounds every refund owed |
-| `QueuedRefunds`, `Returning` | must (≤ `InFlight`, plus the parked settlement refunds, which a settlement adds to `Returning` and `QueuedRefunds` net of every reservation and queued refund its batch releases or consumes, never counting a covered refund twice: `TestSettlementNetReservations`) |
+| `QueuedRefunds`, `Returning` | must (≤ `InFlight`, for `Returning`, the in-flight burns only; `QueuedRefunds` also holds the parked refunds, checked net of what the batch unqueues: `TestSettlementNetReservations`) |
+| `Parked` (settled minted refunds owed) | checked when a settlement parks; `booked` counts it against the supply cap, and admission subtracts (`SupplyCap - booked`, saturating) |
 | `Owed`, `Withheld`, `Swept` | checked as their sum at every credit (`liabilities`); moves between them must |
 | `Outstanding` | checked before every minted payout (a settlement's refund beyond a released reservation is parked when it would overflow: see §7.12 above): a sweep payment that would overflow it is refused whole, its entries kept (the decision spent); a claim installment and a queued refund installment are capped to the headroom, the remainder kept; an immediate refund that would not fit is queued (`TestMintedPayoutHeadroom`) |
 | `OpenUnrecovered`, `OpenUnresolved` (denom and incident): the outstanding loss balances | checked (`lossFits` admits a loss against `OpenUnrecovered`, which bounds `OpenUnresolved`), batch sums checked per addition; a recovery (a paid recapitalization, a reduction: `recover`) takes off `OpenUnrecovered`, freeing admission capacity, and off `OpenUnresolved` as far as it remains; an accepted deficit (`accept`) takes off `OpenUnresolved` only and frees no admission capacity |

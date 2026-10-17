@@ -250,9 +250,10 @@ mapping: [ADR 0004](../../../../../../docs/adrs/0004-ethereum-route-controls.md)
   client's sends are settled), subject to its own checks and deferred under
   a `refunds` hold. A minted refund the outstanding supply cannot hold then
   is parked instead of refused: its record is settled, the refund owed,
-  queued and reserved against the supply cap, and `ClaimRefunds` pays it
-  after the reopening once the supply has room (a voucher return makes
-  some). The replacement client must authenticate the route's identity, the
+  queued and reserved against the supply cap (apart from the returns in
+  flight, so it never refuses a return), and `ClaimRefunds` pays it after
+  the reopening in installments as the supply has room (a voucher return
+  makes some). The replacement client must authenticate the route's identity, the
   Ethereum chain, router and commitments slot recorded at the enrolment
   (`ibcgov.RouteIdentity`). It reopens by a governed decision, refused
   while a send record of a retired client is still open (its commitment

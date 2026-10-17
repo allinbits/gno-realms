@@ -271,8 +271,12 @@ Ethereum client carries nothing until a decision makes it a route.
    client, the replacement retires it for transfers only: the epoch moves to
    the new client when IBCAdmin's epoch notice arrives over it (sent when
    Ethereum executes the matching kind 10, or its emergency recovery), and
-   the old client is then retired for good. A notice that arrives before
-   the replacement executes here moves the epoch all the same.
+   the old client is then retired for good. The notice is accepted only
+   along a transition ibcgov expects: dispatching the kind 10 records it;
+   for an emergency recovery, record `NewExpectRecoveryRequest(oldRouterClient,
+   newRouterClient)` (at once) before relaying its notice. A notice that
+   arrives before the replacement executes here moves the epoch all the
+   same.
 7. A client's verifier is replaced by another verifier version (ADR pr6375
    R16) in two governed steps: first a core implementation that compiles the
    conversion in (`implv1.NewWithConversions`: from version, to version,
@@ -360,7 +364,9 @@ characters of `a-z`, `0-9`, `-`).
    for transfers; while the governance epoch runs over `OLD` it stays there,
    so the kind 10 and every decision in flight can still be re-sent
    (`Redispatch`). When IBCAdmin executes kind 10 (or Ethereum's emergency
-   recovery, if `OLD` cannot carry it) it sends the epoch notice over `NEW`;
+   recovery, if `OLD` cannot carry it; then first record
+   `NewExpectRecoveryRequest(ROLD, RNEW)` here) it sends the epoch notice
+   over `NEW`;
    relay it (`RecvPacket` on `NEW`, port `gov`). Check: `ibcgov.Epoch()` one
    higher, `ibcgov.EpochClient() == NEW`, `core.IsClientRetired(OLD)`. A
    notice refused with an error acknowledgement (sent before the
