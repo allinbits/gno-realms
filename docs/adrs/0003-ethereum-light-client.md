@@ -162,4 +162,16 @@ unchanged.
   it can catch up through successive periods, each update signed in the
   stored period or the next one (with the next committee), which it learns
   period by period; once expired it accepts no update or misbehaviour and
-  must be recovered by governance.
+  must be recovered by governance. On mainnet the window is about 9.1 days
+  (8 × 256 epochs × 32 slots × 12 s). A governed verifier replacement (ADR
+  0004, R16) converts an Expired client too, keeping it Expired and keeping
+  the slot it trusts consensus states from, so a stall that outlasts the
+  window is repaired by the conversion, then that ordinary recovery; a
+  Frozen client is refused. The runbook (§7, step 7) gives the preparation
+  deadline and the missed-deadline procedure.
+- Every field a route's history depends on is fixed at creation: the chain
+  id, the genesis validators root, the ICS26 router address and its
+  commitments slot (`EthLightClient.RouteIdentity`, read through
+  `core.ClientRouteIdentity`). A route records them at its enrolment, and a
+  replacement client must name the same ones (ADR 0004, R18): a genuine
+  client of another router or chain is refused.

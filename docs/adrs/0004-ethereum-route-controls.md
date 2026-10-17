@@ -92,12 +92,19 @@ starts with impl/v1 and there is no migration from impl/v0 (round 10).
   - Per client, the processed send records not settled by reconciliation,
     ordered by processing height (an `avl.Node`, so the records processed at
     or after a replacement's suspect height are counted in logarithmic work);
-    per retired client, its suspect height.
+    per retired client, its suspect height; the retired clients that still
+    block a reopening (`blocking`), and a count of the denoms with an
+    unresolved loss (`unresolvedDenoms`).
+  - Per denom, the queued refunds in order and indexed by packet key
+    (`refundIdx`).
   - Escrow stays in the proxy's existing per-key accounting, keyed by the
     route key (= the first client id, so pre-existing escrow carries over).
 - **ibcgov**: `ledger`, `yielded`, `seats[6]`, `flags` (route|fn|seat),
-  `routes` (route key → payouts epoch), `holdSince`/`belowSince`, `epoch`,
-  `epochs` (epoch → client, last seq), `dispatches` ((epoch, seq) → bytes,
+  `routes` (route key → payouts epoch, the route's identity recorded at
+  enrolment), `holdSince`/`belowSince`, `epoch`,
+  `epochs` (epoch → client, last seq), `replacements` (the new client of
+  every recorded route replacement → the client it replaces: where an epoch
+  notice may arrive), `dispatches` ((epoch, seq) → bytes,
   status, transport sequence), `pendingAuth` (one-time, never persisted
   between transactions in practice: set and consumed in the same call).
 
@@ -202,13 +209,13 @@ func, and what guards each:
 At once: tightening (pause, pause app, reject app, block, remove relayer while
 others stay, remove member, lowering a denom limit, refusing recipients),
 cancels, unpauses (spent under a hold, as §7.4 has GovDAO unpause at once),
-a void of packets a guardian named, seat vacating, every Ethereum-bound
+a void of packets a guardian named, every Ethereum-bound
 decision (dispatched; IBCAdmin applies its own delay). These are every
 builder that does not queue: core reject app, pause, pause app, unpause,
 unpause app, remove member, remove relayer (while others stay); transfer
 block, remove member; route refuse recipients, set denom (when it only
-tightens), void (when a guardian named every packet), unpause route; set
-seats (removals only); cancel; every `NewEth*Request`. A denom change is
+tightens), void (when a guardian named every packet), unpause route;
+cancel; every `NewEth*Request`. A denom change is
 classified when its decision is recorded, against the configuration then
 (another decision may have changed it since the request was built), by
 `controls.Loosens`: a new denom, a higher cap floor, supply cap, fee, send
@@ -220,13 +227,14 @@ else (upgrades, relayers, recovery, approvals, migrations, membership,
 enrolment, new denoms and any loosening, a restore of withheld claims (it
 resumes payouts), fee collector, unrefusing, credits, sweeps,
 losses, recapitalizations, reductions, accepted deficits, reconciliation
-settlements, route replacement and reopening, channel binding, seat
-additions); revoking a recapitalization authorization applies at once. A
+settlements, route replacement and reopening, channel binding, every seat
+change, a vacancy included, as ADR pr6375 §7.4 has it); revoking a recapitalization authorization applies at once. A
 decision whose call would fail on the live state when it applies (the light
 client's recovery and migration checks and the core's send checks included)
 is refused and spent, never left pending. Proposals
 expire 14 days after they are built. A hold defers every queued decision,
-except a seat change from day 21 of the hold.
+except a seat change (a vacancy included) from day 21 of the hold: the
+governor cannot end a hold by vacating the flagging seats (z1b).
 
 ### Entry points
 
@@ -243,9 +251,10 @@ except a seat change from day 21 of the hold.
   `NewSettleRequest`,
   `NewReplaceRouteRequest` (with its gno.land suspect height),
   `NewReopenRouteRequest`,
-  `NewBindGovernanceRequest`) and Ethereum-bound builders `NewEth*Request`
+  `NewBindGovernanceRequest`), the epoch notice codec (`EpochNotice`,
+  `ParseEpochNotice`) and Ethereum-bound builders `NewEth*Request`
   for kinds 1–13 (`NewEthSettleRequest`, `NewEthReopenRequest`); reads `Flagged`, `PayoutsEpoch`, `NamedSuspect`, `Held`,
-  `HoldSince`, `Seat`, `SeatOf`, `Flags`, `Epoch`, `EpochClient`, `LastSeq`,
+  `HoldSince`, `Seat`, `SeatOf`, `Flags`, `RouteIdentity`, `Epoch`, `EpochClient`, `LastSeq`,
   `DispatchBody`, `DispatchState`, `DispatchTransport`, `Decision`,
   `LastDecision`, `Governor`, `Yielded`, `Render` (`""`, `decisions`,
   `dispatch/<e>/<seq>`).
@@ -262,8 +271,9 @@ except a seat change from day 21 of the hold.
 - **transfer**: `Claim`, `ClaimRefunds`, `ProveOutcome`, `ContinueReopen`,
   `Recapitalize`, `GovApply` (refuses when the active implementation keeps no
   controls), `ExtView`; renders `routes…` (README).
-- **core**: `RetireClient`, `IsClientRetired`, `MigrateClient`,
-  `VerifierVersion`,
+- **core**: `RetireClient`, `IsClientRetired`, `RetireClientPort`,
+  `IsClientRetiredFor`, `MigrateClient`, `VerifierVersion`,
+  `ClientRouteIdentity`,
   `ClientTrustGeneration`, `ClientType`,
   `CounterpartyClientID`, `PacketCommitment`, `PacketReceipt`,
   `PacketAcknowledgement`, `HasPendingAsyncAck`, `PendingAsyncAck`,
@@ -282,9 +292,36 @@ opens when `NewBindGovernanceRequest` binds the channel to an Ethereum client,
 which must be Active and the current client of an enrolled transfer route
 both when the request is made and when it executes (`checkBindClient`); a
 standalone binding is refused, and a client that loses health during the
-delay leaves the decision spent. The channel thus always rides a route: a
-route replacement over that client, the way out of a frozen or expired
-client, opens the next epoch over the new one.
+delay leaves the decision spent. The channel thus always rides a route, and
+moves with a route replacement in two phases (ADR pr6375 §7.12, "Governance
+epoch switch, two-phase and authenticated"; z9zv). Recording
+`NewReplaceRouteRequest` notes its new client as one an epoch notice may
+arrive over. When the replacement executes here while the epoch runs over
+the old client, the core retires the old client for the transfer port only
+(`RetireClientPort`): the epoch stays over it, so a decision in flight, the
+kind 10 among them, can still be re-sent. IBCAdmin, when it executes the
+matching kind 10 or its emergency recovery, sends an epoch notice from its
+port `ibcgov` over the new client to port `gov`: `version u8 (1) ‖ epoch
+u32 ‖ newClient` (big-endian, `newClient` the router's client id it comes
+from, the rest of the bytes), version `ibcgov-1`, encoding
+`application/x-ibcgov`. It is the only packet ibcgov receives
+(`App.OnRecvPacket`). ibcgov accepts it only over the new client of a
+recorded replacement whose old client carries the current epoch, for exactly
+the current epoch plus one, naming the client it came from, its proof
+verified by the core through the new client (Active, its counterparty the
+notice's source); the epoch then opens over the new client and the old one
+is retired for the gov port, for good once the replacement has executed here
+too. The app acknowledgement is `epoch u32 ‖ seq u64 (0) ‖ status u8 ‖
+redispatch u8 (0)`: status 1 when the notice switches the epoch, 3 for a
+notice of the epoch switched to already (a re-send). Anything else is
+refused with the universal error acknowledgement; a notice sent before its
+replacement is recorded here is refused, and IBCAdmin sends it again. The
+notice may arrive before the replacement executes here: the epoch moves
+then, the old client is retired for the gov port, and the replacement
+retires the rest. Until the notice arrives ibcgov never sends with the next
+epoch, so the two sides cannot disagree about the current epoch. The
+notice's layout follows ADR pr6375 §7.12; its vectors are to be checked
+against gno-eth-ibc's when IBCAdmin publishes them.
 `seq` is bound in the transaction that records and dispatches the decision, so
 numbers are contiguous, never reused or skipped, and their bytes immutable.
 Each send is authorized once (client, epoch, seq, payload hash), consumed in
@@ -310,7 +347,7 @@ against gno-eth-ibc 6f94541's vectors.
 | R8, §7.1 meters, claims, fee first, no slivers, round-robin, two accountings, sweeps, meters start empty; a claim's fee is locked when it is credited (`Claim.Fee`), and its first payout's fee portion `min(remainder, claim's fee, denom's fee now)` (a claim reduced below its fee can finish as a fee payment alone; the same turn may also pay the recipient a portion of at least `min(what remains, fee)`) and its later minimum installment `min(remainder, fee)` use the lower of the claim's fee and the denom's fee now, written back to the claim at each payout turn: the fee locked at credit is a ceiling a later raise never passes, and a cut (of the fee, with the cap floor that bounds it) applies and, once a payout turn has seen it, is kept, so no claim is stranded by an installment no recipient meter can hold (sweep entries, refunds and settlements take no fee and pay whole entitlements, so no other entry reads a configuration that could cut one); sweep payments (`PaySweeps`) take live entries of one denom, each paid whole to the decision's payee with no claim fee and outside the payout meters, their total for an `unescrow` denom within the free escrow (what open and withheld claims and queued refunds do not reserve), deferred under a payouts flag; a credit to a bridge realm is an owed sweep entry, never a claim: the core and transfer proxies, ibcgov, ethrelay, transfer impl/v0 (never registered) and every implementation either proxy's registry lists, read at each receive, so one registered after deployment is covered at once and a replaced one stays covered; the recipient is checked again at payout (`PayClaimsSweeping`): a claim whose recipient became a bridge realm after its credit is not paid but moved to the owed sweep under its packet key, exactly (its remainder leaves `Owed` for `Swept`; the entry carries what the claim paid, which a forged void or forged-receive settlement books as the loss while dropping the remainder; a credit by vote cannot re-credit it, a sweep decision pays it) | `controls/route.gno` (`Credit`, `PayClaims`), `meter.gno` (`Meter`), `transfer/impl/v1/recv.gno`, `controls.gno` (`Claim`), ibcgov `PayoutsEpoch` |
 | R8 reachable `Claim` | `transfer/controls.gno`, `ControlsLogic` |
 | R9, §7.5, §7.7 ledger, delays, deadline, governor, yield | `decisions/v0`, `ibcgov/governor.gno`, `ledger.gno` |
-| R10, §7.4 seats, flags, holds, day 21, naming suspects; a seat's key leaving ends its flags in constant work (seat generations, live flag counts per seat, payouts epochs counting a departed key's payouts flags as cleared then, as of the end of the flag's own seat generation (kept per generation in `genEnds` while entries of that generation remain, so a later key leaving the same seat does not move it, before or after pruning), entries pruned by the permissionless bounded `PruneFlags`; vacating a seat measured at 1,123,231 gas after 5 and after 40 flagged clients); every Ethereum client flaggable, so a client about to become a route's is held beforehand; every flag operation and check resolves a client to its route's stable key (`routeKeyOf`), and a replacement moves the flags standing under the new client's id to the route (`foldFlags`) | `ibcgov/guardians.gno` (`flaggable`, `routeKeyOf`, `foldFlags`), `routes.gno` (`mustRoute`) |
+| R10, §7.4 seats, flags, holds, day 21, naming suspects; a seat's key leaving ends its flags in constant work (seat generations, live flag counts per seat, payouts epochs counting a departed key's payouts flags as cleared then, as of the end of the flag's own seat generation (kept per generation in `genEnds` while entries of that generation remain, so a later key leaving the same seat does not move it, before or after pruning), entries pruned by the permissionless bounded `PruneFlags`; vacating a seat measured at 1,123,231 gas after 5 and after 40 flagged clients); a vacancy is a seat change like any other, 7 days and through a hold no sooner than day 21 (`NewSetSeatsRequest` queues every change; z1b); every Ethereum client flaggable, so a client about to become a route's is held beforehand; every flag operation and check resolves a client to its route's stable key (`routeKeyOf`), and a replacement moves the flags standing under the new client's id to the route (`foldFlags`) | `ibcgov/guardians.gno` (`flaggable`, `routeKeyOf`, `foldFlags`), `routes.gno` (`mustRoute`) |
 | R11, §5.4 gov sender | `ibcgov/ethereum.gno` |
 | §6.1–§6.3, §7.1, §7.3 an Ethereum route's packet data | validated by the route's own rules only (`ics20.ValidateBasicEthereum`: amount, sender, base, hops by the router's grammar), never by the SDK's first; a blank or undecodable receiver is an owed sweep entry with a success acknowledgement; a receive that would overflow the route's liabilities is refused by `CheckCredit`, before its acknowledgement, as every other `Credit` check |
 | R12, §7.8 send limits, fee, recipient filters (the token itself, a gno-native denom's Ethereum token included); the router, ICS20 transfer, IBCAdmin and every voucher token protected from the enrolment on, no gno-native send before they are set; every route has its own from its enrolment | `controls.DenomConfig`, `Route.Protect`, `transfer/impl/v1/send.gno` (`checkRecipient`), ibcgov `mustBridge` |
@@ -319,13 +356,13 @@ against gno-eth-ibc 6f94541's vectors.
 | §7.5 visible parameter record, §7.4 visible suspects | the guardian flags on the governance page (route keys, suspect packet keys; the page lists flags under enrolled routes only: a flag standing on a client no route has yet still counts toward the hold and is read with `Flags(clientID)`) and the ledger page escape each decision's kind, text and note as inline Markdown (`sanitize.InlineText`), so ids such as `_eth_` or `<bridge>` show as written |
 | R9, R10, §7.1, §7.9 governed addresses | the transfer proxy's `VoucherSend` and `VoucherApprove` canonicalize their recipient and spender, as do its membership calls; every gno address a builder takes (payees, fee collectors, seats, relayers, members, blocked addresses) is canonicalized (`transfer.CanonicalAddress`) before it is stored or compared, and the transfer implementation canonicalizes a decision's payee again; Ethereum addresses are lowercased |
 | R14 authorities | `core/admin.gno`, `app.gno`, `upgrade.gno`, `proposals.gno`; `transfer/admin.gno`, `upgrade.gno`, `proposals.gno`; `authority.NewWithMembers` |
-| R16 client migration, two kinds. A verifier replacement (`ethereum-verifier`, params the target version; ibcgov `NewReplaceVerifierRequest(clientID, toVersion)`, 7 days): the conversion is code of a core implementation, declared as plain values (`implv1.NewWithConversions`: from, to, conversion) and installed beforehand by the governed, manifest-checked implementation upgrade (impl/v1 itself declares none); no other code converts a verifier, so no foreign function or object runs. The active implementation's preflight reads its declared pairs and the client's type, status and `VerifierVersion`, and requires the live verifier to expose its ethereum/v0 state (`Ethereum() *EthLightClient`, which the read-only view is built from; a verifier keeping its state otherwise needs migration support of its own); any of these failing spends the decision (z9zl, z9zs); the conversion and every check on its result (it names the target version, is Active, keeps the latest height) run inside one recovered boundary in the core's realm, so a panic (a typed-nil verifier, a status or height that panics) or a mismatch refuses the migration with nothing changed and the decision spent (transfer `z9zn`, `z9zo`); only then is the new verifier installed (`Client.SetLightClient`). The new verifier keeps the history without copying it: the conversion receives only a read-only view of the live verifier (`ethereum.Retire`: copies of its client and consensus states, its latest height, nothing to write with), so a refused conversion leaves nothing half-written (z9zo's tampering conversion); `ethereum.NewFrom` copies the client state and holds that view of the retired verifier (`Retired`), serving every consensus state at or below its latest slot, while the new verifier's own states are stored apart and nothing writes to the retired one again; constant work whatever the history (`TestNewFromKeepsHistory`), every pre-replacement trusted height stays provable (z9zl). The client keeps its id, consensus states, commitments, receipts and acknowledgements, its trust generation advances and its route's payout meters start empty; recovery and fork migration act on the new verifier's head. A fork-schedule migration (`ethereum-fork-schedule`) of the client's verifier, through the `CheckForkParameters`/`MigrateForkParameters` methods it implements (ethereum/v0's, and a later version embedding it, such as `NextVerifier`: z9zl), a verifier without them refused at preflight; `CheckForkParameters`: the client Active; the schedule changed; the genesis fork version and slot unchanged; every fork whose epoch is at or before the current epoch (the later of the latest trusted slot's and the block time's) unchanged, version and epoch; every changed fork activating after the current epoch; the fork epochs in order | `core/verifiers.gno` (`VerifierVersion`), `ethereum/v0` (`NewFrom`, `Retired`, `migrate.gno`), `core/client.gno` (`MigrateClient`), `core/impl/v1` (`NewWithConversions`), ibcgov `NewMigrateClientRequest`, `NewReplaceVerifierRequest`, `ethereum/testing` (`NextVerifier`) |
+| R16 client migration, two kinds. A verifier replacement (`ethereum-verifier`, params the target version; ibcgov `NewReplaceVerifierRequest(clientID, toVersion)`, 7 days): the conversion is code of a core implementation, declared as plain values (`implv1.NewWithConversions`: from, to, conversion) and installed beforehand by the governed, manifest-checked implementation upgrade (impl/v1 itself declares none); no other code converts a verifier, so no foreign function or object runs. The active implementation's preflight reads its declared pairs and the client's type, status and `VerifierVersion`, and requires the live verifier to expose its ethereum/v0 state (`Ethereum() *EthLightClient`, which the read-only view is built from; a verifier keeping its state otherwise needs migration support of its own); any of these failing spends the decision (z9zl, z9zs); an Active or an Expired client is converted, a Frozen one refused (its misbehaviour is resolved by a recovery first), so a client whose updates stopped long enough to expire is still converted and an ordinary governed recovery then follows (z9zu); the conversion and every check on its result (it names the target version, keeps the live verifier's status, Active or Expired, its latest height and, for a verifier exposing ethereum/v0 state, the slot it trusts consensus states from) run inside one recovered boundary in the core's realm, so a panic (a typed-nil verifier, a status or height that panics) or a mismatch refuses the migration with nothing changed and the decision spent (transfer `z9zn`, `z9zo`); only then is the new verifier installed (`Client.SetLightClient`). The new verifier keeps the history without copying it: the conversion receives only a read-only view of the live verifier (`ethereum.Retire`: copies of its client and consensus states, its latest height, nothing to write with), so a refused conversion leaves nothing half-written (z9zo's tampering conversion); `ethereum.NewFrom` copies the client state and holds that view of the retired verifier (`Retired`), serving every consensus state at or below its latest slot, while the new verifier's own states are stored apart and nothing writes to the retired one again; constant work whatever the history (`TestNewFromKeepsHistory`), every pre-replacement trusted height stays provable (z9zl). The client keeps its id, consensus states, commitments, receipts and acknowledgements, its trust generation advances and its route's payout meters start empty; recovery and fork migration act on the new verifier's head. A fork-schedule migration (`ethereum-fork-schedule`) of the client's verifier, through the `CheckForkParameters`/`MigrateForkParameters` methods it implements (ethereum/v0's, and a later version embedding it, such as `NextVerifier`: z9zl), a verifier without them refused at preflight; `CheckForkParameters`: the client Active; the schedule changed; the genesis fork version and slot unchanged; every fork whose epoch is at or before the current epoch (the later of the latest trusted slot's and the block time's) unchanged, version and epoch; every changed fork activating after the current epoch; the fork epochs in order | `core/verifiers.gno` (`VerifierVersion`), `ethereum/v0` (`NewFrom`, `Retired`, `migrate.gno`), `core/client.gno` (`MigrateClient`), `core/impl/v1` (`NewWithConversions`), ibcgov `NewMigrateClientRequest`, `NewReplaceVerifierRequest`, `ethereum/testing` (`NextVerifier`) |
 | R17 flags keep returns open; public Ethereum relaying | `transfer/impl/v1` (flags never touch burns, acks, timeouts), `core/admin.gno` `ensureRelayerFor` |
-| R18 route replacement (the new client an Active Ethereum client that is no route's, which on a fresh deployment holds no transfer state; the old one may be frozen or expired; as in Ethereum's reconciliation state machine, it replaces the route's current client whether the route is open or closed, each replacement an incident of its own covering the client it retires, the earlier incidents' records, suspect intervals and counters untouched, a reopening under way aborted, and proofs of every incident's records going through the route's current client): closed until a governed reopening (its loss scan starting over if a loss was booked meanwhile), the payout meters (bridge and recipient) emptied through a new payouts epoch; a fork migration of a route's client empties them too. Refund meters always refill under epoch 0, so their state survives both. The suspect height is a past gno.land height (the builder refuses a negative or future one), and `Registry.Replace` raises one below the previous replacement's height (`ReplacedAt`) to it: a repeated replacement's interval never starts before the client it retires became current | `controls.Registry.Replace`, `Route.Reopen`, transfer `toWire`/`toInternal`, `core.RetireClient`, ibcgov `NewReplaceRouteRequest` (+ `nextEpoch`, payouts epoch), `NewReopenRouteRequest` |
+| R18 route replacement (the new client an Active Ethereum client that is no route's, which on a fresh deployment holds no transfer state, and that authenticates the route's identity: the Ethereum chain id and genesis validators root, the ICS26 router and its commitments slot, recorded from the client at the enrolment (whose bridge router must be the router the client reads) and never changed, checked when the replacement is requested and again when it executes, a client of another chain or router refused however genuine (it would prove that router's receipts: moving a route there is a migration of its own; `core.ClientRouteIdentity`, ibcgov `RouteIdentity`, z9zt); the old one may be frozen or expired; as in Ethereum's reconciliation state machine, it replaces the route's current client whether the route is open or closed, each replacement an incident of its own covering the client it retires, the earlier incidents' records, suspect intervals and counters untouched, a reopening under way aborted, and proofs of every incident's records going through the route's current client): closed until a governed reopening (its loss scan starting over if a loss was booked meanwhile), the payout meters (bridge and recipient) emptied through a new payouts epoch; a fork migration of a route's client empties them too. Refund meters always refill under epoch 0, so their state survives both. The suspect height is a past gno.land height (the builder refuses a negative or future one), and `Registry.Replace` raises one below the previous replacement's height (`ReplacedAt`) to it: a repeated replacement's interval never starts before the client it retires became current | `controls.Registry.Replace`, `Route.Reopen`, transfer `toWire`/`toInternal`, `core.RetireClient`/`RetireClientPort`, ibcgov `NewReplaceRouteRequest` (route identity, payouts epoch, the epoch notice it records), `NewReopenRouteRequest` |
 | R19 identifying receipts | `types.CommitPacketReceipt`, `core/store.gno`, `core/impl/v0/packet.gno` |
 | §7.3 refusals before state change | `transfer/impl/v1/recv.gno` (`refuse`) |
 | §7.11 on-chain records | `controls.Reader` JSON: route totals, and pages `{"entries":[...],"next":<cursor>}` of claims, sweeps, sends (by packet key) and losses (by direction and packet key), `next` being the storage key the following page starts at; `route_*` events. Every Render page is safe Markdown: JSON pages of transfer, core and ibcgov pass through `jsonmd.Inert` (the controls quote with `jsonmd.Quote`), so a raw receiver kept on an owed sweep entry or a path segment echoed in an error is inert text; tables escape counterparty base denoms, paths, counterparty ids and ports, and the route list its denoms (`sanitize.TableCell`, `InlineText`) |
-| §7.12 gno side | route replacement above, naming its suspect height; settlements of a retired client's sends (`Route.SettleRecords`, `NewSettleRequest` and `NewEthSettleRequest` naming a sequence once per direction, an outbound send and an inbound receive of one sequence together: payments checked against the escrow the liabilities still reserve once the whole batch applies, every queued refund and forged claim it releases counted in any item order; whole remainders, zero for a genuine refund paid in full, forged refunds, each record once; a settlement's refund is paid directly, outside the refund meter and, for a minted denom, outside the supply cap (only the outstanding total's integer capacity is checked), while a refunds hold still defers the decision; a settlement marks the transfer app's send record and leaves the retired client's commitment in the core as it is); a reopening waits for every open record and every record processed in the suspect interval, and runs its deficit acceptance in batches (`ContinueReopen`); `NewRecordLossRequest`; owed refunds reserved; retired client ids final; a retired client takes the authorized app's pending asynchronous acknowledgements |
+| §7.12 gno side | route replacement above, naming its suspect height; settlements of a retired client's sends (`Route.SettleRecords`, `NewSettleRequest` and `NewEthSettleRequest` naming a sequence once per direction, an outbound send and an inbound receive of one sequence together: payments checked against the escrow the liabilities still reserve once the whole batch applies, every queued refund and forged claim it releases counted in any item order; whole remainders, zero for a genuine refund paid in full, forged refunds, each record once; a settlement's refund is paid directly, outside the refund meter and, for a minted denom, outside the supply cap, while a refunds hold still defers the decision; a minted refund the outstanding supply's integer capacity cannot hold then is parked, never refused: its record is settled (it no longer blocks the reopening), the refund owed and queued (`PayQueued`, in `QueuedRefunds`) and reserved again against the supply cap (`Reservation`, `Returning`), so no credit takes the capacity it needs, and `ClaimRefunds` pays it once the route reopens, within the headroom (a voucher return frees it), the refund meter and any refunds hold, the record then `reconciled` (`TestParkedSettlementRefund`); a settlement marks the transfer app's send record and leaves the retired client's commitment in the core as it is); a reopening waits for every open record and every record processed in the suspect interval, and runs its deficit acceptance in batches (`ContinueReopen`); `NewRecordLossRequest`; owed refunds reserved; retired client ids final; a retired client takes the authorized app's pending asynchronous acknowledgements |
 | R17, §6.7 deployment | a fresh deployment: the transfer proxy's first registration is impl/v1, which serves non-Ethereum clients through impl/v0's logic and puts every Ethereum client under the controls; an Ethereum client carries nothing until `NewEnrollRouteRequest` makes it a route; impl/v0 registers nothing, and the proxy refuses an implementation without the controls once a route exists |
 | §7.12 proven outcomes | `transfer.ProveOutcome` reads the destination router's receipt (`ethereum.PacketReceiptCommitment`) and acknowledgement through the replacement client (`core.CounterpartyValue`, which refuses a verifier not Active or retired); an absence counts only at a destination time at or past the packet's timeout; with a matching receipt, the acknowledgement commitment must be exactly one of two: eureka's canonical success (one app acknowledgement, `{"result":"AQ=="}`, `successAckCommitment`), proving delivered, or the universal error acknowledgement, proving refundable; any other commitment, an unwritten one included, is refused ("the destination wrote no final acknowledgement of the packet"), narrower than §5.4's success or error acknowledgement and than ordinary acknowledgement processing (`ack.gno`), which takes any decodable success result; it is safe because an honest eureka ICS20 app writes exactly these two (see Known limits); an outcome is final while its verifier stays healthy under the trust generation it was proven in, and void (to be proven again) once the verifier froze, expired, or was recovered, upgraded, migrated or substituted, checked again when the settlement consumes it; a recovered Ethereum client proves nothing from its pre-recovery consensus states; settlement actions must match; action 5 makes a forged receive's claim forged and books what it paid once; a refund paid for a delivered packet is booked only by action 4 |
 | §7.13 refund meter, refunds hold, send records for every send | `controls/refunds.gno`, `transfer/impl/v1/ack.gno`, `send.gno`, `controls.gno` (`ClaimRefunds`) |
@@ -343,9 +380,9 @@ saturates statistics no check reads. Audited:
 | Aggregate | Rule |
 |---|---|
 | `InFlight` (open sends' amounts) | checked at every send: bounds every refund owed |
-| `QueuedRefunds`, `Returning` | must (≤ `InFlight`) |
+| `QueuedRefunds`, `Returning` | must (≤ `InFlight`, plus the parked settlement refunds, whose sum a settlement checks against `Returning`) |
 | `Owed`, `Withheld`, `Swept` | checked as their sum at every credit (`liabilities`); moves between them must |
-| `Outstanding` | checked before every minted payout (a settlement's refund beyond a released reservation included): a sweep payment that would overflow it is refused whole, its entries kept (the decision spent); a claim installment and a queued refund installment are capped to the headroom, the remainder kept; an immediate refund that would not fit is queued (`TestMintedPayoutHeadroom`) |
+| `Outstanding` | checked before every minted payout (a settlement's refund beyond a released reservation is parked when it would overflow: see §7.12 above): a sweep payment that would overflow it is refused whole, its entries kept (the decision spent); a claim installment and a queued refund installment are capped to the headroom, the remainder kept; an immediate refund that would not fit is queued (`TestMintedPayoutHeadroom`) |
 | `OpenUnrecovered`, `OpenUnresolved` (denom and incident): the outstanding loss balances | checked (`lossFits` admits a loss against `OpenUnrecovered`, which bounds `OpenUnresolved`), batch sums checked per addition; a recovery (a paid recapitalization, a reduction: `recover`) takes off `OpenUnrecovered`, freeing admission capacity, and off `OpenUnresolved` as far as it remains; an accepted deficit (`accept`) takes off `OpenUnresolved` only and frees no admission capacity |
 | `Lost`, `Recapitalized`, `Reduced`, `Accepted` (denom and incident): lifetime totals | stat (saturating), never read by a check |
 | a settlement's payments, queued refunds and losses; a sweep payment's total | checked per addition |
@@ -379,22 +416,22 @@ is installed, so the decision is spent:
 | core/transfer update impl | not registered; the candidate's manifest does not install over the active version; the candidate built against an empty store reports another version than its manifest (or, for transfer, another controls answer), or its install hook refuses the active implementation (`CheckUpdateImpl`, `InstallChecker`); a transfer implementation without the route controls once a route has them (the controls are never rolled back) |
 | core add/remove relayer | listed already / not listed |
 | core recover client | unknown, retired, mismatched or wrong-status clients; the light client's own check (`CheckRecoverClient`) |
-| core migrate client | unknown, retired or non-Ethereum client; no migrating implementation; the light client's check (`CheckMigrateClient`); for a verifier replacement, a conversion the active implementation does not declare from the client's verifier version to the target, the client not Active or not Ethereum, a verifier exposing no ethereum/v0 state (`Ethereum() *EthLightClient`, which the conversion reads: z9zs), and, returned by the core, a conversion that panics or a converted verifier of another version, not Active, or at another latest height |
+| core migrate client | unknown, retired or non-Ethereum client; no migrating implementation; the light client's check (`CheckMigrateClient`); for a verifier replacement, a conversion the active implementation does not declare from the client's verifier version to the target, the client neither Active nor Expired (Frozen) or not Ethereum, a verifier exposing no ethereum/v0 state (`Ethereum() *EthLightClient`, which the conversion reads: z9zs), and, returned by the core, a conversion that panics or a converted verifier of another version, of another status than the live one, at another latest height, or trusting consensus states from another slot |
 | core approve app | no pending registration; port taken |
 | core reject app | no pending registration |
 | core pause / pause app / unpause / unpause app | paused already / no app / not paused |
 | core/transfer add/remove member | member already / not a member / ibcgov itself |
 | transfer block/unblock | blocked already / not blocked |
 | route operations (`GovApply`) | every refusal returned, including no controls installed; a sweep payment or settlement refund that its token or the banker would refuse (`payable`, checked per denom before anything changes: a valid recipient other than the transfer realm, the voucher token and its supply room, the registered GRC20 and this realm's balance, the escrow accounting and the bank balance; z9zr), the entitlement kept; a sweep payment under a payouts flag, or a settlement paying refunds under a refunds hold, is deferred (stays pending) rather than spent |
-| route enrollment | as `GovApply`; the client no longer usable (`checkRouteClient` again at execution: not Active, retired, not Ethereum, no counterparty, a route's already), before either realm changes |
-| route replacement | as `GovApply`; the new client unusable; the route's client moved |
+| route enrollment | as `GovApply`; the client no longer usable (`checkRouteClient` again at execution: not Active, retired, not Ethereum, no counterparty, a route's already), or naming no route identity, or reading another router than the bridge's (z9zt), before either realm changes |
+| route replacement | as `GovApply`; the new client unusable; the route's client moved; the new client no longer authenticating the route's identity (z9zt) |
 | bind governance | bound already; not Active, or not the current client of an enrolled route |
 | seats | an address in two seats; nothing to change |
 | unpause route | spent under a hold; no flag |
 | cancel | not pending |
 | Ethereum-bound kinds | channel unbound; envelope too long; past epoch (cancel); the core's send refusals (paused, app paused, client retired, inactive, uncounterparted, latest consensus time past the timeout) |
 
-Tests: z1e, z1f, z1h, z1i, z1j, z2e (ibcgov), z9zj, z9zk (transfer).
+Tests: z1e, z1f, z1h, z1i, z1j, z2e (ibcgov), z9zj, z9zk, z9zt, z9zu (transfer).
 
 ### Parameters (§9)
 
@@ -581,11 +618,6 @@ does not list before it.
 
 ## Known limits
 
-- **Vacating seats is immediate** (§7.5 removals), so a decision can remove the
-  flagging guardians and end a hold 24 hours later (each removal applies only
-  to the holder the request named when it was built); the day-21 rule only
-  governs replacements. A route with unresolved losses stays closed all the
-  same.
 - **A recapitalization authorized and not paid when a route reopens** is
   revoked: the reopening records the remaining unresolved losses as an
   accepted deficit.
@@ -606,17 +638,23 @@ does not list before it.
   so cannot be settled, until an implementation that recognizes its
   commitment is installed.
 - **Replacement does no per-denom work**: its candidate check reads the
-  core and the registry only. Walks that remain on governed or
-  permissionless paths: `ExposureClosed`, checked on every gno-native send
-  and every receive (a voucher return checks only the replacement closure),
-  walks the route's enabled denoms; settling or rejecting a queued refund
-  finds it by walking the denom's refund queue (`unqueue`); the
+  core and the registry only. `ExposureClosed`, checked on every gno-native
+  send and every receive (a voucher return checks none: it is exit only),
+  reads a count of the denoms with an unresolved loss (`unresolvedDenoms`,
+  kept by every loss, acceptance and recovery); settling or rejecting a
+  queued refund finds it through an index by packet key (`refundIdx`), in
+  logarithmic work; a reopening's blocker check reads an index of the
+  retired clients that still block it (`blocking`, kept by every change to a
+  retired client's open or suspect records), in logarithmic work, whatever
+  the number of replacements (`TestBoundedIndexes`). Walks that remain: the
   recapitalization paths walk only the incident's open authorizations,
   indexed per denom and incident and at most `MaxOpenRecaps` (64):
   authorizing makes two such scans (the open total, then the count against
   the cap), paying one (the total), a reduction one (`revokeConflicting`:
   the total once, then revoking newest first), and an explicit revocation
-  goes to its authorization directly; a reopening's blocker check (`reopenBlocker`) loops over the route's retired clients, reading each one's open-record count and counting its records processed in the suspect interval in logarithmic work (an `avl.Node` by processing height), never walking the records. A hold's seat count and a seat's
+  goes to its authorization directly; the reopening's deficit acceptance
+  and authorization revocation, in bounded batches (`ContinueReopen`). A
+  hold's seat count and a seat's
   removal are constant work (live flag counts per seat, seat generations).
 - **Pre-recovery consensus states of a Tendermint client** stay usable, as in
   ibc-go: only the Ethereum light client marks them untrusted, and only
