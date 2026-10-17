@@ -67,10 +67,14 @@ func (rt *Route) LossBooked(dir, key string) bool { return rt.losses.Has(lossID(
 // an incident never exceed its losses, and an authorized recapitalization not
 // yet paid holds its part (ADR pr6375 §7.9).
 type IncidentTotals struct {
+	// Lifetime statistics, saturating, never read by a check.
 	Lost          int64
 	Recapitalized int64
 	Reduced       int64
 	Accepted      int64
+	// The outstanding balances, exact and checked (see Totals).
+	OpenUnrecovered int64
+	OpenUnresolved  int64
 }
 
 func incidentKey(denom, incident string) string { return denom + "|" + incident }
@@ -99,7 +103,7 @@ func (rt *Route) Incident(denom, incident string) IncidentTotals {
 // skip, an authorization being paid).
 func (rt *Route) resolvable(denom, incident string, skip int64) int64 {
 	it := rt.Incident(denom, incident)
-	return it.Lost - it.Recapitalized - it.Reduced - it.Accepted - rt.openRecaps(denom, incident, skip)
+	return it.OpenUnresolved - rt.openRecaps(denom, incident, skip)
 }
 
 // Voidable reports whether a void as forged (or as withheld) can take the
@@ -212,12 +216,31 @@ func (rt *Route) voidClaim(c *Claim, forged bool, incident string) {
 	}
 }
 
-// lossFits refuses a loss the ledger's cumulative totals (the denom's and
-// the incident's) could not hold without overflowing: a total that wrapped
-// would read as no loss at all.
+// resolve takes amount, which its caller checked is within the incident's
+// unresolved losses, off the outstanding balances of the denom and the
+// incident: off the unresolved ones always, off the unrecovered ones too when
+// it recovers (a recapitalization or a reduction, not an accepted deficit).
+func (rt *Route) resolve(denom, incident string, amount int64, recovers bool) {
+	t := &rt.Denom(denom).Totals
+	it := rt.incident(denom, incident)
+	if amount > it.OpenUnresolved || amount > t.OpenUnresolved {
+		panic("controls: a resolution beyond the unresolved losses")
+	}
+	t.OpenUnresolved -= amount
+	it.OpenUnresolved -= amount
+	if recovers {
+		t.OpenUnrecovered -= amount
+		it.OpenUnrecovered -= amount
+	}
+}
+
+// lossFits refuses a loss the ledger's outstanding balances (the denom's and
+// the incident's unrecovered losses, which bound the unresolved ones) could
+// not hold without overflowing. Lifetime statistics are not checked: a
+// resolved loss frees its capacity.
 func (rt *Route) lossFits(denom, incident string, amount int64) error {
 	d := rt.Denom(denom)
-	if amount < 0 || amount > maxInt64-d.Totals.Lost || amount > maxInt64-rt.Incident(denom, incident).Lost {
+	if amount < 0 || amount > maxInt64-d.Totals.OpenUnrecovered || amount > maxInt64-rt.Incident(denom, incident).OpenUnrecovered {
 		return errors.New("controls: the loss would overflow the loss ledger of " + denom)
 	}
 	return nil
@@ -226,9 +249,9 @@ func (rt *Route) lossFits(denom, incident string, amount int64) error {
 // addLoss books a loss its caller checked fits (lossFits); an addition that
 // would still overflow is a broken invariant and aborts.
 func (rt *Route) addLoss(d *Denom, l Loss) {
-	lost, ok1 := checkedAdd(d.Totals.Lost, l.Amount)
 	it := rt.incident(l.Denom, l.Incident)
-	itLost, ok2 := checkedAdd(it.Lost, l.Amount)
+	unrec, ok1 := checkedAdd(d.Totals.OpenUnrecovered, l.Amount)
+	itUnrec, ok2 := checkedAdd(it.OpenUnrecovered, l.Amount)
 	if !ok1 || !ok2 {
 		panic("controls: the loss ledger would overflow")
 	}
@@ -236,8 +259,10 @@ func (rt *Route) addLoss(d *Denom, l Loss) {
 		panic("controls: a packet's loss is booked once")
 	}
 	rt.losses.Set(lossID(l.Direction, l.Key), &l)
-	d.Totals.Lost = lost
-	it.Lost = itLost
+	d.Totals.OpenUnrecovered, it.OpenUnrecovered = unrec, itUnrec
+	d.Totals.OpenUnresolved = mustAdd(d.Totals.OpenUnresolved, l.Amount) // at most OpenUnrecovered
+	it.OpenUnresolved = mustAdd(it.OpenUnresolved, l.Amount)
+	d.Totals.Lost, it.Lost = statAdd(d.Totals.Lost, l.Amount), statAdd(it.Lost, l.Amount)
 	rt.lossesBooked++
 }
 
@@ -506,7 +531,7 @@ func (rt *Route) openRecaps(denom, incident string, skip int64) int64 {
 // (recapitalized, reduced or accepted), unpaid authorizations aside.
 func (rt *Route) unresolvedOf(denom, incident string) int64 {
 	it := rt.Incident(denom, incident)
-	return it.Lost - it.Recapitalized - it.Reduced - it.Accepted
+	return it.OpenUnresolved
 }
 
 // revokeConflicting revokes the newest unpaid recapitalization authorizations
@@ -572,10 +597,10 @@ func (rt *Route) Recapitalize(id int64, denom string, amount int64, by address) 
 		return ufmt.Errorf("controls: recapitalization %d is above what incident %s still has to resolve", id, r.Incident)
 	}
 	r.Paid, r.PaidBy = true, by
+	rt.resolve(denom, r.Incident, amount, true)
 	t := &rt.Denom(denom).Totals
-	t.Recapitalized = mustAdd(t.Recapitalized, amount)
 	it := rt.incident(denom, r.Incident)
-	it.Recapitalized = mustAdd(it.Recapitalized, amount)
+	t.Recapitalized, it.Recapitalized = statAdd(t.Recapitalized, amount), statAdd(it.Recapitalized, amount)
 	return nil
 }
 
@@ -602,9 +627,9 @@ func (rt *Route) Reduce(key string, amount int64, incident string) error {
 	rt.revokeConflicting(c.Denom, incident, amount)
 	c.Amount -= amount
 	c.Reduced += amount // at most the claim's amount
-	d.Totals.Reduced = mustAdd(d.Totals.Reduced, amount)
+	rt.resolve(c.Denom, incident, amount, true)
 	it := rt.incident(c.Denom, incident)
-	it.Reduced = mustAdd(it.Reduced, amount)
+	d.Totals.Reduced, it.Reduced = statAdd(d.Totals.Reduced, amount), statAdd(it.Reduced, amount)
 	if c.State == Open {
 		d.Totals.Owed -= amount
 		if c.Remaining() == 0 {
@@ -638,9 +663,9 @@ func (rt *Route) reduceSweep(key string, amount int64, incident string) error {
 	e.Amount -= amount
 	e.Reduced += amount // at most the entry's amount
 	d.Totals.Swept -= amount
-	d.Totals.Reduced = mustAdd(d.Totals.Reduced, amount)
+	rt.resolve(e.Denom, incident, amount, true)
 	it := rt.incident(e.Denom, incident)
-	it.Reduced = mustAdd(it.Reduced, amount)
+	d.Totals.Reduced, it.Reduced = statAdd(d.Totals.Reduced, amount), statAdd(it.Reduced, amount)
 	if e.Amount == 0 {
 		e.Paid, e.PaidTo = true, "reduced"
 	}
@@ -663,8 +688,8 @@ func (rt *Route) Accept(denom string, amount int64, incident string) error {
 		return ufmt.Errorf("controls: %d is not within incident %s's unresolved losses", amount, incident)
 	}
 	rt.revokeConflicting(denom, incident, amount)
-	d.Totals.Accepted = mustAdd(d.Totals.Accepted, amount)
+	rt.resolve(denom, incident, amount, false)
 	it := rt.incident(denom, incident)
-	it.Accepted = mustAdd(it.Accepted, amount)
+	d.Totals.Accepted, it.Accepted = statAdd(d.Totals.Accepted, amount), statAdd(it.Accepted, amount)
 	return nil
 }

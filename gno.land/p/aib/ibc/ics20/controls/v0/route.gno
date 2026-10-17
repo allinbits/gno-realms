@@ -365,10 +365,10 @@ func (rt *Route) reopenBatch() (int64, bool, error) {
 			return true
 		}
 		it := v.(*IncidentTotals)
-		if rest := it.Lost - it.Recapitalized - it.Reduced - it.Accepted; rest > 0 {
-			it.Accepted = mustAdd(it.Accepted, rest)
+		if rest := it.OpenUnresolved; rest > 0 {
 			t := &rt.Denom(k[:strings.Index(k, "|")]).Totals
-			t.Accepted = mustAdd(t.Accepted, rest)
+			it.Accepted, t.Accepted = statAdd(it.Accepted, rest), statAdd(t.Accepted, rest)
+			it.OpenUnresolved, t.OpenUnresolved = 0, t.OpenUnresolved-rest
 			accepted = statAdd(accepted, rest)
 		}
 		rt.reopenIncident = k
@@ -557,34 +557,30 @@ type Totals struct {
 	SendFees      int64 // fees charged on sends
 	Refunded      int64 // refunds paid
 	QueuedRefunds int64 // refunds owed and not paid yet
-	Lost          int64 // the loss ledger's total
+	// Lifetime statistics of the loss ledger: saturating, never read by a
+	// check.
+	Lost          int64
 	Recapitalized int64
 	Reduced       int64
 	Accepted      int64
+	// The outstanding balances, exact and checked: losses neither
+	// recapitalized nor reduced (OpenUnrecovered), and of those, the ones
+	// not accepted as a deficit either (OpenUnresolved). A loss is admitted
+	// when it fits these, so resolved losses free their capacity.
+	OpenUnrecovered int64
+	OpenUnresolved  int64
 }
 
 // Unrecovered is the loss ledger's economic open total, the term of the
 // supply identity (ADR pr6375 §7.11): losses neither recapitalized nor
 // reduced. An accepted deficit restores neither backing nor liabilities, so
 // it stays unrecovered.
-func (t Totals) Unrecovered() int64 {
-	u := t.Lost - t.Recapitalized - t.Reduced
-	if u < 0 {
-		return 0
-	}
-	return u
-}
+func (t Totals) Unrecovered() int64 { return t.OpenUnrecovered }
 
 // Unresolved is what of the losses still waits for a restoring decision
 // (ADR pr6375 §7.9): the unrecovered losses not accepted as a deficit
 // either. A route reopens only when it is zero.
-func (t Totals) Unresolved() int64 {
-	u := t.Unrecovered() - t.Accepted
-	if u < 0 {
-		return 0
-	}
-	return u
-}
+func (t Totals) Unresolved() int64 { return t.OpenUnresolved }
 
 // booked is what a minted denom counts against its supply cap (ADR pr6375
 // §6.8): the vouchers in circulation, the vouchers burned by sends that may

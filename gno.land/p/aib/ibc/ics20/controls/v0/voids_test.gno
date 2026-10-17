@@ -881,3 +881,36 @@ func TestForgedVoidOfPaidSweep(t *testing.T) {
 		t.Fatalf("lost %d", rt.Denom("ugnot").Totals.Lost)
 	}
 }
+
+// The loss ledger admits a loss against its outstanding balances, not its
+// lifetime totals (Codex round 11 #1): a loss fully recovered frees its
+// capacity, so repeated losses crossing MaxInt64 in total are booked; the
+// lifetime statistics saturate.
+func TestLossCapacityFreedByRecovery(t *testing.T) {
+	_, rt := newRoute(t)
+	const big5 = int64(5_000_000_000_000_000_000)
+	for i := 0; i < 3; i++ {
+		incident := "inc-" + itoa(int64(i))
+		if err := rt.RecordLoss(pk(uint64(100+i)), "ugnot", big5, ChainGno, incident, "collision"); err != nil {
+			t.Fatalf("loss %d: %v", i, err)
+		}
+		if i == 2 {
+			break
+		}
+		id, err := rt.AuthorizeRecap("ugnot", big5, incident)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := rt.Recapitalize(id, "ugnot", big5, alice); err != nil {
+			t.Fatal(err)
+		}
+	}
+	d := rt.Denom("ugnot")
+	if d.Totals.Unrecovered() != big5 || d.Totals.Unresolved() != big5 || d.Totals.Lost != maxInt64 {
+		t.Fatalf("%+v", d.Totals)
+	}
+	// The outstanding balance itself still refuses to wrap.
+	if rt.RecordLoss(pk(200), "ugnot", big5, ChainGno, "inc-9", "collision") == nil {
+		t.Fatalf("booked past the outstanding balance's range")
+	}
+}
