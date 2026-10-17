@@ -277,7 +277,10 @@ Ethereum client carries nothing until a decision makes it a route.
    (`NewEthRouteReplacementRequest(old, new, suspectFrom, localClient)`)
    records it; for an emergency recovery, record
    `NewExpectRecoveryRequest(oldRouterClient, newRouterClient, localClient)`
-   (at once) before relaying its notice. The local client is the new gno
+   (7 days, deferred by a hold) before relaying its notice. A notice more
+   than one epoch on is recorded as proven when relayed; then call
+   `ApplyEpochNotice(epoch, localClient, "router1/local1,...,routerK/localK")`
+   with its path of expected transitions from the current epoch client. The local client is the new gno
    client tracking the new router client, Active, its counterparty set. A notice that
    arrives before the replacement executes here moves the epoch all the
    same.
@@ -369,7 +372,8 @@ characters of `a-z`, `0-9`, `-`).
    so the kind 10 and every decision in flight can still be re-sent
    (`Redispatch`). When IBCAdmin executes kind 10 (or Ethereum's emergency
    recovery, if `OLD` cannot carry it; then first record
-   `NewExpectRecoveryRequest(ROLD, RNEW, NEW)` here) it sends the epoch notice
+   `NewExpectRecoveryRequest(ROLD, RNEW, NEW)` here, 7 days, within
+   Ethereum's 30-day recovery delay) it sends the epoch notice
    over `NEW`;
    relay it (`RecvPacket` on `NEW`, port `gov`). Check: `ibcgov.Epoch()` one
    higher, `ibcgov.EpochClient() == NEW`, `core.IsClientRetired(OLD)`. A
