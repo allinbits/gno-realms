@@ -471,6 +471,26 @@ func ConsensusStatesJSON(c core.Client, r *mux.Request) *json.Node {
 			height := types.ParseHeightNatSort(k)
 			return RenderConsensusState(height, cs)
 		})
+	case ethereum.ClientType:
+		// The consensus states this verifier stores itself; after a verifier
+		// replacement, the retired verifier's are served one height at a
+		// time (consensus_states/{revision}/{height}). A state below a
+		// recovery's cut-off is listed as untrusted, its content withheld.
+		lc, ok := ethVerifier(c.LightClient())
+		if !ok {
+			return NodeError("client %s's verifier keeps no ethereum/v0 state", c.ID())
+		}
+		return jsonpage.Render(lc.ConsensusStateByHeight, r, func(k string, v any) *json.Node {
+			cs := v.(*ethereum.ConsensusState)
+			height := types.ParseHeightNatSort(k)
+			if cs.Slot < lc.TrustedFromSlot {
+				return json.ObjectNode("", map[string]*json.Node{
+					"height":  RenderHeight(height),
+					"trusted": json.BoolNode("", false),
+				})
+			}
+			return RenderEthConsensusState(height, cs)
+		})
 	}
 	return NodeError("unhandled client type %s", c.Type())
 }
