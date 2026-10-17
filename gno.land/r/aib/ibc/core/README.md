@@ -408,27 +408,27 @@ keeping its id, consensus states and packet state, through an implementation
 that implements `core.ClientMigrator` (ADR pr6375 R16). `impl/v1` has two
 migrations.
 
-`ethereum-verifier` (params: a registration's realm path; ibcgov
-`NewReplaceVerifierRequest`) replaces the client's verifier by another
-verifier version. A realm under `gno.land/r/aib/ibc/core/verifiers/`
-registers that version once with `RegisterVerifier(clientType, version,
-from, convert)`: `convert` is a function of the new verifier's /p/ package.
-`CheckVerifierReplacement(clientID, path)` answers from the registration's
-declared values and the client's state alone (known, not retired, of the
-registration's type, Active, its `VerifierVersion` among `from` and not the
-target, and a verifier that gives a snapshot). The conversion runs only
-when the governed migration executes, on a detached snapshot of the live
-verifier (`Snapshot`: a copy of the client state and the latest trusted
-consensus state only, constant work whatever the client's history); the
-converted verifier must name the registered version, be Active and keep the
-latest height. The conversion and these checks run inside one recovered
-boundary: a panic or a mismatch refuses the migration with nothing changed,
-and the decision is spent; otherwise the verifier is installed through
-`Client.SetLightClient`. The client keeps its id, client state and packet
-state; it keeps only its latest trusted consensus state, so proofs at
-heights from before the replacement are no longer available and relayers
-prove at current heights. Its trust generation advances, and ibcgov empties
-its route's payout meters.
+`ethereum-verifier` (params: the target verifier version; ibcgov
+`NewReplaceVerifierRequest(clientID, toVersion)`) replaces the client's
+verifier by another verifier version. The conversion is code of a core
+implementation: a later implementation compiles it in and declares it as
+plain values (`implv1.NewWithConversions(store, version, from, to,
+convert)`, each `convert` a function of the new verifier's /p/ package), and
+is installed by the governed, manifest-checked implementation upgrade;
+`impl/v1` itself declares none. No other code converts a verifier. The
+active implementation's preflight reads its declared pairs and the client's
+state (an Ethereum client, Active, its `VerifierVersion` the declared
+source); the conversion and every check on its result (it names the target
+version, is Active, keeps the latest height) run inside one recovered
+boundary in the core's realm: a panic or a mismatch refuses the migration
+with nothing changed, and the decision is spent; otherwise the verifier is
+installed through `Client.SetLightClient`. The new verifier keeps the
+client's history without copying it (`ethereum.NewFrom`): it holds a
+read-only view of the retired verifier and serves every consensus state at
+or below the retired verifier's latest slot from it, storing its own apart,
+so every pre-replacement trusted height stays provable; nothing writes to
+the retired verifier again. The client keeps its id and packet state; its
+trust generation advances, and ibcgov empties its route's payout meters.
 
 `ethereum-fork-schedule` (params `ethereum.EncodeForkParameters(...)`)
 changes the fork schedule of the client's verifier in place, through the
