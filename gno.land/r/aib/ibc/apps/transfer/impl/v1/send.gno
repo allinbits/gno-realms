@@ -95,9 +95,6 @@ func (l *logic) Transfer(_ int, rlm realm, sent []chain.Coin, clientID, receiver
 		return l.Logic.Transfer(0, rlm, sent, clientID, receiver, denom, amount, timeoutTimestamp, memo)
 	}
 	rt = mustRoute(rt, clientID)
-	if rt.IsClosed() {
-		panic(ufmt.Sprintf("route %s is closed until a governed reopening: it carries no send", rt.Key))
-	}
 	sender := unsafe.OriginCaller()
 	var (
 		wireDenom string // the denom path in the packet
@@ -108,7 +105,10 @@ func (l *logic) Transfer(_ int, rlm realm, sent []chain.Coin, clientID, receiver
 	switch {
 	case strings.HasPrefix(denom, "ibc/"):
 		// A voucher returning to Ethereum: burnt in OnSendPacket; never
-		// limited, charged or paused.
+		// limited, charged or paused, and taken on a route a replacement
+		// closed too (exit only, ADR pr6375 §7.12): it lowers the supply
+		// and adds no exposure, and frees the supply's capacity a parked
+		// reconciliation refund waits for.
 		if len(sent) > 0 {
 			panic("voucher transfer must not include native coins")
 		}
@@ -211,6 +211,9 @@ func (l *logic) mustSendable(rt *controls.Route, denom string, amount int64) *co
 	acc := rt.Denom(denom)
 	if acc == nil || acc.Config.Kind != controls.KindUnescrow {
 		panic(ufmt.Sprintf("denom %s is not enabled for sends on route %s", denom, rt.Key))
+	}
+	if rt.IsClosed() {
+		panic(ufmt.Sprintf("route %s is closed until a governed reopening: it carries no gno-native send", rt.Key))
 	}
 	if rt.ExposureClosed() {
 		panic(ufmt.Sprintf("route %s has a loss without a restoring decision: it takes no gno-native send", rt.Key))

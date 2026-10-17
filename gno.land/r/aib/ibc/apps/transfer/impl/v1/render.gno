@@ -74,21 +74,19 @@ func (l *logic) home(w *mux.ResponseWriter, r *mux.Request) {
 // whose client a replacement retired (ADR pr6375 §7.12, Codex review #18):
 // v0 builds them from the voucher's first trace hop, the route key, which
 // names the retired client. They go through the route's current client
-// instead, or are withdrawn while the route is closed.
+// instead, a closed route's too: a voucher return is exit only, taken while
+// the route awaits its reopening (ADR pr6375 §7.12).
 func (l *logic) routeLinks(rd *implv0.Renderer, page string) string {
 	rdr := l.reader()
 	for _, d := range rd.DenomsByClientOrder() {
 		key := d.Trace[0].ClientId
 		current := rdr.Client(key)
-		if current == "" || current == key && !rdr.Closed(key) {
+		if current == "" || current == key {
 			continue
 		}
 		ibcDenom := d.IBCDenom()
 		old := ufmt.Sprintf("[send back](%s) via `%s`", implv0.NewTransferLink(key, "", ibcDenom).URL(), key)
 		repl := ufmt.Sprintf("[send back](%s) via `%s`", implv0.NewTransferLink(current, "", ibcDenom).URL(), current)
-		if rdr.Closed(key) {
-			repl = ufmt.Sprintf("send back closed (route `%s` awaits its reopening)", key)
-		}
 		page = strings.ReplaceAll(page, old, repl)
 	}
 	return page

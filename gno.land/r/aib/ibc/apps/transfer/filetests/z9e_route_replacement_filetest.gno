@@ -216,8 +216,14 @@ func main(cur realm) {
 		}
 	}
 
-	// Closed: the new client carries nothing either until the reopening.
+	// Closed: the new client carries nothing either until the reopening,
+	// except a voucher return (exit only: it lowers the supply and adds no
+	// exposure).
 	println("send over the new client:", revive(func() { send(cur, newClient, 1_000, 1_020, ethReceiver) }))
+	testing.SetOriginSend(nil)
+	held := transfer.VoucherBalanceOf(voucher, bob)
+	closedReturn := sendVoucher(cur, newClient, voucher, 50)
+	println("voucher back while closed: wire denom", wireDenom(route, newClient, closedReturn), "| bob's vouchers:", held, "->", transfer.VoucherBalanceOf(voucher, bob))
 	println("receive over the new client:", recvOn(cur, "client-1", newClient, 1, weth, bob.String(), 300).Status)
 	println("claims paid:", transfer.Claim(cross(cur), newClient, voucher, 20))
 
@@ -284,9 +290,10 @@ func main(cur realm) {
 // governance epoch 2 over ethereum-2 | epoch 1's seq 1 again: ibcgov: epoch 1 is past: its decisions are never sent again
 // send over the old client: client ethereum-1 is an Ethereum client of no enrolled route: it carries no transfer
 // receive over the old client: (2 gno.land/p/aib/ibc/types/v0.PacketStatus)
-// send back while closed: send back closed (route `ethereum-1` awaits its reopening)
+// send back while closed: send back](/r/aib/main$help&func=Transfer&amount=&clientID=ethereum-2&denom=ibc%2F2495500BDD01666856D26EE034DB2F940FD4DA91239F4D5C7AE1E9D07538CFFE&memo=&receiver=&timeoutTimestamp=1238826697) via `ethereum-2`
 // client choice: - `ethereum-1` — retired
-// send over the new client: route ethereum-1 is closed until a governed reopening: it carries no send
+// send over the new client: route ethereum-1 is closed until a governed reopening: it carries no gno-native send
+// voucher back while closed: wire denom transfer/ethereum-2/0x457df1a9866af7b6a78eeba9291fc3e58b4d864b | bob's vouchers: 490 -> 440
 // receive over the new client: (2 gno.land/p/aib/ibc/types/v0.PacketStatus)
 // claims paid: 0
 // reopen with a send open: spent - spent: controls: 1 send records of retired client ethereum-1 are still open: settle them first
@@ -300,9 +307,9 @@ func main(cur realm) {
 // reopen: applied - reopen | closed: false | accepted 20 unrecovered 20
 // send back after the reopening: send back](/r/aib/main$help&func=Transfer&amount=&clientID=ethereum-2&denom=ibc%2F2495500BDD01666856D26EE034DB2F940FD4DA91239F4D5C7AE1E9D07538CFFE&memo=&receiver=&timeoutTimestamp=1243060304) via `ethereum-2`
 // {"denom":"ugnot","amount":2000,"clients":[{"client":"ethereum-1","amount":2000}]}
-// voucher back: wire denom transfer/ethereum-2/0x457df1a9866af7b6a78eeba9291fc3e58b4d864b | bob's vouchers: 390
+// voucher back: wire denom transfer/ethereum-2/0x457df1a9866af7b6a78eeba9291fc3e58b4d864b | bob's vouchers: 340
 // ugnot send on the wire: ugnot
 // weth arriving on the new client: (1 gno.land/p/aib/ibc/types/v0.PacketStatus)
 // ugnot returning on the new client: (1 gno.land/p/aib/ibc/types/v0.PacketStatus)
-// bob's vouchers: 680 | bob's ugnot + 180 | carol: done paid 300
+// bob's vouchers: 630 | bob's ugnot + 180 | carol: done paid 300
 // {"denom":"ugnot","amount":1800,"clients":[{"client":"ethereum-1","amount":1800}]}
