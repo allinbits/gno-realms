@@ -79,7 +79,14 @@ func deliver(cur realm, s *sent, i int) string {
 	func() {
 		defer func() {
 			if r := recover(); r != nil {
-				out = "aborted: " + r.(error).Error()
+				switch v := r.(type) {
+				case error:
+					out = "aborted: " + v.Error()
+				case string:
+					out = "aborted: " + v
+				default:
+					out = "aborted"
+				}
 			}
 		}()
 		core.RecvPacket(cross(cur), types.MsgRecvPacket{Packet: p, ProofHeight: types.NewHeight(0, 72), Ext: extproof.Proof{Data: s.router.Proof()}})
@@ -104,38 +111,41 @@ func epochNow() string {
 // #1). A route replacement retires the old client for transfers only: the
 // epoch stays over it, so decisions in flight, the kind 10 among them, can
 // still be re-sent there. IBCAdmin's epoch notice, proven through the new
-// client, moves the epoch, whether it arrives after gno.land's replacement
-// executes or before; a notice over a client no recorded replacement names,
-// for another epoch, or naming another client, is refused (an error
+// client, moves the epoch along a transition its dispatched kind 10 made
+// expected, whether it arrives after gno.land's replacement executes or
+// before; a notice over a client no expected transition reaches, for
+// another epoch, or naming another client, is refused (an error
 // acknowledgement), and the notice of the epoch switched to already is
 // acknowledged again.
 func main(cur realm) {
-	route := client(cur, "ethereum-1", "client-0")
-	b := client(cur, "ethereum-2", "client-1",
-		noticePacket(1, "client-1", "ethereum-2", 2, "client-1"), // too early
-		noticePacket(2, "client-1", "ethereum-2", 3, "client-1"), // the wrong epoch
-		noticePacket(3, "client-1", "ethereum-2", 2, "client-9"), // names another client
-		noticePacket(4, "client-1", "ethereum-2", 2, "client-1"), // the notice
-		noticePacket(5, "client-1", "ethereum-2", 2, "client-1")) // re-sent
-	x := client(cur, "ethereum-3", "client-7", noticePacket(1, "client-7", "ethereum-3", 2, "client-7"))
-	c := client(cur, "ethereum-4", "client-2", noticePacket(1, "client-2", "ethereum-4", 3, "client-2"))
-	_ = route
+	client(cur, "ethereum-1", "client-0")
+	b := client(cur, "ethereum-2", "gnoland-b",
+		noticePacket(1, "gnoland-b", "ethereum-2", 2, "gnoland-b"), // too early
+		noticePacket(2, "gnoland-b", "ethereum-2", 3, "gnoland-b"), // the wrong epoch
+		noticePacket(3, "gnoland-b", "ethereum-2", 2, "gnoland-z"), // names another client
+		noticePacket(4, "gnoland-b", "ethereum-2", 2, "gnoland-b"), // the notice
+		noticePacket(5, "gnoland-b", "ethereum-2", 2, "gnoland-b")) // re-sent
+	x := client(cur, "ethereum-3", "gnoland-x", noticePacket(1, "gnoland-x", "ethereum-3", 2, "gnoland-x"))
+	c := client(cur, "ethereum-4", "gnoland-c", noticePacket(1, "gnoland-c", "ethereum-4", 3, "gnoland-c"))
 	execute(cur, govern(cur, ibcgov.NewEnrollRouteRequest(cross(cur), "ethereum-1", string(collector), bridge)))
 	execute(cur, govern(cur, ibcgov.NewBindGovernanceRequest(cross(cur), "ethereum-1")))
 	println(epochNow())
 
-	// A notice before any replacement names its client: refused.
-	println("notice over b before its replacement is recorded:", deliver(cur, b, 0), "|", epochNow())
+	// A notice before its kind 10 is dispatched is expected nowhere: refused.
+	println("notice over b before its kind 10:", deliver(cur, b, 0), "|", epochNow())
 
-	// gno.land's replacement executes first: the epoch stays over the old
-	// client, which still carries governance packets, not transfers.
+	// The kind 10 is dispatched (the transition client-0 → gnoland-b is
+	// expected from then on), and gno.land's replacement executes first: the
+	// epoch stays over the old client, which still carries governance
+	// packets, not transfers.
+	govern(cur, ibcgov.NewEthRouteReplacementRequest(cross(cur), "client-0", "gnoland-b", 1))
 	execute(cur, govern(cur, ibcgov.NewReplaceRouteRequest(cross(cur), "ethereum-1", "ethereum-2", 0)))
 	println(epochNow(), "| old retired for transfers:", core.IsClientRetiredFor("ethereum-1", "transfer"),
 		"for governance:", core.IsClientRetiredFor("ethereum-1", ibcgov.GovPort))
 	govern(cur, ibcgov.NewEthRouteSettingsRequest(cross(cur), "client-0", 0))
 	println("a decision after the replacement:", decided(ibcgov.LastDecision()))
 
-	println("notice over x (no replacement):", deliver(cur, x, 0), "|", epochNow())
+	println("notice over x (not expected):", deliver(cur, x, 0), "|", epochNow())
 	println("notice of epoch 3:", deliver(cur, b, 1), "|", epochNow())
 	println("notice naming another client:", deliver(cur, b, 2), "|", epochNow())
 	println("the notice:", deliver(cur, b, 3), "|", epochNow())
@@ -145,6 +155,7 @@ func main(cur realm) {
 	// The next replacement's notice arrives before gno.land's replacement
 	// executes: the epoch moves, the old client is retired for governance
 	// and keeps the route until the replacement executes.
+	govern(cur, ibcgov.NewEthRouteReplacementRequest(cross(cur), "gnoland-b", "gnoland-c", 2))
 	replace := govern(cur, ibcgov.NewReplaceRouteRequest(cross(cur), "ethereum-1", "ethereum-4", 0))
 	println("notice over c before its replacement executes:", deliver(cur, c, 0), "|", epochNow())
 	println("b retired for governance:", core.IsClientRetiredFor("ethereum-2", ibcgov.GovPort), "for transfers:", core.IsClientRetiredFor("ethereum-2", "transfer"))
@@ -155,10 +166,10 @@ func main(cur realm) {
 
 // Output:
 // epoch 1 over ethereum-1
-// notice over b before its replacement is recorded: error acknowledgement | epoch 1 over ethereum-1
+// notice over b before its kind 10: error acknowledgement | epoch 1 over ethereum-1
 // epoch 1 over ethereum-1 | old retired for transfers: true for governance: false
-// a decision after the replacement: applied - dispatched as epoch 1 seq 1
-// notice over x (no replacement): error acknowledgement | epoch 1 over ethereum-1
+// a decision after the replacement: applied - dispatched as epoch 1 seq 2
+// notice over x (not expected): error acknowledgement | epoch 1 over ethereum-1
 // notice of epoch 3: error acknowledgement | epoch 1 over ethereum-1
 // notice naming another client: error acknowledgement | epoch 1 over ethereum-1
 // the notice: acknowledged | epoch 2 over ethereum-2

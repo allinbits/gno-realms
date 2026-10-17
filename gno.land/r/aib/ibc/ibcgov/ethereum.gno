@@ -65,15 +65,20 @@ import (
 // big-endian, newClient the router's client id the notice comes from (the
 // kind 10's new client), the rest of the bytes. It is the only packet this
 // realm receives. Ethereum raises its epoch by one per kind 10 or emergency
-// recovery it executes, and sends a notice over each step's new client; the
-// replacements recorded here chain the same steps from the epoch's client
-// (govSucc, kept apart from the transfer aliases). A notice of epoch
-// current + k is accepted only over the k-th recorded successor of the
-// epoch's client, its proof verified by the core through that client
-// (Active, its counterparty the notice's source): the epoch then moves
-// there, past any step in between, and every client passed is retired for
-// the gov port (for good once its route replacement has executed here too).
-// A client on that chain is never retired for the gov port before. The
+// recovery it executes, and sends a notice over each step's new client. This
+// realm records the transitions it expects, in router client ids (expected,
+// kept apart from the transfer aliases): a kind 10 when it is dispatched,
+// an emergency recovery by NewExpectRecoveryRequest; a client may have up to
+// maxExpected expected successors, as only one of competing kind 10s can
+// execute. A notice of epoch current + k (k from 1 to maxNoticeSteps) is
+// accepted only when its source is reached from the epoch client's
+// counterparty through exactly k expected transitions, its proof verified
+// by the core through the gno client it arrives on (Active, its
+// counterparty the notice's source): the epoch then moves there, past any
+// step in between, and the clients passed are retired for the gov port (for
+// good once their route replacement has executed here too). A gno client on
+// an expected path from the epoch's is never retired for the gov port
+// before. The
 // app acknowledgement is epoch u32 ‖ seq u64 (0) ‖ status u8 ‖ redispatch u8
 // (0): status 1 when it switches, 3 for the notice of the epoch already
 // switched to. Anything else is refused with an error acknowledgement.
@@ -196,44 +201,120 @@ var (
 	epochs      avl.Tree // epochKey -> *epochRec
 	dispatches  avl.Tree // dispatchKey -> *dispatch
 	pendingAuth *authorization
-	// govSucc is the governance transitions, kept apart from the transfer
-	// app's route aliases: for the old client of every route replacement
-	// recorded here, the client replacing it. From the epoch's client it
-	// chains the clients the epoch is to move through, one epoch each, as
-	// Ethereum raises its epoch by one per kind 10 or emergency recovery it
-	// executes (see OnRecvPacket).
-	govSucc avl.Tree // old client -> new client
+	// expected is the governance transitions this realm expects Ethereum to
+	// make, kept apart from the transfer app's route aliases (ADR pr6375
+	// §7.12, "expected transitions"), in router client ids: for an old
+	// client, its expected successors, at most maxExpected, never
+	// overwritten or removed (an expectation never confirmed by a notice
+	// costs nothing). A kind 10 records one when it is dispatched, and
+	// NewExpectRecoveryRequest one for an emergency recovery.
+	expected avl.Tree // old router client id -> []string
+	// awaitingGov is the gno clients a route replacement retired for
+	// transfers only, being on an expected path of the epoch: each is
+	// retired for good once the epoch moved off every path through it.
+	awaitingGov avl.Tree // gno client id -> true
 )
 
-// maxNoticeSteps bounds how many recorded replacements an epoch notice may
-// move the epoch through at once (a walk of the chain).
-const maxNoticeSteps = 16
+const (
+	// maxNoticeSteps bounds k, the epochs a notice moves through at once.
+	maxNoticeSteps = 16
+	// maxExpected bounds a router client's expected successors.
+	maxExpected = 4
+	// maxFrontier bounds the router clients a notice's search keeps at each
+	// step: with maxNoticeSteps steps and maxExpected successors each, a
+	// search reads at most 16 × 64 × 4 entries.
+	maxFrontier = 64
+)
 
-// recordReplacement notes a route replacement decision of old by client.
-func recordReplacement(client, old string) { govSucc.Set(old, client) }
+func expectedOf(old string) []string {
+	if v := expected.Get(old); v != nil {
+		return v.([]string)
+	}
+	return nil
+}
 
-// successor is the client recorded to replace c, "" if none.
-func successor(c string) string {
-	if v := govSucc.Get(c); v != nil {
-		return v.(string)
+// checkExpect is why the transition old → next cannot be expected, or "".
+func checkExpect(old, next string) string {
+	succ := expectedOf(old)
+	for _, x := range succ {
+		if x == next {
+			return ""
+		}
+	}
+	if len(succ) >= maxExpected {
+		return "router client " + old + " has " + strconv.Itoa(maxExpected) + " expected successors already"
 	}
 	return ""
 }
 
-// onEpochChain reports whether c carries the governance epoch or is a client
-// the epoch is still to move through (a recorded successor, step by step,
-// of the epoch's client): such a client is never retired for the gov port,
-// so its epoch notice can still arrive and its decisions still be re-sent.
-func onEpochChain(c string) bool {
-	x := EpochClient()
-	for i := 0; x != "" && i <= maxNoticeSteps; i++ {
-		if x == c {
+// expect records the transition old → next (a no-op when it is expected
+// already); its caller checked it fits (checkExpect).
+func expect(old, next string) {
+	succ := expectedOf(old)
+	for _, x := range succ {
+		if x == next {
+			return
+		}
+	}
+	expected.Set(old, append(append([]string{}, succ...), next))
+	chain.Emit("GovExpect", "from", old, "to", next)
+}
+
+// reachable is the router clients reached from the epoch's through exactly
+// k expected transitions (k from 0), the search bounded by maxFrontier a
+// step; ok is false once a step overflows it.
+func reachable(k int) (map[string]bool, bool) {
+	start := core.CounterpartyClientID(EpochClient())
+	front := map[string]bool{start: true}
+	for i := 0; i < k; i++ {
+		next := map[string]bool{}
+		for c := range front {
+			for _, x := range expectedOf(c) {
+				next[x] = true
+			}
+		}
+		if len(next) > maxFrontier {
+			return nil, false
+		}
+		front = next
+	}
+	return front, true
+}
+
+// onExpectedPath reports whether the gno client c carries the governance
+// epoch or is reached from it by expected transitions (through its router
+// counterparty, within maxNoticeSteps): such a client is never retired for
+// the gov port, so a notice over it can still arrive and the epoch's
+// decisions still be re-sent.
+func onExpectedPath(c string) bool {
+	if epoch == 0 {
+		return false
+	}
+	if c == EpochClient() {
+		return true
+	}
+	cp := core.CounterpartyClientID(c)
+	if cp == "" {
+		return false
+	}
+	for k := 1; k <= maxNoticeSteps; k++ {
+		front, ok := reachable(k)
+		if !ok {
+			return true // too many paths to tell: keep it open
+		}
+		if front[cp] {
 			return true
 		}
-		x = successor(x)
+		if len(front) == 0 {
+			return false
+		}
 	}
 	return false
 }
+
+// awaitGov notes a gno client retired for transfers only, to retire for good
+// once the epoch has moved off every expected path through it.
+func awaitGov(c string) { awaitingGov.Set(c, true) }
 
 func epochKey(e uint32) string {
 	s := strconv.FormatUint(uint64(e), 10)
@@ -495,39 +576,52 @@ func takeNotice(cur realm, source, client string, payload types.Payload) (uint32
 	if epoch == 0 || e <= epoch || e-epoch > maxNoticeSteps {
 		return 0, 0, "the notice is of epoch " + strconv.FormatUint(uint64(e), 10) + ", not one of the next " + strconv.Itoa(maxNoticeSteps) + " after " + strconv.FormatUint(uint64(epoch), 10)
 	}
-	// The k-th recorded successor of the epoch's client takes epoch + k:
-	// Ethereum raised its epoch once per replacement it executed, and sent a
-	// notice over each step's new client. A later notice moves the epoch
-	// past the steps in between, whose notices may never come (a client
-	// that failed meanwhile).
+	// Epoch current + k goes over a client reached from the epoch's through
+	// exactly k expected transitions: Ethereum raised its epoch once per
+	// kind 10 or recovery it executed, and sent a notice over each step's
+	// new client. A later notice moves the epoch past the steps in between,
+	// whose notices may never come (a client that failed meanwhile).
 	k := int(e - epoch)
-	passed := []string{EpochClient()}
-	x := EpochClient()
-	for i := 0; i < k; i++ {
-		x = successor(x)
-		if x == "" {
-			break
-		}
-		passed = append(passed, x)
+	front, bounded := reachable(k)
+	if !bounded {
+		return 0, 0, "too many expected transitions to search " + strconv.Itoa(k) + " steps"
 	}
-	if x != client {
-		return 0, 0, "epoch " + strconv.FormatUint(uint64(e), 10) + " goes over the " + strconv.Itoa(k) + "-th recorded successor of " + EpochClient() + ", not " + client
+	if !front[source] {
+		return 0, 0, "epoch " + strconv.FormatUint(uint64(e), 10) + " is expected over no router client " + source + " reached by " + strconv.Itoa(k) + " expected transitions from " + core.CounterpartyClientID(EpochClient())
 	}
+	old := EpochClient()
 	setEpoch(e, client)
-	// The clients passed are retired for governance: for good each one whose
-	// route replacement executed here (it is retired for transfers already),
-	// otherwise for the gov port, its replacement retiring the rest.
-	rd, _ := transfer.ExtView("controls").(controls.Reader)
-	for _, c := range passed[:len(passed)-1] {
-		switch {
-		case core.IsClientRetired(c):
-		case rd.Valid() && rd.RetiredRouteOf(c) != "":
-			core.RetireClient(cross(cur), c)
-		case !core.IsClientRetiredFor(c, GovPort):
-			core.RetireClientPort(cross(cur), c, GovPort)
+	// The old epoch's client is retired for governance: for good if its route
+	// replacement executed here (it is retired for transfers already),
+	// otherwise for the gov port, its replacement retiring the rest. Every
+	// client retired for transfers while on an expected path is retired for
+	// good once no path from the new epoch's client goes through it.
+	retireForGov(cur, old)
+	var done []string
+	awaitingGov.Iterate("", "", func(c string, _ any) bool {
+		if !onExpectedPath(c) {
+			done = append(done, c)
 		}
+		return false
+	})
+	for _, c := range done {
+		awaitingGov.Remove(c)
+		retireForGov(cur, c)
 	}
 	return e, StatusRecorded, ""
+}
+
+// retireForGov retires the gno client c for governance: for good if a route
+// replacement retired it for transfers, otherwise for the gov port.
+func retireForGov(cur realm, c string) {
+	rd, _ := transfer.ExtView("controls").(controls.Reader)
+	switch {
+	case core.IsClientRetired(c):
+	case rd.Valid() && rd.RetiredRouteOf(c) != "":
+		core.RetireClient(cross(cur), c)
+	case !core.IsClientRetiredFor(c, GovPort):
+		core.RetireClientPort(cross(cur), c, GovPort)
+	}
 }
 
 // ownDispatch is the dispatch a packet's payload carries, if it is ours.
@@ -635,15 +729,26 @@ type ethParams struct {
 	kind   uint8
 	params []byte
 	epoch  uint32 // a cancel: the epoch whose numbers it names (0: any)
+	// a kind 10: the transition it makes Ethereum expect, recorded here
+	// when it is dispatched (router client ids)
+	from, to string
 }
 
 func (p *ethParams) apply(cur realm, t int64) (string, string) {
 	if p.epoch != 0 && p.epoch != epoch {
 		return "", "the cancel names numbers of epoch " + strconv.FormatUint(uint64(p.epoch), 10) + ", which is past"
 	}
+	if p.to != "" {
+		if refusal := checkExpect(p.from, p.to); refusal != "" {
+			return "", refusal
+		}
+	}
 	seq, refusal := bind(cur, ledger.Last(), p.kind, p.params)
 	if refusal != "" {
 		return "", refusal
+	}
+	if p.to != "" {
+		expect(p.from, p.to)
 	}
 	return "dispatched as epoch " + strconv.FormatUint(uint64(epoch), 10) + " seq " + u64s(seq), ""
 }
@@ -653,13 +758,17 @@ func ethRequest(cur realm, name string, kind uint8, text string, params []byte) 
 }
 
 func ethRequestIn(cur realm, name string, kind uint8, text string, params []byte, bound uint32) Request {
+	return ethRequestP(cur, name, text, &ethParams{kind: kind, params: params, epoch: bound})
+}
+
+func ethRequestP(cur realm, name, text string, p *ethParams) Request {
+	kind, params := p.kind, p.params
 	if epochRecOf(epoch) == nil {
 		panic("ibcgov: the governance channel is not bound")
 	}
 	if envelopeHeader+len(params) > MaxEnvelope {
 		panic("ibcgov: the envelope would be " + strconv.Itoa(envelopeHeader+len(params)) + " bytes, above " + strconv.Itoa(MaxEnvelope))
 	}
-	p := &ethParams{kind: kind, params: params, epoch: bound}
 	text = "ethereum kind " + strconv.Itoa(int(kind)) + " (" + name + "): " + text
 	return propose(cur, "eth "+name, text, func(cur realm, made, t int64) {
 		decide(cur, "eth "+name, text, p, made, t, false)
@@ -922,8 +1031,44 @@ func NewEthRouteReplacementRequest(cur realm, oldClientID, newClientID string, s
 	if oldClientID == newClientID {
 		panic("ibcgov: the clients differ")
 	}
-	return ethRequest(cur, "route replacement", KindRouteReplace, "replace route "+oldClientID+" by "+newClientID+", suspect from Ethereum block "+u64s(suspectFrom),
-		abi.Encode(abi.String(oldClientID), abi.String(newClientID), abi.Uint64(suspectFrom)))
+	if refusal := checkExpect(oldClientID, newClientID); refusal != "" {
+		panic("ibcgov: " + refusal)
+	}
+	return ethRequestP(cur, "route replacement", "replace route "+oldClientID+" by "+newClientID+", suspect from Ethereum block "+u64s(suspectFrom),
+		&ethParams{kind: KindRouteReplace, params: abi.Encode(abi.String(oldClientID), abi.String(newClientID), abi.Uint64(suspectFrom)), from: oldClientID, to: newClientID})
+}
+
+// expectParams records an expected governance transition.
+type expectParams struct{ from, to string }
+
+func (p *expectParams) apply(cur realm, t int64) (string, string) {
+	if refusal := checkExpect(p.from, p.to); refusal != "" {
+		return "", refusal
+	}
+	expect(p.from, p.to)
+	return "expect the governance epoch to move from " + p.from + " to " + p.to, ""
+}
+
+// NewExpectRecoveryRequest records, at once, that Ethereum's emergency
+// recovery is to move the governance epoch from the router client
+// oldClientID to newClientID (ADR pr6375 §7.12): ibcgov dispatches no
+// emergency recovery, so this decision is what lets the recovery's epoch
+// notice be accepted. An expectation never confirmed by a notice costs
+// nothing; a router client has at most 4 expected successors.
+func NewExpectRecoveryRequest(cur realm, oldClientID, newClientID string) Request {
+	mustEthClientID(oldClientID)
+	mustCustomEthClientID(newClientID)
+	if oldClientID == newClientID {
+		panic("ibcgov: the clients differ")
+	}
+	if refusal := checkExpect(oldClientID, newClientID); refusal != "" {
+		panic("ibcgov: " + refusal)
+	}
+	text := "expect the emergency recovery of " + oldClientID + " by " + newClientID
+	p := &expectParams{from: oldClientID, to: newClientID}
+	return propose(cur, "expect recovery", text, func(cur realm, made, t int64) {
+		decide(cur, "expect recovery", text, p, made, t, false)
+	})
 }
 
 // NewEthRouteSettingsRequest (kind 11) sets the quarantine of the route of

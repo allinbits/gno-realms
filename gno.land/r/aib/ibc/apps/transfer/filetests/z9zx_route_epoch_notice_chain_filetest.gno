@@ -116,7 +116,14 @@ func deliver(cur realm, s *sent, i int) string {
 	func() {
 		defer func() {
 			if r := recover(); r != nil {
-				out = "aborted: " + r.(error).Error()
+				switch v := r.(type) {
+				case error:
+					out = "aborted: " + v.Error()
+				case string:
+					out = "aborted: " + v
+				default:
+					out = "aborted"
+				}
 			}
 		}()
 		core.RecvPacket(cross(cur), types.MsgRecvPacket{Packet: p, ProofHeight: types.NewHeight(0, proofSlot(s)), Ext: extproof.Proof{Data: s.router.Proof()}})
@@ -144,29 +151,40 @@ func epochNow() string {
 	return "epoch " + string(rune('0'+ibcgov.Epoch())) + " over " + ibcgov.EpochClient()
 }
 
-// Overlapping replacements and the epoch chain (Codex round 31 #3): Ethereum
-// raises its epoch by one per kind 10 (or emergency recovery) it executes,
-// and sends a notice over each step's new client. Two replacements recorded
-// and executed here before any notice, A→B then B→C, keep B on the chain:
-// it is retired for transfers only, so B's notice still arrives and moves the
-// epoch to 2, and C's then to 3. A notice of the wrong step (C's for epoch
-// 2) is refused. When a step's client fails before its notice (D frozen), the
-// next step's notice (E's for epoch current + 2) moves the epoch past it.
+// Expected transitions (ADR pr6375 §7.12; Codex rounds 31 #3, 32 #1). Each
+// dispatched kind 10 makes its transition expected here, in router client
+// ids, never overwritten; a recovery's is recorded by a decision. Ethereum
+// raises its epoch by one per kind 10 or recovery it executes and sends a
+// notice over each step's new client, accepted for epoch current + k only
+// over a client reached through exactly k expected transitions:
+//   - A→B and B→C both execute here before any notice: B stays open for
+//     governance, B's notice moves the epoch to 2, then C's to 3; C's notice
+//     for epoch 2 (the wrong k) is refused;
+//   - competing kind 10s C→D and C→F, gno.land's C→F replacement cancelled:
+//     D's notice is accepted all the same;
+//   - an emergency recovery D→G, expected by decision: G's notice accepted;
+//   - G→H then H→E, H frozen before its notice: E's notice, two steps on,
+//     moves the epoch past H; a notice one step too far is refused.
 func main(cur realm) {
 	client(cur, "ethereum-1", "client-0")
-	b := client(cur, "ethereum-2", "client-1", noticePacket(1, "client-1", "ethereum-2", 2, "client-1"))
-	c := client(cur, "ethereum-3", "client-2",
-		noticePacket(1, "client-2", "ethereum-3", 2, "client-2"), // the wrong step
-		noticePacket(2, "client-2", "ethereum-3", 3, "client-2"))
-	d := client(cur, "ethereum-4", "client-3", noticePacket(1, "client-3", "ethereum-4", 4, "client-3"))
-	e := healthyClient(cur, "ethereum-5", "client-4",
-		noticePacket(1, "client-4", "ethereum-5", 6, "client-4"), // two steps too far
-		noticePacket(2, "client-4", "ethereum-5", 5, "client-4"))
-	_ = d
+	b := client(cur, "ethereum-2", "gnoland-b", noticePacket(1, "gnoland-b", "ethereum-2", 2, "gnoland-b"))
+	c := client(cur, "ethereum-3", "gnoland-c",
+		noticePacket(1, "gnoland-c", "ethereum-3", 2, "gnoland-c"), // the wrong step
+		noticePacket(2, "gnoland-c", "ethereum-3", 3, "gnoland-c"))
+	d := client(cur, "ethereum-4", "gnoland-d", noticePacket(1, "gnoland-d", "ethereum-4", 4, "gnoland-d"))
+	client(cur, "ethereum-5", "gnoland-f")
+	g := client(cur, "ethereum-6", "gnoland-g", noticePacket(1, "gnoland-g", "ethereum-6", 5, "gnoland-g"))
+	h := client(cur, "ethereum-7", "gnoland-h", noticePacket(1, "gnoland-h", "ethereum-7", 6, "gnoland-h"))
+	e := healthyClient(cur, "ethereum-8", "gnoland-e",
+		noticePacket(1, "gnoland-e", "ethereum-8", 8, "gnoland-e"), // one step too far
+		noticePacket(2, "gnoland-e", "ethereum-8", 7, "gnoland-e"))
 	execute(cur, govern(cur, ibcgov.NewEnrollRouteRequest(cross(cur), "ethereum-1", string(collector), bridge)))
 	execute(cur, govern(cur, ibcgov.NewBindGovernanceRequest(cross(cur), "ethereum-1")))
 
-	// A→B and B→C both execute before any notice.
+	// A→B and B→C: both kind 10s dispatched, both replacements executed here
+	// before any notice.
+	govern(cur, ibcgov.NewEthRouteReplacementRequest(cross(cur), "client-0", "gnoland-b", 1))
+	govern(cur, ibcgov.NewEthRouteReplacementRequest(cross(cur), "gnoland-b", "gnoland-c", 2))
 	execute(cur, govern(cur, ibcgov.NewReplaceRouteRequest(cross(cur), "ethereum-1", "ethereum-2", 0)))
 	execute(cur, govern(cur, ibcgov.NewReplaceRouteRequest(cross(cur), "ethereum-1", "ethereum-3", 0)))
 	println(epochNow(), "| route client", controlsView().Client("ethereum-1"))
@@ -177,9 +195,26 @@ func main(cur realm) {
 	println("b's notice:", deliver(cur, b, 0), "|", epochNow(), "| a retired for good:", core.IsClientRetired("ethereum-1"))
 	println("c's notice:", deliver(cur, c, 1), "|", epochNow(), "| b retired for good:", core.IsClientRetired("ethereum-2"))
 
-	// D is converted to a verifier that freezes, then C→D and D→E execute;
-	// D freezes before its notice. E's notice, two steps on, moves the
-	// epoch past it.
+	// Competing kind 10s from C; gno.land's replacement by F is cancelled,
+	// by D executed. D's notice is accepted: the expectation of F stays,
+	// harmless.
+	govern(cur, ibcgov.NewEthRouteReplacementRequest(cross(cur), "gnoland-c", "gnoland-d", 3))
+	govern(cur, ibcgov.NewEthRouteReplacementRequest(cross(cur), "gnoland-c", "gnoland-f", 3))
+	toF := govern(cur, ibcgov.NewReplaceRouteRequest(cross(cur), "ethereum-1", "ethereum-5", 0))
+	toD := govern(cur, ibcgov.NewReplaceRouteRequest(cross(cur), "ethereum-1", "ethereum-4", 0))
+	govern(cur, ibcgov.NewCancelRequest(cross(cur), toF))
+	execute(cur, toD)
+	println("replace by f:", decided(toF), "| by d:", decided(toD))
+	println("d's notice:", deliver(cur, d, 0), "|", epochNow(), "| c retired for good:", core.IsClientRetired("ethereum-3"))
+
+	// Ethereum's emergency recovery moves D's route to G: expected by a
+	// decision here, its notice is accepted.
+	println("expect the recovery:", decided(govern(cur, ibcgov.NewExpectRecoveryRequest(cross(cur), "gnoland-d", "gnoland-g"))))
+	println("g's notice:", deliver(cur, g, 0), "|", epochNow())
+
+	// G→H then H→E; H freezes before its notice is relayed.
+	govern(cur, ibcgov.NewEthRouteReplacementRequest(cross(cur), "gnoland-g", "gnoland-h", 4))
+	govern(cur, ibcgov.NewEthRouteReplacementRequest(cross(cur), "gnoland-h", "gnoland-e", 5))
 	testing.SetRealm(testing.NewCodeRealm(freezeImpl))
 	core.RegisterImpl(cross(cur), func(s core.Store) core.Logic {
 		return implv1.NewWithConversions(s, "v1-freeze", []string{ethereum.Version}, []string{ethtesting.FreezingVersion},
@@ -187,16 +222,14 @@ func main(cur realm) {
 	}, "v1-freeze", []string{"v0", "v1"})
 	testing.SetRealm(testing.NewCodeRealm("gno.land/r/aib/main"))
 	execute(cur, govern(cur, ibcgov.NewCoreUpdateImplRequest(cross(cur), freezeImpl)))
-	execute(cur, govern(cur, ibcgov.NewReplaceVerifierRequest(cross(cur), "ethereum-4", ethtesting.FreezingVersion)))
-	execute(cur, govern(cur, ibcgov.NewReplaceRouteRequest(cross(cur), "ethereum-1", "ethereum-4", 0)))
-	execute(cur, govern(cur, ibcgov.NewReplaceRouteRequest(cross(cur), "ethereum-1", "ethereum-5", 0)))
+	execute(cur, govern(cur, ibcgov.NewReplaceVerifierRequest(cross(cur), "ethereum-7", ethtesting.FreezingVersion)))
 	setTime(time.Unix(int64(ethtesting.ClientState().GenesisTime)+5000, 0))
-	println("d:", core.ClientStatus("ethereum-4"), "| e:", core.ClientStatus("ethereum-5"), "|", epochNow())
-	println("e's notice two steps too far:", deliver(cur, e, 0), "|", epochNow())
+	println("h:", core.ClientStatus("ethereum-7"), "| e:", core.ClientStatus("ethereum-8"), "|", epochNow())
+	// H's notice can no longer be relayed: the core refuses a packet on a
+	// Frozen client.
+	_ = h
+	println("e's notice one step too far:", deliver(cur, e, 0), "|", epochNow())
 	println("e's notice:", deliver(cur, e, 1), "|", epochNow())
-	for _, x := range []string{"ethereum-3", "ethereum-4"} {
-		println(x, "retired for good:", core.IsClientRetired(x))
-	}
 }
 
 // Output:
@@ -206,8 +239,10 @@ func main(cur realm) {
 // c's notice for epoch 2: error acknowledgement | epoch 1 over ethereum-1
 // b's notice: acknowledged | epoch 2 over ethereum-2 | a retired for good: true
 // c's notice: acknowledged | epoch 3 over ethereum-3 | b retired for good: true
-// d: Frozen | e: Active | epoch 3 over ethereum-3
-// e's notice two steps too far: error acknowledgement | epoch 3 over ethereum-3
-// e's notice: acknowledged | epoch 5 over ethereum-5
-// ethereum-3 retired for good: true
-// ethereum-4 retired for good: true
+// replace by f: cancelled - queued 7 days | by d: applied - replace: client ethereum-3 retired for transfers, meters emptied; governance epoch 3 stays over ethereum-3 until IBCAdmin's epoch notices arrive
+// d's notice: acknowledged | epoch 4 over ethereum-4 | c retired for good: true
+// expect the recovery: applied - expect the governance epoch to move from gnoland-d to gnoland-g
+// g's notice: acknowledged | epoch 5 over ethereum-6
+// h: Frozen | e: Active | epoch 5 over ethereum-6
+// e's notice one step too far: error acknowledgement | epoch 5 over ethereum-6
+// e's notice: acknowledged | epoch 7 over ethereum-8

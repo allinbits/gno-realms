@@ -98,9 +98,10 @@ func (p *routeParams) apply(cur realm, t int64) (string, string) {
 		// transfers only, until IBCAdmin's epoch notice moves the epoch.
 		retired := " retired"
 		switch {
-		case onEpochChain(p.replace):
-			// The epoch runs over it, or is still to move through it.
+		case onExpectedPath(p.replace):
+			// The epoch runs over it, or may still move through it.
 			core.RetireClientPort(cross(cur), p.replace, transfer.PortID)
+			awaitGov(p.replace)
 			retired = " retired for transfers"
 		case !core.IsClientRetired(p.replace):
 			core.RetireClient(cross(cur), p.replace)
@@ -114,7 +115,7 @@ func (p *routeParams) apply(cur realm, t int64) (string, string) {
 		if n := foldFlags(p.p.Client, p.p.Route, t); n > 0 {
 			note += ", " + strconv.Itoa(n) + " flags of " + p.p.Client + " moved to the route"
 		}
-		if onEpochChain(p.replace) {
+		if onExpectedPath(p.replace) {
 			note += "; governance epoch " + strconv.FormatUint(uint64(epoch), 10) + " stays over " + EpochClient() + " until IBCAdmin's epoch notices arrive"
 		}
 	}
@@ -637,9 +638,9 @@ func settleItemKey(seq, action uint64) string {
 // the route to the new client in constant work (escrow, vouchers and controls
 // stay keyed by the route key; denoms on the wire carry the new client id),
 // the core retires the old client, for transfers only while the governance
-// epoch runs over it: the epoch moves to the new client, and the old one is
-// retired for good, when IBCAdmin's epoch notice arrives over it (recorded
-// with this decision, see OnRecvPacket). newClientID is an Active
+// epoch runs over it or may still move through it (an expected transition,
+// see OnRecvPacket): it is retired for good once IBCAdmin's epoch notices
+// have moved the epoch past it. newClientID is an Active
 // Ethereum client with its counterparty (the new router client) registered,
 // authenticating the route's identity (the same chain, router and commitments
 // slot: RouteIdentity), checked again when the decision executes.
@@ -669,7 +670,6 @@ func NewReplaceRouteRequest(cur realm, route, newClientID string, suspectFrom in
 	text := "replace the client of route " + route + ": " + old + " by " + newClientID + ", suspect from gno.land height " + itoa(suspectFrom)
 	rp := &routeParams{op: controls.OpReplace, p: controls.Params{Route: route, Client: newClientID, Height: suspectFrom}, replace: old}
 	return propose(cur, "replace route", text, func(cur realm, made, t int64) {
-		recordReplacement(newClientID, old)
 		decide(cur, "replace route", text, rp, made, t, true)
 	})
 }
