@@ -113,7 +113,7 @@ receive (`types.Packet.ValidateBasic`; on an Ethereum client's packets
 | payload version and encoding | not blank; anything else is the application's to check (transfer: `ics20-1`, and `application/x-protobuf` or `application/x-solidity-abi`) |
 | source and destination client id | 4 to 64 characters of the same alphabet. On an Ethereum client's packets either may instead be an ICS26 router client id: `client-N` (N a decimal uint64 of at most 20 digits, no leading zero) or a custom id of 4 to 128 characters of that alphabet, not starting with `client-` or `channel-`. `SendPacket` also checks its source client against the first rule before it builds the packet |
 | sequence | not 0 |
-| timeout timestamp | not 0 (Unix seconds). On send: after the current block time, at most 24 hours after it (`maxTimeoutDelta`), and after the sending client's latest consensus timestamp. On receive: refused at or after the current block time |
+| timeout timestamp | not 0 (Unix seconds). On send: after the current block time, at most 24 hours after it (`maxTimeoutDelta`), and after the sending client's latest consensus timestamp. On receive: refused when the current block time is at or after the packet's timeout timestamp |
 
 A packet over a limit is never committed or received. On send, `SendPacket`
 panics and the whole transaction aborts: nothing is escrowed or burned and no
