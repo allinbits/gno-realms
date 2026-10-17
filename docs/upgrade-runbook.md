@@ -140,23 +140,30 @@ The transfer app is the same with `NewTransferUpdateImplRequest`.
 The proxy then builds the candidate against its store, runs `OnInstall`,
 switches, and emits `impl_updated{old_path,new_path,version}`. The builder
 refuses a path that is not registered yet. When the decision executes,
-ibcgov first runs the proxy's `CheckUpdateImpl(path)`, which reads the
-registered manifest only (no candidate code runs before the installation):
-a path not registered, a manifest that does not install over the active
-version, or, for the transfer app, an implementation that does not keep the
-route controls once any route exists, spends the decision instead of
-leaving it pending. A panic during the installation itself (the
-constructor, the manifest check or `OnInstall`) is not caught: it rolls back
-the whole `Execute` transaction, so the decision stays pending and can be
-executed again.
+ibcgov first runs the proxy's `CheckUpdateImpl(path)`. It reads the
+registered manifest and builds the candidate against a fresh, empty store
+(never the live one), then refuses: a path not registered, a manifest that
+does not install over the active version, a candidate that builds another
+version than its manifest (or, for transfer, answers otherwise whether it
+keeps the controls), an install hook that refuses the active implementation
+(declared as `CheckInstall(prevPath, prevVersion)`, a pure check the proxy
+evaluates), or, for the transfer app, an implementation that does not keep
+the route controls once any route exists. Each spends the decision instead
+of leaving it pending. Only what the preflight cannot evaluate still rolls
+back the whole `Execute` transaction and leaves the decision pending: a
+panic in candidate code (the constructor or `OnInstall`), a constructor
+whose result depends on the store it is handed, or a hook refusing on a
+condition it does not declare through `CheckInstall`.
 
 ### When a migration fails
 
-- A panic in the constructor or in `OnInstall` aborts the whole
-  transaction: the switch does not happen, nothing the hook wrote persists,
-  the previous implementation stays active, the candidate stays registered
-  and the ibcgov decision stays pending. Executing it again later merely
-  retries.
+- A version mismatch or a declared hook refusal is caught by the preflight
+  and spends the decision. A panic in the constructor or in `OnInstall`
+  aborts the whole transaction: the switch does not happen, nothing the hook
+  wrote persists, the previous implementation stays active, the candidate
+  stays registered and the ibcgov decision stays pending. Executing it again
+  later merely retries; declare a hook's conditions in `CheckInstall` so
+  they are refused instead.
 - A realm path cannot be redeployed, so a fix ships as the next version. Its
   hook is installed over the implementation that is still active, not over
   the failed one: a `v2` written after a failed `v1` carries the migration
@@ -250,8 +257,9 @@ Ethereum client carries nothing until a decision makes it a route.
    `gno.land/r/aib/ibc/core/impl/` and installed with
    `NewCoreUpdateImplRequest` (7 days); then `NewReplaceVerifierRequest(
    clientID, toVersion)` (7 days) converts the client. A conversion the
-   active implementation does not declare, a client not Active, or a
-   converted verifier failing its checks spends the decision. The client
+   active implementation does not declare, a client not Active, a verifier
+   exposing no ethereum/v0 state (`Ethereum()`, which the conversion reads),
+   or a converted verifier failing its checks spends the decision. The client
    keeps its id and every consensus state it trusted (served read only from
    the retired verifier), its trust generation advances and its route's
    payout meters start empty.
