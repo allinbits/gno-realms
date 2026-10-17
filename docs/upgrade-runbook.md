@@ -21,6 +21,16 @@ the proxies and stay provable across the switch.
   implements the proxy's `Logic`, registers itself from `init` with
   `RegisterImpl`, and reuses from `impl/v0` what it does not change (`New`, the
   exported `Renderer`).
+- `RegisterImpl` takes, beside the constructor, a store-free manifest of
+  plain values: `RegisterImpl(cur, ctor, version, over)` for the core,
+  `RegisterImpl(cur, ctor, version, over, keepsControls)` for the transfer
+  app. `version` is what the candidate's `Version()` reports; `over` lists
+  the versions of an active implementation it installs over (`""` for the
+  bootstrap; its own version is always accepted; `nil` accepts any);
+  `keepsControls` declares that it implements the route controls. The
+  governed preflight (`CheckUpdateImpl`) reads only the manifest, and the
+  installation panics if the built candidate's version, or its keeping the
+  controls, differs from what it declared.
 - `OnInstall` is the migration hook. It runs inside `UpdateImpl` before the
   switch, and `prevVersion` tells it which implementation was active, which
   is also the layout of the data as long as versions activate in sequence.
@@ -45,8 +55,10 @@ the proxies and stay provable across the switch.
 
 One `MsgAddPackage`, from any account that may deploy under the `aib`
 namespace, usually the AIB multisig. List the candidate in
-`scripts/packages.sh` after the current implementation (a fresh chain then
-deploys both, and the first registered, `v0`, bootstraps), then:
+`scripts/packages.sh` after the current implementation, so that on a fresh
+chain the current one registers first and bootstraps: for the core that is
+`impl/v0`; for the transfer app it is `impl/v1` (transfer `impl/v0`
+registers nothing; it is the logic `impl/v1` embeds). Then:
 
 ```
 ONLY=gno.land/r/aib/ibc/core/impl/vN ./scripts/make-deploy-tx.sh   # unsigned tx for the multisig
@@ -127,15 +139,24 @@ The transfer app is the same with `NewTransferUpdateImplRequest`.
 
 The proxy then builds the candidate against its store, runs `OnInstall`,
 switches, and emits `impl_updated{old_path,new_path,version}`. The builder
-refuses a path that is not registered yet; a decision whose candidate is not
-registered when it executes is spent, not left pending.
+refuses a path that is not registered yet. When the decision executes,
+ibcgov first runs the proxy's `CheckUpdateImpl(path)`, which reads the
+registered manifest only (no candidate code runs before the installation):
+a path not registered, a manifest that does not install over the active
+version, or, for the transfer app, an implementation that does not keep the
+route controls once any route exists, spends the decision instead of
+leaving it pending. A panic during the installation itself (the
+constructor, the manifest check or `OnInstall`) is not caught: it rolls back
+the whole `Execute` transaction, so the decision stays pending and can be
+executed again.
 
 ### When a migration fails
 
-- A panic in `OnInstall` aborts the whole transaction: the switch does not
-  happen, nothing the hook wrote persists, the previous implementation stays
-  active and the candidate stays registered. Activating it again later
-  merely retries.
+- A panic in the constructor or in `OnInstall` aborts the whole
+  transaction: the switch does not happen, nothing the hook wrote persists,
+  the previous implementation stays active, the candidate stays registered
+  and the ibcgov decision stays pending. Executing it again later merely
+  retries.
 - A realm path cannot be redeployed, so a fix ships as the next version. Its
   hook is installed over the implementation that is still active, not over
   the failed one: a `v2` written after a failed `v1` carries the migration
@@ -153,9 +174,27 @@ registered when it executes is spent, not left pending.
 ## 6. Rollback
 
 `UpdateImpl` with the previous path, through the same governance decision
-(7 days). The old
-implementation is still registered, so nothing needs redeploying; its
-`OnInstall` runs again.
+(7 days). The old implementation is still registered, so nothing needs
+redeploying, and its `OnInstall` runs again; but a registered path is not
+enough. Before proposing the rollback, check that it would pass:
+
+```
+gnokey query vm/qeval -data 'gno.land/r/aib/ibc/core.CheckUpdateImpl("gno.land/r/aib/ibc/core/impl/v0")' -remote <rpc>
+gnokey query vm/qeval -data 'gno.land/r/aib/ibc/apps/transfer.CheckUpdateImpl("gno.land/r/aib/ibc/apps/transfer/impl/vN")' -remote <rpc>
+```
+
+An empty string means it would apply; otherwise the reason is the one the
+decision would be spent with:
+
+- the previous implementation's manifest must install over the version now
+  active (its `over` list; core `impl/v0` declares `nil`, any; core `impl/v1`
+  declares `""` and `v0`);
+- for the transfer app, once any Ethereum route exists, the implementation
+  must keep the route controls (its manifest's `keepsControls`): the
+  controls are never rolled back. The rehearsal candidate
+  `e2e/gno/rehearsal/transfer-v99` declares it does not keep them, so it can
+  be activated, and rolled back from, only before any route is enrolled.
+  Transfer `impl/v0` is no rollback target at all: it never registers.
 
 ## 7. Ethereum routes on a fresh deployment (transfer impl/v1)
 
