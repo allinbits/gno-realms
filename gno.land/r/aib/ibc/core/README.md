@@ -307,9 +307,14 @@ paused` until `core.Unpause`. Client operations (`CreateClient`,
 `RegisterCounterparty`, `UpdateClient`, `UpgradeClient`, `RecoverClient`) keep
 working, so relayers can keep clients alive during a pause. `Pause` is gated
 by the authority (GovDAO or ibcgov, see below); `Unpause` is an ibcgov
-decision. A pause blocks refunds too, so it is reserved for a core bug: the
-incident tool for the Ethereum route is the per-client flags of the transfer
-app (ADR pr6375 §7.3).
+decision. A pause stops the core's packet path, the transfer app's
+callbacks included, so refunds that would arrive through acknowledgements
+and timeouts wait: it is reserved for a core bug. It does not stop the
+transfer app's local payouts of what is already booked: `Claim` keeps paying
+claims and `ClaimRefunds` keeps paying queued refunds on an Ethereum route
+during a pause. To stop those, use the route's flags (`payouts` stops claim
+payouts and sweep payments, `refunds` holds refund payouts); they are the
+incident tool for the Ethereum route (ADR pr6375 §7.3).
 
 `core.Paused()` reports the state, which is also shown on `/r/aib/ibc/core:admin`.
 In-flight packets are not lost: commitments, receipts and acknowledgements stay
