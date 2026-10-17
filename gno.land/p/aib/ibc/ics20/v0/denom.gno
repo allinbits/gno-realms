@@ -195,7 +195,7 @@ func (h Hop) ValidateBasic() error {
 	if err := host.PortIdentifierValidator(h.PortId); err != nil {
 		return ufmt.Errorf("invalid hop source port ID %s", h.PortId)
 	}
-	if err := host.ClientIdentifierValidator(h.ClientId); err != nil && !types.IsValidRouterClientID(h.ClientId) {
+	if err := host.ClientIdentifierValidator(h.ClientId); err != nil {
 		return ufmt.Errorf("invalid hop source client ID %s", h.ClientId)
 	}
 

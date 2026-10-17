@@ -78,6 +78,50 @@ func (p Packet) ValidateBasic() error {
 		return ufmt.Errorf("packet data bytes cannot exceed %d bytes", MaximumPayloadsSize)
 	}
 
+	if err := host.ClientIdentifierValidator(p.SourceClient); err != nil {
+		return ufmt.Errorf("invalid source ID: %v", err)
+	}
+	if err := host.ClientIdentifierValidator(p.DestinationClient); err != nil {
+		return ufmt.Errorf("invalid destination ID: %v", err)
+	}
+
+	if p.Sequence == 0 {
+		return ufmt.Errorf("packet sequence cannot be 0")
+	}
+	if p.TimeoutTimestamp == 0 {
+		return ufmt.Errorf("packet timeout timestamp cannot be 0")
+	}
+
+	return nil
+}
+
+// ValidateBasicRouter is ValidateBasic for a packet of an Ethereum client:
+// the side that is the ICS26 router's may also be a router client id
+// ("client-N", or a custom id of up to 128 characters). Every other packet
+// is checked by ValidateBasic, the SDK's rule.
+func (p Packet) ValidateBasicRouter() error {
+	// Multi-payload packets are not supported: RecvPacket invokes the app
+	// callbacks in sequence and stops at the first failure without reverting
+	// the ones that already succeeded, so a partially applied packet would be
+	// acknowledged as failed and refunded by the counterparty. ibc-go enforces
+	// the same restriction, so enabling multi-payload has to be a deliberate
+	// change on both sides, with atomicity decided up front.
+	if len(p.Payloads) != 1 {
+		return ufmt.Errorf("payloads must contain exactly one payload")
+	}
+
+	totalPayloadsSize := 0
+	for i, pd := range p.Payloads {
+		if err := pd.ValidateBasic(); err != nil {
+			return ufmt.Errorf("invalid Payload #%d: %v", i, err)
+		}
+		totalPayloadsSize += len(pd.Value)
+	}
+
+	if totalPayloadsSize > MaximumPayloadsSize {
+		return ufmt.Errorf("packet data bytes cannot exceed %d bytes", MaximumPayloadsSize)
+	}
+
 	if err := packetClientID(p.SourceClient); err != nil {
 		return ufmt.Errorf("invalid source ID: %v", err)
 	}
@@ -260,12 +304,11 @@ func (ack Acknowledgement) ProtoMarshal() (buf []byte) {
 	return
 }
 
-// packetClientID checks a client id a packet names: an ICS24 identifier (4 to
-// 64 characters), as every local client id and every SDK counterparty's is,
-// or an Ethereum ICS26 router's client id (IsValidRouterClientID: "client-N",
-// or a custom id of up to 128 characters). The core matches the side that is
-// not local against the counterparty registered for the local client, which
-// was checked by that client's own rule.
+// packetClientID checks a client id a packet of an Ethereum client names: an
+// ICS24 identifier (4 to 64 characters), as every local client id is, or an
+// Ethereum ICS26 router's client id (IsValidRouterClientID). The core matches
+// the side that is not local against the counterparty registered for the
+// local client, which was checked by that client's own rule.
 func packetClientID(id string) error {
 	if IsValidRouterClientID(id) {
 		return nil

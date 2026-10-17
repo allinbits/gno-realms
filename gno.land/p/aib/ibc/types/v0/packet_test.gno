@@ -271,3 +271,30 @@ func TestAcknowledgementProtoMarshal(t *testing.T) {
 	ack := types.Acknowledgement{AppAcknowledgements: [][]byte{{0x01, 0x02}, {0x03, 0x04}}}
 	ufmt.Printf("%q\n", string(ack.ProtoMarshal()))
 }
+
+// A packet's client ids are checked by the SDK's rule, unchanged from the
+// base, except on the router side of an Ethereum client's packet
+// (ValidateBasicRouter, which the core applies only there; Codex round 11
+// #4): an SDK-shaped id of 65 or 128 characters fails as it did.
+func TestPacketClientIDsAreTheBase(t *testing.T) {
+	id := func(n int) string { return strings.Repeat("a", n-2) + "-1" } // SDK-shaped: {type}-{N}
+	payload := types.Payload{SourcePort: "transfer", DestinationPort: "transfer", Version: "ics20-1", Encoding: "application/x-protobuf", Value: []byte("x")}
+	for _, c := range []struct {
+		n  int
+		ok bool
+	}{{64, true}, {65, false}, {128, false}} {
+		p := types.NewPacket(1, id(c.n), "07-tendermint-1", 100, payload)
+		if err := p.ValidateBasic(); (err == nil) != c.ok {
+			t.Fatalf("source of length %d: %v", c.n, err)
+		}
+		p = types.NewPacket(1, "07-tendermint-1", id(c.n), 100, payload)
+		if err := p.ValidateBasic(); (err == nil) != c.ok {
+			t.Fatalf("destination of length %d: %v", c.n, err)
+		}
+	}
+	router := "gnoland." + strings.Repeat("x", 120)
+	p := types.NewPacket(1, router, "ethereum-1", 100, payload)
+	if p.ValidateBasic() == nil || p.ValidateBasicRouter() != nil {
+		t.Fatalf("the router grammar belongs to ValidateBasicRouter only")
+	}
+}

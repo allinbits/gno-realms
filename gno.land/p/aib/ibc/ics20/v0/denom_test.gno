@@ -189,7 +189,6 @@ func TestRouterHops(t *testing.T) {
 		urequire.Equal(t, 1, len(d.Trace), id)
 		urequire.Equal(t, id, d.Trace[0].ClientId)
 		urequire.Equal(t, "ugnot", d.Base)
-		urequire.NoError(t, d.ValidateBasic(), id)
 	}
 	// The SDK parser keeps its rule.
 	d := ics20.ExtractDenomFromPath("transfer/gnoland/ugnot")
@@ -197,4 +196,23 @@ func TestRouterHops(t *testing.T) {
 	// 129 characters is no router id.
 	bad := ics20.ExtractDenomFromPathFunc("transfer/"+long+"x/ugnot", ics20.IsHopClientID)
 	urequire.Equal(t, 0, len(bad.Trace))
+}
+
+// Hop validation is the SDK's, unchanged from the base (Codex round 11 #4):
+// a hop's client id is an ICS24 identifier of at most 64 characters, so a
+// 65- or 128-character SDK-shaped client id fails a transfer's validation
+// as it did; the router grammar applies only where an Ethereum route
+// extracts its own denoms (ExtractDenomFromPathFunc with IsHopClientID).
+func TestHopValidationIsTheBase(t *testing.T) {
+	id := func(n int) string { return strings.Repeat("a", n-2) + "-1" } // SDK-shaped: {type}-{N}
+	for _, c := range []struct {
+		n  int
+		ok bool
+	}{{64, true}, {65, false}, {128, false}} {
+		data := ics20.NewFungibleTokenPacketData("transfer/"+id(c.n)+"/ucoin", "100", "atone1sender", "g1receiver", "")
+		err := data.ValidateBasic()
+		if (err == nil) != c.ok {
+			t.Fatalf("length %d: %v", c.n, err)
+		}
+	}
 }
