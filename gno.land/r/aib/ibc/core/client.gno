@@ -184,21 +184,30 @@ func CheckMigrateClient(clientID, migration string, params []byte) string {
 // schedule before a fork, or a conversion to a new light-client package
 // version whose containers changed. migration names the conversion and
 // params carries its arguments in the wire format it documents.
+//
+// MigrateClient returns why it refused, with nothing changed, or nil once
+// the migration is installed: every failure it can tell before installing
+// (a converted verifier failing its checks included) is a refusal, so the
+// governed decision is spent rather than left pending.
 type ClientMigrator interface {
-	MigrateClient(_ int, rlm realm, clientID, migration string, params []byte)
+	MigrateClient(_ int, rlm realm, clientID, migration string, params []byte) error
 }
 
-// MigrateClient migrates the verifier of clientID (see ClientMigrator).
+// MigrateClient migrates the verifier of clientID (see ClientMigrator) and
+// returns "" once it is installed, or why it was refused, nothing changed.
 // Governance only. Panics if the active implementation migrates nothing.
-func MigrateClient(cur realm, clientID, migration string, params []byte) {
+func MigrateClient(cur realm, clientID, migration string, params []byte) string {
 	assertGovernance(0, cur, "migrate_client")
 	ensureNotRetired(clientID)
 	m, ok := mustImpl().(ClientMigrator)
 	if !ok {
 		panic("core: the active implementation " + implVersion + " cannot migrate clients")
 	}
-	m.MigrateClient(0, cur, clientID, migration, params)
+	if err := m.MigrateClient(0, cur, clientID, migration, params); err != nil {
+		return err.Error()
+	}
 	newTrustGeneration(clientID)
+	return ""
 }
 
 // ClientType returns the type of clientID ("07-tendermint", "ethereum", ...),

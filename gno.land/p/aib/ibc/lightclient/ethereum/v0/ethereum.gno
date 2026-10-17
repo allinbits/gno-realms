@@ -65,8 +65,36 @@ const Version = "ethereum/v0"
 func (c *EthLightClient) VerifierVersion() string { return Version }
 
 // Ethereum is the v0 verifier itself: a later verifier version that wraps it
-// keeps exposing its state, so renders read it whatever wraps it.
+// keeps exposing its state, so renders and recoveries read it whatever wraps
+// it.
 func (c *EthLightClient) Ethereum() *EthLightClient { return c }
+
+// ethState is a verifier exposing ethereum/v0 state: this one, or a later
+// version wrapping it.
+type ethState interface {
+	Ethereum() *EthLightClient
+}
+
+// Snapshot is a detached deep copy of the verifier: its client state and
+// every consensus state copied, no slice, pointer or tree shared, so a
+// verifier replacement converts the copy and validates the result before
+// anything live changes. It walks every stored consensus state.
+func (c *EthLightClient) Snapshot() lightclient.Interface {
+	out := &EthLightClient{ConsensusStateByHeight: bptree.NewBPTree32(), TrustedFromSlot: c.TrustedFromSlot}
+	if c.ClientState != nil {
+		cs := *c.ClientState
+		cs.GenesisValidatorsRoot = cloneBytes(cs.GenesisValidatorsRoot)
+		cs.IBCContractAddress = cloneBytes(cs.IBCContractAddress)
+		cs.IBCCommitmentSlot = cloneBytes(cs.IBCCommitmentSlot)
+		out.ClientState = &cs
+	}
+	c.ConsensusStateByHeight.Iterate("", "", func(k string, v any) bool {
+		cons := copyConsensusState(*v.(*ConsensusState))
+		out.ConsensusStateByHeight.Set(k, &cons)
+		return false
+	})
+	return out
+}
 
 // Implements lightclient.Interface. It runs once, on a client not yet
 // initialized: a stored client's trusted state is never replaced through it.

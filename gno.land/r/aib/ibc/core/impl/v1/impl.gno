@@ -127,43 +127,72 @@ func (l *logic) CheckMigrateClient(clientID, migration string, params []byte) er
 	return lc.CheckForkParameters(fp)
 }
 
-func (l *logic) MigrateClient(_ int, rlm realm, clientID, migration string, params []byte) {
+// MigrateClient implements core.ClientMigrator: a refusal is returned with
+// nothing changed, so the governed decision is spent.
+func (l *logic) MigrateClient(_ int, rlm realm, clientID, migration string, params []byte) error {
 	if migration == MigrationEthereumVerifier {
-		l.replaceVerifier(0, rlm, clientID, string(params))
-		return
+		return l.replaceVerifier(0, rlm, clientID, string(params))
 	}
 	lc, fp, err := l.migration(clientID, migration, params)
 	if err != nil {
-		panic(err)
+		return err
 	}
-	// lc is the proxy's verifier: the /p/ method writes under the proxy.
+	// MigrateForkParameters checks before it writes: a refusal changes
+	// nothing. lc is the proxy's verifier: the /p/ method writes under the
+	// proxy.
 	if err := lc.MigrateForkParameters(fp); err != nil {
-		panic(err)
+		return err
 	}
 	core.EmitMigrateClient(0, rlm, clientID, ethereum.ClientType, migration)
+	return nil
 }
 
 // replaceVerifier installs the verifier version registered at path on
-// clientID: the conversion runs on the client's live verifier, and the new
-// verifier must name its version, be Active and keep the latest height, so
-// every consensus state the client trusted stays. A failure panics, which
-// rolls the governed execution back.
-func (l *logic) replaceVerifier(_ int, rlm realm, clientID, path string) {
+// clientID. The conversion runs on a detached snapshot of the live verifier
+// (its panic recovered as a refusal), and the result must name the
+// registered version, be Active and keep the latest height, so every
+// consensus state the client trusted stays; only then is it installed. Any
+// failure is returned with nothing changed.
+func (l *logic) replaceVerifier(_ int, rlm realm, clientID, path string) error {
 	if r := core.CheckVerifierReplacement(clientID, path); r != "" {
-		panic(r)
+		return errors.New(r)
 	}
 	convert, want, _ := core.VerifierConversion(path)
 	c := l.store.Client(clientID)
-	before := c.LightClient().LatestHeight()
-	c.SetLightClient(0, rlm, convert)
-	lc := c.LightClient()
-	switch {
-	case core.VerifierVersion(clientID) != want:
-		panic("the converted verifier is not " + want)
-	case lc.Status() != lightclient.Active:
-		panic(ufmt.Sprintf("the converted verifier is %s, not Active", lc.Status()))
-	case !lc.LatestHeight().EQ(before):
-		panic(ufmt.Sprintf("the converted verifier's latest height is %s, not %s", lc.LatestHeight(), before))
+	live := c.LightClient()
+	snap := live.(core.SnapshotVerifier).Snapshot()
+	cand, err := convertSnapshot(convert, snap)
+	if err != nil {
+		return err
 	}
+	got := ""
+	if v, ok := cand.(core.VersionedVerifier); ok {
+		got = v.VerifierVersion()
+	}
+	switch {
+	case got != want:
+		return errors.New("the converted verifier is " + got + ", not " + want)
+	case cand.Status() != lightclient.Active:
+		return ufmt.Errorf("the converted verifier is %s, not Active", cand.Status())
+	case !cand.LatestHeight().EQ(live.LatestHeight()):
+		return ufmt.Errorf("the converted verifier's latest height is %s, not %s", cand.LatestHeight(), live.LatestHeight())
+	}
+	c.SetLightClient(0, rlm, func(lightclient.Interface) lightclient.Interface { return cand })
 	core.EmitMigrateClient(0, rlm, clientID, c.Type(), MigrationEthereumVerifier+" "+want)
+	return nil
+}
+
+// convertSnapshot runs a registered conversion on a snapshot, a panic
+// returned as a refusal.
+func convertSnapshot(convert func(lightclient.Interface) lightclient.Interface, snap lightclient.Interface) (cand lightclient.Interface, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			cand, err = nil, ufmt.Errorf("the conversion failed: %v", r)
+		}
+	}()
+	cand = convert(snap)
+	if cand == nil {
+		return nil, errors.New("the conversion returned no verifier")
+	}
+	return cand, nil
 }

@@ -30,6 +30,12 @@ type VersionedVerifier interface {
 	VerifierVersion() string
 }
 
+// SnapshotVerifier is a verifier that hands a detached deep copy of itself,
+// which a replacement converts and checks before anything live changes.
+type SnapshotVerifier interface {
+	Snapshot() lightclient.Interface
+}
+
 // RegisterVerifier records a verifier version clients of clientType can be
 // converted to, from a realm under corePkgPath + "/verifiers/" (the aib
 // namespace), normally from its init. version names the new verifier; from
@@ -100,6 +106,9 @@ func CheckVerifierReplacement(clientID, path string) string {
 		return "client " + clientID + " is a " + c.typ + " client, not " + reg.clientType
 	case c.lightClient.Status() != lightclient.Active:
 		return "client " + clientID + " is " + string(c.lightClient.Status()) + ", not Active"
+	}
+	if _, ok := c.lightClient.(SnapshotVerifier); !ok {
+		return "client " + clientID + "'s verifier gives no snapshot to convert"
 	}
 	cur := verifierVersionOf(c.lightClient)
 	if cur == reg.version {

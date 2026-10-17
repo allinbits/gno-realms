@@ -84,14 +84,11 @@ func main(cur realm) {
 	println("impl:", core.ImplVersion())
 
 	// An unknown migration, and a schedule that changes an active fork.
-	println("unknown:", revive(func() {
-		core.MigrateClient(cross(cur), id, "nope", params)
-	}))
+	// A refusal is returned, nothing changed.
+	println("unknown:", core.MigrateClient(cross(cur), id, "nope", params))
 	bad := fp
 	bad.Fulu = fork(0x70, 3)
-	println("active fork:", revive(func() {
-		core.MigrateClient(cross(cur), id, implv1.MigrationEthereumForkSchedule, ethereum.EncodeForkParameters(bad))
-	}))
+	println("active fork:", core.MigrateClient(cross(cur), id, implv1.MigrationEthereumForkSchedule, ethereum.EncodeForkParameters(bad)))
 
 	core.MigrateClient(cross(cur), id, implv1.MigrationEthereumForkSchedule, params)
 	println("after:", core.ClientStatus(id), core.ClientLatestHeight(id), "trust generation", core.ClientTrustGeneration(id))

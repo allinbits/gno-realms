@@ -148,7 +148,9 @@ func (p *adminParams) apply(cur realm, t int64) (string, string) {
 		core.RemoveAuthorityMember(cross(cur), address(a[0]))
 	case "core migrate client":
 		bz, _ := hex.DecodeString(a[2])
-		core.MigrateClient(cross(cur), a[0], a[1], bz)
+		if refusal := core.MigrateClient(cross(cur), a[0], a[1], bz); refusal != "" {
+			return "", refusal
+		}
 		// A migrated verifier is a new trust: the meters of the client's
 		// route start empty, as after a replacement (ADR pr6375 §7.1).
 		if route := routeKeyOf(a[0]); routes.Has(route) {
