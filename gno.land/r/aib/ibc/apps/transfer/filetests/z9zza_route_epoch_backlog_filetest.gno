@@ -179,10 +179,13 @@ func plain(cur realm, remote string) string {
 // is kept open for governance and waits (a growing backlog). A notice's
 // switch retires only the old epoch client and its path's steps, whatever
 // the backlog; PruneGovRetirements retires the rest in bounded batches once
-// their paths can be told, the epoch having moved to a smaller graph.
+// their paths can be told, the epoch having moved to a smaller graph. Its
+// batches resume where the last one stopped (Codex round 37): clients still
+// on a path, sorted first, never hold back the eligible ones behind them.
 func main(cur realm) {
 	client(cur, "ethereum-1", "client-0")
-	b1 := client(cur, "ethereum-2", "gnoland-b1", noticePacket(1, "gnoland-b1", "ethereum-2", 2, "gnoland-b1"))
+	client(cur, "ethereum-2", "gnoland-b1")
+	b2 := client(cur, "ethereum-3", "gnoland-b2", noticePacket(1, "gnoland-b2", "ethereum-3", 2, "gnoland-b2"))
 	execute(cur, govern(cur, ibcgov.NewEnrollRouteRequest(cross(cur), "ethereum-1", string(collector), bridge)))
 	execute(cur, govern(cur, ibcgov.NewBindGovernanceRequest(cross(cur), "ethereum-1")))
 	expect := func(from, to, local string) {
@@ -192,8 +195,8 @@ func main(cur realm) {
 	var level []string
 	for i := 1; i <= 4; i++ {
 		r := "gnoland-b" + strconv.Itoa(i)
-		local := "ethereum-2"
-		if i > 1 {
+		local := "ethereum-" + strconv.Itoa(i+1)
+		if i > 2 {
 			local = plain(cur, r)
 		}
 		expect("client-0", r, local)
@@ -224,18 +227,21 @@ func main(cur realm) {
 	println(epochNow(), "| expectations recorded")
 
 	// Route replacements now: the graph cannot be searched within bounds,
-	// so each old client is retired for transfers only and waits.
-	route := []string{"ethereum-1"}
-	for i := 0; i < 5; i++ {
-		next := plain(cur, "gnoland-r"+strconv.Itoa(i))
+	// so each old client is retired for transfers only and waits. The route
+	// moves through b2's successors' clients (ethereum-10 to 13, which stay
+	// on a path once the epoch is over b2), then through clients on none.
+	route := []string{"ethereum-1", "ethereum-10", "ethereum-11", "ethereum-12", "ethereum-13"}
+	for i := 0; i < 3; i++ {
+		route = append(route, plain(cur, "gnoland-r"+strconv.Itoa(i)))
+	}
+	for _, next := range route[1:] {
 		execute(cur, govern(cur, ibcgov.NewReplaceRouteRequest(cross(cur), "ethereum-1", next, 0)))
-		route = append(route, next)
 	}
 	println("waiting:", ibcgov.AwaitingGovRetirement())
 
-	// The notice switches the epoch to b1, retiring only the old epoch
+	// The notice switches the epoch to b2, retiring only the old epoch
 	// client: the backlog is left for the batches.
-	println("b1's notice:", deliver(cur, b1, 0), "|", epochNow())
+	println("b2's notice:", deliver(cur, b2, 0), "|", epochNow())
 	retired := 0
 	for _, c := range route[1 : len(route)-1] {
 		if core.IsClientRetiredFor(c, ibcgov.GovPort) {
@@ -243,16 +249,21 @@ func main(cur realm) {
 		}
 	}
 	println("old epoch client retired:", core.IsClientRetired("ethereum-1"), "| backlog clients retired by the switch:", retired, "| waiting:", ibcgov.AwaitingGovRetirement())
-	println("pruned:", ibcgov.PruneGovRetirements(cross(cur), 2), "| waiting:", ibcgov.AwaitingGovRetirement())
-	println("pruned:", ibcgov.PruneGovRetirements(cross(cur), 64), "| waiting:", ibcgov.AwaitingGovRetirement())
-	println("a replaced route client retired for good:", core.IsClientRetired(route[2]))
+	// Batches of 2: the clients still on a path come first and are kept;
+	// the batches move past them to the eligible ones.
+	for i := 0; i < 4; i++ {
+		println("pruned:", ibcgov.PruneGovRetirements(cross(cur), 2), "| waiting:", ibcgov.AwaitingGovRetirement())
+	}
+	println("kept on a path:", core.IsClientRetiredFor("ethereum-10", ibcgov.GovPort), "| retired for good:", core.IsClientRetired(route[5]), core.IsClientRetired(route[6]))
 }
 
 // Output:
 // epoch 1 over ethereum-1 | expectations recorded
-// waiting: 5
-// b1's notice: acknowledged | epoch 2 over ethereum-2
-// old epoch client retired: true | backlog clients retired by the switch: 0 | waiting: 4
-// pruned: 2 | waiting: 2
-// pruned: 2 | waiting: 0
-// a replaced route client retired for good: true
+// waiting: 7
+// b2's notice: acknowledged | epoch 2 over ethereum-3
+// old epoch client retired: true | backlog clients retired by the switch: 0 | waiting: 6
+// pruned: 0 | waiting: 6
+// pruned: 0 | waiting: 6
+// pruned: 2 | waiting: 4
+// pruned: 0 | waiting: 4
+// kept on a path: false | retired for good: true true

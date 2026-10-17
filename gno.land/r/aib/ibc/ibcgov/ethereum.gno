@@ -220,6 +220,7 @@ var (
 	// proven is the epoch notices the core proved over one of them, more
 	// than one step on, waiting for ApplyEpochNotice and their path.
 	approvedLocal avl.Tree // gno client id -> true
+	govPruneAfter string   // where PruneGovRetirements stopped
 	proven        avl.Tree // provenKey(epoch, client) -> *provenNotice
 )
 
@@ -682,20 +683,31 @@ func switchEpoch(cur realm, e uint32, client string, passed []string) {
 // clients a route replacement retired for transfers while they were on an
 // expected path of the governance epoch, once they no longer are: anyone may
 // call it. A client on a path, or one whose paths cannot be told within the
-// search's bounds, is kept for a later call. It returns how many it retired.
+// search's bounds, is kept for a later call. Each call visits n clients from
+// where the last one stopped, wrapping round at the end, so a client kept
+// never holds back those after it. It returns how many it retired.
 func PruneGovRetirements(cur realm, n int) int {
 	if n < 1 || n > 64 {
 		panic("ibcgov: prune 1 to 64 clients a call")
 	}
 	var done []string
 	seen := 0
-	awaitingGov.Iterate("", "", func(c string, _ any) bool {
+	last := ""
+	awaitingGov.Iterate(after(govPruneAfter), "", func(c string, _ any) bool {
+		if seen == n {
+			return true
+		}
 		seen++
+		last = c
 		if !onExpectedPath(c) {
 			done = append(done, c)
 		}
-		return seen >= n
+		return false
 	})
+	if seen < n {
+		last = "" // the walk reached the end: the next starts over
+	}
+	govPruneAfter = last
 	for _, c := range done {
 		awaitingGov.Remove(c)
 		retireForGov(cur, c)
