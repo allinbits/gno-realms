@@ -172,7 +172,9 @@ const brokenImpl = "gno.land/r/aib/ibc/core/impl/v1broken"
 // the active core implementation's own: one returning a typed-nil verifier,
 // or a verifier whose status or latest height panics, is refused, the
 // decision spent, the live verifier, trust generation and payouts epoch
-// unchanged.
+// unchanged. A conversion only sees a read-only view of the live verifier
+// (Codex docs round 8 #1): one that tries to write to it changes copies
+// only, and its panic leaves the live state as it was.
 func main(cur realm) {
 	client := core.CreateClient(cross(cur), ethtesting.ClientState(), ethtesting.ConsensusState())
 	core.RegisterCounterparty(cross(cur), client, [][]byte{{}}, "client-0")
@@ -180,9 +182,9 @@ func main(cur realm) {
 	testing.SetRealm(testing.NewCodeRealm(brokenImpl))
 	core.RegisterImpl(cross(cur), func(s core.Store) core.Logic {
 		return implv1.NewWithConversions(s, "v1-broken",
-			[]string{ethereum.Version, ethereum.Version, ethereum.Version},
-			[]string{ethtesting.NextVersion, ethtesting.PanicStatusVersion, ethtesting.PanicHeightVersion},
-			[]func(lightclient.Interface) lightclient.Interface{ethtesting.ToNilVerifier, ethtesting.ToPanicStatusVerifier, ethtesting.ToPanicHeightVerifier})
+			[]string{ethereum.Version, ethereum.Version, ethereum.Version, ethereum.Version},
+			[]string{ethtesting.NextVersion, ethtesting.PanicStatusVersion, ethtesting.PanicHeightVersion, ethtesting.TamperVersion},
+			[]func(*ethereum.Retired) lightclient.Interface{ethtesting.ToNilVerifier, ethtesting.ToPanicStatusVerifier, ethtesting.ToPanicHeightVerifier, ethtesting.ToTamperingVerifier})
 	}, "v1-broken", []string{"v0", "v1"})
 	testing.SetRealm(testing.NewCodeRealm("gno.land/r/aib/main"))
 	execute(cur, govern(cur, ibcgov.NewCoreUpdateImplRequest(cross(cur), brokenImpl)))
@@ -191,22 +193,28 @@ func main(cur realm) {
 		{"typed nil", ethtesting.NextVersion},
 		{"panicking status", ethtesting.PanicStatusVersion},
 		{"panicking height", ethtesting.PanicHeightVersion},
+		{"tampering", ethtesting.TamperVersion},
 	} {
+		height := core.ClientLatestHeight(client)
 		gen := core.ClientTrustGeneration(client)
+		before := core.Render("clients/" + client)
 		epoch, _ := ibcgov.PayoutsEpoch(client)
 		replace := govern(cur, ibcgov.NewReplaceVerifierRequest(cross(cur), client, tc.to))
 		execute(cur, replace)
 		epoch2, _ := ibcgov.PayoutsEpoch(client)
 		println(tc.name+":", decided(replace))
-		println("  live:", core.VerifierVersion(client), core.ClientStatus(client), "| trust generation unchanged:", core.ClientTrustGeneration(client) == gen,
+		println("  live:", core.VerifierVersion(client), core.ClientStatus(client), "| latest height unchanged:", core.ClientLatestHeight(client) == height,
+			"| state unchanged:", core.Render("clients/"+client) == before, "| trust generation unchanged:", core.ClientTrustGeneration(client) == gen,
 			"| payouts epoch unchanged:", epoch2 == epoch, "| retry:", revive(func() { ibcgov.Execute(cross(cur), replace) }))
 	}
 }
 
 // Output:
 // typed nil: spent - spent: the converted verifier failed its checks: runtime error: nil pointer dereference
-//   live: ethereum/v0 Active | trust generation unchanged: true | payouts epoch unchanged: true | retry: ibcgov: decision 3 is spent, not pending
+//   live: ethereum/v0 Active | latest height unchanged: true | state unchanged: true | trust generation unchanged: true | payouts epoch unchanged: true | retry: ibcgov: decision 3 is spent, not pending
 // panicking status: spent - spent: the converted verifier failed its checks: status unavailable
-//   live: ethereum/v0 Active | trust generation unchanged: true | payouts epoch unchanged: true | retry: ibcgov: decision 4 is spent, not pending
+//   live: ethereum/v0 Active | latest height unchanged: true | state unchanged: true | trust generation unchanged: true | payouts epoch unchanged: true | retry: ibcgov: decision 4 is spent, not pending
 // panicking height: spent - spent: the converted verifier failed its checks: height unavailable
-//   live: ethereum/v0 Active | trust generation unchanged: true | payouts epoch unchanged: true | retry: ibcgov: decision 5 is spent, not pending
+//   live: ethereum/v0 Active | latest height unchanged: true | state unchanged: true | trust generation unchanged: true | payouts epoch unchanged: true | retry: ibcgov: decision 5 is spent, not pending
+// tampering: spent - spent: the converted verifier failed its checks: tampering conversion
+//   live: ethereum/v0 Active | latest height unchanged: true | state unchanged: true | trust generation unchanged: true | payouts epoch unchanged: true | retry: ibcgov: decision 6 is spent, not pending

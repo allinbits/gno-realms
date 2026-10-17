@@ -181,7 +181,7 @@ func main(cur realm) {
 	testing.SetRealm(testing.NewCodeRealm(shortImpl))
 	core.RegisterImpl(cross(cur), func(s core.Store) core.Logic {
 		return implv1.NewWithConversions(s, "v1-short", []string{ethereum.Version}, []string{ethtesting.ShortVersion},
-			[]func(lightclient.Interface) lightclient.Interface{ethtesting.ToShortVerifier})
+			[]func(*ethereum.Retired) lightclient.Interface{ethtesting.ToShortVerifier})
 	}, "v1-short", []string{"v0", "v1"})
 	testing.SetRealm(testing.NewCodeRealm("gno.land/r/aib/main"))
 	execute(cur, govern(cur, ibcgov.NewCoreUpdateImplRequest(cross(cur), shortImpl)))

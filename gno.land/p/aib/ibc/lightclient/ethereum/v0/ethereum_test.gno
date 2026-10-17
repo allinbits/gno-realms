@@ -363,7 +363,7 @@ func TestNewFromKeepsHistory(t *testing.T) {
 	cs.LatestSlot = base.Slot + 250
 	old.ClientState = &cs
 
-	c := NewFrom(old)
+	c := NewFrom(Retire(old))
 	if n := c.ConsensusStateByHeight.Size(); n != 0 {
 		t.Fatalf("NewFrom copied %d consensus states", n)
 	}

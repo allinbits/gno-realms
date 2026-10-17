@@ -43,7 +43,7 @@ type logic struct {
 	// The verifier conversions this implementation compiles in: the i-th
 	// converts version convFrom[i] to convTo[i].
 	convFrom, convTo []string
-	convert          []func(lightclient.Interface) lightclient.Interface
+	convert          []func(*ethereum.Retired) lightclient.Interface
 }
 
 var (
@@ -62,9 +62,10 @@ func New(s core.Store) core.Logic {
 // to[i] (the three slices of one length): the constructor of a later core
 // implementation that brings new verifier versions, registered under its own
 // path and installed by a governed upgrade. Each convert[i] must be a
-// function of the new verifier's /p/ package; it receives the live verifier,
-// must not write to it, and returns the new one.
-func NewWithConversions(s core.Store, ver string, from, to []string, convert []func(lightclient.Interface) lightclient.Interface) core.Logic {
+// function of the new verifier's /p/ package; it receives a read-only view
+// of the live verifier (ethereum.Retired), so it cannot write to it, and
+// returns the new one.
+func NewWithConversions(s core.Store, ver string, from, to []string, convert []func(*ethereum.Retired) lightclient.Interface) core.Logic {
 	if len(from) != len(to) || len(to) != len(convert) {
 		panic("NewWithConversions: from, to and convert differ in length")
 	}
@@ -77,7 +78,7 @@ func NewWithConversions(s core.Store, ver string, from, to []string, convert []f
 
 // conversion is the conversion of from to to this implementation compiles
 // in, or nil.
-func (l *logic) conversion(from, to string) func(lightclient.Interface) lightclient.Interface {
+func (l *logic) conversion(from, to string) func(*ethereum.Retired) lightclient.Interface {
 	for i := range l.convFrom {
 		if l.convFrom[i] == from && l.convTo[i] == to {
 			return l.convert[i]
@@ -216,7 +217,12 @@ func (l *logic) replaceVerifier(_ int, rlm realm, clientID, to string) error {
 	}
 	c := l.store.Client(clientID)
 	live := c.LightClient()
-	cand, err := convertAndCheck(l.conversion(core.VerifierVersion(clientID), to), live, to, live.LatestHeight())
+	es, ok := live.(ethState)
+	if !ok {
+		return ufmt.Errorf("client %s's verifier keeps no ethereum/v0 state to convert", clientID)
+	}
+	// The conversion sees the live verifier only through a read-only view.
+	cand, err := convertAndCheck(l.conversion(core.VerifierVersion(clientID), to), ethereum.Retire(es.Ethereum()), to, live.LatestHeight())
 	if err != nil {
 		return err
 	}
@@ -225,15 +231,23 @@ func (l *logic) replaceVerifier(_ int, rlm realm, clientID, to string) error {
 	return nil
 }
 
-// convertAndCheck runs the conversion on the live verifier and checks the
-// result, any panic on the way returned as a refusal.
-func convertAndCheck(convert func(lightclient.Interface) lightclient.Interface, live lightclient.Interface, want string, height types.Height) (cand lightclient.Interface, err error) {
+// ethState is a verifier exposing ethereum/v0 state: the v0 verifier, or a
+// later version wrapping it.
+type ethState interface {
+	Ethereum() *ethereum.EthLightClient
+}
+
+// convertAndCheck runs the conversion on a read-only view of the live
+// verifier and checks the result, any panic on the way returned as a
+// refusal: the view gives the conversion nothing to write with, so a
+// refused conversion leaves nothing half-written.
+func convertAndCheck(convert func(*ethereum.Retired) lightclient.Interface, view *ethereum.Retired, want string, height types.Height) (cand lightclient.Interface, err error) {
 	defer func() {
 		if r := recover(); r != nil {
 			cand, err = nil, ufmt.Errorf("the converted verifier failed its checks: %v", r)
 		}
 	}()
-	cand = convert(live)
+	cand = convert(view)
 	if cand == nil {
 		return nil, errors.New("the conversion returned no verifier")
 	}

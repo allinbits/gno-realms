@@ -24,14 +24,11 @@ type NextVerifier struct {
 // VerifierVersion is NextVersion.
 func (*NextVerifier) VerifierVersion() string { return NextVersion }
 
-// ToNextVerifier converts a v0 verifier: a new verifier continuing it, its
-// client state copied and its consensus states served read only.
-func ToNextVerifier(lc lightclient.Interface) lightclient.Interface {
-	old, ok := lc.(*ethereum.EthLightClient)
-	if !ok {
-		panic("ToNextVerifier converts an ethereum/v0 verifier")
-	}
-	return &NextVerifier{EthLightClient: ethereum.NewFrom(old)}
+// ToNextVerifier converts a v0 verifier, given as a read-only view: a new
+// verifier continuing it, its client state copied and its consensus states
+// served read only.
+func ToNextVerifier(r *ethereum.Retired) lightclient.Interface {
+	return &NextVerifier{EthLightClient: ethereum.NewFrom(r)}
 }
 
 // ShortVersion names ShortVerifier, a verifier version for filetests of a
@@ -64,17 +61,13 @@ func (v *ShortVerifier) Status() lightclient.Status {
 }
 
 // ToShortVerifier converts a v0 verifier to ShortVerifier.
-func ToShortVerifier(lc lightclient.Interface) lightclient.Interface {
-	old, ok := lc.(*ethereum.EthLightClient)
-	if !ok {
-		panic("ToShortVerifier converts an ethereum/v0 verifier")
-	}
-	return &ShortVerifier{EthLightClient: ethereum.NewFrom(old)}
+func ToShortVerifier(r *ethereum.Retired) lightclient.Interface {
+	return &ShortVerifier{EthLightClient: ethereum.NewFrom(r)}
 }
 
 // ToNilVerifier is a broken conversion for filetests: it returns a typed-nil
 // NextVerifier, which names NextVersion but panics on its first state read.
-func ToNilVerifier(lightclient.Interface) lightclient.Interface {
+func ToNilVerifier(*ethereum.Retired) lightclient.Interface {
 	var v *NextVerifier
 	return v
 }
@@ -98,8 +91,8 @@ func (*PanicStatusVerifier) VerifierVersion() string { return PanicStatusVersion
 func (*PanicStatusVerifier) Status() lightclient.Status { panic("status unavailable") }
 
 // ToPanicStatusVerifier converts to PanicStatusVerifier.
-func ToPanicStatusVerifier(lc lightclient.Interface) lightclient.Interface {
-	return &PanicStatusVerifier{EthLightClient: ethereum.NewFrom(lc.(*ethereum.EthLightClient))}
+func ToPanicStatusVerifier(r *ethereum.Retired) lightclient.Interface {
+	return &PanicStatusVerifier{EthLightClient: ethereum.NewFrom(r)}
 }
 
 // PanicHeightVerifier panics when asked its latest height.
@@ -114,6 +107,24 @@ func (*PanicHeightVerifier) VerifierVersion() string { return PanicHeightVersion
 func (*PanicHeightVerifier) LatestHeight() types.Height { panic("height unavailable") }
 
 // ToPanicHeightVerifier converts to PanicHeightVerifier.
-func ToPanicHeightVerifier(lc lightclient.Interface) lightclient.Interface {
-	return &PanicHeightVerifier{EthLightClient: ethereum.NewFrom(lc.(*ethereum.EthLightClient))}
+func ToPanicHeightVerifier(r *ethereum.Retired) lightclient.Interface {
+	return &PanicHeightVerifier{EthLightClient: ethereum.NewFrom(r)}
+}
+
+// TamperVersion names the result of ToTamperingVerifier.
+const TamperVersion = "ethereum/testing-tamper"
+
+// ToTamperingVerifier is a conversion that tries to write to the verifier it
+// converts: all it holds is a read-only view, so it can only change copies
+// (here, raising the copied client state's latest slot and dropping a
+// copied consensus state's root), and it then panics. The live verifier is
+// untouched.
+func ToTamperingVerifier(r *ethereum.Retired) lightclient.Interface {
+	cs := r.ClientState()
+	cs.LatestSlot += 1000
+	cs.IBCContractAddress[0] ^= 0xff
+	if cons, ok := r.ConsensusState(r.LatestHeight()); ok {
+		cons.StateRoot[0] ^= 0xff
+	}
+	panic("tampering conversion")
 }

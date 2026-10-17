@@ -79,32 +79,58 @@ type ethState interface {
 	Ethereum() *EthLightClient
 }
 
-// NewFrom is a verifier that continues retired, for a verifier replacement
-// (ADR pr6375 R16), in constant work whatever retired's history: it takes a
-// deep copy of retired's client state and a read-only view of retired
-// (Retired) from which it serves every consensus state at or below
-// retired's latest slot, so every height retired trusted stays provable. Its
-// own consensus states, those it stores from now on, are kept apart (an
-// overlay), and nothing ever writes to retired again: the view is its only
-// reference, and it only reads.
-func NewFrom(retired *EthLightClient) *EthLightClient {
-	cs := *retired.ClientState
-	cs.GenesisValidatorsRoot = cloneBytes(cs.GenesisValidatorsRoot)
-	cs.IBCContractAddress = cloneBytes(cs.IBCContractAddress)
-	cs.IBCCommitmentSlot = cloneBytes(cs.IBCCommitmentSlot)
+// Retire is a read-only view of c, the verifier a replacement is about to
+// retire: what a conversion is handed, so it reads c and can never write to
+// it. The view serves the consensus states c trusts at or below its latest
+// slot.
+func Retire(c *EthLightClient) *Retired {
+	return &Retired{c: c, upTo: c.ClientState.LatestSlot}
+}
+
+// NewFrom is a verifier that continues the retired one r views, for a
+// verifier replacement (ADR pr6375 R16), in constant work whatever its
+// history: a deep copy of its client state, and r, from which it serves every
+// consensus state at or below the retired verifier's latest slot, so every
+// height it trusted stays provable. Its own consensus states, those it stores
+// from now on, are kept apart (an overlay), and nothing writes to the retired
+// verifier: r is the only reference, and it only reads.
+func NewFrom(r *Retired) *EthLightClient {
+	cs := r.ClientState()
 	return &EthLightClient{
 		ClientState:            &cs,
 		ConsensusStateByHeight: bptree.NewBPTree32(),
-		TrustedFromSlot:        retired.TrustedFromSlot,
-		retired:                &Retired{c: retired, upTo: retired.ClientState.LatestSlot},
+		TrustedFromSlot:        r.c.TrustedFromSlot,
+		retired:                r,
 	}
 }
 
-// Retired is a read-only view of a verifier a replacement retired: the
+// Retired is a read-only view of a verifier a replacement retires: the
 // consensus states it trusted, at or below upTo, and nothing to write with.
 type Retired struct {
 	c    *EthLightClient
 	upTo uint64
+}
+
+// ClientState is a deep copy of the retired verifier's client state.
+func (r *Retired) ClientState() ClientState {
+	cs := *r.c.ClientState
+	cs.GenesisValidatorsRoot = cloneBytes(cs.GenesisValidatorsRoot)
+	cs.IBCContractAddress = cloneBytes(cs.IBCContractAddress)
+	cs.IBCCommitmentSlot = cloneBytes(cs.IBCCommitmentSlot)
+	return cs
+}
+
+// LatestHeight is the retired verifier's latest height.
+func (r *Retired) LatestHeight() types.Height { return r.c.LatestHeight() }
+
+// ConsensusState is a copy of the retired verifier's consensus state at
+// height, if it trusted one there.
+func (r *Retired) ConsensusState(height types.Height) (ConsensusState, bool) {
+	cons, ok := r.consensusState(height)
+	if !ok {
+		return ConsensusState{}, false
+	}
+	return copyConsensusState(*cons), true
 }
 
 // consensusState is the retired verifier's consensus state at height, if it
