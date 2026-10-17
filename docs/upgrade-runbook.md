@@ -205,7 +205,11 @@ the route controls (ADR 0004). There is no migration from `impl/v0`: an
 Ethereum client carries nothing until a decision makes it a route.
 
 1. Create the Ethereum client and register its counterparty (the router's
-   client id, eureka's single empty merkle prefix).
+   client id, eureka's single empty merkle prefix). `CreateClient` needs a
+   listed relayer while the whitelist names any; `RegisterCounterparty` must
+   be signed by the same origin signer that created the client, and is
+   write-once: a registered counterparty is never replaced. Ethereum's public
+   relaying covers updates and packets, not these two calls.
 2. Enroll it with `NewEnrollRouteRequest(clientID, feeCollector, bridge)`
    (7 days), where `bridge` names the route's Ethereum router, ICS20
    transfer and IBCAdmin ("router ics20 ibcAdmin", protected recipients from

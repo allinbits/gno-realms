@@ -63,6 +63,13 @@ Emitted event:
 
 ## RegisterCounterparty
 
+`RegisterCounterparty(clientID, merklePrefix, counterpartyClientID)` must be
+signed by the transaction's origin signer that created the client (its
+creator), for any client type: the public relaying of Ethereum clients does
+not extend to it. It is write-once: once a counterparty is registered, a
+second registration is refused. An Ethereum client's counterparty is the
+router's client id with eureka's single empty merkle prefix.
+
 See [`zz_register_counterparty_example_filetest.gno`](./filetests/zz_register_counterparty_example_filetest.gno)
 
 ## UpdateClient
