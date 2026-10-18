@@ -2,6 +2,7 @@ package controls
 
 import (
 	"errors"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -1262,5 +1263,37 @@ func TestLossLedgerBeyondInt64(t *testing.T) {
 	}
 	if _, done, err := rt.Reopen(); err != nil || !done || rt.IsClosed() || d.Totals.OpenUnresolved != 0 || d.Totals.OpenUnrecovered != maxInt64 {
 		t.Fatalf("reopen: %v %v %+v", done, err, d.Totals)
+	}
+}
+
+// A credit by vote of a packet an early client received, after many
+// replacements (design review r9 #2): the route's client check is an
+// indexed lookup (HasClient), not a scan of the replacement list.
+func TestCreditByVoteAfterManyReplacements(t *testing.T) {
+	r := NewRegistry()
+	rt, err := r.Enroll("ethereum-1", collector, t0, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := rt.SetDenom("ugnot", gnot(), t0, 0, 0); err != nil {
+		t.Fatal(err)
+	}
+	const lock = int64(100_000)
+	if !mustCredit(t, rt, t0, 4, "ugnot", carol, lock, 0) { // no free lock: swept
+		t.Fatalf("setup: not swept")
+	}
+	for i := 2; i <= 40; i++ {
+		if err := replaceReady(r, "ethereum-1", "ethereum-"+strconv.Itoa(i), 0, int64(i*1000)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if !rt.HasClient("ethereum-1") || !rt.HasClient("ethereum-20") || !rt.HasClient("ethereum-40") || rt.HasClient("ethereum-41") {
+		t.Fatalf("client membership after 39 replacements")
+	}
+	if _, done, err := rt.Reopen(); err != nil || !done {
+		t.Fatalf("reopen: %v", err)
+	}
+	if err := rt.CreditByVote(t0, 50_000, 0, pk(4), "ugnot", carol, lock, 2*lock); err != nil {
+		t.Fatal(err)
 	}
 }

@@ -263,19 +263,6 @@ func (l *logic) creditPending(_ int, rlm realm, rt *controls.Route, p controls.P
 	return ""
 }
 
-// clientOfRoute reports whether clientID is or was a client of rt.
-func clientOfRoute(rt *controls.Route, clientID string) bool {
-	if clientID == rt.Client {
-		return true
-	}
-	for _, c := range rt.Replaced {
-		if c == clientID {
-			return true
-		}
-	}
-	return false
-}
-
 // GovApply applies a governance operation decided by ibcgov (the proxy
 // checked the caller). It re-checks the parameters against the live state and
 // returns why it refuses, which spends the decision; nothing changes then.
@@ -360,7 +347,7 @@ func (l *logic) GovApply(_ int, rlm realm, op string, params []byte) string {
 		switch {
 		case rt.ExposureClosed():
 			return "route " + rt.Key + " is closed (a replacement awaiting its reopening, or a loss without a restoring decision): it credits nothing"
-		case !clientOfRoute(rt, client):
+		case !rt.HasClient(client):
 			return "packet " + p.Key + " was not received on route " + rt.Key
 		case len(core.PacketReceipt(client, seq)) == 0:
 			return "packet " + p.Key + " was never received"

@@ -991,3 +991,10 @@ func (rt *Route) reserveHidden(r *SendRecord, h int64) bool {
 // retiredHere reports whether a replacement retired client from the route:
 // an indexed lookup (its suspect height is recorded at the replacement).
 func (rt *Route) retiredHere(client string) bool { return rt.suspect.Has(client) }
+
+// HasClient reports whether clientID is or was a client of the route: its
+// current client, or one a replacement retired from it (an indexed lookup,
+// in logarithmic work whatever the number of replacements).
+func (rt *Route) HasClient(clientID string) bool {
+	return clientID == rt.Client || rt.retiredHere(clientID)
+}
