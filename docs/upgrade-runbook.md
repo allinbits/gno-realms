@@ -61,9 +61,9 @@ the proxies and stay provable across the switch.
   implementations shipped so far install in constant work, and a verifier
   replacement copies no consensus-state history (`ethereum.NewFrom`): it
   costs O(log previous verifier stores), inserting the retired store into
-  the persistent history index, or carries a retired store that holds no
-  slot above the index's top into the new verifier as a head overlay (a
-  few states); reads of the retired history take O(log replacements). A migration that is not additive forfeits the
+  the persistent history index and any head it rewrote at or below the
+  index's top into the persistent override tree; reads of the retired
+  history take O(log replacements). A migration that is not additive forfeits the
   rollback.
 - A migration rewrites the proxy's store in place. All the state lives in the
   proxy (clients, commitments, receipts, acknowledgements; escrow, vouchers,
@@ -308,7 +308,21 @@ Ethereum client carries nothing until a decision makes it a route.
    epoch past the current, its client Active, not retired, at the same
    generation). Once that client is frozen, expires, is recovered or has
    its verifier replaced, or the epoch reaches the notice's, the removal
-   goes through. If it is not, the notice must be proven afresh: relaying
+   goes through. When Ethereum's epoch is more than 64 ahead, catch up in
+   prefixes: have IBCAdmin resend the notice of an intermediate epoch within
+   the recorded graph (any recorded epoch's notice can be resent, even
+   after it was acknowledged, over that epoch's own router client), relay
+   and apply it; the switch frees the transitions behind it, so record the
+   next expectations (7 days each) and repeat. If the gno local client of
+   an intermediate transition failed, recover it in place
+   (`NewRecoverClientRequest`, 7 days; it keeps its id, which Ethereum's
+   packets are addressed to) and relay the resent notice through it; if
+   Ethereum's recovery created a new router client instead, record that
+   transition with a fresh local client (`NewExpectRecoveryRequest`).
+   Resending is harmless: the current epoch's notice is answered as a
+   duplicate (status 3), one of a transition not taken or an epoch passed
+   gets an error acknowledgement, and one over a client retired for
+   governance is refused by the core; none changes anything. If it is not, the notice must be proven afresh: relaying
    the original packet again only returns `RESPONSE_NOOP` (its receipt
    exists); IBCAdmin sends the identical notice bytes in a fresh packet
    (`resendEpochNotice(epoch)`, a new transport sequence), and that packet
@@ -429,6 +443,35 @@ characters of `a-z`, `0-9`, `-`).
    does not carry it): then call `transfer.PrepareReplacement(R, 64)` until
    it returns true; a settlement refused as "not prepared" says the same. No
    settlement, sweep payment, credit by vote or reopening applies before.
+   The replacement moves the flags standing under `NEW` onto `R`, merging
+   one with the route's own flag of the same seat and function: the route's
+   named packets come first and the merged flag keeps at most 64, so names
+   beyond that are dropped silently and no longer let a void execute at
+   once. Guardians read `ibcgov.Flags(R)` after the replacement and
+   re-assert (`SetFlag`) any suspect packet name that was dropped.
+
+   **A repeated replacement** (`NEW` failed, or must be replaced, before the
+   reconciliation of an earlier retired client finished) runs this step
+   again from `NEW` to a fresh client (`NEW2`), and then runs steps 7 to 10
+   for every retired client that still blocks the reopening, not only the
+   last one replaced:
+   - list them with `ReopenBlockers(R)` on the controls reader
+     (`transfer.ExtView("controls")`): every retired client with a record
+     open or processed in its suspect interval and not settled, whatever
+     the number of replacements; the route's `replaced` list
+     (`Render("routes/R")`) names every retired client, in order;
+   - each keeps its own suspect height, recorded when it was retired
+     (`SuspectFrom(R, client)`, raised to at least the height it became the
+     route's client): enumerate its records against that height (step 7,
+     keys `client/…`), never against the latest replacement's;
+   - each keeps its own incident: settle and book its losses under the
+     incident name used for its replacement (`INC` of that drill), so its
+     accounting stays apart;
+   - prove its unfinished records again through the route's current client
+     (`NEW2`): an outcome proven through a verifier since retired, frozen or
+     recovered is void (step 8);
+   - settle them per originating client, `NewSettleRequest(R, client, …,
+     its INC)` (step 9), the client being the one the record was sent over.
 7. **Enumerate the records to settle.** Every send record of `OLD` that is
    open (outcome `""`, its commitment outstanding, or payment `queued`), and
    every one processed at or after `suspectFrom` (`processed_height`) whose
@@ -476,8 +519,9 @@ characters of `a-z`, `0-9`, `-`).
      booked as a loss; its claim's remainder is dropped.
 
    A settlement paying refunds is deferred under a `refunds` flag (step 5).
-   A settlement is final once it applies: a hold or a new trust generation
-   of `NEW` before then stops it (its proofs void), but a compromise of
+   A settlement is final once it applies: before then a hold defers it, and
+   `NEW` expiring (not Active) or taking a new trust generation (a recovery,
+   freeze, upgrade or migration) voids its proofs, but a compromise of
    `NEW` found afterwards does not reopen it, and no governed path on
    gno.land pays a refund it denied. Hold the decision (step 5) while `NEW`
    is in doubt.
@@ -491,8 +535,12 @@ characters of `a-z`, `0-9`, `-`).
     owed sweep entries (`NewReduceRequest(R, key, amount, INC)`), or accept
     a deficit (`NewAcceptDeficitRequest(R, denom, amount, INC)`); whatever
     stays unresolved, the reopening accepts. Check: `Unresolved(R)`.
-11. **Reopen.** `NewReopenRouteRequest(R)` (7 days) is refused while a
-    record of step 7 is unsettled. When it applies, it accepts the remaining
+11. **Reopen.** First check the whole route: `ReopenBlockers(R)` on the
+    controls reader must be empty (after a repeated replacement it lists
+    every retired client still unfinished; `SuspectUnsettled(R, client)`
+    and `OpenSends(R, client)` say what each still holds).
+    `NewReopenRouteRequest(R)` (7 days) is refused while any retired
+    client's record of step 7 is unsettled. When it applies, it accepts the remaining
     losses and revokes unpaid recapitalizations in batches; when the transfer
     app's `route_gov` event says in its `note` "continue with
     transfer.ContinueReopen" (ibcgov's decision note does not carry it),

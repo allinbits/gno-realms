@@ -151,11 +151,11 @@ unchanged.
   `ethereum.NewFrom`: an index of the retired verifiers' own stores, keyed
   by each one's latest slot and holding non-overlapping intervals, read in
   O(log replacements) however many replacements there were; a retired
-  store whose latest slot is not above the index's highest key, replaced
-  again before its finality advanced, is not indexed but its few states
-  are carried into the new verifier's own store as a head overlay, so no
-  key is re-pointed and no older interval lost; a conversion copies no
-  consensus-state history and costs O(log previous stores)), and the
+  store joins it only when its latest slot is above the index's highest
+  key, so no key is re-pointed and no older interval lost, and any state it
+  holds at or below that key (a rewritten head, a next committee learned
+  there) goes into a persistent override tree read first; a conversion
+  copies no consensus-state history and costs O(log previous stores)), and the
   transfer
   app starts with `impl/v1`, the first implementation its proxy registers;
   the new `p/` packages deploy beside them.
