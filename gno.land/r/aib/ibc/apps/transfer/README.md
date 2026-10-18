@@ -288,11 +288,13 @@ mapping: [ADR 0004](../../../../../../docs/adrs/0004-ethereum-route-controls.md)
   attached, the amount taken from the immediate caller's allowance to this
   realm), reductions, accepted deficits,
   settlements of a retired client's sends, route replacement and reopening.
-- **Renders**: `routes`, `routes/{route}`, `routes/{route}/claims`,
-  `routes/{route}/sweeps`, `routes/{route}/sends`, `routes/{route}/losses`
-  (JSON pages of at most 100 entries, `{"entries":[...],"next":<cursor>}`:
-  pass `next` as `?from=` for the following page, `""` when there is none;
-  losses are
+- **Renders**: `routes` (a JSON array of every enrolled route, each
+  element the `routes/{route}` object, not paginated), `routes/{route}` (one JSON
+  object of the route with every enabled denom and its totals, not
+  paginated), and `routes/{route}/claims`, `routes/{route}/sweeps`,
+  `routes/{route}/sends`, `routes/{route}/losses` (JSON pages of at most
+  100 entries, `{"entries":[...],"next":<cursor>}`: pass `next` as
+  `?from=` for the following page, `""` when there is none; losses are
   ordered by direction then packet key), and the `route_*` events (`credit`,
   `claim`, `settle`, `refund`, `recapitalize`, `gov`).
 

@@ -24,6 +24,11 @@ the proxies and stay provable across the switch.
   implements the proxy's `Logic`, registers itself from `init` with
   `RegisterImpl`, and reuses from `impl/v0` what it does not change (`New`, the
   exported `Renderer`).
+- Every implementation a proxy registers is a realm of the bridge for
+  good: each proxy indexes it by realm address (`IsImplAddress`), and the
+  transfer app's receive, payout, enrolment and collector checks read that
+  index, one keyed lookup whatever the number registered, so registering
+  candidates never makes those checks costlier.
 - `RegisterImpl` takes, beside the constructor, a manifest of plain
   values: `RegisterImpl(cur, ctor, version, over)` for the core,
   `RegisterImpl(cur, ctor, version, over, keepsControls)` for the transfer
