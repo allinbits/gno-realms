@@ -111,9 +111,10 @@ func itoa(n int64) string { return strconv.FormatInt(n, 10) }
 // id is an alias, so a route replacement re-points the alias in constant work
 // (ADR pr6375 §7.12, R18).
 type Registry struct {
-	routes  avl.Tree // route key -> *Route
-	aliases avl.Tree // current client id -> route key
-	retired avl.Tree // retired client id -> route key
+	routes     avl.Tree // route key -> *Route
+	aliases    avl.Tree // current client id -> route key
+	retired    avl.Tree // retired client id -> route key
+	collectors avl.Tree // fee collector address -> int64: how many routes it collects for
 }
 
 // NewRegistry is an empty registry.
@@ -138,8 +139,45 @@ func (r *Registry) Enroll(key string, collector address, now, height int64) (*Ro
 	rt := &Route{Key: key, Client: key, Enrolled: now, Activated: height, FeeCollector: collector}
 	r.routes.Set(key, rt)
 	r.aliases.Set(key, key)
+	r.countCollector(collector, 1)
 	return rt, nil
 }
+
+// SetFeeCollector replaces route key's fee collector, keeping the index of
+// configured collectors (IsFeeCollector) exact.
+func (r *Registry) SetFeeCollector(key string, a address) error {
+	rt := r.Route(key)
+	if rt == nil {
+		return errors.New("controls: no route " + key)
+	}
+	if !a.IsValid() {
+		return errors.New("controls: invalid fee collector " + string(a))
+	}
+	r.countCollector(rt.FeeCollector, -1)
+	rt.FeeCollector = a
+	r.countCollector(a, 1)
+	return nil
+}
+
+// countCollector moves a's count of routes it collects for by d.
+func (r *Registry) countCollector(a address, d int64) {
+	var n int64
+	if v := r.collectors.Get(string(a)); v != nil {
+		n = v.(int64)
+	}
+	n += d
+	if n <= 0 {
+		r.collectors.Remove(string(a))
+		return
+	}
+	r.collectors.Set(string(a), n)
+}
+
+// IsFeeCollector reports whether a is the fee collector of any route: an
+// indexed read, whatever the number of routes. The proxies refuse to
+// register an implementation at such an address, which would turn the
+// collector into a realm of the bridge.
+func (r *Registry) IsFeeCollector(a address) bool { return r.collectors.Has(string(a)) }
 
 // Route is the route with this key, or nil.
 func (r *Registry) Route(key string) *Route {
@@ -448,15 +486,6 @@ func after(cursor string) string {
 		return ""
 	}
 	return cursor + "\x00"
-}
-
-// SetFeeCollector replaces the fee collector.
-func (rt *Route) SetFeeCollector(a address) error {
-	if !a.IsValid() {
-		return errors.New("controls: invalid fee collector " + string(a))
-	}
-	rt.FeeCollector = a
-	return nil
 }
 
 // Refuse adds lower-case Ethereum addresses to the refused send recipients

@@ -116,6 +116,11 @@ func (rd Reader) Closed(route string) bool {
 	return false
 }
 
+// IsFeeCollector reports whether a is the fee collector of any route.
+func (rd Reader) IsFeeCollector(a address) bool {
+	return rd.r != nil && rd.r.IsFeeCollector(a)
+}
+
 // FeeCollector is a route's fee collector, or "".
 func (rd Reader) FeeCollector(route string) address {
 	if rt := rd.route(route); rt != nil {

@@ -766,3 +766,34 @@ func TestClaimFeeCutKept(t *testing.T) {
 		t.Fatalf("fee %d", c.Fee)
 	}
 }
+
+// The index of fee collectors counts the routes each collects for (design
+// review r8 #2): it stays set while any route still names the address.
+func TestFeeCollectorIndex(t *testing.T) {
+	r, _ := newRoute(t)
+	if _, err := r.Enroll("ethereum-2", collector, t0, 1); err != nil {
+		t.Fatal(err)
+	}
+	rd := Reader{r: r}
+	if !rd.IsFeeCollector(collector) || rd.IsFeeCollector(bob) {
+		t.Fatalf("index after two enrolments")
+	}
+	if err := r.SetFeeCollector("ethereum-1", bob); err != nil {
+		t.Fatal(err)
+	}
+	if !rd.IsFeeCollector(collector) || !rd.IsFeeCollector(bob) {
+		t.Fatalf("index after one change")
+	}
+	if err := r.SetFeeCollector("ethereum-2", bob); err != nil {
+		t.Fatal(err)
+	}
+	if rd.IsFeeCollector(collector) || !rd.IsFeeCollector(bob) || r.Route("ethereum-2").FeeCollector != bob {
+		t.Fatalf("index after both changed")
+	}
+	if r.SetFeeCollector("ethereum-9", bob) == nil || r.SetFeeCollector("ethereum-1", "bad") == nil {
+		t.Fatalf("set a collector on no route, or an invalid one")
+	}
+	if !rd.IsFeeCollector(bob) || (Reader{}).IsFeeCollector(bob) {
+		t.Fatalf("a refused change moved the index, or an invalid reader read it")
+	}
+}

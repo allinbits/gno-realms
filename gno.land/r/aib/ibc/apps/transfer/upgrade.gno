@@ -190,6 +190,12 @@ func RegisterImpl(cur realm, ctor func(Store) Logic, version string, over []stri
 	if version == "" {
 		panic("RegisterImpl: the manifest names no version")
 	}
+	// A registered implementation is a realm of the bridge: one at an
+	// address a route pays its fees to would turn that collector into one.
+	// The collector is changed first, by a governed (delayed) decision.
+	if isFeeCollector(chain.PackageAddress(caller)) {
+		panic(ufmt.Sprintf("RegisterImpl: %s is a route's fee collector: change the collector first", caller))
+	}
 	implCtors.Set(caller, ctor)
 	implManifests.Set(caller, newManifest(version, over, keepsControls))
 	if impl == nil {

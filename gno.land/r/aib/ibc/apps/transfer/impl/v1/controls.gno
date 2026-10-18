@@ -346,7 +346,7 @@ func (l *logic) GovApply(_ int, rlm realm, op string, params []byte) string {
 		}
 		err = rt.SetDenom(p.Denom, p.Config, t, epoch, outstanding)
 	case controls.OpCollector:
-		err = rt.SetFeeCollector(p.To)
+		err = reg.SetFeeCollector(rt.Key, p.To)
 	case controls.OpRefuse:
 		rt.Refuse(p.Keys)
 	case controls.OpUnrefuse:

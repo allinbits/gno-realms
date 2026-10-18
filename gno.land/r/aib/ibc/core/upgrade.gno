@@ -161,6 +161,12 @@ func RegisterImpl(cur realm, ctor func(Store) Logic, version string, over []stri
 	if version == "" {
 		panic("RegisterImpl: the manifest names no version")
 	}
+	// A registered implementation is a realm of the bridge: one at an
+	// address a transfer route pays its fees to would turn that collector
+	// into one. The collector is changed first, by a governed decision.
+	if isFeeCollector(chain.PackageAddress(caller)) {
+		panic(ufmt.Sprintf("RegisterImpl: %s is a transfer route's fee collector: change the collector first", caller))
+	}
 	implCtors.Set(caller, ctor)
 	implManifests.Set(caller, newManifest(version, over))
 	if impl == nil {
@@ -275,4 +281,22 @@ func mustImpl() Logic {
 		panic("core: no implementation installed")
 	}
 	return impl
+}
+
+// transferPkgPath is the transfer proxy, whose app keeps the route controls'
+// fee collectors.
+const transferPkgPath = "gno.land/r/aib/ibc/apps/transfer"
+
+// isFeeCollector asks the transfer proxy's app, if registered, whether a is
+// a route's fee collector (a read of its index).
+func isFeeCollector(a address) bool {
+	for _, entry := range store.routes {
+		if entry.PkgPath != transferPkgPath {
+			continue
+		}
+		if fc, ok := entry.IBCApp.(interface{ IsFeeCollector(address) bool }); ok && fc.IsFeeCollector(a) {
+			return true
+		}
+	}
+	return false
 }

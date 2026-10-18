@@ -187,6 +187,45 @@ func main(cur realm) {
 	advance(24 * time.Hour)
 	transfer.Claim(cross(cur), route, alias, 20)
 	println("claim fee to the collector:", grc20test.BalanceOf(collector)-before)
+
+	// The other order (design review r8 #2): a collector configured at the
+	// address of an implementation not registered yet. Neither proxy
+	// registers an implementation at a route's fee collector; after a
+	// governed collector change, the registration goes through.
+	const laterT = "gno.land/r/aib/ibc/apps/transfer/impl/v9y"
+	const laterC = "gno.land/r/aib/ibc/core/impl/v9y"
+	collect := func(a address) string {
+		id := govern(cur, ibcgov.NewSetFeeCollectorRequest(cross(cur), route, string(a)))
+		execute(cur, id)
+		d, _ := ibcgov.Decision(id)
+		return d.State()
+	}
+	listed := func(paths []string, p string) bool {
+		for _, x := range paths {
+			if x == p {
+				return true
+			}
+		}
+		return false
+	}
+	ctorT := func(s transfer.Store) transfer.Logic { return nil }
+	ctorC := func(s core.Store) core.Logic { return nil }
+	println("collector a future transfer implementation:", collect(chain.PackageAddress(laterT)))
+	testing.SetRealm(testing.NewCodeRealm(laterT))
+	println("  its registration:", revive(func() { transfer.RegisterImpl(cross(cur), ctorT, "v9y", nil, true) }))
+	testing.SetRealm(testing.NewCodeRealm("gno.land/r/aib/main"))
+	println("collector a future core implementation:", collect(chain.PackageAddress(laterC)))
+	testing.SetRealm(testing.NewCodeRealm(laterC))
+	println("  its registration:", revive(func() { core.RegisterImpl(cross(cur), ctorC, "v9y", nil) }))
+	testing.SetRealm(testing.NewCodeRealm(laterT))
+	transfer.RegisterImpl(cross(cur), ctorT, "v9y", nil, true)
+	testing.SetRealm(testing.NewCodeRealm("gno.land/r/aib/main"))
+	println("  the transfer one now: registered", listed(transfer.RegisteredImplPaths(), laterT))
+	println("collector back:", collect(collector))
+	testing.SetRealm(testing.NewCodeRealm(laterC))
+	core.RegisterImpl(cross(cur), ctorC, "v9y", nil)
+	testing.SetRealm(testing.NewCodeRealm("gno.land/r/aib/main"))
+	println("  the core one now: registered", listed(core.RegisteredImplPaths(), laterC))
 }
 
 // Output:
@@ -203,3 +242,10 @@ func main(cur realm) {
 // collector an implementation registered meanwhile: spent - spent: the fee collector g1u54yy6kljq98wlgsfgvtgwkj2esqyz880a3ad3 is a realm of the bridge
 // send fee to the collector: 20
 // claim fee to the collector: 20
+// collector a future transfer implementation: applied
+//   its registration: RegisterImpl: gno.land/r/aib/ibc/apps/transfer/impl/v9y is a route's fee collector: change the collector first
+// collector a future core implementation: applied
+//   its registration: RegisterImpl: gno.land/r/aib/ibc/core/impl/v9y is a transfer route's fee collector: change the collector first
+//   the transfer one now: registered true
+// collector back: applied
+//   the core one now: registered true
