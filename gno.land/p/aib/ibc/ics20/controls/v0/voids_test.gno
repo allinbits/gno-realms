@@ -1223,7 +1223,7 @@ func TestOpenRecapsBounded(t *testing.T) {
 	if err := rt.Reduce(pk(1), 700, "inc"); err != nil {
 		t.Fatal(err)
 	}
-	if got := rt.openRecaps("ugnot", "inc", 0); got != 300 {
+	if got := rt.openRecaps("ugnot", "inc", 0).sat(); got != 300 {
 		t.Fatalf("open after the reduction: %d", got)
 	}
 	r, _ := rt.Recap(ids[1])
@@ -1295,5 +1295,72 @@ func TestCreditByVoteAfterManyReplacements(t *testing.T) {
 	}
 	if err := rt.CreditByVote(t0, 50_000, 0, pk(4), "ugnot", carol, lock, 2*lock); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// A reduction against losses past int64 revokes only the authorizations it
+// conflicts with (code review r51 #1): an incident's exact losses of
+// MaxInt64 + 1000, an authorization of 1500, then a reduction of
+// MaxInt64 - 1000 leaves 2000, so the authorization stays and is payable.
+// The reduction takes an open claim, a withheld one or an owed sweep entry.
+func TestReductionBeyondInt64KeepsAuthorization(t *testing.T) {
+	const m = maxInt64
+	for _, kind := range []string{"open", "withheld", "sweep"} {
+		_, rt := newRoute(t)
+		switch kind {
+		case "sweep":
+			if !mustCredit(t, rt, t0, 5, "ugnot", alice, m-1000, 0) {
+				t.Fatalf("%s: setup: not swept", kind)
+			}
+		default:
+			if mustCredit(t, rt, t0, 5, "ugnot", alice, m-1000, m) {
+				t.Fatalf("%s: setup: swept", kind)
+			}
+		}
+		if kind == "withheld" {
+			if err := rt.Void([]string{pk(5)}, false, "other"); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if err := rt.RecordLoss(PacketKey("ethereum-1", 90), "ugnot", m/2, ChainGno, "inc", "forged"); err != nil {
+			t.Fatal(err)
+		}
+		if err := rt.RecordLoss(PacketKey("ethereum-1", 91), "ugnot", m/2+1001, ChainGno, "inc", "forged"); err != nil {
+			t.Fatal(err)
+		}
+		id, err := rt.AuthorizeRecap("ugnot", 1500, "inc")
+		if err != nil {
+			t.Fatalf("%s: %v", kind, err)
+		}
+		if err := rt.Reduce(pk(5), m-1000, "inc"); err != nil {
+			t.Fatalf("%s: %v", kind, err)
+		}
+		if r, _ := rt.Recap(id); r.Revoked {
+			t.Fatalf("%s: revoked an authorization the reduction leaves room for", kind)
+		}
+		if err := rt.Recapitalize(id, "ugnot", 1500, alice); err != nil {
+			t.Fatalf("%s: the authorization is not payable: %v", kind, err)
+		}
+		if it := rt.Incident("ugnot", "inc"); it.OpenUnrecovered != 500 {
+			t.Fatalf("%s: %d left unrecovered", kind, it.OpenUnrecovered)
+		}
+	}
+}
+
+// What a recapitalization may still restore is read from the exact balance:
+// with losses of MaxInt64 + 1000 and an authorization of 1000 open, another
+// of MaxInt64 is not refused (code review r51 #1, the same arithmetic).
+func TestRecapitalizableBeyondInt64(t *testing.T) {
+	_, rt := newRoute(t)
+	rt.RecordLoss(PacketKey("ethereum-1", 90), "ugnot", maxInt64/2, ChainGno, "inc", "forged")
+	rt.RecordLoss(PacketKey("ethereum-1", 91), "ugnot", maxInt64/2+1001, ChainGno, "inc", "forged")
+	if _, err := rt.AuthorizeRecap("ugnot", 1000, "inc"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := rt.AuthorizeRecap("ugnot", maxInt64, "inc"); err != nil {
+		t.Fatalf("refused what the exact balance holds: %v", err)
+	}
+	if _, err := rt.AuthorizeRecap("ugnot", 1, "inc"); err == nil {
+		t.Fatalf("authorized beyond the losses")
 	}
 }

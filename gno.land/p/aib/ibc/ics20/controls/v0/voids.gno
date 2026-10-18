@@ -119,7 +119,9 @@ func (rt *Route) Incident(denom, incident string) IncidentTotals {
 // paid (except skip, an authorization being paid).
 func (rt *Route) recapitalizable(denom, incident string, skip int64) int64 {
 	it := rt.Incident(denom, incident)
-	return it.OpenUnrecovered - rt.openRecaps(denom, incident, skip)
+	// Exact on both sides, then saturated: an int64 view of the losses or
+	// of the authorizations' total past int64 would misstate what remains.
+	return wideRest(it.w[iUnrec], rt.openRecaps(denom, incident, skip))
 }
 
 // Voidable reports whether a void as forged (or as withheld) can take the
@@ -585,12 +587,12 @@ func (rt *Route) AuthorizeRecap(denom string, amount int64, incident string) (in
 // openRecaps is what the unpaid recapitalizations of an incident on denom
 // hold, the authorization skip aside: a walk of that incident's open
 // authorizations only (at most MaxOpenRecaps).
-func (rt *Route) openRecaps(denom, incident string, skip int64) int64 {
-	var n int64
+func (rt *Route) openRecaps(denom, incident string, skip int64) wide {
+	var n wide
 	p := openRecapPrefix(denom, incident)
 	rt.openRecapIdx.Iterate(p, p+"~", func(_ string, v any) bool {
 		if r := v.(*Recap); r.ID != skip {
-			n = boundAdd(n, r.Amount)
+			n.add(r.Amount)
 		}
 		return false
 	})
@@ -628,17 +630,22 @@ func (rt *Route) unrecoveredOf(denom, incident string) int64 {
 // total once, then the newest revoked first while it exceeds what remains.
 func (rt *Route) revokeConflicting(denom, incident string, amount int64) {
 	var open []*Recap
-	var total int64
+	var total wide
 	p := openRecapPrefix(denom, incident)
 	rt.openRecapIdx.Iterate(p, p+"~", func(_ string, v any) bool {
 		r := v.(*Recap)
 		open = append(open, r)
-		total = boundAdd(total, r.Amount)
+		total.add(r.Amount)
 		return false
 	})
-	room := rt.unrecoveredOf(denom, incident) - amount
-	for i := len(open) - 1; i >= 0 && total > room; i-- {
-		total -= open[i].Amount
+	// What remains after the reduction, exact (the caller checked amount
+	// fits): an int64 view of a balance or a total past int64 would
+	// misstate it and revoke authorizations that still fit, or keep one
+	// that does not.
+	room := rt.Incident(denom, incident).w[iUnrec]
+	room.sub(amount)
+	for i := len(open) - 1; i >= 0 && wideLess(room, total); i-- {
+		total.sub(open[i].Amount)
 		rt.closeRecap(open[i])
 		open[i].Revoked = true
 	}

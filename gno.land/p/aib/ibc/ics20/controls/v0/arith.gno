@@ -102,6 +102,18 @@ func (w wide) minusSat(x int64) int64 {
 	return w.sat()
 }
 
+// wideLess reports whether a < b.
+func wideLess(a, b wide) bool { return a.hi < b.hi || a.hi == b.hi && a.lo < b.lo }
+
+// wideRest is a - b, saturated at the int64 maximum when it stays past it,
+// and -1 when b is more than a: what remains, exact on both sides.
+func wideRest(a, b wide) int64 {
+	if wideLess(a, b) {
+		return -1
+	}
+	return a.minusWideSat(b)
+}
+
 // minusWideSat is the counter less o (at most the counter), exact, as a
 // saturated int64.
 func (w wide) minusWideSat(o wide) int64 {
