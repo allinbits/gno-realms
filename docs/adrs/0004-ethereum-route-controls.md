@@ -864,10 +864,14 @@ realm-issued coin (`/gno.land/r/...:denom`) never travels and is refused.
    meter, the escrow covers it (an `unescrow` denom) and no older refund is
    queued; otherwise it joins the denom's queue. `ClaimRefunds` pays the
    queue first in, first out, stopping at a head it cannot pay, in
-   installments of at least `min(remainder, max(1, RefundCap/24))`, except
-   that a minted installment is cut to the supply's headroom when that is
-   less (any positive amount: a parked refund larger than any headroom a
-   return frees is still paid).
+   installments of at least `min(remainder, max(1, RefundCap/24))`: the
+   refund meter must hold that minimum for any installment, a minted one
+   included. A minted installment the meter allows is then cut to the
+   supply's headroom when that is less (any positive amount: a parked refund
+   larger than any headroom a return frees is still paid); headroom only
+   clips the payment, it never lowers the meter minimum (RefundCap 240, a
+   remainder of 100, a meter of 5 and a headroom of 1 pay nothing: the
+   meter holds less than the minimum of 10).
 9. **Ethereum-bound decisions are not deferred by gno-side holds**: their delay
    and deferral run on Ethereum (§6.6).
 10. **Conservative choices where the ADR is silent**:

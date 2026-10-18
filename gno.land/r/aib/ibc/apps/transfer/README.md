@@ -237,9 +237,11 @@ mapping: [ADR 0004](../../../../../../docs/adrs/0004-ethereum-route-controls.md)
   above 20 is taken as 20; nothing
   under a `refunds` hold or on a closed route), in installments: each takes
   what the meter (and, for `unescrow`, the escrow) allows of the head
-  refund's remainder, at least `min(remainder, max(1, RefundCap/24))` (a
-  minted installment is cut to the supply's headroom when that is less, any
-  positive amount), and the call stops at a head it cannot pay. The outcome, the
+  refund's remainder, at least `min(remainder, max(1, RefundCap/24))`, which
+  the meter must hold for any installment, a minted one included (a minted
+  installment the meter allows is then cut to the supply's headroom when
+  that is less, any positive amount: headroom clips the payment, never the
+  meter minimum), and the call stops at a head it cannot pay. The outcome, the
   local processing height and the payment state are attached to the send
   record. Queued refunds are reserved: no receive or claim payout takes
   their escrow.

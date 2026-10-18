@@ -638,7 +638,13 @@ characters of `a-z`, `0-9`, `-`).
    the trust assumption of this step.
    Each forged one's remainder must go before the route reopens or
    containment is cleared:
-   - unpaid or withheld (`paid` 0): void it as forged
+   What an entitlement paid out: for a claim, its `paid` (an amount); for a
+   sweep entry, whose `paid` is a boolean, its `claim_paid` (what its claim
+   paid before it was swept, present only for one moved from a claim) plus
+   its `amount` when `paid` is true and `paid_to` is not `"credit by vote"`
+   (a credit by vote pays through its claim instead).
+   - nothing paid out (a claim's `paid` 0, a sweep entry's payout 0): void
+     it as forged
      (`NewVoidRequest(R, keys, true, INC)`, at once while a guardian's
      `payouts` flag names it), which drops the remainder;
    - partly or wholly paid: settle it as a forged receive (action 5,
