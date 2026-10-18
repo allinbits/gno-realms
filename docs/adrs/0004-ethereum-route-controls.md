@@ -829,6 +829,7 @@ protection or a governance rule, and each has a test documenting the base
 | A voucher's grc20 symbol, and its grc20reg key `<transfer realm>.<symbol>`, are allocated from the voucher id counter when it is created (`IBC-` and the id in base 36: `IBC-1`, `IBC-2`, ...), stored with it and read by `VoucherSymbol`, `GRC20RegKey` and the renders; the full IBC hash stays its identity (its denom, the grc20reg slug), so no denom can take another's registry key | the symbol was the hash's first 11 hex characters, so a denom ground to share a future voucher's prefix registered first and made that voucher's receive abort on grc20reg's duplicate key | transfer `z9zp` (two colliding hashes, both usable); the old and new symbols and keys side by side in `z0c`, `z0d`, `z0e`, `z1aa`, `z2aaa`, `z3aa`, `z4a`, `z4aaaa`, `z5aa`, `z6a` |
 | A Tendermint light client keeps copies of what it trusts: `Initialize` deep-copies the client state (proof specifications, upgrade path) and the consensus state's root and next validators hash, `UpdateState` the header's app hash and next validators hash, `RecoverClient` the substitute's consensus state, `VerifyUpgradeAndUpdateState` the upgraded proof specifications, upgrade path and next validators hash; `NewMerkleRoot` copies its input; `Initialize` runs once | the client kept the caller's slices, so writing them after `CreateClient` or a verified `UpdateClient` moved the trusted root and state without verification | core `z7z` (Tendermint), tendermint `TestInitializeOnce` |
 | No entry point runs a caller-supplied implementation: commitment proofs must be `ics23.CommitmentProof_Exist` or `_Nonexist` by value (`ics23.CheckProofs`, in every message's `ValidateBasic` and the Tendermint client's membership and absence checks), client and consensus states and client messages the light clients' own types (core `checkStates`, `checkClientMessage`) | the core called `GetExist`, `ClientType` and `ValidateBasic` on whatever the caller passed, running its code in the core's realm context | core `z16e`, `z1b`, `z1j` (a caller's own state type, refused up front; the base's unhandled-type and client-type-naming branches are unreachable with our own types); `z1f`, `z1i`, `z2d`, `z2f` reach the base's type-mismatch and `ValidateBasic` errors with real Tendermint and Ethereum states and headers; ics23 `TestCheckProofs`; tendermint `TestVerifyRefusesOwnProofTypes` |
+| An implementation is never registered, by either proxy, at the address of an Ethereum route's current fee collector (`RegisterImpl` asks the route controls' collector index: the transfer proxy its own, the core the transfer app on its port), so registering one for any client, a Tendermint one's upgrade included, first needs a governed collector change (`NewSetFeeCollectorRequest`, 7 days) when a collector names its address | any implementation registered under the proxy's prefix | transfer `z9h` |
 | Every JSON render passes through `jsonmd.Inert`, Markdown-active characters in strings written as escapes; the Markdown pages escape user strings | strings were JSON-quoted only, or written raw | transfer `z9v`, ibcgov `z2d`, `z1k` |
 
 Identifier validation is not among them: `Packet.ValidateBasic` and
@@ -880,14 +881,24 @@ does not list before it.
 
 ## Known limits
 
-- **Refunds wait for a reconciliation's reopening** (a deliberate exception
-  to ADR pr6375's refund liveness): a route closed by a replacement pays no
-  queued refund and no parked one (`ClaimRefunds` pays nothing while
-  closed), whatever the flags. A genuine refund stays owed and reserved,
-  and is paid after the reopening, so its liveness depends on the
-  reconciliation finishing, which is governed and bounded (7-day decisions,
-  batches anyone may run). Paying refunds on a closed route would pay
-  forged ones the reconciliation has not yet told apart.
+- **Refunds wait for a reconciliation's reopening** (a deliberate
+  divergence from ADR pr6375 R17, §6.7, §7.3 and §7.13, which delay a
+  refund only by the refund meter and an explicit `refunds` hold; the
+  parent ADR is to be amended to record it): a route closed by a
+  replacement pays no queued refund and no parked one (`ClaimRefunds` pays
+  nothing while closed, and an acknowledgement or timeout queues the refund
+  it would have paid at once), whatever the flags and the meter. A genuine
+  refund stays owed and reserved, and is paid after the reopening, so its
+  liveness depends on the reconciliation finishing, which is governed and
+  bounded (7-day decisions, batches anyone may run). The consequence: the
+  genuine refunds of sends over the healthy replacement client wait for the
+  reopening too (a voucher return over it, taken on the closed route, whose
+  error acknowledgement or timeout queues its refund), though nothing about
+  them is suspect. The rationale: while the route is closed, the records
+  of the retired client are not yet told apart, and a refund paid from the
+  route's escrow or supply before then could pay a forged one out of the
+  backing a genuine one needs; one rule for the closed route keeps that
+  backing whole without a per-client refund path.
 
 - **A recapitalization authorized and not paid when a route reopens** is
   revoked: the reopening records the remaining unresolved losses as an
@@ -925,11 +936,11 @@ does not list before it.
   the total once, then revoking newest first), and an explicit revocation
   goes to its authorization directly; the reopening's deficit acceptance
   and authorization revocation, in bounded batches (`ContinueReopen`).
-  A credit by vote checks that its client is one of the route's, current
-  or retired, by scanning the route's replacement list (`clientOfRoute`
-  in impl/v1): linear in the route's lifetime replacements, with no batch
-  continuation; each replacement is a 7-day decision, so the list stays
-  short in practice.
+  A credit by vote checks that its client is one of the route's through
+  the same index (`Route.HasClient`: the current client, or one a
+  replacement retired), in logarithmic work
+  (`TestCreditByVoteAfterManyReplacements`: 39 replacements, the first
+  client's sweep entry credited).
   `ProveOutcome` and a settlement's plan check that the record's client is
   one a replacement retired from the route through the index of retired
   clients' suspect heights (`retiredHere`, `suspect`), in logarithmic work
