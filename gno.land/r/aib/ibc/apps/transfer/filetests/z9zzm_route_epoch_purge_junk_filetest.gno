@@ -218,29 +218,28 @@ func rl(i int) string { return "ethereum-" + strconv.Itoa(i+1) }
 // clears every tombstone it supersedes.
 func main(cur realm) {
 	client(cur, "ethereum-1", "client-0")
-	for i := 1; i <= 8; i++ {
+	for i := 1; i <= 11; i++ {
 		client(cur, rl(i), r(i))
 	}
-	x := client(cur, "ethereum-10", "gnoland-x", noticePacket(1, "gnoland-x", "ethereum-10", 2, "gnoland-x"))
+	x := client(cur, "ethereum-13", "gnoland-x", noticePacket(1, "gnoland-x", "ethereum-13", 2, "gnoland-x"))
 	execute(cur, govern(cur, ibcgov.NewEnrollRouteRequest(cross(cur), "ethereum-1", string(collector), bridge)))
 	execute(cur, govern(cur, ibcgov.NewBindGovernanceRequest(cross(cur), "ethereum-1")))
-	for i := 1; i <= 8; i++ {
+	for i := 1; i <= 11; i++ {
 		junk(cur, "client-0", r(i), rl(i))
 	}
-	for i := 1; i <= 8; i++ {
-		for j := 1; j <= 8; j++ {
-			if i != j {
-				junk(cur, r(i), r(j), rl(j))
-			}
+	// The graph stays acyclic: Ri→Rj for i < j.
+	for i := 1; i <= 11; i++ {
+		for j := i + 1; j <= 11 && ibcgov.Tombstones() < 64; j++ {
+			junk(cur, r(i), r(j), rl(j))
 		}
 	}
 	println("tombstones:", ibcgov.Tombstones())
-	println("A→X, new:", revive(func() { expectNow(cur, "client-0", "gnoland-x", "ethereum-10") }))
-	purge := govern(cur, ibcgov.NewPurgeTombstoneRequest(cross(cur), "client-0", r(8), rl(8)))
+	println("A→X, new:", revive(func() { expectNow(cur, "client-0", "gnoland-x", "ethereum-13") }))
+	purge := govern(cur, ibcgov.NewPurgeTombstoneRequest(cross(cur), "client-0", r(11), rl(11)))
 	println("purge decided:", decided(purge))
 	execute(cur, purge)
 	println("purged:", decided(purge), "| tombstones:", ibcgov.Tombstones())
-	ax := expectNow(cur, "client-0", "gnoland-x", "ethereum-10")
+	ax := expectNow(cur, "client-0", "gnoland-x", "ethereum-13")
 	approveAll(cur, ax)
 	println("A→X:", decided(ax))
 	println("X's notice:", deliver(cur, x, 0), "|", epochNow(), "| tombstones:", ibcgov.Tombstones())
@@ -250,6 +249,6 @@ func main(cur realm) {
 // tombstones: 64
 // A→X, new: ibcgov: the governance graph holds 64 transitions already, intents and tombstones included: an epoch switch frees those it leaves behind, and a purge frees a tombstone
 // purge decided: pending - queued 7 days
-// purged: applied - purged the tombstone of the transition from client-0 to gnoland-r8 over ethereum-9 | tombstones: 63
-// A→X: applied - expect the governance epoch to move from client-0 to gnoland-x over ethereum-10
-// X's notice: acknowledged | epoch 2 over ethereum-10 | tombstones: 0
+// purged: applied - purged the tombstone of the transition from client-0 to gnoland-r11 over ethereum-12 | tombstones: 63
+// A→X: applied - expect the governance epoch to move from client-0 to gnoland-x over ethereum-13
+// X's notice: acknowledged | epoch 2 over ethereum-13 | tombstones: 0

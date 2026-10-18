@@ -220,47 +220,49 @@ func rl(i int) string { return "ethereum-" + strconv.Itoa(i+1) }
 // and T's notice switches the epoch.
 func main(cur realm) {
 	client(cur, "ethereum-1", "client-0")
-	for i := 1; i <= 8; i++ {
+	for i := 1; i <= 11; i++ {
 		client(cur, rl(i), r(i))
 	}
-	t := client(cur, "ethereum-10", "gnoland-t",
-		noticePacket(1, "gnoland-t", "ethereum-10", 2, "gnoland-t"),
-		noticePacket(2, "gnoland-t", "ethereum-10", 2, "gnoland-t"))
+	t := client(cur, "ethereum-13", "gnoland-t",
+		noticePacket(1, "gnoland-t", "ethereum-13", 2, "gnoland-t"),
+		noticePacket(2, "gnoland-t", "ethereum-13", 2, "gnoland-t"))
+	client(cur, "ethereum-14", "gnoland-z") // a router client new to the graph
 	execute(cur, govern(cur, ibcgov.NewEnrollRouteRequest(cross(cur), "ethereum-1", string(collector), bridge)))
 	execute(cur, govern(cur, ibcgov.NewBindGovernanceRequest(cross(cur), "ethereum-1")))
-	approveAll(cur, expectNow(cur, "client-0", "gnoland-t", "ethereum-10"))
-	println("remove A→T:", decided(govern(cur, ibcgov.NewRemoveExpectationRequest(cross(cur), "client-0", "gnoland-t", "ethereum-10"))))
+	approveAll(cur, expectNow(cur, "client-0", "gnoland-t", "ethereum-13"))
+	println("remove A→T:", decided(govern(cur, ibcgov.NewRemoveExpectationRequest(cross(cur), "client-0", "gnoland-t", "ethereum-13"))))
 	var ids []int64
 	for i := 1; i <= 4; i++ {
 		ids = append(ids, expectNow(cur, "client-0", r(i), rl(i)))
 	}
 	approveAll(cur, ids...)
 	// Fill the joint budget with tombstones: 4 live + 60 tombstones.
-	olds := []string{r(1), r(2), r(3), r(4), "gnoland-t", r(5), r(6), r(7), r(8)}
-	for _, old := range olds {
-		for j := 1; j <= 8 && ibcgov.Tombstones() < 60; j++ {
-			if r(j) != old {
-				junk(cur, old, r(j), rl(j))
-			}
+	// The graph stays acyclic: Ri→Rj for i < j, then T→Rj.
+	for i := 1; i <= 11; i++ {
+		for j := i + 1; j <= 11 && ibcgov.Tombstones() < 60; j++ {
+			junk(cur, r(i), r(j), rl(j))
 		}
 	}
+	for j := 1; j <= 11 && ibcgov.Tombstones() < 60; j++ {
+		junk(cur, "gnoland-t", r(j), rl(j))
+	}
 	println("tombstones:", ibcgov.Tombstones())
-	println("a brand-new transition:", revive(func() { expectNow(cur, r(1), "gnoland-t", "ethereum-10") }))
+	println("a brand-new transition:", revive(func() { expectNow(cur, r(1), "gnoland-z", "ethereum-14") }))
 	println("T's notice:", deliver(cur, t, 0), "|", epochNow())
-	println("A→T again, A's successors full:", revive(func() { expectNow(cur, "client-0", "gnoland-t", "ethereum-10") }))
+	println("A→T again, A's successors full:", revive(func() { expectNow(cur, "client-0", "gnoland-t", "ethereum-13") }))
 	println("remove the loser A→R1:", decided(govern(cur, ibcgov.NewRemoveExpectationRequest(cross(cur), "client-0", r(1), rl(1)))), "| tombstones:", ibcgov.Tombstones())
-	again := expectNow(cur, "client-0", "gnoland-t", "ethereum-10")
+	again := expectNow(cur, "client-0", "gnoland-t", "ethereum-13")
 	approveAll(cur, again)
 	println("A→T again:", decided(again), "| tombstones:", ibcgov.Tombstones())
 	println("T's notice relayed afresh:", deliver(cur, t, 1), "|", epochNow(), "| tombstones:", ibcgov.Tombstones())
 }
 
 // Output:
-// remove A→T: applied - no longer expect the governance epoch to move from client-0 to gnoland-t over ethereum-10
+// remove A→T: applied - no longer expect the governance epoch to move from client-0 to gnoland-t over ethereum-13
 // tombstones: 60
 // a brand-new transition: ibcgov: the governance graph holds 64 transitions already, intents and tombstones included: an epoch switch frees those it leaves behind, and a purge frees a tombstone
 // T's notice: error acknowledgement | epoch 1 over ethereum-1
 // A→T again, A's successors full: ibcgov: router client client-0 has 4 expected successors already, intents included
 // remove the loser A→R1: applied - no longer expect the governance epoch to move from client-0 to gnoland-r1 over ethereum-2 | tombstones: 61
-// A→T again: applied - expect the governance epoch to move from client-0 to gnoland-t over ethereum-10 | tombstones: 60
-// T's notice relayed afresh: acknowledged | epoch 2 over ethereum-10 | tombstones: 59
+// A→T again: applied - expect the governance epoch to move from client-0 to gnoland-t over ethereum-13 | tombstones: 60
+// T's notice relayed afresh: acknowledged | epoch 2 over ethereum-13 | tombstones: 59

@@ -334,8 +334,18 @@ func checkExpect(old, next, local string) string {
 		return "router client " + old + " has " + strconv.Itoa(maxExpected) + " expected successors already, intents included"
 	}
 	// A tombstoned transition approved again moves back into the graph:
-	// the joint count does not change.
-	if !tombstones.Has(tombKey(old, next, local)) && liveEdges+tombstones.Size() >= maxLive {
+	// the joint count does not change, nor does the graph's shape.
+	if tombstones.Has(tombKey(old, next, local)) {
+		return ""
+	}
+	// The graph stays acyclic, live transitions and tombstones together:
+	// Ethereum never returns to a router client it left (a kind 10 or a
+	// recovery always creates a new one), so a cycle is never a real
+	// history, and every path of the graph is simple.
+	if next == old || reaches(next, old) {
+		return "router client " + next + " reaches " + old + " already: the transition would close a cycle"
+	}
+	if liveEdges+tombstones.Size() >= maxLive {
 		return "the governance graph holds " + strconv.Itoa(maxLive) + " transitions already, intents and tombstones included: an epoch switch frees those it leaves behind, and a purge frees a tombstone"
 	}
 	return ""
@@ -496,6 +506,37 @@ func retained() (remotes, locals map[string]bool) {
 		front = next
 	}
 	return remotes, locals
+}
+
+// reaches reports whether router client from reaches target through live
+// transitions and tombstones: each router client expanded once, at most
+// maxLive edges read.
+func reaches(from, target string) bool {
+	seen := map[string]bool{from: true}
+	front := []string{from}
+	for len(front) > 0 {
+		var next []string
+		for _, c := range front {
+			tos := []string{}
+			for _, x := range expectedOf(c) {
+				tos = append(tos, x.to)
+			}
+			for _, t := range tombsOf(c) {
+				tos = append(tos, t.to)
+			}
+			for _, to := range tos {
+				if to == target {
+					return true
+				}
+				if !seen[to] {
+					seen[to] = true
+					next = append(next, to)
+				}
+			}
+		}
+		front = next
+	}
+	return false
 }
 
 // pruneUnreachable drops every transition and tombstone whose old router
@@ -868,9 +909,11 @@ func switchEpoch(cur realm, e uint32, client string, passed []string) {
 	old := EpochClient()
 	setEpoch(e, client)
 	pruneUnreachable()
-	retireForGov(cur, old)
-	awaitingGov.Remove(old)
-	for _, c := range passed {
+	// Never the client just adopted (the path is simple; this guards it).
+	for _, c := range append([]string{old}, passed...) {
+		if c == client {
+			continue
+		}
 		retireForGov(cur, c)
 		awaitingGov.Remove(c)
 	}
@@ -950,7 +993,9 @@ func applicable(e uint32, client, source string) bool {
 // notice's source over its client, so only a transition on such a path is
 // pinned: one at step i of it leaves from a router client reached in exactly
 // i - 1 steps, and either is the last step (to the source, over the notice's
-// client) or leads on, in exactly the steps left, to that last step. Every
+// client) or leads on, in exactly the steps left, to that last step. The
+// graph is acyclic (checkExpect), so every such walk of exact length is a
+// simple path, the only kind ApplyEpochNotice accepts. Every
 // recorded notice is read, not only the highest per client. Bounded: the
 // graph holds at most maxLive edges and a path at most maxNoticeSteps
 // steps, so each walk is at most 64 layers of 64 edges, and each notice
@@ -1069,12 +1114,20 @@ func ApplyEpochNotice(cur realm, e uint32, client, path string) {
 	prev := core.CounterpartyClientID(EpochClient())
 	var to, local string
 	var passed []string
+	// A simple path: no router client or local client twice, the epoch's
+	// own included (the graph admits no cycle, so this only guards it).
+	seenRouter := map[string]bool{prev: true}
+	seenLocal := map[string]bool{EpochClient(): true}
 	for i, st := range steps {
 		j := strings.Index(st, "/")
 		if j < 0 {
 			panic("ibcgov: a step is routerClient/localClient, not " + st)
 		}
 		to, local = st[:j], st[j+1:]
+		if seenRouter[to] || seenLocal[local] {
+			panic("ibcgov: step " + strconv.Itoa(i+1) + " repeats a client of the path: " + st)
+		}
+		seenRouter[to], seenLocal[local] = true, true
 		found := false
 		for _, x := range expectedOf(prev) {
 			if x.active && x.to == to && x.local == local {
