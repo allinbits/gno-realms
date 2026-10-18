@@ -464,6 +464,13 @@ Ethereum client carries nothing until a decision makes it a route.
 
 ## 8. Incident drill: replacing a route's client
 
+The drill applies to the routes of the Ethereum deployment the governance
+channel is bound to, the only ones that can be enrolled once it is bound:
+its Ethereum-side steps (kind 10, emergency recovery, settlement, kind 13
+reopening) go to that deployment's IBCAdmin over the channel. A route of
+another deployment has no Ethereum governance here (it would need its own
+ibcgov, not shipped), so none is enrolled.
+
 A suspect or failed client of a route (a forged header accepted, a frozen or
 expired client that cannot be recovered in time) is replaced on both chains,
 the route's packets of the suspect interval are proven and settled, the

@@ -33,6 +33,25 @@ starts with impl/v1 and there is no migration from impl/v0 (round 10).
 
 ## Decision
 
+### Scope: one governance channel, one Ethereum deployment
+
+ibcgov has one governance channel, bound once, to one logical Ethereum
+deployment: the chain, the ICS26 router with its commitments slot, and the
+IBCAdmin behind them, the identity the channel is bound over. Only that
+IBCAdmin can replace, settle and reopen the Ethereum side of a route, so
+every enrolled route must belong to that deployment: once the channel is
+bound, enrolling a route of another identity is refused when requested and
+when it executes; before the binding any identity may enrol, but the
+binding is refused, when requested and when it executes, while an enrolled
+route authenticates another identity than the one it binds over (z9zzs,
+z9zzt). Several routes of the bound deployment may be enrolled, and are
+governed alike (route identity, not route key, decides eligibility for
+the governance graph and the retention below). A second Ethereum
+deployment would need an ibcgov instance of its own, wired as governance
+of its own core and transfer proxies; none is shipped, and the shipped
+proxies accept governance from this ibcgov only. Routes over Tendermint
+clients are not enrolled in these controls and are unaffected.
+
 ### Components
 
 | Component | Path | Role |
@@ -309,7 +328,8 @@ Source port `gov` on gno.land, destination port `ibcgov` on Ethereum, version
 most 1024 bytes (`14 + len(params) ≤ 1024`, the header 14 bytes). Epoch 1
 opens when `NewBindGovernanceRequest` binds the channel to an Ethereum client,
 which must be Active and the current client of an enrolled transfer route
-both when the request is made and when it executes (`checkBindClient`); a
+both when the request is made and when it executes (`checkBindClient`),
+every enrolled route then sharing its identity (the scope above); a
 standalone binding is refused, and a client that loses health during the
 delay leaves the decision spent. The enrolled-route requirement holds for
 epoch 1 only: each later epoch opens over a local client a transition
@@ -558,9 +578,11 @@ follows (`ibcgov/routes.gno`), and in no other way:
   (its notice is addressed to it). Its open gov port is inert meanwhile: a
   notice over it needs an active transition approving it, and decisions go
   over the epoch client only.
-- *Otherwise* (a route of another identity, whose clients can never carry
-  the epoch, or a client a switch already retired for governance): retired
-  for good.
+- *Otherwise* (a client a switch already retired for governance; or one of
+  a route of another identity, which the scope above leaves only to a route
+  enrolled before the binding, and which in turn refuses the binding):
+  retired for good. Once the channel is bound every enrolled route has its
+  identity, so this case reduces to clients a switch already passed.
 
 A client is then retired for governance only by an authenticated epoch
 switch: the switch retires the old epoch's client and the local clients of
@@ -731,7 +753,7 @@ is installed, so the decision is spent:
 | core/transfer add/remove member | member already / not a member / ibcgov itself |
 | transfer block/unblock | blocked already / not blocked |
 | route operations (`GovApply`) | every refusal returned, including no controls installed; a sweep payment or settlement refund that its token or the banker would refuse (`payable`, checked per denom before anything changes: a valid recipient other than the transfer realm, the voucher token and its supply room, the registered GRC20 and this realm's balance, the escrow accounting and the bank balance; z9zr), the entitlement kept; a sweep payment under a payouts flag, or a settlement paying refunds under a refunds hold, is deferred (stays pending) rather than spent |
-| route enrollment | as `GovApply`; the client no longer usable (`checkRouteClient` again at execution: not Active, retired on any port (governance's included: a client an epoch notice moved past, `core.IsClientRetiredAny`), not Ethereum, no counterparty, a route's already), or naming no route identity, or reading another router than the bridge's (z9zt), before either realm changes |
+| route enrollment | as `GovApply`; the client no longer usable (`checkRouteClient` again at execution: not Active, retired on any port (governance's included: a client an epoch notice moved past, `core.IsClientRetiredAny`), not Ethereum, no counterparty, a route's already), or naming no route identity, or reading another router than the bridge's (z9zt), or, the channel bound meanwhile, authenticating another identity than the governance channel's (z9zzs), before either realm changes |
 | route replacement | as `GovApply`; the new client unusable (retired on any port: a stale replacement to a client governance moved past, z9zzb); the route's client moved; the new client no longer authenticating the route's identity (z9zt) |
 | bind governance | bound already; not Active, or not the current client of an enrolled route |
 | seats | an address in two seats; nothing to change |
