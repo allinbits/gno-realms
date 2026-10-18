@@ -268,7 +268,23 @@ const (
 type expEdge struct {
 	to, local string
 	active    bool
-	owners    []int64 // the expectation decisions pending on it: an intent lives while one is
+	gen       uint64 // this intent's generation: its owners are indexed under it (ownerKey)
+	owners    int    // how many expectation decisions own it, pending: an intent lives while one does
+}
+
+// The owners of every intent, by (transition, generation, decision): each
+// ownership check and release is one keyed lookup, whatever the number of
+// decisions recorded for one transition. A generation is given to an intent
+// when it is created, so an owner of an intent an epoch switch dropped
+// never owns a later one of the same transition. Each decision removes its
+// own entry when it resolves (applied, refused, spent or cancelled).
+var (
+	owned   avl.Tree // ownerKey -> true
+	intents uint64   // the last intent generation given
+)
+
+func ownerKey(old, next, local string, gen uint64, owner int64) string {
+	return old + "|" + next + "|" + local + "|" + u64s(gen) + "|" + itoa(owner)
 }
 
 func expectedOf(old string) []expEdge {
@@ -393,20 +409,25 @@ func setEdges(old string, edges []expEdge) {
 
 // intend records the transition old → next over local as an intent owned by
 // the expectation decision owner (adding the owner to it when it is
-// recorded already); its caller checked it (checkExpect).
-func intend(old, next, local string, owner int64) {
+// recorded already), and returns the intent's generation, which the
+// decision keeps; its caller checked it (checkExpect).
+func intend(old, next, local string, owner int64) uint64 {
 	succ := append([]expEdge{}, expectedOf(old)...)
 	for i := range succ {
 		if succ[i].to == next && succ[i].local == local {
-			succ[i].owners = append(append([]int64{}, succ[i].owners...), owner)
+			succ[i].owners++
 			setEdges(old, succ)
-			return
+			owned.Set(ownerKey(old, next, local, succ[i].gen, owner), true)
+			return succ[i].gen
 		}
 	}
-	setEdges(old, append(succ, expEdge{to: next, local: local, owners: []int64{owner}}))
+	intents++
+	setEdges(old, append(succ, expEdge{to: next, local: local, gen: intents, owners: 1}))
+	owned.Set(ownerKey(old, next, local, intents, owner), true)
 	liveEdges++
 	tombstones.Remove(tombKey(old, next, local)) // the graph retains it again
 	chain.Emit("GovIntent", "from", old, "to", next, "client", local, "decision", itoa(owner))
+	return intents
 }
 
 // expect makes the transition old → next over local active, recording it
@@ -416,7 +437,7 @@ func expect(old, next, local string) {
 	found := false
 	for i := range succ {
 		if succ[i].to == next && succ[i].local == local {
-			succ[i].active, succ[i].owners, found = true, nil, true
+			succ[i].active, succ[i].owners, found = true, 0, true
 		}
 	}
 	if !found {
@@ -429,40 +450,40 @@ func expect(old, next, local string) {
 	chain.Emit("GovExpect", "from", old, "to", next, "client", local)
 }
 
-// ownsIntent reports whether the intent old → next over local is still
-// pending and owned by the decision owner: an epoch switch that left it
-// behind, or a release, dropped it otherwise.
-func ownsIntent(old, next, local string, owner int64) bool {
+// ownsIntent reports whether the intent old → next over local of
+// generation gen is still pending and owned by the decision owner: an epoch
+// switch that left it behind, or a release, dropped it otherwise. A keyed
+// lookup, among at most maxExpected successors.
+func ownsIntent(old, next, local string, gen uint64, owner int64) bool {
 	for _, x := range expectedOf(old) {
-		if x.to == next && x.local == local && !x.active {
-			for _, o := range x.owners {
-				if o == owner {
-					return true
-				}
-			}
+		if x.to == next && x.local == local && !x.active && x.gen == gen {
+			return owned.Has(ownerKey(old, next, local, gen, owner))
 		}
 	}
 	return false
 }
 
+// disown removes owner's entry, whatever became of the intent.
+func disown(old, next, local string, gen uint64, owner int64) {
+	owned.Remove(ownerKey(old, next, local, gen, owner))
+}
+
 // release drops owner from the intent old → next over local: the intent
 // goes with its last owner, unless it is active, leaving a tombstone in its
 // place that keeps its local client retained for governance.
-func release(old, next, local string, owner int64) {
+func release(old, next, local string, gen uint64, owner int64) {
+	if !owned.Has(ownerKey(old, next, local, gen, owner)) {
+		return // not an owner (any more): nothing to release
+	}
+	disown(old, next, local, gen, owner)
 	succ := append([]expEdge{}, expectedOf(old)...)
 	for i := range succ {
 		x := succ[i]
-		if x.to != next || x.local != local || x.active {
+		if x.to != next || x.local != local || x.active || x.gen != gen {
 			continue
 		}
-		var owners []int64
-		for _, o := range x.owners {
-			if o != owner {
-				owners = append(owners, o)
-			}
-		}
-		if len(owners) > 0 {
-			succ[i].owners = owners
+		if x.owners > 1 {
+			succ[i].owners--
 			setEdges(old, succ)
 			return
 		}
@@ -1310,7 +1331,7 @@ func (p *ethParams) apply(cur realm, t int64) (string, string) {
 		ep := &expectParams{from: p.from, to: p.to, local: p.local}
 		d := decide(cur, "expect transition", text, ep, t, t, true)
 		ep.owner = d.ID
-		intend(p.from, p.to, p.local, d.ID)
+		ep.gen = intend(p.from, p.to, p.local, d.ID)
 		note += "; its transition is expected from decision " + itoa(d.ID)
 	}
 	return note, ""
@@ -1608,20 +1629,23 @@ func NewEthRouteReplacementRequest(cur realm, oldClientID, newClientID string, s
 // expectParams records an expected governance transition.
 type expectParams struct {
 	from, to, local string
-	owner           int64 // this expectation's decision, an owner of its intent
+	owner           int64  // this expectation's decision, an owner of its intent
+	gen             uint64 // the intent's generation it owns
 }
 
 func (p *expectParams) apply(cur realm, t int64) (string, string) {
 	// It applies only to its own intent, still pending: an epoch switch
 	// that left the transition behind dropped it, and an approval of it is
 	// then stale.
-	if !ownsIntent(p.from, p.to, p.local, p.owner) {
+	if !ownsIntent(p.from, p.to, p.local, p.gen, p.owner) {
+		disown(p.from, p.to, p.local, p.gen, p.owner)
 		return "", "its intent is gone (an epoch switch left the transition behind, or it was released)"
 	}
 	if refusal := checkExpect(p.from, p.to, p.local); refusal != "" {
-		release(p.from, p.to, p.local, p.owner)
+		release(p.from, p.to, p.local, p.gen, p.owner)
 		return "", refusal
 	}
+	disown(p.from, p.to, p.local, p.gen, p.owner)
 	expect(p.from, p.to, p.local)
 	return "expect the governance epoch to move from " + p.from + " to " + p.to + " over " + p.local, ""
 }
@@ -1840,7 +1864,7 @@ func NewExpectRecoveryRequest(cur realm, oldClientID, newClientID, localClientID
 		}
 		d := decide(cur, "expect recovery", text, p, made, t, true)
 		p.owner = d.ID
-		intend(oldClientID, newClientID, localClientID, d.ID)
+		p.gen = intend(oldClientID, newClientID, localClientID, d.ID)
 	})
 }
 

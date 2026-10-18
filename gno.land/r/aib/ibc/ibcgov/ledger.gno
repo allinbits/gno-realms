@@ -95,7 +95,7 @@ func (p *cancelParams) apply(cur realm, t int64) (string, string) {
 	chain.Emit("Decision", "id", itoa(d.ID), "kind", d.Kind, "state", "cancelled")
 	// A cancelled expectation releases its transition's intent.
 	if ep, ok := d.Params.(*expectParams); ok {
-		release(ep.from, ep.to, ep.local, ep.owner)
+		release(ep.from, ep.to, ep.local, ep.gen, ep.owner)
 	}
 	return "cancelled decision " + itoa(p.id), ""
 }
