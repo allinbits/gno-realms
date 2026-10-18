@@ -46,6 +46,12 @@ type EthLightClient struct {
 	// stores holds is found by one ordered lookup, in O(log replacements),
 	// however many replacements there were (no chain of delegations).
 	history *avl.Node
+	// overrides is the consensus states a retired verifier rewrote at slots
+	// an earlier store's interval already covers (a next-committee-only
+	// update of the head it inherited), keyed by historyKey(slot), consulted
+	// before history: a persistent tree, copy-on-write like history, holding
+	// at most the few heads each replacement carried.
+	overrides *avl.Node
 }
 
 var (
@@ -110,8 +116,9 @@ func Retire(c *EthLightClient) *Retired {
 }
 
 // NewFrom is a verifier that continues the retired one r views, for a
-// verifier replacement (ADR pr6375 R16), in constant work whatever its
-// history: a deep copy of its client state, and r, from which it serves every
+// verifier replacement (ADR pr6375 R16), copying no consensus-state history
+// (O(log previous stores), the persistent trees' insertions copying their
+// search paths): a deep copy of its client state, and r, from which it serves every
 // consensus state at or below the retired verifier's latest slot, so every
 // height it trusted stays provable. Its own consensus states, those it stores
 // from now on, are kept apart (an overlay), and nothing writes to the retired
@@ -121,13 +128,13 @@ func NewFrom(r *Retired) *EthLightClient {
 	// Each store in the history owns the interval of slots above the
 	// previous one's key and up to its own: non-overlapping. The retired
 	// verifier's own store joins it only when it holds a slot above every
-	// key (its finality advanced since it was created); otherwise it holds
-	// at most the head slot again, rewritten by a next-committee-only update
-	// (an overlay), and that head is carried into the new verifier's own
-	// store instead, so the earlier store keeps its interval. The tree is
-	// persistent: the retired verifier's own history is not changed.
-	hist := r.c.history
-	own := bptree.NewBPTree32()
+	// key (its finality advanced since it was created). Any state it holds
+	// at or below the highest key (at most the head it inherited, rewritten
+	// by a next-committee-only update) is an override of an earlier store's
+	// interval: it is copied into the overrides, consulted first, so it is
+	// never lost to that interval whether or not finality advanced after it.
+	// Both trees are persistent: the retired verifier's own are not changed.
+	hist, ovr := r.c.history, r.c.overrides
 	if r.c.ConsensusStateByHeight.Size() > 0 {
 		var top uint64
 		hasTop := false
@@ -136,21 +143,25 @@ func NewFrom(r *Retired) *EthLightClient {
 			hasTop = true
 			return true
 		})
-		if !hasTop || r.upTo > top {
-			hist, _ = hist.Set(historyKey(r.upTo), r.c)
-		} else {
-			r.c.ConsensusStateByHeight.Iterate("", "", func(k string, v any) bool {
+		if hasTop {
+			// Bounded: a verifier's own store holds no slot below the head
+			// it was created with, so this visits at most that head.
+			r.c.ConsensusStateByHeight.Iterate("", heightAtSlot(top+1).StringNatSort(), func(_ string, v any) bool {
 				copied := copyConsensusState(*v.(*ConsensusState))
-				own.Set(k, &copied)
+				ovr, _ = ovr.Set(historyKey(copied.Slot), &copied)
 				return false
 			})
+		}
+		if !hasTop || r.upTo > top {
+			hist, _ = hist.Set(historyKey(r.upTo), r.c)
 		}
 	}
 	return &EthLightClient{
 		ClientState:            &cs,
-		ConsensusStateByHeight: own,
+		ConsensusStateByHeight: bptree.NewBPTree32(),
 		TrustedFromSlot:        r.c.TrustedFromSlot,
 		history:                hist,
+		overrides:              ovr,
 	}
 }
 
@@ -164,6 +175,9 @@ func historyKey(slot uint64) string {
 // itself: the first one retired at a latest slot at or above it holds it,
 // if any does (their own stores cover disjoint ranges of slots).
 func (c *EthLightClient) fromHistory(height types.Height) (*ConsensusState, bool) {
+	if _, v, ok := c.overrides.Get(historyKey(height.RevisionHeight)); ok {
+		return v.(*ConsensusState), true
+	}
 	var owner *EthLightClient
 	c.history.Iterate(historyKey(height.RevisionHeight), "", func(n *avl.Node) bool {
 		owner = n.Value().(*EthLightClient)

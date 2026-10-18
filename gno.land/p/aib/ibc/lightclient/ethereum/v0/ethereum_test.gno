@@ -465,38 +465,71 @@ func TestNewFromFlatHistory(t *testing.T) {
 }
 
 // A replacement after a next-committee-only update keeps the older history
-// (code round 44 #1): V0 trusts slots 100 and 200; V1 replaces it and
-// rewrites the head at 200 (a next-committee update, finality unchanged);
-// V2 replaces V1. Both retirements end at slot 200: the earlier store keeps
-// its interval, V1's head is carried into V2's own store, so 100 and V1's
-// head at 200 are both served.
+// and the rewritten head (code rounds 44 #1 and 45 #1): V0 trusts slots 100
+// and 200; V1 replaces it and rewrites the head at 200 (a next-committee
+// update, finality unchanged), then, in the second case, advances finality
+// to 300; V2 replaces V1. The earlier store keeps its interval, and V1's
+// head at 200, with the next committee it learned, is served from the
+// overrides whether or not V1's finality advanced afterwards.
 func TestNewFromAfterOverlayKeepsHistory(t *testing.T) {
-	f := fixtureNative()
-	v0 := NewEthLightClient()
-	urequire.NoError(t, v0.Initialize(f.clientState, f.consensusState))
-	base := f.consensusState
-	head := base.Slot + 100
-	cons := copyConsensusState(base)
-	cons.Slot = head
-	cons.StateRoot = []byte{0, 1}
-	v0.setConsensusState(&cons)
-	cs := *v0.ClientState
-	cs.LatestSlot = head
-	v0.ClientState = &cs
+	for _, advance := range []bool{false, true} {
+		f := fixtureNative()
+		v0 := NewEthLightClient()
+		urequire.NoError(t, v0.Initialize(f.clientState, f.consensusState))
+		base := f.consensusState
+		head := base.Slot + 100
+		cons := copyConsensusState(base)
+		cons.Slot = head
+		cons.StateRoot = []byte{0, 1}
+		cons.NextSyncCommittee = nil
+		v0.setConsensusState(&cons)
+		cs := *v0.ClientState
+		cs.LatestSlot = head
+		v0.ClientState = &cs
 
-	v1 := NewFrom(Retire(v0))
-	overlay := copyConsensusState(base)
-	overlay.Slot = head
-	overlay.StateRoot = []byte{9, 9}
-	v1.setConsensusState(&overlay)
-	v2 := NewFrom(Retire(v1))
-	if got, ok := v2.GetConsensusState(heightAtSlot(base.Slot)); !ok || got.Slot != base.Slot {
-		t.Fatalf("the slot before the first replacement is lost: %v", ok)
-	}
-	if got, ok := v2.GetConsensusState(heightAtSlot(head)); !ok || got.StateRoot[0] != 9 {
-		t.Fatalf("the head's overlay is lost: %v", ok)
-	}
-	if v2.HistoryDepth() != 1 {
-		t.Fatalf("history holds %d stores", v2.HistoryDepth())
+		v1 := NewFrom(Retire(v0))
+		overlay := copyConsensusState(cons)
+		overlay.StateRoot = []byte{9, 9}
+		overlay.NextSyncCommittee = &SummarizedSyncCommittee{PubkeysHash: []byte{7}, AggregatePubkey: []byte{8}}
+		v1.setConsensusState(&overlay)
+		later := head + 100
+		if advance {
+			next := copyConsensusState(overlay)
+			next.Slot = later
+			next.StateRoot = []byte{5, 5}
+			v1.setConsensusState(&next)
+			cs1 := *v1.ClientState
+			cs1.LatestSlot = later
+			v1.ClientState = &cs1
+		}
+		v2 := NewFrom(Retire(v1))
+		if got, ok := v2.GetConsensusState(heightAtSlot(base.Slot)); !ok || got.Slot != base.Slot {
+			t.Fatalf("advance %v: the slot before the first replacement is lost: %v", advance, ok)
+		}
+		got, ok := v2.GetConsensusState(heightAtSlot(head))
+		if !ok || got.StateRoot[0] != 9 || got.NextSyncCommittee == nil || got.NextSyncCommittee.PubkeysHash[0] != 7 || got.NextSyncCommittee.AggregatePubkey[0] != 8 {
+			t.Fatalf("advance %v: the head's override is lost: %v %+v", advance, ok, got)
+		}
+		if string(got.CurrentSyncCommittee.PubkeysHash) != string(base.CurrentSyncCommittee.PubkeysHash) {
+			t.Fatalf("advance %v: the head's current committee changed", advance)
+		}
+		depth := 1
+		if advance {
+			depth = 2
+			if got, ok := v2.GetConsensusState(heightAtSlot(later)); !ok || got.StateRoot[0] != 5 {
+				t.Fatalf("the advanced slot is lost: %v", ok)
+			}
+		}
+		if v2.HistoryDepth() != depth {
+			t.Fatalf("advance %v: history holds %d stores", advance, v2.HistoryDepth())
+		}
+		// A third replacement keeps them all.
+		v3 := NewFrom(Retire(v2))
+		if got, ok := v3.GetConsensusState(heightAtSlot(head)); !ok || got.NextSyncCommittee == nil || got.NextSyncCommittee.PubkeysHash[0] != 7 {
+			t.Fatalf("advance %v: a third replacement lost the override", advance)
+		}
+		if _, ok := v3.GetConsensusState(heightAtSlot(base.Slot)); !ok {
+			t.Fatalf("advance %v: a third replacement lost the first slot", advance)
+		}
 	}
 }
