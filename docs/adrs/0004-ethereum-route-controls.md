@@ -217,7 +217,8 @@ unpause app, remove member, remove relayer (while others stay); transfer
 block, remove member; route refuse recipients, set denom (when it only
 tightens), void (when a guardian named every packet), unpause route;
 cancel; every `NewEth*Request`; `NewRemoveExpectationRequest` (it narrows
-what notices authorize); `NewRevokeRecapRequest`. A denom change is
+what notices authorize); `NewRevokeRecapRequest`; `NewRetransmitRequest`
+(one re-send of immutable bytes). A denom change is
 classified when its decision is recorded, against the configuration then
 (another decision may have changed it since the request was built), by
 `controls.Loosens`: a new denom, a higher cap floor, supply cap, fee, send
@@ -351,6 +352,21 @@ It is not free while it lasts: pending or active, it holds a place among
 its old client's 4 successors and the graph's 64, so one never confirmed
 by a notice (a cancelled or failed transition) costs capacity until it goes
 (this qualifies ADR pr6375 §7.12's "the expectation costs nothing"). A
+transition that goes before a switch supersedes it, removed by
+`NewRemoveExpectationRequest` or released with its last owning decision
+(cancelled, refused or spent), leaves a tombstone: it frees its places in
+the capacity but keeps its local client retained for governance, as if
+still on an expected path, so a prune never retires it for the gov port
+for good and it can still be approved again and carry its notice. An epoch
+switch clears the tombstones whose old router client the new epoch client
+no longer reaches (superseded); approving the transition again replaces
+its tombstone. There are at most 64 (`maxTombstones`): a removal that
+would need one more is refused, and a release then keeps the intent,
+ownerless, until a switch leaves it behind, so the retention is never
+lost (z9zzk: a route moved A→B→D here while Ethereum executed only A→B;
+A→B removed and an A→D intent cancelled, a prune retires neither B nor D,
+A→B approved again and B's notice switches the epoch, which clears the
+A→D tombstone, after which D is retired). A
 deliberate addition to ADR pr6375: `NewRemoveExpectationRequest(old, new,
 localClient)` removes an active expectation at once, a tightening (it
 narrows what notices authorize), so the transitions of cancelled or failed
@@ -451,8 +467,9 @@ client (Active, its counterparty the
 notice's source); the epoch then opens there, past any step in between (a
 step whose client failed before its notice arrived is skipped: z9zx freezes
 one). A gno client on an expected path from the epoch's client (the epoch's
-own, or the local client of any transition reachable from it, at any
-distance: any path in the graph is within a notice's 64 steps, z9zzf) is never retired
+own, the local client of any transition reachable from it, at any
+distance: any path in the graph is within a notice's 64 steps, z9zzf, or
+one a tombstone retains) is never retired
 for the gov port: when its route replacement executes here the core retires
 it for the transfer port only (`RetireClientPort`), so a decision in flight,
 the kind 10 among them, can still be re-sent and a later step's notice can
@@ -498,8 +515,20 @@ and change nothing there, and a duplicate answering a decision already
 acknowledged otherwise leaves its recorded status here as it was. The one
 exception is a conflict acknowledged without `redispatch = 1`: IBCAdmin
 re-flags itself on every conflict, so a free re-send would let anyone keep
-its 7-day decisions deferred (z2a: a recorded decision re-sent, its
-duplicate answer leaving it recorded; a conflict not re-sent). Router client ids follow eureka's grammar (`client-N`, or a custom
+its 7-day decisions deferred. Since a compromised Ethereum-side verifier
+can forge a conflict too, governance authorizes one re-send of such a
+dispatch by an immediate decision, `NewRetransmitRequest(e, seq)` (a
+deliberate addition to ADR pr6375 §5.4; current epoch only, the dispatch
+answered with a conflict and no `redispatch`), after checking on Ethereum
+that the conflict was fabricated: `IBCAdmin.decision(e, seq)` holds no
+decision there, or holds these very bytes (its hash the envelope's), and
+no `Conflict(e, seq, …)` event was emitted for it. It is no loosening:
+the bytes are immutable and IBCAdmin deduplicates them, so the re-send
+records a decision never delivered and is answered duplicate otherwise.
+The next `Redispatch` uses the authorization up; another re-send needs
+another decision (z2a: a recorded decision re-sent, its duplicate answer
+leaving it recorded; a conflict not re-sent freely, re-sent once on an
+authorization, then refused again). Router client ids follow eureka's grammar (`client-N`, or a custom
 id of up to 128 characters, also in packets); those governance adds (kind 6
 op 1, kind 10's new client) must be valid custom ids (4 to 128 characters of eureka's alphabet, not starting with
 `client-` or `channel-`). `Redispatch` re-sends identical bytes. Envelopes are

@@ -329,7 +329,24 @@ Ethereum client carries nothing until a decision makes it a route.
    conflict. Use it when a later seq waits on Ethereum behind one gno shows
    as acknowledged (a success acknowledgement a compromised Ethereum-side
    verifier forged): IBCAdmin answers a seq it already holds with a
-   duplicate, which changes nothing.
+   duplicate, which changes nothing. A decision answered with a conflict
+   (status 4, no redispatch) is not re-sent freely. If a later seq waits
+   behind it, check on Ethereum whether the conflict was real: read
+   `IBCAdmin.decision(e, seq)` (no decision stored, or one whose hash is
+   `keccak256` of `ibcgov.DispatchBody(e, seq)`) and look for a
+   `Conflict(e, seq, …)` event and a raised `conflictBlock()`. If IBCAdmin
+   holds no decision or these very bytes and emitted no conflict, the
+   acknowledgement was fabricated: decide
+   `ibcgov.NewRetransmitRequest(e, seq)` (applies at once), then anyone
+   calls `ibcgov.Redispatch(e, seq)` once; a further re-send needs a new
+   decision. A real conflict (different bytes stored) is never re-sent.
+
+   Removing an expectation (`NewRemoveExpectationRequest`), or cancelling
+   one still pending, leaves a tombstone that keeps its local client from
+   being retired for governance until an epoch switch supersedes it
+   (`ibcgov.Tombstones()` counts them, at most 64; a removal is refused when
+   they are full), so the transition can be expected again and its notice
+   still arrives over that client.
 
    Residuals (ADR 0004 known limits): a forged notice applied by a
    compromised approved local client, or a local client kept Active by
