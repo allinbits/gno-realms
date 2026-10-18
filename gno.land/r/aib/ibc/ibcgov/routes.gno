@@ -103,6 +103,17 @@ func (p *routeParams) apply(cur realm, t int64) (string, string) {
 			core.RetireClientPort(cross(cur), p.replace, transfer.PortID)
 			awaitGov(p.replace)
 			retired = " retired for transfers"
+		case govRoute(p.p.Route) && !core.IsClientRetiredFor(p.replace, GovPort):
+			// A client of the governance channel's route that the graph
+			// does not hold may still be a prefix endpoint of a catch-up
+			// (the graph may have had no room for its transition): it is
+			// never retired for the gov port by a replacement, only by an
+			// authenticated epoch switch passing it (one that did already is
+			// retired for good here). Its open gov port is
+			// inert meanwhile: a notice over it needs an active transition
+			// approving it, and decisions go over the epoch's client only.
+			core.RetireClientPort(cross(cur), p.replace, transfer.PortID)
+			retired = " retired for transfers (kept for governance)"
 		case !core.IsClientRetired(p.replace):
 			core.RetireClient(cross(cur), p.replace)
 		}
@@ -224,6 +235,14 @@ func checkIdentity(route, client string) string {
 		return client + " authenticates " + quoteIdentity(got) + ", not route " + route + "'s " + quoteIdentity(want)
 	}
 	return ""
+}
+
+// govRoute reports whether route's clients can carry the governance epoch:
+// the channel is bound and the route authenticates its identity (a local
+// client approved for a transition must). Before the binding, no client is
+// needed: epoch 1 opens over the route's client then.
+func govRoute(route string) bool {
+	return epoch != 0 && govIdentity != "" && RouteIdentity(route) == govIdentity
 }
 
 func quoteIdentity(s string) string {

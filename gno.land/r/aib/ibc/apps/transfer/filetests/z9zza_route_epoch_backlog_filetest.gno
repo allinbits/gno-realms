@@ -194,8 +194,8 @@ func expectAll(cur realm) {
 // pending and active, so every walk of it is exact and bounded; one more
 // dispatch is refused, and an epoch switch drops the transitions it left
 // behind, freeing the capacity. With the graph at the cap and the epoch
-// unchanged, a replaced client on no path is retired for good at once, one
-// on a path waits. The switch retires only the old epoch client; the
+// unchanged, a replaced client on no path keeps its gov port (a catch-up
+// may need it: design review r10), one on a path waits. The switch retires only the old epoch client; the
 // clients it left behind are retired by PruneGovRetirements, in bounded
 // batches that resume where the last stopped (Codex round 37), so clients
 // still on a path, sorted first, never hold back the others.
@@ -244,7 +244,7 @@ func main(cur realm) {
 		execute(cur, govern(cur, ibcgov.NewReplaceRouteRequest(cross(cur), "ethereum-1", next, 0)))
 	}
 	println("graph at the cap, epoch unchanged: waiting", ibcgov.AwaitingGovRetirement(),
-		"| a client on no path retired for good at once:", core.IsClientRetired(route[7]),
+		"| a client on no path retired for governance:", core.IsClientRetiredFor(route[7], ibcgov.GovPort),
 		"| one on a path kept:", core.IsClientRetiredFor(route[6], ibcgov.GovPort))
 
 	// The notice switches the epoch to b2: the transitions it left behind
@@ -263,7 +263,7 @@ func main(cur realm) {
 // Output:
 // one transition too many: ibcgov: the governance graph holds 64 transitions already, intents and tombstones included: an epoch switch frees those it leaves behind, and a purge frees a tombstone
 // epoch 1 over ethereum-1 | 64 transitions expected
-// graph at the cap, epoch unchanged: waiting 7 | a client on no path retired for good at once: true | one on a path kept: false
+// graph at the cap, epoch unchanged: waiting 7 | a client on no path retired for governance: false | one on a path kept: false
 // b2's notice: acknowledged | epoch 2 over ethereum-3
 // old epoch client retired: true | waiting: 6
 // the transition refused before: applied - dispatched as epoch 2 seq 1; its transition is expected from decision 140
