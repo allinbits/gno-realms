@@ -231,10 +231,12 @@ func TestSettleRecords(t *testing.T) {
 		}
 	}
 	// The preparation reserved 4's and 5's 3000 each, which their own
-	// settlement releases: 5000 left free once it applies. 4 is paid; 5,
-	// which does not fit, is parked rather than the settlement refused.
+	// settlement releases: 5000 left free once it applies, short of the
+	// 6000 both refunds need. Paying 4 would leave 5 with 2000 behind its
+	// 3000, so both park rather than the settlement be refused (code
+	// review r53 #1).
 	rt.send(pk(4)).Proven, rt.send(pk(5)).Proven = ProvenRefundable, ProvenRefundable
-	if msg := planParks(rt, []SettleItem{{Seq: 4, Action: SettlePay, Amount: 3_000}, {Seq: 5, Action: SettlePay, Amount: 3_000}}, lockOf(d.Reserved()-1_000), activeAll, 1, 5); msg != "" {
+	if msg := planParks(rt, []SettleItem{{Seq: 4, Action: SettlePay, Amount: 3_000}, {Seq: 5, Action: SettlePay, Amount: 3_000}}, lockOf(d.Reserved()-1_000), activeAll, 0, 4, 5); msg != "" {
 		t.Fatal(msg)
 	}
 	if _, err := settleProven(rt, "ethereum-1", items, "", lockOf(big)); err == nil {
@@ -1506,6 +1508,42 @@ func TestStaggeredProofsKeepSiblingBacking(t *testing.T) {
 	}
 	if _, err := rt.SettleRecords("ethereum-1", []SettleItem{{Seq: 1, Action: SettlePay, Amount: 100}, {Seq: 2, Action: SettleDelivered}}, "inc", lockOf(150), activeAll); err != nil {
 		t.Fatal(err)
+	}
+
+	// Both proven, settled in one batch, either order, with the escrow short
+	// (150 behind 200): neither is paid out of the other's backing, both
+	// park, as each would settled alone (code review r53 #1; Ethereum's
+	// test_r17_1_twinHiddenRefunds_reservedBeforeAnyPayment).
+	for _, order := range [][]uint64{{1, 2}, {2, 1}} {
+		rt, d = setup()
+		for done := false; !done; {
+			_, done, _ = rt.PrepareReplacement(1)
+		}
+		prove(t, rt, 1, ProvenRefundable, activeAll)
+		prove(t, rt, 2, ProvenRefundable, activeAll)
+		items := []SettleItem{{Seq: order[0], Action: SettlePay, Amount: 100}, {Seq: order[1], Action: SettlePay, Amount: 100}}
+		ps, err := rt.SettleRecords("ethereum-1", items, "inc", lockOf(150), activeAll)
+		if err != nil || len(ps) != 0 || d.Totals.QueuedRefunds != 200 {
+			t.Fatalf("order %v: %v %+v %d", order, err, ps, d.Totals.QueuedRefunds)
+		}
+		for _, seq := range order {
+			if r, _ := rt.Send(pk(seq)); r.Payment != PayQueued || r.Settlement != SettlePay {
+				t.Fatalf("order %v: %d not parked: %+v", order, seq, r)
+			}
+		}
+	}
+	// Backed whole (200), one batch pays both, either order.
+	for _, order := range [][]uint64{{1, 2}, {2, 1}} {
+		rt, d = setup()
+		for done := false; !done; {
+			_, done, _ = rt.PrepareReplacement(1)
+		}
+		prove(t, rt, 1, ProvenRefundable, activeAll)
+		prove(t, rt, 2, ProvenRefundable, activeAll)
+		items := []SettleItem{{Seq: order[0], Action: SettlePay, Amount: 100}, {Seq: order[1], Action: SettlePay, Amount: 100}}
+		if ps, err := rt.SettleRecords("ethereum-1", items, "inc", lockOf(200), activeAll); err != nil || len(ps) != 2 || d.Totals.ProvenOwed != 0 {
+			t.Fatalf("order %v whole: %v %+v", order, err, ps)
+		}
 	}
 
 	// The escrow whole: proven one after the other, both are paid.

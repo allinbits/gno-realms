@@ -550,11 +550,13 @@ func (p *SettlePlan) Parked() []uint64 {
 
 // PlanSettlement checks a reconciliation's outcomes (see SettleRecords) and
 // plans them without changing anything: which genuine refunds are paid at
-// once and which are parked, the supply (a minted denom) or the free escrow
-// (an escrowed one) then holding no room for them. room is the room left for minting a denom (nil: what its outstanding
-// supply leaves under int64; a caller also bound by a token's supply passes
-// the lower of the two): the refunds take it in item order, and one that
-// does not fit is parked. The parked refunds are checked against their own
+// once and which are parked. An escrowed denom's refunds of the batch are
+// paid only all together, when the free escrow once the batch applies backs
+// them all; otherwise they all park, so no payment spends a sibling's
+// backing whatever the item order. room is the room left for minting a
+// denom (nil: what its outstanding supply leaves under int64; a caller also
+// bound by a token's supply passes the lower of the two): the minted
+// refunds take it in item order, and one that does not fit is parked. The parked refunds are checked against their own
 // total (Parked), apart from the in-flight burns' reservations (Returning),
 // and the queued refunds net of what the batch unqueues.
 func (rt *Route) PlanSettlement(client string, items []SettleItem, incident string, lock func(denom string) int64, room func(denom string) int64, trusted func(client string, gen uint64) bool) (*SettlePlan, error) {
@@ -678,13 +680,28 @@ func (rt *Route) PlanSettlement(client string, items []SettleItem, incident stri
 		}
 	}
 	plan := &SettlePlan{client: client, incident: incident, items: items, parked: map[uint64]bool{}}
-	// The genuine refunds take, in item order, what is left to pay them
-	// with: the room left for minting (a minted denom) or the free escrow
-	// once the whole batch applies (an escrowed one: the lock less what
-	// claims, queued refunds and proven reservations still reserve after the
-	// batch's releases). One that does not fit is parked, owed and reserved
-	// (see park), paid later as the backing allows: no settlement is refused
-	// for want of backing.
+	// Every genuine refund of the batch is a liability before any is paid:
+	// an escrowed one is paid only if the escrow, less what the liabilities
+	// outside the batch still reserve, backs all of the batch's escrowed
+	// refunds of its denom at once; otherwise all of them park. Paying one
+	// lowers the escrow and the liabilities alike, so no payment ever leaves
+	// a sibling, paid later, parked or reserved, with less backing than it
+	// had, whatever the item order (as settled alone, each would park too).
+	batch := map[string]int64{}
+	for _, it := range items {
+		if it.Action != SettlePay || it.Amount <= 0 {
+			continue
+		}
+		r := rt.send(PacketKey(client, it.Seq))
+		if rt.Denom(r.Denom).Config.Kind != KindMint {
+			batch[r.Denom] = boundAdd(batch[r.Denom], it.Amount)
+		}
+	}
+	// The minted refunds take, in item order, the room left for minting
+	// (its int64 headroom, no refund's reservation: those count against the
+	// supply cap, which bounds admission only); one that does not fit is
+	// parked, owed and reserved (see park), paid later as the room allows.
+	// No settlement is refused for want of backing.
 	left := map[string]int64{}
 	for _, it := range items {
 		if it.Action != SettlePay || it.Amount <= 0 {
@@ -702,14 +719,25 @@ func (rt *Route) PlanSettlement(client string, items []SettleItem, incident stri
 				}
 			} else {
 				reserved := boundAdd(boundAdd(boundAdd(d.Totals.Owed-relOwed[r.Denom], d.Totals.Withheld-relWithheld[r.Denom]), d.Totals.minusWideSat(wQueued, relQueued[r.Denom])), d.Totals.minusWideSat(wProven, relProven[r.Denom]))
-				left[r.Denom] = lock(r.Denom) - reserved
+				// What is left once every refund of the batch is backed:
+				// negative, none is paid.
+				left[r.Denom] = -1
+				if avail := lock(r.Denom) - reserved; avail >= 0 { // both int64: no overflow
+					left[r.Denom] = avail - batch[r.Denom]
+				}
 			}
 		}
-		if it.Amount > left[r.Denom] {
+		if d.Config.Kind != KindMint {
+			if left[r.Denom] < 0 {
+				plan.parked[it.Seq] = true
+				continue
+			}
+		} else if it.Amount > left[r.Denom] {
 			plan.parked[it.Seq] = true
 			continue
+		} else {
+			left[r.Denom] -= it.Amount
 		}
-		left[r.Denom] -= it.Amount
 		plan.Payments = append(plan.Payments, RefundPayment{Key: r.Key, Denom: r.Denom, To: r.Sender, Amount: it.Amount})
 	}
 	return plan, nil
