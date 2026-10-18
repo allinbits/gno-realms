@@ -30,8 +30,12 @@ the proxies and stay provable across the switch.
   app. `version` is what the candidate's `Version()` reports; `over` lists
   the versions of an active implementation it installs over (`""` for the
   bootstrap; its own version is always accepted; `nil` accepts any);
-  `keepsControls` declares that it implements the route controls. The
-  governed preflight (`CheckUpdateImpl`) checks the manifest, then runs the
+  `keepsControls` declares that it implements the route controls. Either
+  proxy refuses the registration when the implementation's realm address
+  is a transfer route's fee collector (it would become a realm of the
+  bridge): change that route's collector first
+  (`NewSetFeeCollectorRequest`, 7 days), then deploy or enable the
+  implementation. The governed preflight (`CheckUpdateImpl`) checks the manifest, then runs the
   candidate's constructor against a fresh, empty store (never the live
   one), checks the version it builds (and, for transfer, whether it keeps
   the controls) against the manifest, and evaluates its declared install
@@ -393,8 +397,9 @@ Ethereum client carries nothing until a decision makes it a route.
    `ibcgov.PruneGovRetirements(64)` to retire for good the replaced clients
    no longer reachable on the expected graph; the count
    (`AwaitingGovRetirement()`) need not reach 0: clients still reachable
-   are kept, and a later switch or removal makes them eligible, so call it
-   again then. The local client is the new gno
+   are kept, and a superseding epoch switch, or a tombstone purge that
+   leaves them unreachable, makes them eligible (a removal leaves a
+   tombstone, which keeps them retained), so call it again then. The local client is the new gno
    client tracking the new router client, Active, its counterparty set. A notice that
    arrives before the replacement executes here moves the epoch all the
    same.
@@ -500,7 +505,9 @@ characters of `a-z`, `0-9`, `-`).
    (`ibcgov.Execute(id)`, 7 days after the dispatch, deferred by a hold)
    before relaying; the gno.land route replacement need not have executed.
    Check: `ibcgov.Epoch()` one higher, `ibcgov.EpochClient() == NEW`,
-   `core.IsClientRetired(OLD)`. A notice refused with an error
+   `core.IsClientRetiredFor(OLD, "gov")`; `core.IsClientRetired(OLD)`
+   (retired for good) once the gno.land route replacement has executed
+   too (before it, the notice retires only the gov port). A notice refused with an error
    acknowledgement (sent before its expectation applied) is sent again by
    IBCAdmin in a fresh packet; relay that one.
    The replacement reserves the refunds the retired client's records may

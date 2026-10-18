@@ -548,7 +548,8 @@ refund is paid in the same transaction; the send record tracks the payment.
 ### Payload checks
 
 The core's packet limits come first (core README, Packet limits: among them
-262,144 bytes of payload data and a timeout at most 24 hours ahead). The
+262,144 bytes of payload data and, on send, a timeout at most 24 hours
+ahead; a receive only checks that its timeout has not arrived). The
 transfer app then requires:
 
 - port `transfer` at both ends, version `ics20-1`, and encoding
