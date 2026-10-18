@@ -203,8 +203,9 @@ func main(cur realm) {
 	execute(cur, govern(cur, ibcgov.NewAcceptDeficitRequest(cross(cur), route, "ugnot", 500, "inc-1")))
 	println(totals(route), "| closed:", controlsView().LossClosed(route))
 
-	// A loss a reconciliation recognized, and a liability reduction against it.
-	execute(cur, govern(cur, ibcgov.NewRecordLossRequest(cross(cur), route, "ethereum-1/00000000000000000099", "ugnot", 100, "ethereum", "inc-2", "forged-delivery")))
+	// A loss a reconciliation recognized, paid here (a receive no claim or
+	// sweep entry represents), and a liability reduction against it.
+	execute(cur, govern(cur, ibcgov.NewRecordLossRequest(cross(cur), route, "ethereum-1/00000000000000000099", "ugnot", 100, "gno", "inc-2", "forged-delivery")))
 	println(totals(route))
 	// The forged receive voided above has its loss booked: a recorded loss of
 	// it is refused, so its payout is in the ledger once (Codex round 9 #3).
@@ -223,6 +224,18 @@ func main(cur realm) {
 	credit := govern(cur, ibcgov.NewCreditRequest(cross(cur), route, "ethereum-1/00000000000000000042", "ugnot", string(carol), 100))
 	execute(cur, credit)
 	println("credit:", decided(credit))
+
+	// A mirror of a loss paid on Ethereum (chain "ethereum"): Ethereum's
+	// ledger is authoritative, so a reduction against it is refused and
+	// spent; only an accepted deficit resolves it (main ADR design review r21
+	// #1, code review r60 #4).
+	execute(cur, govern(cur, ibcgov.NewRecordLossRequest(cross(cur), route, "ethereum-1/00000000000000000098", "ugnot", 50, "ethereum", "inc-3", "collision")))
+	reduce := govern(cur, ibcgov.NewReduceRequest(cross(cur), route, controls.PacketKey(route, 4), 50, "inc-3"))
+	execute(cur, reduce)
+	println("reduce against a mirror:", decided(reduce))
+	accept := govern(cur, ibcgov.NewAcceptDeficitRequest(cross(cur), route, "ugnot", 50, "inc-3"))
+	execute(cur, accept)
+	println("accept the mirror:", decided(accept), "| closed:", controlsView().LossClosed(route))
 }
 
 // Output:
@@ -249,3 +262,5 @@ func main(cur realm) {
 // carol: open paid 2500 of 3900 | owed 1400 withheld 0 swept 10 lost 2600 unrecovered 500
 // sweep paid: true true
 // credit: spent - spent: packet ethereum-1/00000000000000000042 was never received
+// reduce against a mirror: spent - spent: controls: incident inc-3 mirrors losses paid on Ethereum, whose ledger remedies them: resolve the mirror by an accepted deficit only
+// accept the mirror: applied - accept | closed: false

@@ -76,8 +76,39 @@ type IncidentTotals struct {
 	// (see Totals).
 	OpenUnrecovered int64
 	OpenUnresolved  int64
+	// Mirror marks an incident whose losses were paid out on Ethereum
+	// (RecordLoss with chain "ethereum"): Ethereum's ledger is the
+	// authoritative one (the payout chain books a loss), and the record here
+	// is a mirror, resolved only by an accepted deficit, never reduced or
+	// recapitalized. An incident holds mirrors or authoritative losses, never
+	// both (Booked: it holds a loss, so its kind is fixed).
+	Mirror bool
+	Booked bool
 
 	w [2]wide // the exact OpenUnrecovered and OpenUnresolved
+}
+
+// checkIncidentKind is why a loss, a mirror or not, cannot be booked under
+// incident on denom, or nil: an incident holds one kind only.
+func (rt *Route) checkIncidentKind(denom, incident string, mirror bool) error {
+	it := rt.Incident(denom, incident)
+	if it.Booked && it.Mirror != mirror {
+		if it.Mirror {
+			return errors.New("controls: incident " + incident + " holds mirrors of losses paid on Ethereum: book a loss paid here under another incident")
+		}
+		return errors.New("controls: incident " + incident + " holds losses paid here: book a mirror of a loss paid on Ethereum under another incident")
+	}
+	return nil
+}
+
+// checkRemedy is why a reduction or a recapitalization cannot act on
+// incident's losses on denom, or nil: a mirror is resolved only by an
+// accepted deficit, the payout chain's ledger carrying the remedies.
+func (rt *Route) checkRemedy(denom, incident string) error {
+	if rt.Incident(denom, incident).Mirror {
+		return errors.New("controls: incident " + incident + " mirrors losses paid on Ethereum, whose ledger remedies them: resolve the mirror by an accepted deficit only")
+	}
+	return nil
 }
 
 // The wide counters of IncidentTotals.
@@ -165,6 +196,15 @@ func (rt *Route) Void(keys []string, forged bool, incident string) error {
 	for _, k := range keys {
 		if !rt.Voidable(k, forged) {
 			return errors.New("controls: " + k + " cannot be voided " + voidWord(forged) + " as it stands")
+		}
+		denom := ""
+		if c := rt.claim(k); c != nil {
+			denom = c.Denom
+		} else if e := rt.sweep(k); e != nil {
+			denom = e.Denom
+		}
+		if err := rt.checkIncidentKind(denom, incident, false); err != nil {
+			return err
 		}
 	}
 	for _, k := range keys {
@@ -300,6 +340,9 @@ func (rt *Route) addLoss(d *Denom, l Loss) {
 		panic("controls: a packet's loss is booked once")
 	}
 	rt.losses.Set(lossID(l.Direction, l.Key), &l)
+	if !it.Booked {
+		it.Booked, it.Mirror = true, l.Chain == ChainEthereum
+	}
 	was := d.Totals.OpenUnresolved
 	d.Totals.add(wUnrec, l.Amount)
 	it.add(iUnrec, l.Amount)
@@ -546,6 +589,9 @@ func (rt *Route) RecordLoss(key, denom string, amount int64, chain, incident, ca
 	if err := rt.lossFits(denom, incident, amount); err != nil {
 		return err
 	}
+	if err := rt.checkIncidentKind(denom, incident, chain == ChainEthereum); err != nil {
+		return err
+	}
 	rt.addLoss(d, Loss{Key: key, Direction: dir, Denom: denom, Amount: amount, Chain: chain, Incident: incident, Cause: cause})
 	return nil
 }
@@ -564,6 +610,9 @@ func (rt *Route) AuthorizeRecap(denom string, amount int64, incident string) (in
 	}
 	if incident == "" {
 		return 0, errors.New("controls: a recapitalization names its incident")
+	}
+	if err := rt.checkRemedy(denom, incident); err != nil {
+		return 0, err
 	}
 	if amount <= 0 || amount > rt.recapitalizable(denom, incident, 0) {
 		return 0, ufmt.Errorf("controls: %d is not within incident %s's unrecovered losses not yet authorized", amount, incident)
@@ -722,6 +771,9 @@ func (rt *Route) Reduce(key string, amount int64, incident string) error {
 	if incident == "" {
 		return errors.New("controls: a reduction names its incident")
 	}
+	if err := rt.checkRemedy(c.Denom, incident); err != nil {
+		return err
+	}
 	if amount <= 0 || amount > c.Remaining() || amount > rt.unrecoveredOf(c.Denom, incident) {
 		return ufmt.Errorf("controls: %d is not within the claim's remainder and incident %s's unrecovered losses", amount, incident)
 	}
@@ -755,6 +807,9 @@ func (rt *Route) reduceSweep(key string, amount int64, incident string) error {
 	}
 	if incident == "" {
 		return errors.New("controls: a reduction names its incident")
+	}
+	if err := rt.checkRemedy(e.Denom, incident); err != nil {
+		return err
 	}
 	if amount <= 0 || amount > e.Amount || amount > rt.unrecoveredOf(e.Denom, incident) {
 		return ufmt.Errorf("controls: %d is not within the sweep entry's amount and incident %s's unrecovered losses", amount, incident)

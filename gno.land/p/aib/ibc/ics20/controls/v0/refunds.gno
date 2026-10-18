@@ -604,6 +604,9 @@ func (rt *Route) PlanSettlement(client string, items []SettleItem, incident stri
 			if it.Amount <= 0 || it.Amount != paid {
 				return nil, ufmt.Errorf("controls: item %d: the receive %s paid out %d, not %d", i, key, paid, it.Amount)
 			}
+			if err := rt.checkIncidentKind(denom, incident, false); err != nil {
+				return nil, ufmt.Errorf("controls: item %d: %v", i, err)
+			}
 			if c := rt.claim(key); c != nil {
 				switch c.State {
 				case Open:
@@ -674,6 +677,9 @@ func (rt *Route) PlanSettlement(client string, items []SettleItem, incident stri
 			}
 			if rt.LossBooked(DirSend, key) {
 				return nil, ufmt.Errorf("controls: item %d: the loss of %s is recorded already", i, key)
+			}
+			if err := rt.checkIncidentKind(r.Denom, incident, false); err != nil {
+				return nil, ufmt.Errorf("controls: item %d: %v", i, err)
 			}
 		default:
 			return nil, ufmt.Errorf("controls: item %d: unknown action %d", i, it.Action)

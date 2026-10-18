@@ -235,10 +235,10 @@ func TestPaySweeps(t *testing.T) {
 func TestLossLedger(t *testing.T) {
 	rt, _ := setupClaims(t)
 	d := rt.Denom("ugnot")
-	if err := rt.RecordLoss(pk(10), "ugnot", 1_000, ChainEthereum, "inc", "refund paid for a delivered packet"); err != nil {
+	if err := rt.RecordLoss(pk(10), "ugnot", 1_000, ChainGno, "inc", "forged-delivery"); err != nil {
 		t.Fatal(err)
 	}
-	if err := rt.RecordLoss(pk(10), "ugnot", 1_000, ChainEthereum, "inc", "refund paid for a delivered packet"); err == nil {
+	if err := rt.RecordLoss(pk(10), "ugnot", 1_000, ChainGno, "inc", "forged-delivery"); err == nil {
 		t.Fatalf("recorded twice")
 	}
 	if err := rt.RecordLoss(pk(11), "ugnot", 1, "mars", "inc", "x"); err == nil {
@@ -1362,5 +1362,69 @@ func TestRecapitalizableBeyondInt64(t *testing.T) {
 	}
 	if _, err := rt.AuthorizeRecap("ugnot", 1, "inc"); err == nil {
 		t.Fatalf("authorized beyond the losses")
+	}
+}
+
+// The payout chain books a loss (main ADR design review r21 #1): a forged
+// receive that minted an Ethereum-native token's vouchers here is booked
+// here by its forged void, an authoritative record, and resolved here by a
+// reduction or an accepted deficit.
+func TestForgedVoucherMintBookedHere(t *testing.T) {
+	_, rt := newRoute(t)
+	mustCredit(t, rt, t0, 5, "ibc/WETH", alice, 3_000, big)
+	mustCredit(t, rt, t0, 6, "ibc/WETH", bob, 2_000, big)
+	rt.PayClaims(t0+Day, 0, t0, "ibc/WETH", 2, big)
+	c5, _ := rt.Claim(pk(5))
+	if c5.Paid == 0 {
+		t.Fatalf("setup: %+v", c5)
+	}
+	if err := rt.Void([]string{pk(5)}, true, "inc"); err != nil {
+		t.Fatal(err)
+	}
+	it := rt.Incident("ibc/WETH", "inc")
+	if it.Mirror || it.OpenUnrecovered != c5.Paid {
+		t.Fatalf("not booked here as authoritative: %+v", it)
+	}
+	if err := rt.Reduce(pk(6), 1, "inc"); err != nil {
+		t.Fatalf("an authoritative loss is not reducible: %v", err)
+	}
+	if err := rt.Accept("ibc/WETH", rt.Incident("ibc/WETH", "inc").OpenUnresolved, "inc"); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// A mirror of a loss paid on Ethereum (RecordLoss, chain "ethereum") is
+// resolved only by an accepted deficit (code review r60 #4): a reduction of
+// an open claim, a withheld claim or an owed sweep entry against it is
+// refused, a recapitalization too, and the incident takes no loss paid here.
+func TestMirrorLossAcceptedOnly(t *testing.T) {
+	_, rt := newRoute(t)
+	if err := rt.RecordLoss(PacketKey("ethereum-1", 90), "ugnot", 500, ChainEthereum, "m", "collision"); err != nil {
+		t.Fatal(err)
+	}
+	if !rt.Incident("ugnot", "m").Mirror {
+		t.Fatalf("not marked a mirror")
+	}
+	mustCredit(t, rt, t0, 5, "ugnot", alice, 1_000, big) // open
+	mustCredit(t, rt, t0, 6, "ugnot", bob, 1_000, big)   // withheld below
+	if err := rt.Void([]string{pk(6)}, false, "w"); err != nil {
+		t.Fatal(err)
+	}
+	if !mustCredit(t, rt, t0, 7, "ugnot", carol, 1_000, 0) { // swept: no free lock
+		t.Fatalf("setup: not swept")
+	}
+	for _, k := range []string{pk(5), pk(6), pk(7)} {
+		if err := rt.Reduce(k, 100, "m"); err == nil || !strings.Contains(err.Error(), "accepted deficit only") {
+			t.Fatalf("reduced %s against a mirror: %v", k, err)
+		}
+	}
+	if _, err := rt.AuthorizeRecap("ugnot", 100, "m"); err == nil {
+		t.Fatalf("authorized a recapitalization of a mirror")
+	}
+	if err := rt.Void([]string{pk(5)}, true, "m"); err == nil {
+		t.Fatalf("booked a loss paid here under a mirror incident")
+	}
+	if err := rt.Accept("ugnot", 500, "m"); err != nil || rt.Incident("ugnot", "m").OpenUnresolved != 0 {
+		t.Fatalf("the mirror is not accepted: %v", err)
 	}
 }

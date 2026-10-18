@@ -805,7 +805,9 @@ func TestLossesByDirection(t *testing.T) {
 	for _, gnoFirst := range []bool{true, false} {
 		r, rt := newRoute(t)
 		in := func() error { return rt.RecordLoss(pk(9), "ugnot", 100, ChainGno, "inc", "forged-delivery") }
-		out := func() error { return rt.RecordLoss(pk(9), "ugnot", 200, ChainEthereum, "inc", "forged-delivery") }
+		out := func() error {
+			return rt.RecordLoss(pk(9), "ugnot", 200, ChainEthereum, "inc-mirror", "forged-delivery")
+		}
 		first, second := out, in
 		if gnoFirst {
 			first, second = in, out
@@ -820,7 +822,7 @@ func TestLossesByDirection(t *testing.T) {
 		if strings.Count(js, `"key":`) != 2 || !strings.Contains(js, `"amount":100`) || !strings.Contains(js, `"amount":200`) {
 			t.Fatalf("ledger: %s", js)
 		}
-		if rt.Denom("ugnot").Totals.Lost != 300 || rt.Incident("ugnot", "inc").Lost != 300 {
+		if rt.Denom("ugnot").Totals.Lost != 300 || rt.Incident("ugnot", "inc").Lost != 100 || rt.Incident("ugnot", "inc-mirror").Lost != 200 || !rt.Incident("ugnot", "inc-mirror").Mirror {
 			t.Fatalf("totals: %+v", rt.Denom("ugnot").Totals)
 		}
 	}
@@ -836,7 +838,7 @@ func TestLossPages(t *testing.T) {
 		if err := rt.RecordLoss(pk(uint64(i)), "ugnot", 1, ChainGno, "inc", "forged-delivery"); err != nil {
 			t.Fatal(err)
 		}
-		if err := rt.RecordLoss(pk(uint64(i)), "ugnot", 2, ChainEthereum, "inc", "collision"); err != nil {
+		if err := rt.RecordLoss(pk(uint64(i)), "ugnot", 2, ChainEthereum, "inc-mirror", "collision"); err != nil {
 			t.Fatal(err)
 		}
 	}
