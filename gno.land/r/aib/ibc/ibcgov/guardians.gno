@@ -640,7 +640,11 @@ func NewSetSeatsRequest(cur realm, changes string) Request {
 	}
 	text := "set seats " + strings.Join(parts, ",")
 	return propose(cur, "set seats", text, func(cur realm, made, t int64) {
-		decide(cur, "set seats", text, p, made, t, true)
+		// Fresh parameters for every recording: each decision keeps its own
+		// hold anchor, so a Request governed twice makes two decisions that
+		// never share one.
+		q := &seatsParams{seats: p.seats, addrs: p.addrs, held: p.held}
+		decide(cur, "set seats", text, q, made, t, true)
 	})
 }
 
