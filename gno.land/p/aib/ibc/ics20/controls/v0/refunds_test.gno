@@ -1546,6 +1546,35 @@ func TestStaggeredProofsKeepSiblingBacking(t *testing.T) {
 		}
 	}
 
+	// At the int64 boundary (code review r54 #1): two refunds of 2^62 owe
+	// MaxInt64 + 1, which no escrow (an int64) backs: both park, in either
+	// order, and nothing is paid that the token could refuse. Two of 2^62
+	// and 2^62 - 1 (exactly MaxInt64) behind MaxInt64 are both paid.
+	big2 := func(a1, a2 int64) (*Route, *Denom) {
+		r, rt := newRoute(t)
+		rt.RecordSend(sendRec(1, "ugnot", KindUnescrow, a1))
+		rt.RecordSend(sendRec(2, "ugnot", KindUnescrow, a2))
+		replaceReady(r, "ethereum-1", "ethereum-2", 0, 1000)
+		prove(t, rt, 1, ProvenRefundable, activeAll)
+		prove(t, rt, 2, ProvenRefundable, activeAll)
+		return rt, rt.Denom("ugnot")
+	}
+	const q = int64(1) << 62
+	for _, order := range [][]uint64{{1, 2}, {2, 1}} {
+		rt, d := big2(q, q)
+		items := []SettleItem{{Seq: order[0], Action: SettlePay, Amount: q}, {Seq: order[1], Action: SettlePay, Amount: q}}
+		ps, err := rt.SettleRecords("ethereum-1", items, "inc", lockOf(maxInt64), activeAll)
+		if err != nil || len(ps) != 0 || d.Totals.QueuedRefunds != maxInt64 {
+			t.Fatalf("order %v at the boundary: %v %+v %d", order, err, ps, d.Totals.QueuedRefunds)
+		}
+		rt, d = big2(q, q-1)
+		amounts := map[uint64]int64{1: q, 2: q - 1}
+		items = []SettleItem{{Seq: order[0], Action: SettlePay, Amount: amounts[order[0]]}, {Seq: order[1], Action: SettlePay, Amount: amounts[order[1]]}}
+		if ps, err := rt.SettleRecords("ethereum-1", items, "inc", lockOf(maxInt64), activeAll); err != nil || len(ps) != 2 {
+			t.Fatalf("order %v exactly backed: %v %+v", order, err, ps)
+		}
+	}
+
 	// The escrow whole: proven one after the other, both are paid.
 	rt, d = setup()
 	for done := false; !done; {

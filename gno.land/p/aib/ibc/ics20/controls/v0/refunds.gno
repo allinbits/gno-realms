@@ -687,14 +687,20 @@ func (rt *Route) PlanSettlement(client string, items []SettleItem, incident stri
 	// lowers the escrow and the liabilities alike, so no payment ever leaves
 	// a sibling, paid later, parked or reserved, with less backing than it
 	// had, whatever the item order (as settled alone, each would park too).
-	batch := map[string]int64{}
+	// The total is exact: past int64 no escrow (an int64) can back it, and
+	// the denom's refunds all park (a saturated total could look backed).
+	batch, over := map[string]int64{}, map[string]bool{}
 	for _, it := range items {
 		if it.Action != SettlePay || it.Amount <= 0 {
 			continue
 		}
 		r := rt.send(PacketKey(client, it.Seq))
 		if rt.Denom(r.Denom).Config.Kind != KindMint {
-			batch[r.Denom] = boundAdd(batch[r.Denom], it.Amount)
+			if it.Amount > maxInt64-batch[r.Denom] {
+				over[r.Denom] = true
+				continue
+			}
+			batch[r.Denom] += it.Amount
 		}
 	}
 	// The minted refunds take, in item order, the room left for minting
@@ -722,7 +728,7 @@ func (rt *Route) PlanSettlement(client string, items []SettleItem, incident stri
 				// What is left once every refund of the batch is backed:
 				// negative, none is paid.
 				left[r.Denom] = -1
-				if avail := lock(r.Denom) - reserved; avail >= 0 { // both int64: no overflow
+				if avail := lock(r.Denom) - reserved; avail >= 0 && !over[r.Denom] { // both int64: no overflow
 					left[r.Denom] = avail - batch[r.Denom]
 				}
 			}
