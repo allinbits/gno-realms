@@ -246,6 +246,14 @@ non-Ethereum client as `impl/v0` does, and puts every Ethereum client under
 the route controls (ADR 0004). There is no migration from `impl/v0`: an
 Ethereum client carries nothing until a decision makes it a route.
 
+Before deploying ibcgov (it is immutable, so this is fixed for good),
+choose its authority mode and set `LaunchGovernor` in
+`gno.land/r/aib/ibc/ibcgov/ibcgov.gno` accordingly: a verified production
+governor key, which decides with `Govern` until it yields to GovDAO, or
+`""`, which makes GovDAO's proposals the only way to decide from the first
+block (`Govern` and `Yield` refused). The source ships a placeholder test
+address; deploying it unchanged hands governance to a key nobody holds.
+
 0. **Authenticate the client's initial state independently (mandatory).**
    `CreateClient` stores the Ethereum client state and the initial consensus
    state as given, with no bootstrap proof: the light client trusts them
@@ -284,8 +292,15 @@ Ethereum client carries nothing until a decision makes it a route.
    never moves it; Ethereum the same), a vacancy (`"1:"`) included: a vacancy removes the holder the seat
    had when the request was built, and is skipped if the seat changed hands
    since.
-4. Once the enrollment has executed, bind the governance channel to the
-   route's client with `NewBindGovernanceRequest(clientID)` (7 days): the
+4. Launch invariant: Ethereum stays at epoch 1 until the binding has
+   executed here and IBCAdmin has recorded its first decision from gno.land
+   (Ethereum refuses an emergency recovery before that, which is what
+   proves the binding happened at epoch 1). If Ethereum's epoch advanced
+   before the binding anyway, the launch is void: binding opens epoch 1
+   here, which Ethereum no longer accepts, and no notice path can repair
+   the offset; redeploy. Once the enrollment has executed, bind the
+   governance channel to the route's client with
+   `NewBindGovernanceRequest(clientID)` (7 days): the
    client must still be Active and the route's current client when it
    executes. Every Ethereum-bound decision (`NewEth*Request`) is refused
    until the channel is bound.
@@ -701,20 +716,20 @@ characters of `a-z`, `0-9`, `-`).
    Ethereum's records are settled by kind 12 (`NewEthSettleRequest`, at most
    8 items). Check: `settlement` set on every record of step 7, and
    `SuspectUnsettled(R, OLD)` 0.
-10. **Resolve the losses**, each once across the two chains. First decide
-    each loss's home: the chain whose escrow backs its token (gno.land for a
-    gno-native token, Ethereum for an Ethereum-native one, a voucher here).
-    The home chain's record is authoritative and carries the remedy; a
-    record of the same packet on the other chain is a mirror, booked under
-    an incident that names the home record (for example `INC-mirror`) and
-    resolved there only by an accepted deficit. A gno-native token's loss
-    paid on Ethereum (vouchers minted there without escrow here) is
-    recorded here with `NewRecordLossRequest(R, key, denom, amount,
-    "ethereum", INC, cause)` and remedied here; an Ethereum-native token's
-    loss is Ethereum's (kind 12), and gno.land records it, if at all, as a
-    mirror. When reporting, sum per token the home chain's open unrecovered
-    balance only: a mirror is never added. Then, on gno.land, per denom and
-    incident (`Render("routes/R/losses")`,
+10. **Resolve the losses**, each once across the two chains. A loss is
+    authoritative on the chain that paid it out: what gno.land paid (a
+    forged void, settlement action 4 or 5), whatever the token, is booked
+    and remedied here, a forged mint of an Ethereum-native token's vouchers
+    included; what Ethereum paid is booked there by kind 12 (action 4 or 5).
+    A record of the same packet and token on the other chain is a mirror:
+    here, `NewRecordLossRequest(R, key, denom, amount, "ethereum", INC-m,
+    cause)` records one (it keeps the route closed to new exposure until
+    resolved), under an incident of its own that names the authoritative
+    record; it is resolved only by an accepted deficit
+    (`NewAcceptDeficitRequest`), a reduction or a recapitalization against
+    it being refused and spent. When reporting, count each (packet, token)
+    loss once, from the payout chain's open balance: a mirror is never
+    added. Then, on gno.land, per denom and incident (`Render("routes/R/losses")`,
     `Totals(R, denom)`): recapitalize an `unescrow` denom
     (`NewRecapitalizeRequest(R, denom, amount, INC)`, then anyone pays it
     with `transfer.Recapitalize(R, authorizationID)`: the authorization id
