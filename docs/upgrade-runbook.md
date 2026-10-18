@@ -290,7 +290,10 @@ Ethereum client carries nothing until a decision makes it a route.
    client, the replacement retires it for transfers only: the epoch moves to
    the new client when IBCAdmin's epoch notice arrives over it (sent when
    Ethereum executes the matching kind 10, or its emergency recovery), and
-   the old client is then retired for good. The notice is accepted only
+   the old client is then retired for good. A client of a route with the
+   governance channel's identity is never retired for the gov port by its
+   replacement, nor by a prune while off the graph: only a switch passing
+   it retires it for governance (ADR 0004, the governance retirement rule). The notice is accepted only
    along a transition ibcgov expects, and over the local client it names
    only: dispatching the kind 10
    (`NewEthRouteReplacementRequest(old, new, suspectFrom, localClient)`)
@@ -381,8 +384,14 @@ Ethereum client carries nothing until a decision makes it a route.
       prefix the graph holds (step 5): the switch frees the places behind
       it. Then record the next transitions (`NewExpectRecoveryRequest`, 7
       days each, naming the kept clients), relay their notices afresh, and
-      repeat until gno reaches Ethereum's epoch. Run
-      `ibcgov.PruneGovRetirements(64)` after each switch.
+      repeat until gno reaches Ethereum's epoch. Pruning after a switch is
+      safe throughout: `ibcgov.PruneGovRetirements(64)` only retires clients
+      recorded in `awaitingGov` (on a path when replaced) that no path
+      reaches any more; the clients kept off the graph are never recorded
+      there, so no prune retires them, only a switch passing them. Purge a
+      tombstone (`NewPurgeTombstoneRequest`) only for a transition Ethereum
+      did not execute: its clients, if nothing else retains them, are then
+      retired by the next prune.
 
    Residuals (ADR 0004 known limits): a forged notice applied by a
    compromised approved local client, or a local client kept Active by
@@ -405,11 +414,14 @@ Ethereum client carries nothing until a decision makes it a route.
    (`resendEpochNotice(epoch)`, a new transport sequence), and that packet
    is relayed. After switches, anyone calls
    `ibcgov.PruneGovRetirements(64)` to retire for good the replaced clients
-   no longer reachable on the expected graph; the count
+   recorded in `awaitingGov` (those on a path when replaced) that no path
+   reaches any more, through transitions or tombstones; the count
    (`AwaitingGovRetirement()`) need not reach 0: clients still reachable
-   are kept, and a superseding epoch switch, or a tombstone purge that
+   are kept, and only a superseding epoch switch, or a tombstone purge that
    leaves them unreachable, makes them eligible (a removal leaves a
-   tombstone, which keeps them retained), so call it again then. The local client is the new gno
+   tombstone, which keeps them retained), so call it again then. A client
+   of the governance identity's routes replaced off the graph is not in
+   `awaitingGov`: no prune retires it, only a switch passing it. The local client is the new gno
    client tracking the new router client, Active, its counterparty set. A notice that
    arrives before the replacement executes here moves the epoch all the
    same.

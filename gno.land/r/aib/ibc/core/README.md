@@ -507,13 +507,18 @@ port when sent from here, its destination port when received) is refused,
 while its other ports, its updates and its counterparty stay
 (`IsClientRetiredFor(clientID, port)`). A route replacement retires the old
 client for the `transfer` port only while ibcgov's governance epoch runs
-over it, or while it is the client of a transition on ibcgov's expected
-graph at any distance (pending or active), so governance packets in flight
-can still be re-sent over it and a later notice can still arrive. ibcgov
-retires the epoch's old client when a notice moves the epoch, and every
-other such client by `PruneGovRetirements` once it is no longer reachable
-on the graph; one still reachable stays (ADR 0004, Governance channel;
-transfer filetests `z9zv`, `z9zza`).
+over it, or while it is the client of a transition or tombstone on
+ibcgov's expected graph at any distance, so governance packets in flight
+can still be re-sent over it and a later notice can still arrive; and, on
+any route whose identity is the governance channel's, also when the graph
+does not hold it and no epoch switch has passed it, since a catch-up may
+need it later. ibcgov retires a client for governance only when an
+authenticated epoch switch passes it (the old epoch's client and the
+path's intermediate ones); `PruneGovRetirements` retires those recorded
+while on a path once no path reaches them, which only a switch or a
+governed tombstone purge brings about; a client kept off the graph is
+never pruned (ADR 0004, Governance channel; transfer filetests `z9zv`,
+`z9zza`, `z9zzq`).
 
 `ClientRouteIdentity(clientID)` is the history a client's verifier
 authenticates, and the router it reads: for an Ethereum client its chain

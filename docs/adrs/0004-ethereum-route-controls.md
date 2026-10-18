@@ -104,10 +104,25 @@ starts with impl/v1 and there is no migration from impl/v0 (round 10).
   enrolment), `holdSince`/`belowSince`, `epoch`,
   `epochs` (epoch → client, last seq), `expected` (the expected
   governance transitions, kept apart from the transfer aliases, in router
-  client ids: an old client → up to 4 expected successors), `awaitingGov`
-  (gno clients retired for transfers only while on an expected path), `dispatches` ((epoch, seq) → bytes,
+  client ids: an old client → up to 4 expected successors), `tombstones`
+  (removed or released transitions retaining their clients, sharing the
+  64-place budget with `expected`), `awaitingGov` (gno clients retired for
+  transfers only while on an expected path, pruned once no path reaches
+  them; clients kept off the graph are not recorded here), `approvedLocal`
+  (every local client an expected transition ever approved: a notice more
+  than one step on is recorded only over one of them), `proven` ((epoch,
+  local client) → the router client it came from and the client's trust
+  generation: the notices recorded as proven, each removed only when
+  `ApplyEpochNotice` applies it), `dispatches` ((epoch, seq) → bytes,
   status, transport sequence), `pendingAuth` (one-time, never persisted
   between transactions in practice: set and consumed in the same call).
+  The 64-place budget bounds only `expected` and `tombstones`:
+  `approvedLocal` keeps every historical approval, and `proven` every
+  notice recorded and never applied (stale ones included: an epoch switch
+  does not drop them, a later generation makes them void but keeps them).
+  Both grow without that bound, each entry driven by a governance approval
+  (an expectation applied, 7 days) or by a notice the core proved through
+  an approved client: at most one entry per (epoch, approved client).
 
 ### Authorities (R14)
 
@@ -506,41 +521,57 @@ the client it came from, its proof verified by the core through that local
 client (Active, its counterparty the
 notice's source); the epoch then opens there, past any step in between (a
 step whose client failed before its notice arrived is skipped: z9zx freezes
-one). A gno client on an expected path from the epoch's client (the epoch's
-own, the local client of any transition reachable from it, at any
-distance: any path in the graph is within a notice's 64 steps, z9zzf, or
-one a tombstone retains) is never retired
-for the gov port: when its route replacement executes here the core retires
-it for the transfer port only (`RetireClientPort`), so a decision in flight,
-the kind 10 among them, can still be re-sent and a later step's notice can
-still arrive. Every other client of the route whose identity the governance
-channel authenticates is kept open for the gov port too when its route
-replacement executes, though the graph does not hold it: the graph may
-have had no room for its transition while Ethereum moved on by honest
-recoveries, and a catch-up may need it as a prefix endpoint (its notice is
-addressed to it); it is retired for the transfer port only, and for the
-gov port only by an authenticated epoch switch passing it (one a switch
-passed already is retired for good at its replacement). Its open gov port
-is inert meanwhile: a notice over it needs an active transition approving
-it, and decisions go over the epoch client only. Clients of other Ethereum
-routes cannot carry the epoch (an approved local client must authenticate
-the governance route's identity), so their gov port does not matter and
-their replacement retires them for good (z9zzq: the graph full, Ethereum's
-A→B then B→X by a recovery the graph cannot record, the route here moved
-to B, X, then Y; X kept for governance through a prune; B's notice frees
-the graph, B→X is expected and X's notice completes the catch-up; z9zza: a
-replaced client on no path keeps its gov port). When a notice moves the epoch, the old epoch's client and
-the local clients of the path's intermediate steps (at most 63) are retired
-for governance (for good if their route replacement executed here,
-otherwise for the gov port, the replacement retiring the rest): the switch
-does bounded work. Every other client retired for transfers while on a path
-(`awaitingGov`) is retired for good by the permissionless
+one).
+
+**Governance retirement of a route's clients: the one rule.** A route's
+replaced client is retired, when its route replacement executes here, as
+follows (`ibcgov/routes.gno`), and in no other way:
+- *On an expected path* from the epoch's client (the epoch's own, or the
+  local client of any transition or tombstone reachable from it, at any
+  distance: any path in the graph is within a notice's 64 steps, z9zzf):
+  retired for the transfer port only (`RetireClientPort`) and recorded in
+  `awaitingGov`, so a decision in flight, the kind 10 among them, can still
+  be re-sent and a later step's notice can still arrive.
+- *Off the graph, on a route whose identity is the governance channel's*
+  (any route enrolled with that identity, not only the one the channel
+  rides: `checkLocal` and `govRoute` compare identities, and enrolment does
+  not make them unique), *not yet passed by a switch*: retired for the
+  transfer port only and kept open for governance, outside `awaitingGov`.
+  The graph may have had no room for its transition while Ethereum moved
+  on by honest recoveries, and a catch-up may need it as a prefix endpoint
+  (its notice is addressed to it). Its open gov port is inert meanwhile: a
+  notice over it needs an active transition approving it, and decisions go
+  over the epoch client only.
+- *Otherwise* (a route of another identity, whose clients can never carry
+  the epoch, or a client a switch already retired for governance): retired
+  for good.
+
+A client is then retired for governance only by an authenticated epoch
+switch: the switch retires the old epoch's client and the local clients of
+the path's intermediate steps (at most 63; for good if their route
+replacement executed here, otherwise for the gov port, the replacement
+retiring the rest), in bounded work, and supersedes, by its pruning, the
+transitions and tombstones it leaves behind. The permissionless
 `PruneGovRetirements(n)` (1 to 64 a call, each resuming where the last
 stopped and wrapping round, so a client kept never holds back those after
-it) once no path from the epoch's
-client goes through it (z9zza: with the graph at the cap and the epoch
-unchanged, a replaced client on no path is retired for good at once, one on
-a path waits; a switch retires only the old epoch client, then batches). z9zx:
+it) retires for good only the clients in `awaitingGov` that no path from
+the epoch's client reaches any more, through transitions or tombstones; a
+client leaves every path only when a switch supersedes its transitions or
+governance purges the tombstone that retained it
+(`NewPurgeTombstoneRequest`, 7 days: an explicit loosening of retirement,
+whose clients, if nothing else retains them, the next prune then retires).
+Graph unreachability alone, a full graph or an unchanged epoch, never
+retires a client: a removal leaves a tombstone, which retains it, and a
+client kept off the graph is never in `awaitingGov`, so no prune touches it
+(z9zzq: the graph full, Ethereum's A→B then B→X by a recovery the graph
+cannot record, the route here moved to B, X, then Y; X kept for governance
+through a prune; B's notice frees the graph, B→X is expected and X's notice
+completes the catch-up; z9zza: with the graph at the cap and the epoch
+unchanged, a replaced client on no path keeps its gov port and one on a
+path waits; a switch retires only the old epoch client, then batches).
+This qualifies ADR pr6375's final retirement of a replaced client: on the
+governance identity's routes it is final for transfers at once, and for
+governance only once a switch passes it. z9zx:
 A→B and B→C executed here before any notice, B's notice moves the epoch to
 2 and C's to 3, C's for epoch 2 refused; competing kind 10s C→D and C→F,
 gno.land's C→F replacement cancelled, D's notice accepted; an emergency
@@ -606,7 +637,7 @@ against gno-eth-ibc 6f94541's vectors.
 | R11, §5.4 gov sender | `ibcgov/ethereum.gno` |
 | §6.1–§6.3, §7.1, §7.3 an Ethereum route's packet data | validated by the route's own rules only (`ics20.ValidateBasicEthereum`: amount, sender, base, hops by the router's grammar), never by the SDK's first; a blank or undecodable receiver is an owed sweep entry with a success acknowledgement; a receive that would overflow the route's liabilities is refused by `CheckCredit`, before its acknowledgement, as every other `Credit` check |
 | R12, §7.8 send limits, fee, recipient filters (the token itself, a gno-native denom's Ethereum token included); the router, ICS20 transfer, IBCAdmin and every voucher token protected from the enrolment on, no gno-native send before they are set; every route has its own from its enrolment | `controls.DenomConfig`, `Route.Protect`, `transfer/impl/v1/send.gno` (`checkRecipient`), ibcgov `mustBridge` |
-| R13, §7.9, §5.4 action 5 one economic loss per packet | every loss carries its packet's direction (a receive on gno.land, `DirRecv`, or a send, `DirSend`) and is stored under that (direction, packet key) identity, the cause kept as metadata; a sweep entry a sweep decision paid is voided as forged on a live route, booking its payout once; the ledger refuses a second loss of the same packet and direction whatever its cause or path (a void as forged, a forged-receive or forged-refund settlement, a recorded loss), and a recorded gno.land loss of a receive represented here (a claim or a sweep entry) is refused: its void or settlement books it | `controls/voids.gno` (`lossID`, `LossBooked`, `RecordLoss`), `refunds.gno` |
+| R13, §7.9, §5.4 action 5 one economic loss per packet | every loss carries its packet's direction (a receive on gno.land, `DirRecv`, or a send, `DirSend`) and is stored under that (direction, packet key) identity, the cause kept as metadata; a loss recorded by decision (`NewRecordLossRequest(route, key, denom, amount, chain, incident, cause)`, 7 days) names its cause, `forged-delivery` (a delivery the honest source never sent) or `collision` (a forged receipt occupied an honest packet's sequence), and its chain, which selects the packet's namespace: `gno` a receive (`DirRecv`), `ethereum` a send of gno.land (`DirSend`); any other value is refused when built, a forged refund (a refund paid for a delivered packet) is booked by settlement action 4 and a forged receive by action 5, never by this builder; a sweep entry a sweep decision paid is voided as forged on a live route, booking its payout once; the ledger refuses a second loss of the same packet and direction whatever its cause or path (a void as forged, a forged-receive or forged-refund settlement, a recorded loss), and a recorded gno.land loss of a receive represented here (a claim or a sweep entry) is refused: its void or settlement books it | `controls/voids.gno` (`lossID`, `LossBooked`, `RecordLoss`), `refunds.gno` |
 | R13, §7.9 voids, restores of withheld claims, credit by vote (receives booked after the activation; pending asynchronous acknowledgements completed), loss ledger by incident with checked totals, recapitalize (authorizations bounded by the incident's unrecovered losses, accepted deficits included, less the unpaid authorizations; revocable, superseded by a later reduction but not by an accepted deficit; funding takes the unrecovered balance down and the unresolved one as far as it goes; only an `unescrow` denom is recapitalized on gno.land; `Recapitalize` takes exactly the authorized amount, native coins sent with a direct call, or a GRC20 drawn from the immediate caller's allowance with no coins attached), reduce open and withheld claims and owed sweep entries, accept. One rule governs every path: a remedy that restores backing or lowers liabilities (a paid recapitalization, a reduction) is bounded by the incident's unrecovered losses, accepted deficits included, and lowers the unresolved balance only as far as it remains, so it may repair an accepted deficit; an acceptance (`Accept`, or a reopening's batches) is bounded by the unresolved losses and lowers only them; a revocation changes neither balance (`accept`, `recover`, `TestRemedyOrder`); a route with a loss of any denom unresolved takes no new exposure, whatever the flags | `controls/voids.gno`, `route.gno` (`ExposureClosed`), `transfer/impl/v1/controls.gno` (`GovApply`), ibcgov route builders |
 | §7.5 visible parameter record, §7.4 visible suspects | the guardian flags on the governance page (route keys, suspect packet keys; the page lists flags under enrolled routes only: a flag standing on a client no route has yet still counts toward the hold and is read with `Flags(clientID)`) and the ledger page escape each decision's kind, text and note as inline Markdown (`jsonmd.Text`), so ids such as `_eth_` or `<bridge>` show as written |
 | R8, §6.8, §7.1 fee collector | never a realm of the bridge (the transfer realm, the core, ibcgov, ethrelay, any registered implementation): a GRC20 fee paid to the transfer realm is a self-transfer the token refuses, which would stop the route's GRC20 sends and claims; refused by the enrolment and collector builders (`mustCollector`) and again by `GovApply` when the decision executes; a later registration cannot make an existing collector one: the route controls keep an indexed count of the routes each address collects for (`Registry.SetFeeCollector`, `Enroll`, `IsFeeCollector`), and both proxies' `RegisterImpl` refuse an implementation at such an address (transfer reads its controls; the core asks the transfer app registered on its port), so the collector is changed first by a governed decision (z9h, `TestFeeCollectorIndex`) |
@@ -822,10 +853,16 @@ realm-issued coin (`/gno.land/r/...:denom`) never travels and is refused.
 11. **A retired client is marked, not frozen**: where ADR pr6375 freezes the
     replaced client, the core proxy records it as retired
     (`coreStore.retired`). Its verifier's status is unchanged (core `z16b`:
-    `retired: true status: Active`); the core refuses every new packet
-    message on it, except that the app that registered a packet's port may
+    `retired: true status: Active`). Retired for good, it takes no new
+    packet message, except that the app that registered a packet's port may
     still write the pending asynchronous acknowledgement of a packet received
-    before the retirement.
+    before the retirement. A client of a route with the governance
+    channel's identity is first retired for the transfer port only
+    (`RetireClientPort`): new transfer packets are refused, but its gov
+    port stays open, for an epoch notice over it, until an authenticated
+    epoch switch passes it (the governance retirement rule under "Governance channel" above). This qualifies ADR
+    pr6375's final retirement of the replaced client: final for transfers
+    at once, for governance only once a switch supersedes it.
 
 ### Changes affecting every route
 
@@ -838,7 +875,7 @@ protection or a governance rule, and each has a test documenting the base
 |---|---|---|
 | A packet receipt identifies its packet, `types.CommitPacketReceipt` (R19), so a different packet at a received sequence aborts | the receipt was the constant `0x02`, and a different packet at a received sequence returned `RESPONSE_NOOP` | core `z7p` |
 | Relayer and authority administration of the core and transfer app is governance-only, through ibcgov (R14) | a deployer authority added and removed relayers and members | core `z12*`, `z14*`, transfer `z8*`, ibcgov `z1c` |
-| A client can be retired (`RetireClient`, by a route replacement) and carries a trust generation, bumped by every recovery, freeze, upgrade, migration and substitution | no retirement, no generation | core `z9*`, `z8a`, `z16a` |
+| A client can be retired (`RetireClient`, by a route replacement), or retired for one port only (`RetireClientPort`: a replaced client of a route with the governance channel's identity keeps its gov port until an epoch switch passes it), and carries a trust generation, bumped by every recovery, freeze, upgrade, migration and substitution | no retirement, no generation | core `z9*`, `z8a`, `z16a` |
 | The core keeps its own copy of a counterparty's merkle prefix | the core kept the caller's slice, so its later change moved the client's proof namespace | core `z16g` (Tendermint), `z16f` (Ethereum) |
 | The core keeps its own copy of the packet it holds for an asynchronous acknowledgement | the core kept the relayer's payload slices, so their later change changed the packet the acknowledgement is written for | core `z10a` (Tendermint) |
 | `VoucherSend` and `VoucherApprove` (and the authority membership calls) canonicalize their address | an uppercase recipient or spender got a balance or allowance under that string, which the canonical address cannot use | transfer `z4aaaa` (Tendermint), `z9w` |
@@ -897,6 +934,12 @@ does not list before it.
 
 ## Known limits
 
+- **The parent's surplus sweep has no shipped operation** (ADR pr6375 lets
+  governance sweep escrow surplus): `NewSweepRequest` pays only live,
+  packet-keyed sweep entries (`PaySweeps`), within the accounted free
+  escrow, so tokens sent to the transfer realm unsolicited, outside any
+  packet, cannot be recovered through it. Recovering them would need a new
+  transfer implementation with an operation of its own.
 - **Refunds wait for a reconciliation's reopening** (a deliberate
   divergence from ADR pr6375 R17, §6.7, §7.3 and §7.13, which delay a
   refund only by the refund meter and an explicit `refunds` hold; the
