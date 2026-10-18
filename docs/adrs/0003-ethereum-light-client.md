@@ -52,8 +52,12 @@ of solidity-ibc-eureka (client type `ethereum`):
   (`checkLatestAnchor`). Older stored consensus states stay usable for
   membership proofs at their heights (those from before a recovery
   excepted), but never as the anchor of an update,
-  so a past sync committee, rotated out and no longer slashable, cannot
-  insert state roots below the latest slot or freeze the client.
+  so a past sync committee cannot insert state roots below the latest slot
+  or freeze the client: an update or misbehaviour is verified only against
+  the latest anchor and only by the committee of its period or the next
+  (the committee-period checks below). Sync-committee signatures are not
+  slashable at all, so this protection rests on those checks alone, not on
+  any penalty a rotated-out committee would risk.
 - An update is accepted only if its slots satisfy `signatureSlot >
   attestedSlot >= finalizedSlot`, the finalized slot is not the genesis
   slot, and `signatureSlot` is not after the current slot, which the client
