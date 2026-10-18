@@ -718,6 +718,27 @@ type queue struct {
 // outstanding is ignored otherwise. The cap floor never goes below the one the
 // denom was enabled with, and a denom never changes accounting.
 func (rt *Route) SetDenom(name string, c DenomConfig, now, epoch, outstanding int64) error {
+	if err := rt.checkSetDenom(name, c, outstanding); err != nil {
+		return err
+	}
+	if d := rt.Denom(name); d != nil {
+		d.Config = c
+		rt.protectToken(c.Remote)
+		return nil
+	}
+	d := &Denom{Name: name, Config: c, LaunchCapFloor: c.CapFloor}
+	if c.Kind == KindMint {
+		d.Totals.Outstanding = outstanding
+	}
+	d.meter = NewMeter(now, epoch)
+	d.refundMeter = NewMeter(now, 0)
+	rt.denoms.Set(name, d)
+	rt.protectToken(c.Remote)
+	return nil
+}
+
+// checkSetDenom is why SetDenom(name, c, ..., outstanding) would fail, or nil.
+func (rt *Route) checkSetDenom(name string, c DenomConfig, outstanding int64) error {
 	if name == "" {
 		return errors.New("controls: empty denom")
 	}
@@ -734,18 +755,34 @@ func (rt *Route) SetDenom(name string, c DenomConfig, now, epoch, outstanding in
 		if c.CapFloor < d.LaunchCapFloor {
 			return ufmt.Errorf("controls: the cap floor (%d) cannot go below its launch value (%d)", c.CapFloor, d.LaunchCapFloor)
 		}
-		d.Config = c
-		rt.protectToken(c.Remote)
-		return nil
 	}
-	d := &Denom{Name: name, Config: c, LaunchCapFloor: c.CapFloor}
-	if c.Kind == KindMint {
-		d.Totals.Outstanding = outstanding
+	return nil
+}
+
+// Reconfigure is SetDenom for a governed change: the denom's bridge meter
+// and refund meter are first refilled up to now at the old caps (the bridge
+// cap derived from lock under the old configuration), then set to the new
+// caps with no time elapsed, so the new caps apply from the change and never
+// to the time before it (ADR pr6375 §7.1; Ethereum settles its buckets the
+// same way). Recipient meters, one per recipient, are not walked: each
+// refills at the cap it last saw up to its next refill (Meter.Refill), which
+// can only grant less. Nothing changes when the change is refused.
+func (rt *Route) Reconfigure(name string, c DenomConfig, now, epoch, epochAt, outstanding, lock int64) error {
+	if err := rt.checkSetDenom(name, c, outstanding); err != nil {
+		return err
 	}
-	d.meter = NewMeter(now, epoch)
-	d.refundMeter = NewMeter(now, 0)
-	rt.denoms.Set(name, d)
-	rt.protectToken(c.Remote)
+	if d := rt.Denom(name); d != nil {
+		old := d.DayCap(lock)
+		d.meter.Refill(now, old, old, epoch, epochAt)
+		d.refundMeter.Refill(now, d.Config.RefundCap, d.Config.RefundCap, 0, 0)
+	}
+	if err := rt.SetDenom(name, c, now, epoch, outstanding); err != nil {
+		return err
+	}
+	d := rt.Denom(name)
+	nc := d.DayCap(lock)
+	d.meter.Refill(now, nc, nc, epoch, epochAt)
+	d.refundMeter.Refill(now, d.Config.RefundCap, d.Config.RefundCap, 0, 0)
 	return nil
 }
 

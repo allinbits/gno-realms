@@ -797,3 +797,70 @@ func TestFeeCollectorIndex(t *testing.T) {
 		t.Fatalf("a refused change moved the index, or an invalid reader read it")
 	}
 }
+
+// A cap change never applies to the time before it (main ADR design review
+// r2 #2): a meter idle 7 days at 24 a day, raised to 2400, holds 24 at the
+// change, then refills at 2400; a refill that first sees the new cap
+// without a settlement still refills the idle time at the old one; a cut
+// clips the level to the new cap.
+func TestMeterCapChangeNotBackdated(t *testing.T) {
+	m := NewMeter(0, 0)
+	m.Refill(0, 24, 24, 0, 0)
+	m.Refill(7*Day, 24, 24, 0, 0) // settled at the old cap
+	m.Refill(7*Day, 2400, 2400, 0, 0)
+	if m.Level != 24 {
+		t.Fatalf("at the change: %d", m.Level)
+	}
+	m.Refill(7*Day+Day/2, 2400, 2400, 0, 0)
+	if m.Level != 1224 {
+		t.Fatalf("half a day at the new cap: %d", m.Level)
+	}
+	// Unsettled: the first refill to see the new cap refills the idle week
+	// at the old one.
+	u := NewMeter(0, 0)
+	u.Refill(0, 24, 24, 0, 0)
+	u.Refill(7*Day, 2400, 2400, 0, 0)
+	if u.Level != 24 {
+		t.Fatalf("backdated: %d", u.Level)
+	}
+	// A cut: the level comes down to the new cap at once.
+	c := NewMeter(0, 0)
+	c.Refill(0, 2400, 2400, 0, 0)
+	c.Refill(Day, 24, 24, 0, 0)
+	if c.Level != 24 {
+		t.Fatalf("after a cut: %d", c.Level)
+	}
+	c.Refill(Day+Day/2, 24, 24, 0, 0)
+	if c.Level != 24 {
+		t.Fatalf("after a cut, full: %d", c.Level)
+	}
+}
+
+// A governed reconfiguration settles the denom's meters at the old caps
+// first (Route.Reconfigure).
+func TestReconfigureSettlesMeters(t *testing.T) {
+	_, rt := newRoute(t)
+	d := rt.Denom("ugnot")
+	cfg := d.Config
+	d.refundMeter.Refill(t0, cfg.RefundCap, cfg.RefundCap, 0, 0)
+	d.refundMeter.Take(d.refundMeter.Level) // empty, at the old cap
+	old := cfg.RefundCap
+	cfg.RefundCap = old * 100
+	if err := rt.Reconfigure("ugnot", cfg, t0+7*Day, 0, t0, 0, 0); err != nil {
+		t.Fatal(err)
+	}
+	if d.refundMeter.Level != old {
+		t.Fatalf("the refund meter after a week idle, cap raised: %d, not the old cap %d", d.refundMeter.Level, old)
+	}
+	d.refundMeter.Refill(t0+7*Day+Day/2, cfg.RefundCap, cfg.RefundCap, 0, 0)
+	if d.refundMeter.Level != old+cfg.RefundCap/2 {
+		t.Fatalf("half a day later: %d", d.refundMeter.Level)
+	}
+	// Refused: nothing changes, the meters included.
+	before := d.refundMeter
+	bad := cfg
+	bad.Kind = KindMint
+	if rt.Reconfigure("ugnot", bad, t0+9*Day, 0, t0, 0, 0) == nil || d.refundMeter != before {
+		t.Fatalf("a refused reconfiguration changed the meters")
+	}
+}

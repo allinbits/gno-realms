@@ -317,7 +317,7 @@ func (l *logic) GovApply(_ int, rlm realm, op string, params []byte) string {
 	if rt == nil {
 		return "no route " + p.Route
 	}
-	epoch, _ := ibcgov.PayoutsEpoch(rt.Key)
+	epoch, epochAt := ibcgov.PayoutsEpoch(rt.Key)
 	note := ""
 	switch op {
 	case controls.OpDenom:
@@ -331,7 +331,9 @@ func (l *logic) GovApply(_ int, rlm realm, op string, params []byte) string {
 		if tok := l.store.VoucherToken(p.Denom); minted && tok != nil {
 			outstanding = tok.TotalSupply()
 		}
-		err = rt.SetDenom(p.Denom, p.Config, t, epoch, outstanding)
+		// The meters refill at the old caps up to now first: a new cap
+		// never applies to the time before it.
+		err = rt.Reconfigure(p.Denom, p.Config, t, epoch, epochAt, outstanding, l.lockOf(rt, p.Denom))
 	case controls.OpCollector:
 		err = reg.SetFeeCollector(rt.Key, p.To)
 	case controls.OpRefuse:
