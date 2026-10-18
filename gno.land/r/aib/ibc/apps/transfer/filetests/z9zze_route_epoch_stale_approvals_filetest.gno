@@ -248,7 +248,7 @@ func main(cur realm) {
 }
 
 // Output:
-// one more at the cap: ibcgov: the governance graph holds 64 expected transitions already, intents included: an epoch switch frees those it leaves behind
+// one more at the cap: ibcgov: the governance graph holds 64 transitions already, intents and tombstones included: an epoch switch frees those it leaves behind, and a purge frees a tombstone
 // b's notice: acknowledged | epoch 2 over ethereum-2
 // stale approvals executed: 64 | applied: 0 | e.g. spent - spent: its intent is gone (an epoch switch left the transition behind, or it was released)
 // a new transition from b: applied - dispatched as epoch 2 seq 1; its transition is expected from decision 134

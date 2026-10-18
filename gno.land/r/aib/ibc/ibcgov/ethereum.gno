@@ -225,11 +225,14 @@ var (
 	govPruneAfter string   // where PruneGovRetirements stopped
 	proven        avl.Tree // provenKey(epoch, client) -> *provenNotice
 	// tombstones is the transitions removed or released before an epoch
-	// switch superseded them: each keeps its local client retained for
-	// governance (never retired for the gov port, so it can be approved
-	// again and carry its notice), and none counts against the graph's
-	// capacity. A switch drops those whose old router client the new epoch
-	// client no longer reaches. At most maxTombstones.
+	// switch superseded them: each keeps its local client, and those of the
+	// transitions beyond it, retained for governance (never retired for the
+	// gov port, so they can be approved again and carry their notices).
+	// Live transitions and tombstones share one budget of maxLive; a
+	// transition moving between the two (a removal, a release, a
+	// re-approval) leaves the count unchanged. A switch drops those whose
+	// old router client the new epoch client reaches through neither, and a
+	// governed purge drops one at a time (NewPurgeTombstoneRequest).
 	tombstones avl.Tree // tombKey(old, next, local) -> *tomb
 )
 
@@ -240,14 +243,12 @@ const (
 	// transitions with no cap of its own on how many come between two
 	// notices gno receives, so no shorter bound is assumed of it.
 	maxNoticeSteps = maxLive
-	// maxTombstones bounds the tombstones: a removal that would need one
-	// more is refused.
-	maxTombstones = 64
 	// maxExpected bounds a router client's expected successors.
 	maxExpected = 4
-	// maxLive bounds the expected transitions kept, pending and active: a
-	// dispatch that would pass it is refused, and an epoch switch drops
-	// every transition no longer reachable from the new epoch's client. So
+	// maxLive bounds the transitions kept, pending, active and tombstoned,
+	// together: a new transition that would pass it is refused (a dispatch,
+	// a recovery expectation), and an epoch switch drops every transition
+	// and tombstone no longer reachable from the new epoch's client. So
 	// every walk of the graph reads at most maxLive edges, exactly, with no
 	// "too many to tell" case. 64 holds a chain of 64 steps, or 16 steps of
 	// 4 competing successors, more than any incident needs.
@@ -307,14 +308,17 @@ func checkLocal(local, remote string) string {
 var liveEdges int
 
 // checkExpect is why the transition old → next over the gno client local
-// cannot be expected, or "": the local client must qualify (checkLocal), and
-// a new transition must fit the old client's successors and the graph's
-// maxLive transitions, intents included.
+// cannot be expected, or "": its old router client must be reachable from
+// the epoch client (through live transitions or tombstones), the local
+// client must qualify (checkLocal), and a transition not already live must
+// fit the old client's successors (live ones only) and, unless it is
+// tombstoned, the joint budget of maxLive.
 func checkExpect(old, next, local string) string {
 	if epoch == 0 {
 		return "the governance channel is not bound"
 	}
-	if !reachableRemotes()[old] {
+	remotes, _ := retained()
+	if !remotes[old] {
 		return "router client " + old + " is not reachable from the governance epoch's client: Ethereum is past it"
 	}
 	if refusal := checkLocal(local, next); refusal != "" {
@@ -329,8 +333,10 @@ func checkExpect(old, next, local string) string {
 	if len(succ) >= maxExpected {
 		return "router client " + old + " has " + strconv.Itoa(maxExpected) + " expected successors already, intents included"
 	}
-	if liveEdges >= maxLive {
-		return "the governance graph holds " + strconv.Itoa(maxLive) + " expected transitions already, intents included: an epoch switch frees those it leaves behind"
+	// A tombstoned transition approved again moves back into the graph:
+	// the joint count does not change.
+	if !tombstones.Has(tombKey(old, next, local)) && liveEdges+tombstones.Size() >= maxLive {
+		return "the governance graph holds " + strconv.Itoa(maxLive) + " transitions already, intents and tombstones included: an epoch switch frees those it leaves behind, and a purge frees a tombstone"
 	}
 	return ""
 }
@@ -341,35 +347,26 @@ type tomb struct{ old, to, local string }
 
 func tombKey(old, next, local string) string { return old + "|" + next + "|" + local }
 
-// entomb records the transition old → next over local as a tombstone, or
-// reports false when the tombstones are full.
-func entomb(old, next, local string) bool {
+// entomb records the transition old → next over local, just dropped from
+// the graph, as a tombstone: it takes the place the live transition had in
+// the joint budget, so it needs no room.
+func entomb(old, next, local string) {
 	k := tombKey(old, next, local)
 	if tombstones.Has(k) {
-		return true
-	}
-	if tombstones.Size() >= maxTombstones {
-		return false
+		return
 	}
 	tombstones.Set(k, &tomb{old: old, to: next, local: local})
 	chain.Emit("GovTombstone", "from", old, "to", next, "client", local)
-	return true
 }
 
-// clearTombstones drops the tombstones an epoch switch superseded: those
-// whose old router client the new epoch client no longer reaches.
-func clearTombstones() {
-	seen := reachableRemotes()
-	var drop []string
-	tombstones.Iterate("", "", func(k string, v any) bool {
-		if !seen[v.(*tomb).old] {
-			drop = append(drop, k)
-		}
+// tombsOf is the tombstones leaving router client old.
+func tombsOf(old string) []*tomb {
+	var out []*tomb
+	tombstones.Iterate(old+"|", old+"}", func(_ string, v any) bool { // '}' follows '|'
+		out = append(out, v.(*tomb))
 		return false
 	})
-	for _, k := range drop {
-		tombstones.Remove(k)
-	}
+	return out
 }
 
 // Tombstones is how many removed or released transitions still retain their
@@ -438,35 +435,9 @@ func ownsIntent(old, next, local string, owner int64) bool {
 	return false
 }
 
-// reachableRemotes is every router client reachable from the epoch client's
-// counterparty, itself included: an exact walk of at most maxLive edges.
-func reachableRemotes() map[string]bool {
-	if epoch == 0 {
-		return nil
-	}
-	start := core.CounterpartyClientID(EpochClient())
-	seen := map[string]bool{start: true}
-	front := []string{start}
-	for len(front) > 0 {
-		var next []string
-		for _, c := range front {
-			for _, x := range expectedOf(c) {
-				if !seen[x.to] {
-					seen[x.to] = true
-					next = append(next, x.to)
-				}
-			}
-		}
-		front = next
-	}
-	return seen
-}
-
 // release drops owner from the intent old → next over local: the intent
-// goes with its last owner, unless it is active, leaving a tombstone that
-// keeps its local client retained for governance. With the tombstones
-// full, the intent stays instead, ownerless (no expectation applies it),
-// until an epoch switch leaves it behind: the retention is never lost.
+// goes with its last owner, unless it is active, leaving a tombstone in its
+// place that keeps its local client retained for governance.
 func release(old, next, local string, owner int64) {
 	succ := append([]expEdge{}, expectedOf(old)...)
 	for i := range succ {
@@ -480,95 +451,58 @@ func release(old, next, local string, owner int64) {
 				owners = append(owners, o)
 			}
 		}
-		if len(owners) > 0 || !entomb(old, next, local) {
+		if len(owners) > 0 {
 			succ[i].owners = owners
 			setEdges(old, succ)
 			return
 		}
 		setEdges(old, append(succ[:i:i], succ[i+1:]...))
 		liveEdges--
+		entomb(old, next, local)
 		return
 	}
 }
 
-// retainedRoots is where retention walks start: the epoch client's router
-// counterparty and every tombstone's new router client (whose transitions,
-// still recorded, a removal or release cut off from the epoch client).
-func retainedRoots() []string {
-	roots := []string{core.CounterpartyClientID(EpochClient())}
-	tombstones.Iterate("", "", func(_ string, v any) bool {
-		roots = append(roots, v.(*tomb).to)
-		return false
-	})
-	return roots
-}
-
-// retainedRemotes is every router client reachable from retainedRoots: the
-// transitions an epoch switch keeps. An exact walk of at most maxLive edges.
-func retainedRemotes() map[string]bool {
-	seen := map[string]bool{}
-	front := retainedRoots()
-	for _, c := range front {
-		seen[c] = true
+// retained is every router client the epoch client's router counterparty
+// reaches, itself included, and every local client retained for
+// governance, through live transitions (pending or active) and tombstones
+// alike: the graph an epoch switch keeps and retention protects. Each router
+// client is expanded once, so the walk reads every transition and tombstone
+// at most once: at most maxLive in all.
+func retained() (remotes, locals map[string]bool) {
+	if epoch == 0 {
+		return nil, nil
 	}
+	start := core.CounterpartyClientID(EpochClient())
+	remotes, locals = map[string]bool{start: true}, map[string]bool{}
+	front := []string{start}
 	for len(front) > 0 {
 		var next []string
+		visit := func(to, local string) {
+			locals[local] = true
+			if !remotes[to] {
+				remotes[to] = true
+				next = append(next, to)
+			}
+		}
 		for _, c := range front {
 			for _, x := range expectedOf(c) {
-				if !seen[x.to] {
-					seen[x.to] = true
-					next = append(next, x.to)
-				}
+				visit(x.to, x.local)
+			}
+			for _, t := range tombsOf(c) {
+				visit(t.to, t.local)
 			}
 		}
 		front = next
 	}
-	return seen
+	return remotes, locals
 }
 
-// reachable is every local client retained for governance, by the number of
-// steps that first reaches it (from 1): the local clients of the transitions
-// reachable from the epoch client's router counterparty, and, for each
-// tombstone, its own local client and those of the transitions reachable
-// beyond it (a removed or released transition's descendants keep their
-// retention too). An exact walk of at most maxLive edges.
-func reachable() map[string]int {
-	if epoch == 0 {
-		return nil
-	}
-	steps := map[string]int{}
-	seen := map[string]bool{}
-	tombstones.Iterate("", "", func(_ string, v any) bool {
-		steps[v.(*tomb).local] = 1
-		return false
-	})
-	front := retainedRoots()
-	for _, c := range front {
-		seen[c] = true
-	}
-	for k := 1; len(front) > 0 && k <= maxLive; k++ {
-		var next []string
-		for _, c := range front {
-			for _, x := range expectedOf(c) {
-				if _, ok := steps[x.local]; !ok {
-					steps[x.local] = k
-				}
-				if !seen[x.to] {
-					seen[x.to] = true
-					next = append(next, x.to)
-				}
-			}
-		}
-		front = next
-	}
-	return steps
-}
-
-// pruneUnreachable drops every transition whose old client neither the
-// epoch client's counterparty nor a tombstone left standing reaches (an epoch
-// switch left it behind): bounded by maxLive edges.
+// pruneUnreachable drops every transition and tombstone whose old router
+// client the epoch client's counterparty no longer reaches through either
+// (an epoch switch left it behind, superseded): bounded by maxLive.
 func pruneUnreachable() {
-	seen := retainedRemotes()
+	seen, _ := retained()
 	var drop []string
 	expected.Iterate("", "", func(old string, v any) bool {
 		if !seen[old] {
@@ -580,12 +514,22 @@ func pruneUnreachable() {
 		liveEdges -= len(expectedOf(old))
 		expected.Remove(old)
 	}
+	var dropTombs []string
+	tombstones.Iterate("", "", func(k string, v any) bool {
+		if !seen[v.(*tomb).old] {
+			dropTombs = append(dropTombs, k)
+		}
+		return false
+	})
+	for _, k := range dropTombs {
+		tombstones.Remove(k)
+	}
 }
 
 // onExpectedPath reports whether the gno client c carries the governance
-// epoch, is retained by a tombstone (a transition removed or released that
-// no epoch switch has superseded yet), or is the approved client of a
-// transition, pending or active, reachable from it at any distance (any path in the graph is within a
+// epoch or is the local client of a transition, pending, active or
+// tombstoned (removed or released, not yet superseded), reachable from it
+// at any distance through either (any path in the graph is within a
 // notice's maxNoticeSteps): such a client is never retired for the gov port, so a
 // notice over it can still arrive and the epoch's decisions still be
 // re-sent. Exact: the graph holds at most maxLive transitions.
@@ -596,8 +540,8 @@ func onExpectedPath(c string) bool {
 	if c == EpochClient() {
 		return true
 	}
-	_, ok := reachable()[c]
-	return ok
+	_, locals := retained()
+	return locals[c]
 }
 
 // awaitGov notes a gno client retired for transfers only, to retire for good
@@ -923,7 +867,6 @@ func takeNotice(cur realm, source, client string, payload types.Payload) (uint32
 func switchEpoch(cur realm, e uint32, client string, passed []string) {
 	old := EpochClient()
 	setEpoch(e, client)
-	clearTombstones() // first: those left reach no further than the new epoch client
 	pruneUnreachable()
 	retireForGov(cur, old)
 	awaitingGov.Remove(old)
@@ -1000,8 +943,9 @@ func applicable(e uint32, client, source string) bool {
 }
 
 // pinnedBy is a client over which a notice recorded as proven may still be
-// applied along a path that uses the active transition from → to over
-// local, or "". ApplyEpochNotice needs a path of exactly e - current active
+// applied along a path that uses the transition from → to over local, or
+// "": a path of active transitions, or (all, for a purge) one that may also
+// take live and tombstoned transitions an approval could make active. ApplyEpochNotice needs a path of exactly e - current active
 // transitions from the epoch client's router counterparty, ending at the
 // notice's source over its client, so only a transition on such a path is
 // pinned: one at step i of it leaves from a router client reached in exactly
@@ -1011,7 +955,23 @@ func applicable(e uint32, client, source string) bool {
 // graph holds at most maxLive edges and a path at most maxNoticeSteps
 // steps, so each walk is at most 64 layers of 64 edges, and each notice
 // looked up is a distinct (epoch, client) pair, deduplicated first.
-func pinnedBy(from, to, local string) string {
+func pinnedBy(from, to, local string, all bool) string {
+	// The transitions a path may take: active ones only, or (all) every
+	// live one and every tombstone, which an approval could make active.
+	outs := func(c string) []expEdge {
+		var out []expEdge
+		for _, x := range expectedOf(c) {
+			if x.active || all {
+				out = append(out, x)
+			}
+		}
+		if all {
+			for _, t := range tombsOf(c) {
+				out = append(out, expEdge{to: t.to, local: t.local})
+			}
+		}
+		return out
+	}
 	// The steps i - 1 (0 to 63) in which from is reached exactly.
 	var at []int
 	front := map[string]bool{core.CounterpartyClientID(EpochClient()): true}
@@ -1021,10 +981,8 @@ func pinnedBy(from, to, local string) string {
 		}
 		next := map[string]bool{}
 		for c := range front {
-			for _, x := range expectedOf(c) {
-				if x.active {
-					next[x.to] = true
-				}
+			for _, x := range outs(c) {
+				next[x.to] = true
 			}
 		}
 		front = next
@@ -1058,10 +1016,7 @@ func pinnedBy(from, to, local string) string {
 	for j := 0; at[0]+j+2 <= maxNoticeSteps && len(front) > 0; j++ {
 		next := map[string]bool{}
 		for c := range front {
-			for _, x := range expectedOf(c) {
-				if !x.active {
-					continue
-				}
+			for _, x := range outs(c) {
 				next[x.to] = true
 				for _, d := range at {
 					add(d+j+2, x.local, x.to)
@@ -1621,7 +1576,7 @@ func (p *removeParams) apply(cur realm, t int64) (string, string) {
 	if refusal := checkRemove(p.from, p.to, p.local); refusal != "" {
 		return "", refusal
 	}
-	entomb(p.from, p.to, p.local) // room checked: its client stays retained
+	entomb(p.from, p.to, p.local) // in its place: its client stays retained
 	var kept []expEdge
 	for _, x := range expectedOf(p.from) {
 		if !(x.active && x.to == p.to && x.local == p.local) {
@@ -1639,8 +1594,8 @@ func (p *removeParams) apply(cur realm, t int64) (string, string) {
 // expectations, cancelled), not lead to the epoch's own client, and lie on
 // no path a notice recorded as proven may still be applied along (see
 // pinnedBy: a notice its client no longer vouches for, or with no path of
-// the length it needs through the transition, pins nothing), and there must
-// be room for its tombstone, which keeps its local client retained.
+// the length it needs through the transition, pins nothing). It needs no
+// room: its tombstone takes its place in the joint budget.
 func checkRemove(from, to, local string) string {
 	found := false
 	for _, x := range expectedOf(from) {
@@ -1654,10 +1609,7 @@ func checkRemove(from, to, local string) string {
 	if local == EpochClient() {
 		return local + " carries the governance epoch"
 	}
-	if !tombstones.Has(tombKey(from, to, local)) && tombstones.Size() >= maxTombstones {
-		return "the tombstones retaining removed transitions' clients are full (" + strconv.Itoa(maxTombstones) + "): an epoch switch clears those it supersedes"
-	}
-	if c := pinnedBy(from, to, local); c != "" {
+	if c := pinnedBy(from, to, local, false); c != "" {
 		return "a notice proven over " + c + " may need the transition: apply it or let it lapse first"
 	}
 	return ""
@@ -1713,6 +1665,53 @@ func NewRetransmitRequest(cur realm, e uint32, seq uint64) Request {
 	text := "authorize one re-send of the conflicted governance dispatch, epoch " + strconv.FormatUint(uint64(e), 10) + " seq " + u64s(seq)
 	return propose(cur, "retransmit", text, func(cur realm, made, t int64) {
 		decide(cur, "retransmit", text, &retransmitParams{e: e, seq: seq}, made, t, false)
+	})
+}
+
+// purgeParams drops a tombstone.
+type purgeParams struct{ from, to, local string }
+
+// checkPurge is why the tombstone of the transition from → to over local
+// cannot be purged, or "": it must exist, and lie on no path a notice
+// recorded as proven may still be applied along once the transitions on it
+// are approved again (pinnedBy through live and tombstoned transitions).
+func checkPurge(from, to, local string) string {
+	if !tombstones.Has(tombKey(from, to, local)) {
+		return "no tombstone of the transition from " + from + " to " + to + " over " + local
+	}
+	if c := pinnedBy(from, to, local, true); c != "" {
+		return "a notice proven over " + c + " may need the transition: approve it again and apply the notice, or let it lapse first"
+	}
+	return ""
+}
+
+func (p *purgeParams) apply(cur realm, t int64) (string, string) {
+	if refusal := checkPurge(p.from, p.to, p.local); refusal != "" {
+		return "", refusal
+	}
+	tombstones.Remove(tombKey(p.from, p.to, p.local))
+	chain.Emit("GovPurge", "from", p.from, "to", p.to, "client", p.local)
+	return "purged the tombstone of the transition from " + p.from + " to " + p.to + " over " + p.local, ""
+}
+
+// NewPurgeTombstoneRequest drops, after 7 days (deferred by a hold), the
+// tombstone a removed or released transition from the router client
+// oldClientID to newClientID over the gno client localClientID left (ADR
+// 0004: a deliberate addition), freeing its place in the joint budget of
+// maxLive without an epoch switch. It loosens retirement: the local client,
+// and those of the transitions beyond it, lose this retention and are
+// retired for governance by the ordinary prune if nothing else retains
+// them; if Ethereum did execute the transition, the cost is liveness.
+// Refused, when built and when it applies, while a notice recorded as
+// proven may still be applied along a path through it of the length it
+// needs, its transitions approved again.
+func NewPurgeTombstoneRequest(cur realm, oldClientID, newClientID, localClientID string) Request {
+	if refusal := checkPurge(oldClientID, newClientID, localClientID); refusal != "" {
+		panic("ibcgov: " + refusal)
+	}
+	text := "purge the tombstone of the transition from " + oldClientID + " to " + newClientID + " over " + localClientID
+	return propose(cur, "purge tombstone", text, func(cur realm, made, t int64) {
+		decide(cur, "purge tombstone", text, &purgeParams{from: oldClientID, to: newClientID, local: localClientID}, made, t, true)
 	})
 }
 

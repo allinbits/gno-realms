@@ -261,7 +261,7 @@ func main(cur realm) {
 }
 
 // Output:
-// one transition too many: ibcgov: the governance graph holds 64 expected transitions already, intents included: an epoch switch frees those it leaves behind
+// one transition too many: ibcgov: the governance graph holds 64 transitions already, intents and tombstones included: an epoch switch frees those it leaves behind, and a purge frees a tombstone
 // epoch 1 over ethereum-1 | 64 transitions expected
 // graph at the cap, epoch unchanged: waiting 7 | a client on no path retired for good at once: true | one on a path kept: false
 // b2's notice: acknowledged | epoch 2 over ethereum-3
