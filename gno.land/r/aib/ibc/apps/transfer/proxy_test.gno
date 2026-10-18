@@ -2,6 +2,7 @@ package transfer
 
 import (
 	"chain"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -76,6 +77,7 @@ func resetUpgradeState() {
 	implVersion = ""
 	implCtors = bptree.NewBPTree32()
 	implManifests = bptree.NewBPTree32()
+	implAddrs = bptree.NewBPTree32()
 	auth = authority.NewWithMembers(chain.PackageAddress(authority.GovDAOPath), chain.PackageAddress(IBCGovPath))
 	blocked = bptree.NewBPTree32()
 	ext = bptree.NewBPTree32()
@@ -191,3 +193,23 @@ func TestReadOnlyViewsAndGates(cur realm, t *testing.T) {
 }
 
 func captureRealm(cur realm) realm { return cur }
+
+// Bridge membership is a keyed lookup of the registered implementations'
+// addresses, superseded ones kept (design review r12 #1): with 200
+// candidates registered, every one is found, and an unregistered address is
+// not, without enumerating the registry.
+func TestImplAddressIndex(cur realm, t *testing.T) {
+	resetUpgradeState()
+	defer resetUpgradeState()
+	for i := 0; i < 200; i++ {
+		registerAs(cur, implPathPrefix+"v"+strconv.Itoa(1000+i), newUpgradeTestLogic)
+	}
+	for i := 0; i < 200; i++ {
+		p := implPathPrefix + "v" + strconv.Itoa(1000+i)
+		uassert.True(t, IsImplAddress(chain.PackageAddress(p)), p)
+		uassert.True(t, IsRegisteredImpl(p), p)
+	}
+	uassert.False(t, IsImplAddress(chain.PackageAddress(implPathPrefix+"v9999")))
+	uassert.False(t, IsRegisteredImpl(implPathPrefix+"v9999"))
+	uassert.Equal(t, 200, len(RegisteredImplPaths()))
+}

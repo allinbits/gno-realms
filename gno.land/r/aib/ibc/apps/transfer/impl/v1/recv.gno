@@ -35,15 +35,9 @@ func isBridgeRealm(a address) bool {
 		}
 	}
 	// A registry only grows: an implementation stays listed when another
-	// replaces it.
-	for _, paths := range [][]string{core.RegisteredImplPaths(), transfer.RegisteredImplPaths()} {
-		for _, p := range paths {
-			if chain.PackageAddress(p) == a {
-				return true
-			}
-		}
-	}
-	return false
+	// replaces it. One keyed lookup in each proxy's address index, whatever
+	// the number registered.
+	return core.IsImplAddress(a) || transfer.IsImplAddress(a)
 }
 
 // receivedDenom is the denom a received token is booked under on rt, its

@@ -83,6 +83,11 @@ var (
 	// implementation reads and writes the same persistent state: clients,
 	// commitments, receipts and acknowledgements survive an upgrade.
 	implCtors = bptree.NewBPTree32() // path -> func(Store) Logic
+	// implAddrs indexes every registered implementation by its realm
+	// address, superseded ones included (a registry only grows): bridge
+	// membership is one keyed lookup (IsImplAddress), whatever the number
+	// registered.
+	implAddrs = bptree.NewBPTree32() // realm address -> path
 	// implManifests holds what each registered implementation declared
 	// about itself, store-free: the preflight reads it and never builds a
 	// candidate (ADR 0004, R14).
@@ -169,6 +174,7 @@ func RegisterImpl(cur realm, ctor func(Store) Logic, version string, over []stri
 	}
 	implCtors.Set(caller, ctor)
 	implManifests.Set(caller, newManifest(version, over))
+	implAddrs.Set(string(chain.PackageAddress(caller)), caller)
 	if impl == nil {
 		install(0, cur, caller)
 	}
@@ -264,6 +270,15 @@ func ImplPath() string {
 func ImplVersion() string {
 	return implVersion
 }
+
+// IsRegisteredImpl reports whether an implementation is registered at path:
+// a keyed lookup.
+func IsRegisteredImpl(path string) bool { return implCtors.Get(path) != nil }
+
+// IsImplAddress reports whether a is the realm address of a registered
+// implementation, superseded ones included: a keyed lookup, whatever the
+// number registered.
+func IsImplAddress(a address) bool { return implAddrs.Get(string(a)) != nil }
 
 // RegisteredImplPaths returns the paths of the registered implementations,
 // active or not, sorted lexically.

@@ -2,6 +2,7 @@ package core
 
 import (
 	"chain"
+	"strconv"
 	"testing"
 
 	"gno.land/p/aib/authority/v0"
@@ -97,6 +98,7 @@ func resetUpgradeState() {
 	implVersion = ""
 	implCtors = bptree.NewBPTree32()
 	implManifests = bptree.NewBPTree32()
+	implAddrs = bptree.NewBPTree32()
 	auth = authority.NewWithMembers(chain.PackageAddress(authority.GovDAOPath), chain.PackageAddress(IBCGovPath))
 	relayers = bptree.NewBPTree32()
 	paused = false
@@ -279,4 +281,21 @@ func TestReadOnlyTreeViews(cur realm, t *testing.T) {
 	uassert.PanicsContains(t, cur, "read-only tree", func() { view.Remove("k") })
 	uassert.Equal(t, 1, store.Clients().Size())
 	uassert.Equal(t, c.id, store.Clients().Get(c.id).(Client).ID())
+}
+
+// Bridge membership is a keyed lookup of the registered implementations'
+// addresses (design review r12 #1): 200 candidates, each found.
+func TestImplAddressIndex(cur realm, t *testing.T) {
+	resetUpgradeState()
+	defer resetUpgradeState()
+	for i := 0; i < 200; i++ {
+		registerAs(cur, implPathPrefix+"v"+strconv.Itoa(1000+i), newUpgradeTestLogic)
+	}
+	for i := 0; i < 200; i++ {
+		p := implPathPrefix + "v" + strconv.Itoa(1000+i)
+		uassert.True(t, IsImplAddress(chain.PackageAddress(p)), p)
+		uassert.True(t, IsRegisteredImpl(p), p)
+	}
+	uassert.False(t, IsImplAddress(chain.PackageAddress(implPathPrefix+"v9999")))
+	uassert.False(t, IsRegisteredImpl(implPathPrefix+"v9999"))
 }

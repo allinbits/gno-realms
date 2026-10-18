@@ -217,15 +217,8 @@ func mustImplPath(prefix, path string) {
 	if !strings.HasPrefix(path, prefix+"/impl/v") {
 		panic("ibcgov: an implementation lives under " + prefix + "/impl/v<N>, not " + path)
 	}
-	for _, p := range core.RegisteredImplPaths() {
-		if prefix == CorePath && p == path {
-			return
-		}
-	}
-	for _, p := range transfer.RegisteredImplPaths() {
-		if prefix == TransferPath && p == path {
-			return
-		}
+	if (prefix == CorePath && core.IsRegisteredImpl(path)) || (prefix == TransferPath && transfer.IsRegisteredImpl(path)) {
+		return
 	}
 	panic("ibcgov: no implementation is registered at " + path)
 }
