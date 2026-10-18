@@ -357,14 +357,24 @@ narrows what notices authorize), so the transitions of cancelled or failed
 recoveries and kind 10s do not exhaust the capacity; removing a transition
 Ethereum did execute costs only liveness, governance expecting it again
 through the 7-day expectation. It is refused for the transition to the
-epoch's own client, and while a notice recorded as proven over a client the
-transition leads to may still be applied and need it. That protection is
-read live, by the rules `ApplyEpochNotice` applies (`pinsExpectations`):
-the highest epoch recorded as proven over the client, kept with the
-client's trust generation then, is past the current epoch, and the client
-is Active, not retired for the gov port, and at that generation. So it ends
-by itself, with no record to discard, when the notice could no longer
-apply: a generation change (a recovery, a verifier replacement, any
+epoch's own client, and while a notice recorded as proven may still be
+applied along a path through the transition. That protection is read live,
+by the rules `ApplyEpochNotice` applies (`pinnedBy`): every recorded notice
+is considered, not only the highest per client; it pins a transition only
+if an active path of exactly `e - current` steps from the epoch client's
+router counterparty, ending at the notice's source over its client, goes
+through it (a transition at step i leaves a router client reached in
+exactly i - 1 steps and leads on, in exactly the steps left, to that last
+step), and only while the notice's epoch is past the current one and its
+client is Active, not retired for the gov port, and at the generation it
+was proven under. The walk is bounded by the graph: at most 64 layers of
+64 edges, each notice looked up once (z9zzj: Ethereum's recoveries A→X→Y→C
+reach epoch 4, governance had removed A→X and filled A's successors with
+two-step branches A→Bi→C; C's notice, three steps on, pins none of them,
+so a branch is removed, A→X expected again, a transition of the three-step
+path is then refused removal, a two-step one is not, and the notice
+applies). So it ends by itself, with no record to discard, when the notice
+could no longer apply: a generation change (a recovery, a verifier replacement, any
 migration), an expiry or a freeze (the client not Active), its retirement,
 or supersession (the epoch reaching the notice's). A notice still
 applicable that nobody applies (abandoned) keeps pinning only while its
@@ -476,8 +486,20 @@ Each send is authorized once (client, epoch, seq, payload hash), consumed in
 `OnSendPacket`; a direct core send on port `gov` is refused. Acks
 (`ParseAck`): error ack, timeout, malformed ack or `redispatch = 1` whatever
 the status (a cancel beyond IBCAdmin's window is acked buffered with
-`redispatch = 1`) → re-dispatchable (current epoch only); statuses 1–5
-recorded. Router client ids follow eureka's grammar (`client-N`, or a custom
+`redispatch = 1`) ask for a re-send; statuses 1–5 recorded. Anyone may
+re-send any dispatch of the current epoch in a fresh transport packet with
+its identical bytes whenever none of its packets is in flight, after any
+answer, a success included, since a success acknowledgement can be forged
+by a compromised Ethereum-side verifier while the decision never reached
+IBCAdmin, leaving a gap later seqs wait behind. IBCAdmin deduplicates by
+seq and hash: the same bytes at a seq it holds (recorded, buffered,
+executed or spent) are answered `duplicate` (status 3, `redispatch = 0`)
+and change nothing there, and a duplicate answering a decision already
+acknowledged otherwise leaves its recorded status here as it was. The one
+exception is a conflict acknowledged without `redispatch = 1`: IBCAdmin
+re-flags itself on every conflict, so a free re-send would let anyone keep
+its 7-day decisions deferred (z2a: a recorded decision re-sent, its
+duplicate answer leaving it recorded; a conflict not re-sent). Router client ids follow eureka's grammar (`client-N`, or a custom
 id of up to 128 characters, also in packets); those governance adds (kind 6
 op 1, kind 10's new client) must be valid custom ids (4 to 128 characters of eureka's alphabet, not starting with
 `client-` or `channel-`). `Redispatch` re-sends identical bytes. Envelopes are
@@ -540,7 +562,7 @@ saturates statistics no check reads. Audited:
 | `Reserved`, `booked`, unpaid authorizations, `Route.Unrecovered/Unresolved` (the route-wide sums of the outstanding balances), a reopening's accepted total | bound (saturating) |
 | `Credited`, `Paid`, `Fees`, `SweepPaid`, `Sent`, `SendFees`, `Refunded` | stat (saturating) |
 | a claim's `Paid`/`Reduced`, a record's `Refunded`, a meter's level | bounded by the claim, the record, the ceiling |
-| queue and refund sequences, authorization ids, open and pending record counts | grow by one per transaction |
+| queue and refund sequences, authorization ids, open and pending record counts | grow by one per entry, record or authorization inserted (a settlement can queue up to 64 parked refunds, and a transaction can make several calls): far below int64 in any chain's lifetime |
 | impl/v1: a send's amount plus the route fee | checked |
 
 ### Governed execution never aborts
@@ -852,6 +874,38 @@ does not list before it.
   delay itself: a settlement is planned against outcomes proven through a
   replacement verifier, and the guardians' hold covers the 7 days in which
   a compromise of it can be found.
+- **A compromised notice verifier, or a poisoned intermediate client, is
+  not recoverable inside ibcgov** (accepted residuals; ADR pr6375 trusts
+  an approved notice verifier). An approved local client that authenticates
+  a forged notice before it is caught moves the governance epoch for good:
+  the switch retires the clients it passes and prunes the graph, and no
+  decision undoes it. A local client kept Active by forged updates at every
+  prefix endpoint within 64 steps blocks a catch-up past 64, since recovery
+  needs a Frozen or Expired subject. Only Ethereum-bound decisions are lost
+  meanwhile: gno-side governance (core, transfer, routes) does not depend
+  on the epoch. What exists, and nothing more:
+  - after a forged switch, Ethereum's emergency recovery (if enabled on
+    IBCAdmin) to a fresh router client heals it: governance records the
+    recovery's expectation from the router counterparty of gno's current
+    epoch client, wherever the forged switch left it, over a fresh healthy
+    local client, and the recovery's notice switches from there. Its epoch
+    must be above gno's and within 64 of it: if the forged notice put gno
+    ahead of Ethereum, Ethereum needs as many recoveries (30 days each) as
+    pass gno's epoch, gno recording each step's expectation so the path
+    exists;
+  - a poisoned client is frozen by misbehaviour (two valid updates
+    finalizing different headers at one slot, or a different root at a slot
+    it holds) when such updates exist, or expires if its updates stop; it is
+    then recovered in place (`NewRecoverClientRequest`) and the resent
+    notice proven through it;
+  - nothing else: core and transfer accept loosening governance only from
+    ibcgov's fixed package path (`IBCGovPath`, a constant of their immutable
+    proxies), so GovDAO cannot point them at a freshly deployed ibcgov,
+    and ibcgov, plain code with its ledger, sequences and epoch, cannot be
+    replaced; GovDAO keeps only its tightening powers (pausing the core or
+    an app, rejecting an app). IBCAdmin is immutable too. Without
+    Ethereum's emergency recovery, a forged switch ends Ethereum-bound
+    governance for good.
 - **Pre-recovery consensus states of a Tendermint client** stay usable, as in
   ibc-go: only the Ethereum light client marks them untrusted, and only
   Ethereum clients prove outcomes for settlement. The trust generation is

@@ -322,7 +322,28 @@ Ethereum client carries nothing until a decision makes it a route.
    Resending is harmless: the current epoch's notice is answered as a
    duplicate (status 3), one of a transition not taken or an epoch passed
    gets an error acknowledgement, and one over a client retired for
-   governance is refused by the core; none changes anything. If it is not, the notice must be proven afresh: relaying
+   governance is refused by the core; none changes anything.
+   Outbound decisions are re-sent the same way: `ibcgov.Redispatch(e, seq)`
+   sends a current-epoch decision again, identical bytes in a fresh packet,
+   whenever none of its packets is in flight, after any answer but a
+   conflict. Use it when a later seq waits on Ethereum behind one gno shows
+   as acknowledged (a success acknowledgement a compromised Ethereum-side
+   verifier forged): IBCAdmin answers a seq it already holds with a
+   duplicate, which changes nothing.
+
+   Residuals (ADR 0004 known limits): a forged notice applied by a
+   compromised approved local client, or a local client kept Active by
+   forged updates at every prefix endpoint, cannot be undone inside ibcgov.
+   After a forged switch, the only repair is Ethereum's emergency recovery
+   (if enabled): record its expectation from the router counterparty of
+   gno's current epoch client (`ibcgov.EpochClient()`), over a fresh healthy
+   local client, so its notice switches from there; its epoch must be above
+   gno's, so a gno pushed ahead needs as many recoveries as pass it, each
+   step's expectation recorded. A poisoned client is recovered in place
+   only once misbehaviour freezes it or it expires. Core and transfer take
+   loosening governance only from ibcgov's fixed path, so no fresh ibcgov
+   can take over; without Ethereum's emergency recovery, Ethereum-bound
+   governance ends there, while gno-side governance goes on. If it is not, the notice must be proven afresh: relaying
    the original packet again only returns `RESPONSE_NOOP` (its receipt
    exists); IBCAdmin sends the identical notice bytes in a fresh packet
    (`resendEpochNotice(epoch)`, a new transport sequence), and that packet
@@ -531,7 +552,13 @@ characters of `a-z`, `0-9`, `-`).
 10. **Resolve the losses**, per denom and incident (`Render("routes/R/losses")`,
     `Totals(R, denom)`): recapitalize an `unescrow` denom
     (`NewRecapitalizeRequest(R, denom, amount, INC)`, then anyone pays it
-    with `transfer.Recapitalize(R, id)`), reduce open or withheld claims or
+    with `transfer.Recapitalize(R, authorizationID)`: the authorization id
+    is the route's own numbering, not the ibcgov decision number; read it
+    from the transfer app's `route_gov` event of the executed decision
+    (`op` `recapitalize`, `route` `R`, its `note` the id), check it with
+    `Recap(R, authorizationID)` on the controls reader (denom, amount,
+    incident, not paid or revoked), and pass that id to the payment or to a
+    revocation (`NewRevokeRecapRequest(R, authorizationID)`)), reduce open or withheld claims or
     owed sweep entries (`NewReduceRequest(R, key, amount, INC)`), or accept
     a deficit (`NewAcceptDeficitRequest(R, denom, amount, INC)`); whatever
     stays unresolved, the reopening accepts. Check: `Unresolved(R)`.
