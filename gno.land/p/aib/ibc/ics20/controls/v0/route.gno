@@ -1061,13 +1061,19 @@ func (rt *Route) enqueue(d *Denom, now, height, epoch int64, key string, to addr
 }
 
 // queue is a recipient's queue, made on first use with its meter empty as of
-// now in epoch: a queue made after an epoch's reset starts empty at its first
-// credit, as every meter does.
+// now in epoch, at the recipient cap in effect then: a queue made after an
+// epoch's reset starts empty at its first credit, as every meter does.
 func (d *Denom) queue(to address, now, epoch int64) *queue {
 	if v := d.queues.Get(string(to)); v != nil {
 		return v.(*queue)
 	}
 	q := &queue{meter: NewMeter(now, epoch)}
+	// It starts at the recipient cap in effect now (a quarter of the bridge
+	// meter's, as of its last refill), so a cap raised before its first
+	// refill never applies to the time before it.
+	if d.meter.Set {
+		q.meter.Rate, q.meter.Ceil, q.meter.Set = d.meter.Rate/4, d.meter.Ceil/4, true
+	}
 	d.queues.Set(string(to), q)
 	return q
 }

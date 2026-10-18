@@ -864,3 +864,25 @@ func TestReconfigureSettlesMeters(t *testing.T) {
 		t.Fatalf("a refused reconfiguration changed the meters")
 	}
 }
+
+// A recipient meter starts at the cap in effect when it is made (code review
+// r60 #2): a claim credited at a 4000-a-day cap, the cap raised to
+// 4,000,000 a week later, the claim's first payout an hour after that pays
+// no more than the old recipient cap (1000), not the backdated new one.
+func TestRecipientMeterNotBackdated(t *testing.T) {
+	_, rt := newRoute(t)
+	cfg := rt.Denom("ibc/WETH").Config
+	if err := rt.Reconfigure("ibc/WETH", cfg, t0, 0, t0, 0, 0); err != nil { // the meters see the cap
+		t.Fatal(err)
+	}
+	mustCredit(t, rt, t0, 5, "ibc/WETH", alice, 90_000, big)
+	cfg.CapFloor, cfg.SupplyCap = 4_000_000, 10_000_000
+	if err := rt.Reconfigure("ibc/WETH", cfg, t0+7*Day, 0, t0, 0, 0); err != nil {
+		t.Fatal(err)
+	}
+	rt.PayClaims(t0+7*Day+3600, 0, t0, "ibc/WETH", 1, big)
+	c, _ := rt.Claim(pk(5))
+	if c.Paid == 0 || c.Paid > 1_000 {
+		t.Fatalf("paid %d: the recipient meter backdated the raise", c.Paid)
+	}
+}
