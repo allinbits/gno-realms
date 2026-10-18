@@ -279,7 +279,9 @@ Ethereum client carries nothing until a decision makes it a route.
    or flag protects the route until they are seated: install them with
    `NewSetSeatsRequest("0:g1...,1:g1...")`, at most two guardian seats a
    decision. Every seat change waits 7 days and, under a hold, until day 21
-   of it, a vacancy (`"1:"`) included: a vacancy removes the holder the seat
+   of the hold that first deferred it once due (the first `Execute` under
+   that hold records the anchor and returns; a hold cleared and set again
+   never moves it; Ethereum the same), a vacancy (`"1:"`) included: a vacancy removes the holder the seat
    had when the request was built, and is skipped if the seat changed hands
    since.
 4. Once the enrollment has executed, bind the governance channel to the
@@ -699,7 +701,20 @@ characters of `a-z`, `0-9`, `-`).
    Ethereum's records are settled by kind 12 (`NewEthSettleRequest`, at most
    8 items). Check: `settlement` set on every record of step 7, and
    `SuspectUnsettled(R, OLD)` 0.
-10. **Resolve the losses**, per denom and incident (`Render("routes/R/losses")`,
+10. **Resolve the losses**, each once across the two chains. First decide
+    each loss's home: the chain whose escrow backs its token (gno.land for a
+    gno-native token, Ethereum for an Ethereum-native one, a voucher here).
+    The home chain's record is authoritative and carries the remedy; a
+    record of the same packet on the other chain is a mirror, booked under
+    an incident that names the home record (for example `INC-mirror`) and
+    resolved there only by an accepted deficit. A gno-native token's loss
+    paid on Ethereum (vouchers minted there without escrow here) is
+    recorded here with `NewRecordLossRequest(R, key, denom, amount,
+    "ethereum", INC, cause)` and remedied here; an Ethereum-native token's
+    loss is Ethereum's (kind 12), and gno.land records it, if at all, as a
+    mirror. When reporting, sum per token the home chain's open unrecovered
+    balance only: a mirror is never added. Then, on gno.land, per denom and
+    incident (`Render("routes/R/losses")`,
     `Totals(R, denom)`): recapitalize an `unescrow` denom
     (`NewRecapitalizeRequest(R, denom, amount, INC)`, then anyone pays it
     with `transfer.Recapitalize(R, authorizationID)`: the authorization id
