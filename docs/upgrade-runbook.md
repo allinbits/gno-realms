@@ -342,16 +342,40 @@ Ethereum client carries nothing until a decision makes it a route.
    decision. A real conflict (different bytes stored) is never re-sent.
 
    Removing an expectation (`NewRemoveExpectationRequest`), or cancelling
-   one still pending, leaves a tombstone that keeps its local client from
-   being retired for governance until an epoch switch supersedes it
-   (`ibcgov.Tombstones()` counts them, at most 64; a removal is refused when
-   they are full), so the transition can be expected again and its notice
-   still arrives over that client.
+   one still pending, leaves a tombstone that keeps its local client, and
+   those of the transitions beyond it, from being retired for governance
+   until an epoch switch supersedes it (`ibcgov.Tombstones()` counts them),
+   so the transition can be expected again and its notice still arrives
+   over that client. Live transitions and tombstones share one budget of
+   64; a removal, a cancellation or approving a tombstoned transition again
+   never needs room, a brand-new transition does.
+
+   **All capacity exhausted** (a router client's 4 successors live, the
+   joint budget of 64 full, Ethereum's executed transition among the
+   tombstones or not recorded at all):
+   1. Find the transition Ethereum executed (IBCAdmin's `epoch()` and its
+      notices) and whether gno holds it as a tombstone (the `GovTombstone`
+      event of its removal or release names it).
+   2. Free a successor place of its old router client: remove a losing
+      active expectation (`NewRemoveExpectationRequest`, at once; it
+      becomes a tombstone, no room needed) or cancel a losing pending one
+      (`NewCancelRequest`).
+   3. If the executed transition is tombstoned, approve it again
+      (`NewExpectRecoveryRequest` with the same router clients and local
+      client, 7 days): it moves back into the graph, no room needed.
+   4. If it is brand new, free a place in the joint budget first: purge a
+      junk tombstone (`NewPurgeTombstoneRequest`, 7 days; refused while a
+      recorded notice needs it), then record the expectation (7 days).
+   5. Relay the notice afresh (IBCAdmin resends it in a fresh packet) once
+      the expectation is active; the switch clears the tombstones it
+      supersedes.
 
    Residuals (ADR 0004 known limits): a forged notice applied by a
    compromised approved local client, or a local client kept Active by
    forged updates at every prefix endpoint, cannot be undone inside ibcgov.
-   After a forged switch, the only repair is Ethereum's emergency recovery
+   A forged switch costs nothing when it names the epoch and client a kind
+   10 Ethereum already holds will establish (its genuine notice is then a
+   duplicate). Otherwise the only repair is Ethereum's emergency recovery
    (if enabled): record its expectation from the router counterparty of
    gno's current epoch client (`ibcgov.EpochClient()`), over a fresh healthy
    local client, so its notice switches from there; its epoch must be above
@@ -359,8 +383,9 @@ Ethereum client carries nothing until a decision makes it a route.
    step's expectation recorded. A poisoned client is recovered in place
    only once misbehaviour freezes it or it expires. Core and transfer take
    loosening governance only from ibcgov's fixed path, so no fresh ibcgov
-   can take over; without Ethereum's emergency recovery, Ethereum-bound
-   governance ends there, while gno-side governance goes on. If it is not, the notice must be proven afresh: relaying
+   can take over; when Ethereum can reach the adopted epoch and client by
+   neither, Ethereum-bound governance is lost, while gno-side governance
+   goes on. If it is not, the notice must be proven afresh: relaying
    the original packet again only returns `RESPONSE_NOOP` (its receipt
    exists); IBCAdmin sends the identical notice bytes in a fresh packet
    (`resendEpochNotice(epoch)`, a new transport sequence), and that packet
@@ -469,10 +494,15 @@ characters of `a-z`, `0-9`, `-`).
    `NewExpectRecoveryRequest(ROLD, RNEW, NEW)` here, 7 days, within
    Ethereum's 30-day recovery delay) it sends the epoch notice
    over `NEW`;
-   relay it (`RecvPacket` on `NEW`, port `gov`). Check: `ibcgov.Epoch()` one
-   higher, `ibcgov.EpochClient() == NEW`, `core.IsClientRetired(OLD)`. A
-   notice refused with an error acknowledgement (sent before the
-   replacement was recorded here) is sent again by IBCAdmin.
+   relay it (`RecvPacket` on `NEW`, port `gov`). The notice is accepted only
+   once its transition's expectation is active: the kind 10's dispatch
+   records it as a separate "expect transition" decision; execute it
+   (`ibcgov.Execute(id)`, 7 days after the dispatch, deferred by a hold)
+   before relaying; the gno.land route replacement need not have executed.
+   Check: `ibcgov.Epoch()` one higher, `ibcgov.EpochClient() == NEW`,
+   `core.IsClientRetired(OLD)`. A notice refused with an error
+   acknowledgement (sent before its expectation applied) is sent again by
+   IBCAdmin in a fresh packet; relay that one.
    The replacement reserves the refunds the retired client's records may
    owe in its first batch (64 steps, plus possibly one final move past a
    client whose records it has just finished). The transfer app's `route_gov` event

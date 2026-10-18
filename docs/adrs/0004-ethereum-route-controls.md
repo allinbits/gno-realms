@@ -290,7 +290,8 @@ governor cannot end a hold by vacating the flagging seats (z1b).
 Source port `gov` on gno.land, destination port `ibcgov` on Ethereum, version
 `ibcgov-1`, encoding `application/x-ibcgov`; envelope
 `version u8 (1) ‖ epoch u32 ‖ seq u64 ‖ kind u8 ‖ params` (big-endian),
-`params = abi.encode(fields…)` of the §5.4 tuple, at most 1024 bytes. Epoch 1
+`params = abi.encode(fields…)` of the §5.4 tuple, the whole envelope at
+most 1024 bytes (`14 + len(params) ≤ 1024`, the header 14 bytes). Epoch 1
 opens when `NewBindGovernanceRequest` binds the channel to an Ethereum client,
 which must be Active and the current client of an enrolled transfer route
 both when the request is made and when it executes (`checkBindClient`); a
@@ -312,13 +313,18 @@ dispatched) and keeps its clients open for governance; an intent records
 the expectation decisions that own it, and goes only when the last of them
 is refused, spent or cancelled, never once active (z9zzd: two kind 10s for
 one transition, one cancelled; a kind 10 and a recovery expectation for
-one transition). The graph holds at most 64 transitions, pending and
-active (`maxLive`: a chain of 64 steps, or 16 steps of 4 competing successors): a
-dispatch or recovery expectation that would pass it is refused when built
-and when it applies, and an epoch switch drops every transition no longer
-reachable from the new epoch client, freeing the capacity. So every walk
-of the graph (notice paths, retention, pruning) reads at most 64 edges,
-exactly: there is no "too many to tell" case (z9zza: one transition too
+one transition). The graph holds at most 64 transitions, pending, active
+and tombstoned together (`maxLive`, one joint budget: a chain of 64 steps,
+or 16 steps of 4 competing successors; tombstones below): a dispatch or
+recovery expectation of a brand-new transition that would pass it is
+refused when built and when it applies, and an epoch switch drops every
+transition and tombstone whose old router client the new epoch client no
+longer reaches through live transitions and tombstones alike, freeing the
+capacity (what a surviving tombstone still reaches stays, and keeps using
+it). The graph never holds more than 64 distinct transitions and
+tombstones; each retention and pruning walk expands every router client
+once, so it reads each at most once, at most 64 in all, and a notice-path
+walk is bounded by 64 layers of them: there is no "too many to tell" case (z9zza: one transition too
 many refused at the cap, accepted after the switch). Every transition must
 start from a router client the epoch client reaches (itself included),
 checked when built, dispatched or recorded and when its expectation
@@ -346,32 +352,51 @@ checkpoint can copy it), so only the named client is accepted. A router
 client has at most 4 expected successors (only one of
 competing kind 10s executes on Ethereum). An expectation is never
 overwritten. Its lifetime: a pending intent goes when its last owning
-decision is refused, spent or cancelled; an active one goes when an epoch
-switch leaves it unreachable, or by `NewRemoveExpectationRequest` (below).
+decision is refused, spent or cancelled (leaving a tombstone); an active
+one goes when an epoch switch leaves it unreachable from the new epoch
+client through live transitions and tombstones alike, or by
+`NewRemoveExpectationRequest` (below, also leaving a tombstone).
 It is not free while it lasts: pending or active, it holds a place among
 its old client's 4 successors and the graph's 64, so one never confirmed
 by a notice (a cancelled or failed transition) costs capacity until it goes
 (this qualifies ADR pr6375 §7.12's "the expectation costs nothing"). A
 transition that goes before a switch supersedes it, removed by
 `NewRemoveExpectationRequest` or released with its last owning decision
-(cancelled, refused or spent), leaves a tombstone: it frees its places in
-the capacity but keeps its local client retained for governance, as if
-still on an expected path, and so the local clients of the transitions
-still recorded beyond its new router client (retention walks from every
-tombstone as from the epoch client), so neither a route replacement nor a
-prune retires them for the gov port for good, and they can still be
-approved again and carry their notices. An epoch switch clears the
-tombstones whose old router client the new epoch client no longer reaches
-(superseded), and keeps the transitions a tombstone left standing still
-reaches; approving the transition again replaces
-its tombstone. There are at most 64 (`maxTombstones`): a removal that
-would need one more is refused, and a release then keeps the intent,
-ownerless, until a switch leaves it behind, so the retention is never
-lost (z9zzk: a route moved A→B→C→D here while Ethereum executed A→B and
-B→C; A→B removed and an A→D intent cancelled, neither B, C beyond it nor D
-is retired for governance, A→B approved again, B's notice switches the
-epoch, clearing the A→D tombstone, C's notice follows along B→C, and D is
-then retired). A
+(cancelled, refused or spent), leaves a tombstone in its place: it frees
+its place among the old client's 4 successors (which count live
+transitions only) and grants no notice authority, but keeps its local
+client retained for governance, as if still on an expected path, and so
+the local clients of every transition and tombstone beyond it: retention,
+supersession and pruning all walk live transitions and tombstones together
+from the epoch client. So neither a route replacement nor a prune retires
+them for the gov port for good, and they can still be approved again and
+carry their notices. Live transitions and tombstones share the joint
+budget of 64, and a transition moving between the two leaves the count
+unchanged: removing an active expectation, releasing an intent and
+approving a tombstoned transition again are never refused for capacity
+(the last still needs a successor place); only a brand-new transition
+needs a free place. An epoch switch clears a tombstone only when its old
+router client is unreachable through either kind (superseded). A
+deliberate addition: `NewPurgeTombstoneRequest(old, new, localClient)` (7
+days, deferred by a hold: it loosens retirement) drops one tombstone,
+freeing its place without a switch; the client, and those beyond it, are
+then retired only by the ordinary prune if nothing else retains them, and
+if Ethereum did execute the transition the cost is liveness. It is refused
+when built and when it applies while a notice recorded as proven may still
+be applied along a path through it of the length it needs, the path's
+transitions live or tombstoned (`pinnedBy` through both) (z9zzk: a route
+moved A→B→C→D here while Ethereum executed A→B and B→C; A→B removed and an
+A→D intent cancelled, neither B, C beyond it nor D is retired for
+governance, A→B approved again, B's notice switches the epoch, clearing the
+A→D tombstone, C's notice follows along B→C, and D is then retired; z9zzl:
+A→T removed, A's four successors live and cancelled intents filling the
+joint budget, a brand-new transition refused, a loser removed and A→T
+approved again, T's notice switches the epoch; z9zzm: the budget full of
+junk tombstones, one purged, a brand-new A→X expected and its notice
+applied; z9zzn: a purge refused while C's recorded notice needs the
+tombstoned B→C, an unrelated one purged; z9zzo: C→D and B→C removed, the
+route moved past D, B's notice keeps both tombstones, a prune retires
+neither C nor D, both approved again, C's and D's notices apply). A
 deliberate addition to ADR pr6375: `NewRemoveExpectationRequest(old, new,
 localClient)` removes an active expectation at once, a tightening (it
 narrows what notices authorize), so the transitions of cancelled or failed
@@ -655,7 +680,12 @@ Ethereum token of a gno-native denom, mint cap and supply cap of Ethereum
 tokens. Recipient meters are cap/4. A minted denom's supply starts at its
 vouchers in circulation when it is enabled.
 
-A denom configuration is refused unless (`DenomConfig.Validate`,
+`NewSetDenomRequest` takes a denom of 1 to 128 ASCII characters among
+letters, digits and `/:._-` (`isDenom`); a `mint` configuration may name
+its token by its Ethereum address (`0x…`), which becomes its voucher's IBC
+denom over the route's stable key (`ics20.NewDenom(token,
+NewHop("transfer", route)).IBCDenom()`), and a minted denom must be such an
+`ibc/` denom, an unescrowed one must not. A denom configuration is refused unless (`DenomConfig.Validate`,
 `Route.SetDenom`): the cap floor is positive; the fee floor is positive and
 `FeeFloor ≤ Fee ≤ CapFloor/4` (the configured cap floor, not a larger
 lock-derived day cap); the refund cap is positive; an `unescrow` denom has
@@ -911,9 +941,14 @@ does not list before it.
 - **A compromised notice verifier, or a poisoned intermediate client, is
   not recoverable inside ibcgov** (accepted residuals; ADR pr6375 trusts
   an approved notice verifier). An approved local client that authenticates
-  a forged notice before it is caught moves the governance epoch for good:
-  the switch retires the clients it passes and prunes the graph, and no
-  decision undoes it. A local client kept Active by forged updates at every
+  a forged notice before it is caught moves the governance epoch: the
+  switch retires the clients it passes and prunes the graph, and no
+  decision undoes it. Whether that loses Ethereum-bound governance depends
+  on whether Ethereum can reach the epoch and client gno adopted: a
+  premature forged notice naming the epoch and client a legitimate kind 10
+  already recorded will establish costs nothing, since Ethereum executes it
+  normally and its genuine notice is answered as a duplicate, dispatches
+  going over the adopted client meanwhile. A local client kept Active by forged updates at every
   prefix endpoint within 64 steps blocks a catch-up past 64, since recovery
   needs a Frozen or Expired subject. Only Ethereum-bound decisions are lost
   meanwhile: gno-side governance (core, transfer, routes) does not depend
@@ -937,9 +972,10 @@ does not list before it.
     proxies), so GovDAO cannot point them at a freshly deployed ibcgov,
     and ibcgov, plain code with its ledger, sequences and epoch, cannot be
     replaced; GovDAO keeps only its tightening powers (pausing the core or
-    an app, rejecting an app). IBCAdmin is immutable too. Without
-    Ethereum's emergency recovery, a forged switch ends Ethereum-bound
-    governance for good.
+    an app, rejecting an app). IBCAdmin is immutable too. When Ethereum
+    cannot reach the adopted epoch and client, by a decision it already
+    holds or by its emergency recovery, Ethereum-bound governance is lost
+    for good.
 - **Pre-recovery consensus states of a Tendermint client** stay usable, as in
   ibc-go: only the Ethereum light client marks them untrusted, and only
   Ethereum clients prove outcomes for settlement. The trust generation is
