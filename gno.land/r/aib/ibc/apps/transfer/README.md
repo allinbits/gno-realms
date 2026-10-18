@@ -548,6 +548,11 @@ queued refund, in each later `route_refund` event of `ClaimRefunds`. The same
 On an Ethereum route the acknowledgement and timeout callbacks complete the
 packet's transport (the core deletes its commitment) whether or not the
 refund is paid in the same transaction; the send record tracks the payment.
+A queued refund is a deliberate deferral; a payment that fails is not: if
+the token transfer, unescrow or voucher mint of a refund paid at once
+fails, the callback panics and the whole transaction rolls back, transport
+completion included, so the relayer retries after the token is repaired.
+Such a payment is never parked or skipped.
 
 ### Payload checks
 

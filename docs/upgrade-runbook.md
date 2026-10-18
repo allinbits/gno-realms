@@ -370,8 +370,10 @@ address; deploying it unchanged hands governance to a key nobody holds.
    calls `ibcgov.Redispatch(e, seq)` once; a further re-send needs a new
    decision. A real conflict (different bytes stored) is never re-sent.
 
-   Removing an expectation (`NewRemoveExpectationRequest`), or cancelling
-   one still pending, leaves a tombstone that keeps its local client, and
+   Removing an active expectation (`NewRemoveExpectationRequest`), or
+   releasing a pending intent (the cancellation, refusal or spending of its
+   last owning decision: a transition recorded several times stays pending
+   while any of its decisions does), leaves a tombstone that keeps its local client, and
    those of the transitions beyond it, from being retired for governance
    until an epoch switch supersedes it (`ibcgov.Tombstones()` counts them),
    so the transition can be expected again and its notice still arrives
@@ -387,8 +389,11 @@ address; deploying it unchanged hands governance to a key nobody holds.
       event of its removal or release names it).
    2. Free a successor place of its old router client: remove a losing
       active expectation (`NewRemoveExpectationRequest`, at once; it
-      becomes a tombstone, no room needed) or cancel a losing pending one
-      (`NewCancelRequest`).
+      becomes a tombstone, no room needed), or, for a losing pending one,
+      cancel every decision still owning it (`NewCancelRequest` for each:
+      `Decision(id)` of each kind 10 or recovery expectation recorded for
+      that transition); the place is freed, and the tombstone made, only
+      when the last owner is released.
    3. If the executed transition is tombstoned, approve it again
       (`NewExpectRecoveryRequest` with the same router clients and local
       client, 7 days): it moves back into the graph, no room needed.
@@ -523,13 +528,18 @@ characters of `a-z`, `0-9`, `-`).
    earliest verification operation (an update, or a membership or absence
    proof checked) that may have been compromised, considering verifier
    defects and the implementation versions affected. The default is `0`
-   (every record; the controls raise it to the previous replacement's
-   height): an authenticated consensus root proves that root genuine, not
-   that every proof checked against it was verified correctly. Only when the
-   compromise is established to be header-only (forged updates, the verifier
-   sound) may it start at the height of `OLD`'s first update after its last
-   consensus state authenticated independently (step 0 of §7). One record
-   too many costs a proof; one too few keeps a forged refund.
+   (every record; the controls raise it to the height `OLD` became the
+   route's client). A later boundary is allowed only when the operators
+   establish that every consensus state `OLD` retained before it is
+   genuine, a safe prefix of its history: each of those roots authenticated
+   independently (step 0 of §7), and the verifier sound for the proofs
+   checked against them. The boundary is then the gno.land height at which
+   the earliest consensus state that may have been forged was installed
+   (the update that stored it), never later. Authenticating a newer state
+   alone never advances it: a genuine later head says nothing about the
+   older roots the client keeps, and a forged older root can still back a
+   proof. One record too many costs a proof; one too few keeps a forged
+   refund.
    Ethereum's kind 10 takes its own `suspectFrom`, an Ethereum block.
 4. **Prepare `NEW`.** Authenticate a
    checkpoint independently (§7 step 0), create `NEW` from it with the
