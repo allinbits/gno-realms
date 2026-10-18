@@ -1424,6 +1424,16 @@ func TestMirrorLossAcceptedOnly(t *testing.T) {
 	if err := rt.Void([]string{pk(5)}, true, "m"); err == nil {
 		t.Fatalf("booked a loss paid here under a mirror incident")
 	}
+	// Withholding under the mirror incident books no loss: it applies, and
+	// the mirror's losses are unchanged (code review r61 #1).
+	before := rt.Incident("ugnot", "m")
+	mustCredit(t, rt, t0, 8, "ugnot", carol, 1_000, big)
+	if err := rt.Void([]string{pk(8)}, false, "m"); err != nil {
+		t.Fatalf("withheld under a mirror incident: %v", err)
+	}
+	if c8, _ := rt.Claim(pk(8)); c8.State != Withheld || rt.Incident("ugnot", "m") != before {
+		t.Fatalf("the withholding changed the mirror: %+v %+v", c8, rt.Incident("ugnot", "m"))
+	}
 	if err := rt.Accept("ugnot", 500, "m"); err != nil || rt.Incident("ugnot", "m").OpenUnresolved != 0 {
 		t.Fatalf("the mirror is not accepted: %v", err)
 	}

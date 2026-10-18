@@ -197,6 +197,11 @@ func (rt *Route) Void(keys []string, forged bool, incident string) error {
 		if !rt.Voidable(k, forged) {
 			return errors.New("controls: " + k + " cannot be voided " + voidWord(forged) + " as it stands")
 		}
+		// A forged void books a loss paid here: never under a mirror
+		// incident. A withheld one books none, so any incident takes it.
+		if !forged {
+			continue
+		}
 		denom := ""
 		if c := rt.claim(k); c != nil {
 			denom = c.Denom

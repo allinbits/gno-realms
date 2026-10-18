@@ -230,6 +230,11 @@ func main(cur realm) {
 	// spent; only an accepted deficit resolves it (main ADR design review r21
 	// #1, code review r60 #4).
 	execute(cur, govern(cur, ibcgov.NewRecordLossRequest(cross(cur), route, "ethereum-1/00000000000000000098", "ugnot", 50, "ethereum", "inc-3", "collision")))
+	// Withholding a claim under the mirror's incident books no loss: it
+	// applies, the mirror's losses unchanged (code review r61 #1).
+	withhold := govern(cur, ibcgov.NewVoidRequest(cross(cur), route, controls.PacketKey(route, 4), false, "inc-3"))
+	execute(cur, withhold)
+	println("withhold under a mirror:", decided(withhold), "|", state(route, 4), "|", totals(route))
 	reduce := govern(cur, ibcgov.NewReduceRequest(cross(cur), route, controls.PacketKey(route, 4), 50, "inc-3"))
 	execute(cur, reduce)
 	println("reduce against a mirror:", decided(reduce))
@@ -262,5 +267,6 @@ func main(cur realm) {
 // carol: open paid 2500 of 3900 | owed 1400 withheld 0 swept 10 lost 2600 unrecovered 500
 // sweep paid: true true
 // credit: spent - spent: packet ethereum-1/00000000000000000042 was never received
+// withhold under a mirror: applied - void | withheld paid 2500 of 3900 | owed 0 withheld 1400 swept 0 lost 2650 unrecovered 550
 // reduce against a mirror: spent - spent: controls: incident inc-3 mirrors losses paid on Ethereum, whose ledger remedies them: resolve the mirror by an accepted deficit only
 // accept the mirror: applied - accept | closed: false
