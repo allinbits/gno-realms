@@ -922,7 +922,11 @@ func switchEpoch(cur realm, e uint32, client string, passed []string) {
 // PruneGovRetirements retires for governance up to n (1 to 64) of the gno
 // clients a route replacement retired for transfers while they were on an
 // expected path of the governance epoch, once they no longer are: anyone may
-// call it. A client on a path, or one whose paths cannot be told within the
+// call it. Only an epoch switch makes one unreachable while it stays here
+// (its pruning supersedes the transitions it leaves behind): a removal or a
+// release leaves a tombstone that keeps it reachable, and a purge takes the
+// clients it disconnects out of awaitingGov, so a prune never retires a
+// client no switch superseded. A client on a path, or one whose paths cannot be told within the
 // search's bounds, is kept for a later call. Each call visits n clients from
 // where the last one stopped, wrapping round at the end, so a client kept
 // never holds back those after it. It returns how many it retired.
@@ -1742,7 +1746,20 @@ func (p *purgeParams) apply(cur realm, t int64) (string, string) {
 	if refusal := checkPurge(p.from, p.to, p.local); refusal != "" {
 		return "", refusal
 	}
+	// A purge only frees capacity: it never makes a client retirable. The
+	// clients it disconnects (no longer reachable, though no switch passed
+	// them) leave awaitingGov, so no prune retires them: they stay as
+	// clients kept off the graph, their gov port open and inert, retired for
+	// governance only by a switch passing them. Bounded: two walks of at
+	// most maxLive edges.
+	_, before := retained()
 	tombstones.Remove(tombKey(p.from, p.to, p.local))
+	_, after := retained()
+	for c := range before {
+		if !after[c] && awaitingGov.Has(c) {
+			awaitingGov.Remove(c)
+		}
+	}
 	chain.Emit("GovPurge", "from", p.from, "to", p.to, "client", p.local)
 	return "purged the tombstone of the transition from " + p.from + " to " + p.to + " over " + p.local, ""
 }
@@ -1751,10 +1768,11 @@ func (p *purgeParams) apply(cur realm, t int64) (string, string) {
 // tombstone a removed or released transition from the router client
 // oldClientID to newClientID over the gno client localClientID left (ADR
 // 0004: a deliberate addition), freeing its place in the joint budget of
-// maxLive without an epoch switch. It loosens retirement: the local client,
-// and those of the transitions beyond it, lose this retention and are
-// retired for governance by the ordinary prune if nothing else retains
-// them; if Ethereum did execute the transition, the cost is liveness.
+// maxLive without an epoch switch. It frees capacity only: the local
+// client, and those of the transitions beyond it, are no longer held by the
+// graph, but none becomes retirable by it: they are kept off the graph,
+// their gov port open and inert, until a switch passes them; if Ethereum did
+// execute the transition, it must be expected again for its notice to apply.
 // Refused, when built and when it applies, while a notice recorded as
 // proven may still be applied along a path through it of the length it
 // needs, its transitions approved again.
