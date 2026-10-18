@@ -145,6 +145,8 @@ func main(cur realm) {
 	d, _ = ibcgov.Decision(vacate)
 	println("vacancy:", d.State(), "-", d.Note, "- seat 1 kept:", ibcgov.Seat(1) == g1)
 	advance(7*24*time.Hour + time.Second)
+	// The first deferral of each records its anchor (the hold's start) and
+	// returns; a later one before day 21 is refused (z1n).
 	println("replacement on day 7 of the hold:", revive(func() { ibcgov.Execute(cross(cur), replace) }))
 	println("vacancy on day 7 of the hold:", revive(func() { ibcgov.Execute(cross(cur), vacate) }))
 	advance(time.Duration(since+21*86400-testing.GetContext().Time.Unix()-1) * time.Second)
@@ -179,9 +181,9 @@ func main(cur realm) {
 // clear twice: ibcgov: no such flag of yours
 // unpause: applied - cleared 2 flags - credits: false refunds: false
 // vacancy: pending - queued 7 days - seat 1 kept: true
-// replacement on day 7 of the hold: ibcgov: decision 7 is deferred: a guardian hold stands since 1237678295
-// vacancy on day 7 of the hold: ibcgov: decision 8 is deferred: a guardian hold stands since 1237678295
-// vacancy a second before day 21: ibcgov: decision 8 is deferred: a guardian hold stands since 1237678295
+// replacement on day 7 of the hold: undefined
+// vacancy on day 7 of the hold: undefined
+// vacancy a second before day 21: ibcgov: decision 8 is deferred: a guardian hold first deferred it on 1237678295, until 1239492695
 // replacement on day 21: true still held: true
 // seat 1:  sends flags: slice[("sends seat 0 at 1237678295" string)]
 // # IBC governance

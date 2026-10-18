@@ -70,8 +70,26 @@ func Execute(cur realm, id int64) {
 		panic("ibcgov: " + err.Error())
 	}
 	if heldAt(t) {
-		if _, ok := d.Params.(*seatsParams); !ok || t < holdSince+holdReplacementWait {
+		sp, ok := d.Params.(*seatsParams)
+		if !ok {
 			panic("ibcgov: decision " + itoa(id) + " is deferred: a guardian hold stands since " + itoa(holdSince))
+		}
+		// A seat change (a guardian replacement or a vacancy) lands from day
+		// 21 of the hold that first deferred it after it became due, its
+		// anchor, whatever holds stand by then: a later hold, after one was
+		// cleared, never resets that deadline (ADR pr6375 §7.4; Ethereum
+		// anchors it the same way). The first deferral records the anchor
+		// and returns, so the record stands.
+		first := sp.holdAnchor == 0
+		if first {
+			sp.holdAnchor = holdSince
+		}
+		if t < sp.holdAnchor+holdReplacementWait {
+			if first {
+				chain.Emit("Decision", "id", itoa(d.ID), "kind", d.Kind, "state", "deferred", "until", itoa(sp.holdAnchor+holdReplacementWait))
+				return
+			}
+			panic("ibcgov: decision " + itoa(id) + " is deferred: a guardian hold first deferred it on " + itoa(sp.holdAnchor) + ", until " + itoa(sp.holdAnchor+holdReplacementWait))
 		}
 	}
 	// One flag stops a route's payouts, governed ones included: a decision

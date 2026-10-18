@@ -543,9 +543,14 @@ func Flags(route string) []string {
 // vacate). held records the seats' holders when the decision was made: a
 // removal of a seat whose occupant changed since is skipped.
 type seatsParams struct {
-	seats []int
-	addrs []address
-	held  []address
+	// holdAnchor is the start of the hold that first deferred this decision
+	// once it was due (0 before): it executes from holdAnchor +
+	// holdReplacementWait whatever holds stand then, so a hold cleared and
+	// set again never moves its deadline.
+	holdAnchor int64
+	seats      []int
+	addrs      []address
+	held       []address
 }
 
 func (p *seatsParams) apply(cur realm, t int64) (string, string) {
