@@ -48,9 +48,10 @@ import (
 // 2 buffered, 3 duplicate, 4 conflict, 5 spent), or an error acknowledgement
 // (out of its window, a stale epoch, a forgery). A timeout, an error
 // acknowledgement of the current epoch, a malformed acknowledgement or
-// redispatch = 1 make the decision re-dispatchable: anyone then calls
-// Redispatch, which sends the same seq with identical bytes. A packet of a
-// past epoch is never sent again.
+// redispatch = 1 ask for the decision to be sent again; anyone may call
+// Redispatch, which sends the same seq with identical bytes in a fresh
+// packet, after any answer but a conflict (see Redispatch), a success
+// included. A packet of a past epoch is never sent again.
 //
 // The epoch moves in two phases (ADR pr6375 §7.12, "Governance epoch switch,
 // two-phase and authenticated"). A route replacement here retires the old
@@ -185,7 +186,7 @@ type dispatch struct {
 	body       []byte
 	decision   int64
 	status     uint8  // the last app acknowledgement's status, 0 before any
-	redispatch bool   // may be sent again (Redispatch)
+	redispatch bool   // the channel asked for it to be sent again (Redispatch takes it after any answer but a conflict)
 	inFlight   bool   // a packet is out and not yet acknowledged or timed out
 	transport  uint64 // the core sequence of the last packet sent
 	sends      int
@@ -676,10 +677,18 @@ func send(cur realm, d *dispatch) {
 		"kind", strconv.Itoa(int(d.kind)), "client", rec.client, "sequence", u64s(transportSeq))
 }
 
-// Redispatch sends decision (e, seq) again, with identical bytes, once the
-// channel made it re-dispatchable (a timeout, an error acknowledgement, a
-// malformed acknowledgement or redispatch = 1) and no packet of it is in
-// flight. Anyone may call it. A past epoch's decisions are never sent again.
+// Redispatch sends decision (e, seq) of the current epoch again, in a fresh
+// transport packet with identical bytes, whenever no packet of it is in
+// flight, whatever the channel answered before: a timeout, an error or
+// malformed acknowledgement, redispatch = 1, and a success too (recorded,
+// buffered, duplicate, spent), since a success acknowledgement may have
+// been forged by a compromised Ethereum-side verifier while the decision
+// never reached IBCAdmin. IBCAdmin deduplicates by seq and hash: the same
+// bytes at a seq it holds are a duplicate (status 3, redispatch 0), a no-op.
+// The one exception is a conflict acknowledged without redispatch = 1:
+// IBCAdmin re-flags itself on every conflict, so a free re-send would let
+// anyone keep it deferred. Anyone may call it. A past epoch's decisions are
+// never sent again.
 func Redispatch(cur realm, e uint32, seq uint64) {
 	d := dispatchOf(e, seq)
 	if d == nil {
@@ -688,7 +697,7 @@ func Redispatch(cur realm, e uint32, seq uint64) {
 	if e != epoch {
 		panic("ibcgov: epoch " + strconv.FormatUint(uint64(e), 10) + " is past: its decisions are never sent again")
 	}
-	if d.inFlight || !d.redispatch {
+	if d.inFlight || (d.status == StatusConflict && !d.redispatch) {
 		panic("ibcgov: decision " + u64s(seq) + " is not re-dispatchable (" + d.event + ")")
 	}
 	send(cur, d)
@@ -1079,6 +1088,14 @@ func (a *App) OnAcknowledgementPacket(cur realm, sourceClient, destinationClient
 		d.redispatch = current
 		d.event = "malformed acknowledgement"
 		chain.Emit("GovAck", "epoch", strconv.FormatUint(uint64(d.epoch), 10), "seq", u64s(d.seq), "status", "malformed")
+		return nil
+	}
+	// A duplicate answering a re-send of a decision already acknowledged
+	// otherwise changes nothing: the earlier status stands.
+	if status == StatusDuplicate && d.status != 0 && d.status != StatusDuplicate {
+		d.redispatch = current && redispatch
+		d.event = "acknowledged: duplicate of a decision " + statusWord(d.status)
+		chain.Emit("GovAck", "epoch", strconv.FormatUint(uint64(d.epoch), 10), "seq", u64s(d.seq), "status", statusWord(status))
 		return nil
 	}
 	d.status = status

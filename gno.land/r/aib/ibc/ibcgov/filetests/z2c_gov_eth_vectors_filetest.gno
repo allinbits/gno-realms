@@ -251,7 +251,7 @@ func main(cur realm) {
 // kind10-route : seq 9 status 1 redispatch false - acknowledged: recorded
 // kind11-settings-lengthen : seq 10 status 1 redispatch false - acknowledged: recorded
 // kind1-cancel : seq 11 status 1 redispatch false - acknowledged: recorded
-// duplicate-of-seq-1 : seq 1 status 3 redispatch false - acknowledged: duplicate
+// duplicate-of-seq-1 : seq 1 status 1 redispatch false - acknowledged: duplicate of a decision recorded
 // conflict-at-seq-1 : seq 1 status 4 redispatch false - acknowledged: conflict
 // buffered-seq-13 : seq 13 status 2 redispatch false - acknowledged: buffered
 // spent-unknown-kind : seq 12 status 5 redispatch false - acknowledged: spent

@@ -94,8 +94,10 @@ func show(seq uint64) {
 // the epoch's client as packets on port gov, each under a one-time dispatch
 // authorization; only the core calls the callbacks; an acknowledgement records
 // IBCAdmin's answer; a timeout, an error acknowledgement, a malformed one or
-// redispatch = 1 make the decision re-dispatchable, and Redispatch sends the
-// same seq with identical bytes.
+// redispatch = 1 ask for it again, and Redispatch sends the same seq with
+// identical bytes in a fresh packet after any answer but a conflict, a
+// success included (design review r5 #2: a success acknowledgement may be
+// forged); IBCAdmin's duplicate answer then changes nothing.
 func main(cur realm) {
 	client := core.CreateClient(cross(cur), ethtesting.ClientState(), ethtesting.ConsensusState())
 	core.RegisterCounterparty(cross(cur), client, [][]byte{{}}, "client-0")
@@ -130,10 +132,15 @@ func main(cur realm) {
 	testing.SetRealm(testing.NewCodeRealm("gno.land/r/aib/main"))
 	println("a governance packet received here:", res.Status == types.PacketStatus_Failure)
 
-	// Recorded: final, not re-dispatchable.
+	// Recorded: re-sent all the same, its bytes identical; IBCAdmin answers
+	// the duplicate, and the decision's state stands.
 	ackAsCore(cur, client, 1, appAck(1, 1, ibcgov.StatusRecorded, 0))
 	show(1)
-	println("redispatch a recorded decision:", revive(func() { ibcgov.Redispatch(cross(cur), 1, 1) }))
+	ibcgov.Redispatch(cross(cur), 1, 1)
+	show(1)
+	println("identical bytes:", string(ibcgov.DispatchBody(1, 1)) == string(body), "; transport", ibcgov.DispatchTransport(1, 1))
+	ackAsCore(cur, client, 1, appAck(1, 1, ibcgov.StatusDuplicate, 0))
+	show(1)
 
 	// Seq 2 times out: re-dispatchable; re-sent with identical bytes.
 	govern(cur, ibcgov.NewEthUnpauseRequest(cross(cur), 1, "client-0"))
@@ -182,10 +189,12 @@ func main(cur realm) {
 // foreign ack: ibcgov: the gov callbacks are the IBC core's, not gno.land/r/aib/main
 // a governance packet received here: true
 //   seq 1 status 1 redispatch false in flight false sends 1 - acknowledged: recorded
-// redispatch a recorded decision: ibcgov: decision 1 is not re-dispatchable (acknowledged: recorded)
-// redispatch in flight: ibcgov: decision 2 is not re-dispatchable (sent as packet 3)
+//   seq 1 status 1 redispatch false in flight true sends 2 - sent as packet 3
+// identical bytes: true ; transport 3
+//   seq 1 status 1 redispatch false in flight false sends 2 - acknowledged: duplicate of a decision recorded
+// redispatch in flight: ibcgov: decision 2 is not re-dispatchable (sent as packet 4)
 //   seq 2 status 0 redispatch true in flight false sends 1 - timed out
-//   seq 2 status 0 redispatch false in flight true sends 2 - sent as packet 4
+//   seq 2 status 0 redispatch false in flight true sends 2 - sent as packet 5
 // identical bytes: true ; new packet commitment: true
 //   seq 3 status 0 redispatch true in flight false sends 1 - error acknowledgement
 //   seq 4 status 1 redispatch true in flight false sends 1 - acknowledged: recorded, redispatch
