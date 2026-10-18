@@ -513,7 +513,23 @@ one a tombstone retains) is never retired
 for the gov port: when its route replacement executes here the core retires
 it for the transfer port only (`RetireClientPort`), so a decision in flight,
 the kind 10 among them, can still be re-sent and a later step's notice can
-still arrive. When a notice moves the epoch, the old epoch's client and
+still arrive. Every other client of the route whose identity the governance
+channel authenticates is kept open for the gov port too when its route
+replacement executes, though the graph does not hold it: the graph may
+have had no room for its transition while Ethereum moved on by honest
+recoveries, and a catch-up may need it as a prefix endpoint (its notice is
+addressed to it); it is retired for the transfer port only, and for the
+gov port only by an authenticated epoch switch passing it (one a switch
+passed already is retired for good at its replacement). Its open gov port
+is inert meanwhile: a notice over it needs an active transition approving
+it, and decisions go over the epoch client only. Clients of other Ethereum
+routes cannot carry the epoch (an approved local client must authenticate
+the governance route's identity), so their gov port does not matter and
+their replacement retires them for good (z9zzq: the graph full, Ethereum's
+A→B then B→X by a recovery the graph cannot record, the route here moved
+to B, X, then Y; X kept for governance through a prune; B's notice frees
+the graph, B→X is expected and X's notice completes the catch-up; z9zza: a
+replaced client on no path keeps its gov port). When a notice moves the epoch, the old epoch's client and
 the local clients of the path's intermediate steps (at most 63) are retired
 for governance (for good if their route replacement executed here,
 otherwise for the gov port, the replacement retiring the rest): the switch
@@ -622,7 +638,7 @@ saturates statistics no check reads. Audited:
 | `InFlight` (what the open sends may still owe: their amounts less what was refunded, an installment coming off at once), `Returning` (the in-flight burns' reservations), `QueuedRefunds` (refunds owed, the parked ones included), `Parked` (settled minted refunds owed), `ProvenOwed` (refunds a send of a retired client may still owe, reserved until its settlement: by a replacement's preparation, a success processed in the suspect interval and an escrowed send still pending; by a proof, a refund proven owed on a send a forged success released) | wide: each can genuinely pass 2^63 (coins escrowed or burned by an open send can be paid out by a claim and sent again while it is open), and no send, acknowledgement, timeout, settlement or proof is refused for it; kept exact beyond int64 (`wide`, two limbs), its int64 view saturating; the checks reading them bound what is reserved (`Reserved`, `booked`, a settlement's free escrow, computed exactly net of what its batch releases), so a saturated view only refuses more (`TestAggregatesNeverWrap`, `TestReturnAfterPartialRefund`) |
 | `Owed`, `Withheld`, `Swept` | checked as their sum at every credit (`liabilities`); moves between them must |
 | `Outstanding` | checked before every minted payout (a settlement's refund beyond a released reservation is parked when it would overflow: see §7.12 above): a sweep payment that would overflow it is refused whole, its entries kept (the decision spent); a claim installment and a queued refund installment are capped to the headroom, the remainder kept; an immediate refund that would not fit is queued (`TestMintedPayoutHeadroom`) |
-| `OpenUnrecovered`, `OpenUnresolved` (denom and incident): the outstanding loss balances | wide (exact beyond int64, views saturating: refunds paid and forged can pass 2^63 in total, and a minted denom has no recapitalization to free capacity), so no loss, void or settlement is refused for them (`TestLossLedgerBeyondInt64`: three losses of MaxInt64/2 settled, then the reopening accepts them all); each booking, payment and reduction is an int64; a reopening accepts an incident's whole unresolved balance at once (`acceptAll`); a recovery (a paid recapitalization, a reduction: `recover`) takes off `OpenUnrecovered`, and off `OpenUnresolved` as far as it remains; an accepted deficit (`accept`) takes off `OpenUnresolved` only |
+| `OpenUnrecovered`, `OpenUnresolved` (denom and incident): the outstanding loss balances | wide (exact beyond int64, views saturating: refunds paid and forged can pass 2^63 in total, and a minted denom has no recapitalization to free capacity), so no loss, void or settlement is refused for them (`TestLossLedgerBeyondInt64`: three losses of MaxInt64/2 settled, then the reopening accepts them all); each booking, payment and reduction is an int64; a reopening accepts an incident's whole unresolved balance at once (`acceptAll`); a recovery (a paid recapitalization, a reduction: `recover`) takes off `OpenUnrecovered`, and off `OpenUnresolved` as far as it remains; an accepted deficit (`accept`) takes off `OpenUnresolved` only; what remains for recapitalization (`recapitalizable`) and the room a reduction leaves its incident's authorizations (`revokeConflicting`) are computed from the exact balance and an exact total of the open authorizations, never from a saturated view, which would understate the remainder (`TestReductionBeyondInt64KeepsAuthorization`: reductions of an open claim, a withheld claim and an owed sweep against losses past int64 keep a fitting authorization payable; `TestRecapitalizableBeyondInt64`). Elsewhere a saturated view is only subtracted from (a lock less what is reserved), which can only refuse more |
 | `Lost`, `Recapitalized`, `Reduced`, `Accepted` (denom and incident): lifetime totals | stat (saturating), never read by a check |
 | a settlement's releases of queued refunds and proven reservations | wide (a batch may release more than int64 holds), the remaining reservation saturated only at the end; its claims' releases are within `Owed` or `Withheld` (`TestSettlementReleasesBeyondInt64`) |
 | a settlement's payments | only the refunds paid now, per denom: the escrowed ones take that denom's free escrow once the batch applies, in item order, the minted ones its room left for minting, each int64 and decreasing with each payment, so the payments of each denom never pass that denom's int64 capacity (a batch of several denoms has no combined int64 bound, and none is needed: each denom is paid and checked on its own, `payable` summing per denom); one that does not fit is parked, no payment, adding nothing, and the settlement is never refused for it (`TestMintedRefundsBeyondInt64`, `TestSettlementReserveBeyondMaxInt64`) |

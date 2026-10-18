@@ -373,6 +373,16 @@ Ethereum client carries nothing until a decision makes it a route.
    5. Relay the notice afresh (IBCAdmin resends it in a fresh packet) once
       the expectation is active; the switch clears the tombstones it
       supersedes.
+   6. If Ethereum moved further than the graph can hold (honest recoveries
+      past its 64 places), keep following its clients with route
+      replacements as usual: a replaced client of the governance route that
+      the graph does not hold keeps its gov port (only the transfer port is
+      retired), so it can still carry its notice later. Apply the furthest
+      prefix the graph holds (step 5): the switch frees the places behind
+      it. Then record the next transitions (`NewExpectRecoveryRequest`, 7
+      days each, naming the kept clients), relay their notices afresh, and
+      repeat until gno reaches Ethereum's epoch. Run
+      `ibcgov.PruneGovRetirements(64)` after each switch.
 
    Residuals (ADR 0004 known limits): a forged notice applied by a
    compromised approved local client, or a local client kept Active by
