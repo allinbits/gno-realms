@@ -30,7 +30,11 @@ is never freed.
   `NewRejectAppProposalRequest`, see the Authority section). Pending
   registrations claim no port, so they can
   neither block a trusted app nor be approved once the port is taken.
-  `IsAppPending(portID, pkgPath)` and `/r/aib/ibc/core:apps/pending` report them.
+  `IsAppPending(portID, pkgPath)` and `/r/aib/ibc/core:apps/pending` report them;
+  the listing shows only the first 100 pending registrations, with no
+  pagination, and the full count apart, so a registration missing from it
+  is not shown absent: ask `IsAppPending(portID, pkgPath)` for a particular
+  one.
 
 Emitted events: `app_registered`, `app_registration_pending`, `app_approved`,
 `app_rejected`, with `port` and `pkg_path` attributes.

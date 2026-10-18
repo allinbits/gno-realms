@@ -332,7 +332,13 @@ dispatched) and keeps its clients open for governance; an intent records
 the expectation decisions that own it, and goes only when the last of them
 is refused, spent or cancelled, never once active (z9zzd: two kind 10s for
 one transition, one cancelled; a kind 10 and a recovery expectation for
-one transition). The graph holds at most 64 transitions, pending, active
+one transition). The 64 places below bound transition tuples, not their
+owners: recording an expectation for a transition already pending reuses
+its place and appends its decision to the owner list, so that list, and
+the ownership checks and releases that scan it, grow with duplicate
+recordings of one transition, each a governance decision (a kind 10 or a
+recovery expectation, recorded by the governor). The graph holds at most
+64 transitions, pending, active
 and tombstoned together (`maxLive`, one joint budget: a chain of 64 steps,
 or 16 steps of 4 competing successors; tombstones below): a dispatch or
 recovery expectation of a brand-new transition that would pass it is
@@ -592,8 +598,11 @@ acknowledgement is `epoch u32 ‖ seq u64 (0) ‖ status u8 ‖ redispatch u8
 epoch switched to already (a re-send). Anything else is refused with the
 universal error acknowledgement; a notice whose transition is not expected
 yet is refused, and IBCAdmin sends it again. Until a notice arrives ibcgov
-never sends with a later epoch, so the two sides cannot disagree about the
-current epoch.
+never sends with a later epoch. gno.land may lag Ethereum: it advances
+only when it accepts a one-step notice or a recorded one is applied, so
+Ethereum's epoch is at or ahead of gno.land's (never behind, short of the
+forged-notice residual in Known limits), and gno.land moves to it by
+notices (the catch-up above).
 `seq` is bound in the transaction that records and dispatches the decision, so
 numbers are contiguous, never reused or skipped, and their bytes immutable.
 Each send is authorized once (client, epoch, seq, payload hash), consumed in
@@ -954,7 +963,17 @@ does not list before it.
   void every forged remainder (a void as forged, or a forged-receive
   settlement, action 5, for one that paid out, booking the paid amount
   once) before reopening or clearing containment: a hard precondition of
-  the runbook's incident drill (steps 7, 11 and 12).
+  the runbook's incident drill (steps 7, 11 and 12), covering every client
+  in the route's `replaced` history with its own suspect height, not only
+  those `ReopenBlockers` lists. The evidence is off-chain: the router's
+  packet commitment is deleted by the source acknowledgement, so its
+  absence is inconclusive, and the source of truth is the Ethereum
+  transfer app's retained send record (`GnoICS20Transfer.sendRecord`,
+  kept for good), whose commitment must equal `CommitPacket` of the
+  received packet, itself matched to the gno.land receipt. gno.land's
+  Ethereum client verifies only the router's storage
+  (`IBCContractAddress`), so governance judges that record on evidence
+  from an Ethereum node trusted independently of the incident.
 - **The parent's surplus sweep has no shipped operation** (ADR pr6375 lets
   governance sweep escrow surplus): `NewSweepRequest` pays only live,
   packet-keyed sweep entries (`PaySweeps`), within the accounted free

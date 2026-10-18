@@ -590,14 +590,43 @@ characters of `a-z`, `0-9`, `-`).
    way. Receives of `OLD` whose claims or sweep entries paid out and that
    the router never sent are the forged receives (claims and sweeps pages).
    **Every suspect receive entitlement, paid or not, is part of the
-   reconciliation**: list every claim of `OLD` (open, withheld or done) and
-   every sweep entry of `OLD` (paid or unpaid) from
+   reconciliation, for every client the route ever retired**, not only
+   those `ReopenBlockers(R)` lists (that index tracks send records only):
+   take the route's retired clients from the `replaced` list of
+   `Render("routes/R")` (every client a replacement retired, in order), and
+   for each client `X` its own suspect height (`SuspectFrom(R, X)` on the
+   controls reader). List every claim of `X` (open, withheld or done) and
+   every sweep entry of `X` (paid or unpaid) from
    `Render("routes/R/claims?from=<next>")` and `.../sweeps?from=<next>`
-   (keys `OLD/…`), the receives at or after `suspectFrom` (and any earlier
-   one in doubt), and authenticate each against the router's commitment
-   through `NEW` (its packet commitment, sent or not). Each one the router
-   never sent is forged, and its remainder must go before the route
-   reopens or containment is cleared:
+   (keys `X/…`), the receives at or after its suspect height (and any
+   earlier one in doubt), and authenticate each one:
+   1. Get the received packet's bytes `P` (its `MsgRecvPacket` in the
+      gno.land transaction that received it, from a node or explorer that
+      keeps the chain's history) and check that it is the packet gno.land
+      received at that sequence: `types.CommitPacketReceipt(P)` equals
+      `core.PacketReceipt(X, seq)`.
+   2. On Ethereum, read the transfer app's retained send record of that
+      sequence, `GnoICS20Transfer.sendRecord(sourceClient, seq)` (the
+      packet's source client on the router), from an Ethereum archive or
+      full node trusted independently of the incident (an `eth_call`, or
+      `eth_getProof` of the record's storage slot against a finalized
+      block's state root the operators authenticate themselves), and check
+      its `commitment` equals `types.CommitPacket(P)`. The transfer app
+      keeps every send record for good (no code path deletes one), so the
+      record outlives the router commitment.
+   3. A matching record is a genuine entitlement; no record at that
+      sequence (a zero commitment), or one of another packet, is a forged
+      one. The router's live packet commitment is no evidence either way:
+      the source acknowledgement deletes it, so its absence is
+      inconclusive, never proof of forgery. Evidence that cannot be
+      obtained leaves the entitlement unresolved: the route stays closed.
+   This procedure is off-chain: gno.land's Ethereum client verifies proofs
+   of the router's storage only (`IBCContractAddress`, fixed at its
+   creation), not of the transfer app's, so the record is judged by
+   governance on evidence from that independently trusted node, which is
+   the trust assumption of this step.
+   Each forged one's remainder must go before the route reopens or
+   containment is cleared:
    - unpaid or withheld (`paid` 0): void it as forged
      (`NewVoidRequest(R, keys, true, INC)`, at once while a guardian's
      `payouts` flag names it), which drops the remainder;
