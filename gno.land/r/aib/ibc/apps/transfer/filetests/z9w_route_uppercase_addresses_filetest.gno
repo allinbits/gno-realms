@@ -65,7 +65,10 @@ func execute(cur realm, id int64) {
 func setupRoute(cur realm) string {
 	clientID := core.CreateClient(cross(cur), ethtesting.ClientState(), ethtesting.ConsensusState())
 	core.RegisterCounterparty(cross(cur), clientID, [][]byte{{}}, "client-0")
-	execute(cur, govern(cur, ibcgov.NewEnrollRouteRequest(cross(cur), clientID, string(collector), bridge)))
+	// The bridge contracts and the fee collector spelled in uppercase: the
+	// route stores them in lowercase.
+	execute(cur, govern(cur, ibcgov.NewEnrollRouteRequest(cross(cur), clientID, strings.ToUpper(string(collector)),
+		"0x1D95D544586EACB63B6154E9E45122B32DED11AA 0x00000000000000000000000000000000000B0002 0x00000000000000000000000000000000000B0003")))
 	advance(7*24*time.Hour + time.Second) // keeps the timeline of the goldens
 	return clientID
 }
@@ -178,14 +181,10 @@ func main(cur realm) {
 	ibcgov.ClearFlag(cross(cur), route, ibcgov.FnRefunds)
 	testing.SetRealm(testing.NewCodeRealm("gno.land/r/aib/main"))
 
-	// The bridge contracts of an enrolment, spelled in uppercase.
-	other := core.CreateClient(cross(cur), ethtesting.ClientState(), ethtesting.ConsensusState())
-	core.RegisterCounterparty(cross(cur), other, [][]byte{{}}, "client-0")
-	execute(cur, govern(cur, ibcgov.NewEnrollRouteRequest(cross(cur), other, strings.ToUpper(string(collector)),
-		"0x1D95D544586EACB63B6154E9E45122B32DED11AA 0x00000000000000000000000000000000000B0012 0x00000000000000000000000000000000000B0013")))
-	page := transfer.Render("routes/" + other)
-	println("protected, lowercase:", strings.Contains(page, `"0x1d95d544586eacb63b6154e9e45122b32ded11aa router"`),
-		"| fee collector:", strings.Contains(page, `"fee_collector":"`+string(collector)+`"`))
+	// The bridge contracts of the enrolment, spelled in uppercase (one
+	// Ethereum route per governance channel: the route's own enrolment).
+	page := transfer.Render("routes/" + route)
+	println("protected, lowercase:", strings.Contains(page, `"0x1d95d544586eacb63b6154e9e45122b32ded11aa router"`))
 
 	// The admin builders' addresses too.
 	execute(cur, govern(cur, ibcgov.NewCoreAddRelayerRequest(cross(cur), strings.ToUpper(string(bob)))))
@@ -202,5 +201,5 @@ func main(cur realm) {
 // fee collector is alice: true
 // seat 0: true
 // flagged by its holder: true
-// protected, lowercase: true | fee collector: true
+// protected, lowercase: true
 // relayer: true | core member: true | transfer member: true

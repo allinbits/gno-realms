@@ -210,7 +210,7 @@ func main(cur realm) {
 }
 
 // Output:
-// bind an unenrolled client: ibcgov: ethereum-1 is not the current client of an enrolled route
+// bind an unenrolled client: ibcgov: ethereum-1 is not the current client of the enrolled route
 // route client: Expired
 // bind over an expired client: spent - spent: ethereum-2 is not Active | epoch 0
 // bind over the route's current client: applied - governance epoch 1 over ethereum-3 | epoch 1 over true

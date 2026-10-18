@@ -72,7 +72,7 @@ func (p *routeParams) apply(cur realm, t int64) (string, string) {
 		if identity, refusal = enrolIdentity(p.p.Route, p.p.Keys[0]); refusal != "" {
 			return "", refusal
 		}
-		if refusal = checkEnrolScope(identity); refusal != "" {
+		if refusal = checkOneRoute(); refusal != "" {
 			return "", refusal
 		}
 	}
@@ -214,17 +214,19 @@ func enrolIdentity(client, router string) (string, string) {
 	return identity, ""
 }
 
-// checkEnrolScope is why a route of identity cannot be enrolled, or "": one
-// governance channel serves one Ethereum deployment (its chain, router and
-// commitments slot: the identity the channel was bound over), whose
-// IBCAdmin alone can replace, settle and reopen the Ethereum side of a
-// route. Once the channel is bound, a route of another identity would have
-// no Ethereum governance or recovery path, so it is refused; a second
-// deployment needs an ibcgov of its own. Before the binding any identity
-// enrols, and the binding refuses unless every route shares its identity.
-func checkEnrolScope(identity string) string {
-	if epoch != 0 && identity != govIdentity {
-		return "the governance channel serves the Ethereum deployment " + quoteIdentity(govIdentity) + ", not " + quoteIdentity(identity) + ": a route of another deployment would have no Ethereum governance"
+// checkOneRoute is why another Ethereum route cannot be enrolled, or "":
+// one governance channel serves one logical Ethereum transfer route, ever.
+// IBCAdmin replaces, recovers, settles and reopens only the route of the
+// client it governs over (its kind 10 and emergency recovery name that
+// client), so a second route would have no Ethereum replacement or
+// recovery path. The first enrolment fixes the route's key and its
+// deployment's identity; replacements keep both. Several routes, or a
+// second deployment, need a further ibcgov and Ethereum-side support,
+// neither shipped. Checked when an enrolment is requested and again when it
+// executes, so of two requested together only the first applies.
+func checkOneRoute() string {
+	if routes.Size() > 0 {
+		return "the governance channel serves one Ethereum route, enrolled already: a second route would have no Ethereum replacement or recovery path"
 	}
 	return ""
 }
@@ -329,13 +331,12 @@ func NewEnrollRouteRequest(cur realm, clientID, feeCollector, bridge string) Req
 	if routes.Has(clientID) {
 		panic("ibcgov: " + clientID + " is a route already")
 	}
+	if refusal := checkOneRoute(); refusal != "" {
+		panic("ibcgov: " + refusal)
+	}
 	fc := mustCollector(feeCollector)
 	b := mustBridge(bridge)
-	identity, refusal := enrolIdentity(clientID, b[0])
-	if refusal == "" {
-		refusal = checkEnrolScope(identity)
-	}
-	if refusal != "" {
+	if _, refusal := enrolIdentity(clientID, b[0]); refusal != "" {
 		panic("ibcgov: " + refusal)
 	}
 	text := "enroll route " + clientID + " with fee collector " + string(fc) + " and bridge contracts " + bridgeText(b)
@@ -783,23 +784,9 @@ func checkBindClient(client string) string {
 	if !ok {
 		return client + " is no route's client: no transfer controls"
 	}
-	k := rd.RouteOf(client)
-	if k == "" || !routes.Has(k) || rd.Client(k) != client {
-		return client + " is not the current client of an enrolled route"
-	}
-	// One channel serves one deployment: every enrolled route must share
-	// the identity it binds over (see checkEnrolScope). Bounded by the
-	// routes enrolled before the one-time binding.
-	want, other := RouteIdentity(k), ""
-	routes.Iterate("", "", func(key string, v any) bool {
-		if v.(*routeRec).identity != want {
-			other = key
-			return true
-		}
-		return false
-	})
-	if other != "" {
-		return "route " + other + " authenticates another Ethereum deployment than " + k + ": one governance channel serves one deployment"
+	// The one enrolled route's current client (checkOneRoute).
+	if k := rd.RouteOf(client); k == "" || !routes.Has(k) || rd.Client(k) != client {
+		return client + " is not the current client of the enrolled route"
 	}
 	return ""
 }
