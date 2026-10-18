@@ -189,6 +189,7 @@ type dispatch struct {
 	redispatch bool   // the channel asked for it to be sent again (Redispatch takes it after any answer but a conflict)
 	inFlight   bool   // a packet is out and not yet acknowledged or timed out
 	transport  uint64 // the core sequence of the last packet sent
+	retransmit bool   // a governed, single-use authorization to re-send it after a conflict (NewRetransmitRequest)
 	sends      int
 	event      string // the last thing that happened, in words
 }
@@ -753,7 +754,8 @@ func send(cur realm, d *dispatch) {
 // bytes at a seq it holds are a duplicate (status 3, redispatch 0), a no-op.
 // The one exception is a conflict acknowledged without redispatch = 1:
 // IBCAdmin re-flags itself on every conflict, so a free re-send would let
-// anyone keep it deferred. Anyone may call it. A past epoch's decisions are
+// anyone keep it deferred; it is re-sent once per governed authorization
+// (NewRetransmitRequest), which this call uses up. Anyone may call it. A past epoch's decisions are
 // never sent again.
 func Redispatch(cur realm, e uint32, seq uint64) {
 	d := dispatchOf(e, seq)
@@ -763,8 +765,11 @@ func Redispatch(cur realm, e uint32, seq uint64) {
 	if e != epoch {
 		panic("ibcgov: epoch " + strconv.FormatUint(uint64(e), 10) + " is past: its decisions are never sent again")
 	}
-	if d.inFlight || (d.status == StatusConflict && !d.redispatch) {
+	if d.inFlight || (d.status == StatusConflict && !d.redispatch && !d.retransmit) {
 		panic("ibcgov: decision " + u64s(seq) + " is not re-dispatchable (" + d.event + ")")
+	}
+	if d.status == StatusConflict && !d.redispatch {
+		d.retransmit = false // used once: another re-send needs another decision
 	}
 	send(cur, d)
 }
@@ -1621,6 +1626,59 @@ func checkRemove(from, to, local string) string {
 		return "a notice proven over " + c + " may need the transition: apply it or let it lapse first"
 	}
 	return ""
+}
+
+// retransmitParams authorizes one re-send of a conflicted dispatch.
+type retransmitParams struct {
+	e   uint32
+	seq uint64
+}
+
+// checkRetransmit is why dispatch (e, seq) cannot be authorized for a
+// re-send after a conflict, or "".
+func checkRetransmit(e uint32, seq uint64) string {
+	d := dispatchOf(e, seq)
+	switch {
+	case d == nil:
+		return "no dispatched decision " + strconv.FormatUint(uint64(e), 10) + "/" + u64s(seq)
+	case e != epoch:
+		return "epoch " + strconv.FormatUint(uint64(e), 10) + " is past: its decisions are never sent again"
+	case d.status != StatusConflict || d.redispatch:
+		return "decision " + u64s(seq) + " was not answered with a conflict that bars a re-send (" + d.event + ")"
+	case d.retransmit:
+		return "decision " + u64s(seq) + " is authorized for a re-send already"
+	}
+	return ""
+}
+
+func (p *retransmitParams) apply(cur realm, t int64) (string, string) {
+	if refusal := checkRetransmit(p.e, p.seq); refusal != "" {
+		return "", refusal
+	}
+	d := dispatchOf(p.e, p.seq)
+	d.retransmit = true
+	d.event += "; one re-send authorized"
+	return "authorize one re-send of epoch " + strconv.FormatUint(uint64(p.e), 10) + " seq " + u64s(p.seq) + ": anyone calls Redispatch", ""
+}
+
+// NewRetransmitRequest authorizes, at once, one re-send of dispatch (e,
+// seq) of the current epoch that IBCAdmin answered with a conflict and no
+// redispatch, whose re-send Redispatch otherwise refuses (ADR 0004: a
+// deliberate addition to ADR pr6375 §5.4). Governance decides it after
+// checking on Ethereum that the conflict was fabricated: IBCAdmin holds no
+// decision at that seq, or holds these very bytes, and emitted no Conflict
+// for it. It is no loosening: the bytes are immutable and IBCAdmin
+// deduplicates them, so the re-send records the decision if it was never
+// delivered and is answered duplicate if it was. It is used up by one
+// Redispatch; another needs another decision.
+func NewRetransmitRequest(cur realm, e uint32, seq uint64) Request {
+	if refusal := checkRetransmit(e, seq); refusal != "" {
+		panic("ibcgov: " + refusal)
+	}
+	text := "authorize one re-send of the conflicted governance dispatch, epoch " + strconv.FormatUint(uint64(e), 10) + " seq " + u64s(seq)
+	return propose(cur, "retransmit", text, func(cur realm, made, t int64) {
+		decide(cur, "retransmit", text, &retransmitParams{e: e, seq: seq}, made, t, false)
+	})
 }
 
 // NewRemoveExpectationRequest removes, at once, the active expected

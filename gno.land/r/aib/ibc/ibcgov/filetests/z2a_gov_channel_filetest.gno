@@ -172,6 +172,19 @@ func main(cur realm) {
 	ackAsCore(cur, client, 5, appAck(1, 5, ibcgov.StatusConflict, 0))
 	show(5)
 	println("redispatch after a conflict:", revive(func() { ibcgov.Redispatch(cross(cur), 1, 5) }))
+	// A conflict governance found fabricated (IBCAdmin holds no decision at
+	// seq 5, or these very bytes, and emitted no Conflict): one re-send is
+	// authorized at once, used up by the next Redispatch.
+	println("authorize a re-send of seq 4:", revive(func() { govern(cur, ibcgov.NewRetransmitRequest(cross(cur), 1, 4)) }))
+	auth := govern(cur, ibcgov.NewRetransmitRequest(cross(cur), 1, 5))
+	d, _ := ibcgov.Decision(auth)
+	println("authorize a re-send of seq 5:", d.State(), "-", d.Note)
+	println("authorize it twice:", revive(func() { govern(cur, ibcgov.NewRetransmitRequest(cross(cur), 1, 5)) }))
+	ibcgov.Redispatch(cross(cur), 1, 5)
+	show(5)
+	ackAsCore(cur, client, 5, appAck(1, 5, ibcgov.StatusConflict, 0))
+	show(5)
+	println("a second re-send without a new authorization:", revive(func() { ibcgov.Redispatch(cross(cur), 1, 5) }))
 
 	// A buffered decision waits for its turn on Ethereum: nothing to do here.
 	govern(cur, ibcgov.NewEthRouteSettingsRequest(cross(cur), "client-0", 10800))
@@ -201,5 +214,11 @@ func main(cur realm) {
 //   seq 5 status 0 redispatch true in flight false sends 1 - malformed acknowledgement
 //   seq 5 status 4 redispatch false in flight false sends 2 - acknowledged: conflict
 // redispatch after a conflict: ibcgov: decision 5 is not re-dispatchable (acknowledged: conflict)
+// authorize a re-send of seq 4: ibcgov: decision 4 was not answered with a conflict that bars a re-send (acknowledged: recorded, redispatch)
+// authorize a re-send of seq 5: applied - authorize one re-send of epoch 1 seq 5: anyone calls Redispatch
+// authorize it twice: ibcgov: decision 5 is authorized for a re-send already
+//   seq 5 status 4 redispatch false in flight true sends 3 - sent as packet 10
+//   seq 5 status 4 redispatch false in flight false sends 3 - acknowledged: conflict
+// a second re-send without a new authorization: ibcgov: decision 5 is not re-dispatchable (acknowledged: conflict)
 //   seq 6 status 2 redispatch false in flight false sends 1 - acknowledged: buffered
 // unknown decision: ibcgov: no dispatched decision 1/99
