@@ -199,6 +199,9 @@ func main(cur realm) {
 	first := govern(cur, ibcgov.NewReplaceVerifierRequest(cross(cur), client, ethtesting.NextVersion))
 	execute(cur, first)
 	println("first conversion:", decided(first), "| verifier", core.VerifierVersion(client), "| proves the receipt:", proves())
+	// A pre-conversion slot renders at revision 0 only (code review r47 #2).
+	println("  slot 72 rendered at revision 0:", !strings.Contains(core.Render("clients/"+client+"/consensus_states/0/72"), "not found"),
+		"| at revision 1:", !strings.Contains(core.Render("clients/"+client+"/consensus_states/1/72"), "not found"))
 
 	for _, to := range []string{ethtesting.RewriteVersion, ethtesting.RewritePanicVersion} {
 		gen := core.ClientTrustGeneration(client)
@@ -215,6 +218,7 @@ func main(cur realm) {
 
 // Output:
 // first conversion: applied - core migrate client: route ethereum-1's meters emptied | verifier ethereum/testing-next | proves the receipt: true
+//   slot 72 rendered at revision 0: true | at revision 1: false
 // ethereum/testing-rewrite: spent - spent: the conversion returned no verifier
 //   proves the receipt: true | state unchanged: true | trust generation unchanged: true | payouts epoch unchanged: true
 // ethereum/testing-rewrite-panic: spent - spent: the converted verifier failed its checks: rewrote a root

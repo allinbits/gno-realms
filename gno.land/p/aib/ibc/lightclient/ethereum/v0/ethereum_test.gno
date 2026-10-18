@@ -523,6 +523,17 @@ func TestNewFromAfterOverlayKeepsHistory(t *testing.T) {
 		if v2.HistoryDepth() != depth {
 			t.Fatalf("advance %v: history holds %d stores", advance, v2.HistoryDepth())
 		}
+		// A height of another revision holds nothing, whichever store its
+		// slot would be read from: no state, no timestamp (code review r47
+		// #2; the core's render reads GetConsensusState too).
+		for _, slot := range []uint64{base.Slot, head, later} {
+			if _, ok := v2.GetConsensusState(types.NewHeight(1, slot)); ok {
+				t.Fatalf("advance %v: slot %d served at revision 1", advance, slot)
+			}
+			if _, err := v2.TimestampAtHeight(types.NewHeight(1, slot)); err == nil {
+				t.Fatalf("advance %v: a timestamp at revision 1, slot %d", advance, slot)
+			}
+		}
 		// A third replacement keeps them all.
 		v3 := NewFrom(Retire(v2))
 		if got, ok := v3.GetConsensusState(heightAtSlot(head)); !ok || got.NextSyncCommittee == nil || got.NextSyncCommittee.PubkeysHash[0] != 7 {

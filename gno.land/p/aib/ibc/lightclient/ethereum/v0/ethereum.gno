@@ -908,9 +908,12 @@ func (c *EthLightClient) setConsensusState(cons *ConsensusState) {
 }
 
 // GetConsensusState returns the consensus state at height, if any and still
-// trusted: one below TrustedFromSlot, from before a recovery, is not.
+// trusted: one below TrustedFromSlot, from before a recovery, is not. An
+// Ethereum height is revision 0 and a slot: any other revision holds none,
+// whatever store (the client's own, the overrides, the history) would be
+// read for its slot.
 func (c *EthLightClient) GetConsensusState(height types.Height) (*ConsensusState, bool) {
-	if height.RevisionHeight < c.TrustedFromSlot {
+	if height.RevisionNumber != 0 || height.RevisionHeight < c.TrustedFromSlot {
 		return nil, false
 	}
 	v := c.ConsensusStateByHeight.Get(height.StringNatSort())
