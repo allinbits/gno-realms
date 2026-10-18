@@ -1689,3 +1689,57 @@ func TestEscrowRefundParksThroughReopen(t *testing.T) {
 		t.Fatalf("the parked refund was not paid: %v %+v", err, ps)
 	}
 }
+
+// The route-wide blocker check after repeated replacements (design review r4
+// #2): A → B → C, each retired client with an open send. Every blocker is
+// listed with its own suspect height until its records are settled, B's
+// first, A's after, proven through C; then the reopening applies.
+func TestReopenBlockersAcrossReplacements(t *testing.T) {
+	r, rt := newRoute(t)
+	rd := Reader{r: r}
+	rt.RecordSend(sendRec(1, "ugnot", KindUnescrow, 100))
+	replaceReady(r, "ethereum-1", "ethereum-2", 7, 1000)
+	b := sendRec(1, "ugnot", KindUnescrow, 100)
+	b.Packet.SourceClient = "ethereum-2"
+	b.Commitment = types.CommitPacket(b.Packet)
+	b.Key = PacketKey("ethereum-2", 1)
+	if err := rt.RecordSend(b); err != nil {
+		t.Fatal(err)
+	}
+	replaceReady(r, "ethereum-1", "ethereum-3", 1500, 2000)
+	if got := rd.ReopenBlockers("ethereum-1"); strings.Join(got, ",") != "ethereum-1,ethereum-2" {
+		t.Fatalf("blockers %v", got)
+	}
+	if h, ok := rd.SuspectFrom("ethereum-1", "ethereum-1"); !ok || h != 7 {
+		t.Fatalf("A's suspect height %d %v", h, ok)
+	}
+	if h, ok := rd.SuspectFrom("ethereum-1", "ethereum-2"); !ok || h != 1500 {
+		t.Fatalf("B's suspect height %d %v", h, ok)
+	}
+	if _, ok := rd.SuspectFrom("ethereum-1", "ethereum-3"); ok {
+		t.Fatalf("the current client has a suspect height")
+	}
+	if rd.OpenSends("ethereum-1", "ethereum-2") != 1 {
+		t.Fatalf("B's open sends")
+	}
+	rt.send(PacketKey("ethereum-2", 1)).Proven = ProvenDelivered
+	if _, err := rt.SettleRecords("ethereum-2", []SettleItem{{Seq: 1, Action: SettleDelivered}}, "inc-b", lockOf(big), activeAll); err != nil {
+		t.Fatal(err)
+	}
+	if got := rd.ReopenBlockers("ethereum-1"); strings.Join(got, ",") != "ethereum-1" {
+		t.Fatalf("after B's settlement: %v", got)
+	}
+	if _, _, err := rt.Reopen(); err == nil {
+		t.Fatalf("reopened with A's record open")
+	}
+	rt.send(pk(1)).Proven = ProvenDelivered
+	if _, err := rt.SettleRecords("ethereum-1", []SettleItem{{Seq: 1, Action: SettleDelivered}}, "inc-a", lockOf(big), activeAll); err != nil {
+		t.Fatal(err)
+	}
+	if got := rd.ReopenBlockers("ethereum-1"); len(got) != 0 {
+		t.Fatalf("after A's settlement: %v", got)
+	}
+	if _, done, err := rt.Reopen(); err != nil || !done {
+		t.Fatalf("reopen: %v", err)
+	}
+}

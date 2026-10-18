@@ -73,6 +73,32 @@ func (rd Reader) SuspectUnsettled(route, clientID string) int64 {
 	return 0
 }
 
+// ReopenBlockers is every retired client still blocking the route's
+// reopening (see Route.ReopenBlockers): empty when the reopening may apply.
+func (rd Reader) ReopenBlockers(route string) []string {
+	if rt := rd.route(route); rt != nil {
+		return rt.ReopenBlockers()
+	}
+	return nil
+}
+
+// SuspectFrom is the suspect height recorded when a replacement retired
+// clientID from the route, and whether one did.
+func (rd Reader) SuspectFrom(route, clientID string) (int64, bool) {
+	if rt := rd.route(route); rt != nil {
+		return rt.SuspectFrom(clientID)
+	}
+	return 0, false
+}
+
+// OpenSends is how many send records of clientID on the route are open.
+func (rd Reader) OpenSends(route, clientID string) int64 {
+	if rt := rd.route(route); rt != nil {
+		return rt.OpenSends(clientID)
+	}
+	return 0
+}
+
 // LossClosed reports whether a route takes no new exposure because a loss
 // has no restoring decision (see Route.ExposureClosed).
 func (rd Reader) LossClosed(route string) bool {

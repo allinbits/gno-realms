@@ -216,6 +216,28 @@ func (rt *Route) SuspectUnsettled(clientID string) int64 {
 	return int64(ps.root.Size() - below)
 }
 
+// ReopenBlockers is every retired client of the route that still blocks
+// its reopening (a record open, or one processed in its suspect interval
+// and not settled), in client id order: the route-wide check before a
+// reopening, whatever the number of replacements.
+func (rt *Route) ReopenBlockers() []string {
+	var out []string
+	rt.blocking.Iterate("", "", func(k string, _ any) bool {
+		out = append(out, k)
+		return false
+	})
+	return out
+}
+
+// SuspectFrom is the suspect height the replacement retiring clientID
+// recorded, and whether a replacement retired it from the route.
+func (rt *Route) SuspectFrom(clientID string) (int64, bool) {
+	if v := rt.suspect.Get(clientID); v != nil {
+		return v.(int64), true
+	}
+	return 0, false
+}
+
 // OpenSends is how many send records of clientID are still open.
 func (rt *Route) OpenSends(clientID string) int64 {
 	if v := rt.openSends.Get(clientID); v != nil {
