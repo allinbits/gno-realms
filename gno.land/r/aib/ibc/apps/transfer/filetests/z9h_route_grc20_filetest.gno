@@ -226,6 +226,22 @@ func main(cur realm) {
 	core.RegisterImpl(cross(cur), ctorC, "v9y", nil)
 	testing.SetRealm(testing.NewCodeRealm("gno.land/r/aib/main"))
 	println("  the core one now: registered", listed(core.RegisteredImplPaths(), laterC))
+
+	// After many registrations the builder still refuses a registered
+	// implementation as collector, by a keyed lookup of each proxy's address
+	// index (code review r53 #2).
+	for i := 0; i < 40; i++ {
+		p := "gno.land/r/aib/ibc/apps/transfer/impl/v5" + strconv.Itoa(10+i)
+		testing.SetRealm(testing.NewCodeRealm(p))
+		transfer.RegisterImpl(cross(cur), ctorT, "v5"+strconv.Itoa(10+i), nil, true)
+	}
+	testing.SetRealm(testing.NewCodeRealm("gno.land/r/aib/main"))
+	println("collector the 40th of 40 later registrations:", revive(func() {
+		govern(cur, ibcgov.NewSetFeeCollectorRequest(cross(cur), route, string(chain.PackageAddress("gno.land/r/aib/ibc/apps/transfer/impl/v549"))))
+	}))
+	println("collector the core one:", revive(func() {
+		govern(cur, ibcgov.NewSetFeeCollectorRequest(cross(cur), route, string(chain.PackageAddress(laterC))))
+	}))
 }
 
 // Output:
@@ -249,3 +265,5 @@ func main(cur realm) {
 //   the transfer one now: registered true
 // collector back: applied
 //   the core one now: registered true
+// collector the 40th of 40 later registrations: ibcgov: the fee collector g1tnak9t9ck5lmfjdvaxcx7ghjks4fnl59k84cp7 is a realm of the bridge (a registered implementation)
+// collector the core one: ibcgov: the fee collector g1v5tuy9py5h3s37gfhvd3d9ht23zxkl7mpxx39d is a realm of the bridge (a registered implementation)

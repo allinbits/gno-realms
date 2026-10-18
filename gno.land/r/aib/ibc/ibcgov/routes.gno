@@ -257,13 +257,15 @@ func quoteIdentity(s string) string {
 // against every implementation registered by then).
 func mustCollector(s string) address {
 	a := mustAddr(s)
-	paths := []string{CorePath, TransferPath, PkgPath, "gno.land/r/aib/ibc/ethrelay", "gno.land/r/aib/ibc/apps/transfer/impl/v0"}
-	paths = append(paths, core.RegisteredImplPaths()...)
-	paths = append(paths, transfer.RegisteredImplPaths()...)
-	for _, p := range paths {
+	for _, p := range []string{CorePath, TransferPath, PkgPath, "gno.land/r/aib/ibc/ethrelay", "gno.land/r/aib/ibc/apps/transfer/impl/v0"} {
 		if chain.PackageAddress(p) == a {
 			panic("ibcgov: the fee collector " + string(a) + " is a realm of the bridge (" + p + ")")
 		}
+	}
+	// Every registered implementation, superseded ones included: one keyed
+	// lookup in each proxy's address index, whatever the number registered.
+	if core.IsImplAddress(a) || transfer.IsImplAddress(a) {
+		panic("ibcgov: the fee collector " + string(a) + " is a realm of the bridge (a registered implementation)")
 	}
 	return a
 }
