@@ -190,47 +190,54 @@ func expectAll(cur realm) {
 	pendingExpect = nil
 }
 
-// Removing or releasing a transition keeps its client retained for
-// governance (design review r6 #1): the route moves A→B→D on gno while
-// Ethereum executes only A→B, and gno's epoch is still A's. Governance
-// removes the active A→B, and a recovery intent A→D is cancelled: each
-// leaves a tombstone, so neither B nor D, retired for transfers, is
-// retired for governance by a prune. A→B is approved again, B's notice
-// switches the epoch, and the switch clears the A→D tombstone it
-// supersedes, after which D is retired for good.
+// Removing or releasing a transition keeps its client, and the clients of
+// the transitions beyond it, retained for governance (design review r6 #1,
+// code review r47 #1): the route moves A→B→C→D here while Ethereum
+// executes A→B and B→C, and gno's epoch is still A's. Governance removes
+// the active A→B, and a recovery intent A→D is cancelled: each leaves a
+// tombstone, so neither B, nor C beyond it, nor D, all retired for
+// transfers, is retired for governance by a prune. A→B is approved again;
+// B's notice switches the epoch, which clears the A→D tombstone it
+// supersedes, and C's notice follows along B→C; D is then retired for good.
 func main(cur realm) {
 	client(cur, "ethereum-1", "client-0")
 	b := client(cur, "ethereum-2", "gnoland-b", noticePacket(1, "gnoland-b", "ethereum-2", 2, "gnoland-b"))
-	client(cur, "ethereum-3", "gnoland-d")
+	c := client(cur, "ethereum-3", "gnoland-c", noticePacket(1, "gnoland-c", "ethereum-3", 3, "gnoland-c"))
+	client(cur, "ethereum-4", "gnoland-d")
 	execute(cur, govern(cur, ibcgov.NewEnrollRouteRequest(cross(cur), "ethereum-1", string(collector), bridge)))
 	execute(cur, govern(cur, ibcgov.NewBindGovernanceRequest(cross(cur), "ethereum-1")))
 	kind10(cur, "client-0", "gnoland-b", 1, "ethereum-2")
+	kind10(cur, "gnoland-b", "gnoland-c", 1, "ethereum-3")
 	expectAll(cur)
-	d := govern(cur, ibcgov.NewExpectRecoveryRequest(cross(cur), "client-0", "gnoland-d", "ethereum-3"))
+	d := govern(cur, ibcgov.NewExpectRecoveryRequest(cross(cur), "client-0", "gnoland-d", "ethereum-4"))
 	println("cancel A→D's expectation:", decided(govern(cur, ibcgov.NewCancelRequest(cross(cur), d))))
 	println("remove A→B:", decided(govern(cur, ibcgov.NewRemoveExpectationRequest(cross(cur), "client-0", "gnoland-b", "ethereum-2"))))
 	println("tombstones:", ibcgov.Tombstones())
-	execute(cur, govern(cur, ibcgov.NewReplaceRouteRequest(cross(cur), "ethereum-1", "ethereum-2", 0)))
-	execute(cur, govern(cur, ibcgov.NewReplaceRouteRequest(cross(cur), "ethereum-1", "ethereum-3", 0)))
+	for _, next := range []string{"ethereum-2", "ethereum-3", "ethereum-4"} {
+		execute(cur, govern(cur, ibcgov.NewReplaceRouteRequest(cross(cur), "ethereum-1", next, 0)))
+	}
 	execute(cur, govern(cur, ibcgov.NewReplaceRouteRequest(cross(cur), "ethereum-1", plain(cur, "gnoland-r"), 0)))
 	println("pruned:", ibcgov.PruneGovRetirements(cross(cur), 64))
-	for _, c := range []string{"ethereum-2", "ethereum-3"} {
-		println(c, "retired for transfers:", core.IsClientRetiredFor(c, "transfer"), "| for governance:", core.IsClientRetiredFor(c, ibcgov.GovPort))
+	for _, id := range []string{"ethereum-2", "ethereum-3", "ethereum-4"} {
+		println(id, "retired for transfers:", core.IsClientRetiredFor(id, "transfer"), "| for governance:", core.IsClientRetiredFor(id, ibcgov.GovPort))
 	}
 	again := govern(cur, ibcgov.NewExpectRecoveryRequest(cross(cur), "client-0", "gnoland-b", "ethereum-2"))
 	execute(cur, again)
 	println("A→B again:", decided(again), "| tombstones:", ibcgov.Tombstones())
 	println("B's notice:", deliver(cur, b, 0), "|", epochNow(), "| tombstones:", ibcgov.Tombstones())
-	println("pruned:", ibcgov.PruneGovRetirements(cross(cur), 64), "| D retired for governance:", core.IsClientRetiredFor("ethereum-3", ibcgov.GovPort))
+	println("C's notice:", deliver(cur, c, 0), "|", epochNow())
+	println("pruned:", ibcgov.PruneGovRetirements(cross(cur), 64), "| D retired for governance:", core.IsClientRetiredFor("ethereum-4", ibcgov.GovPort))
 }
 
 // Output:
-// cancel A→D's expectation: applied - cancelled decision 5
+// cancel A→D's expectation: applied - cancelled decision 7
 // remove A→B: applied - no longer expect the governance epoch to move from client-0 to gnoland-b over ethereum-2
 // tombstones: 2
 // pruned: 0
 // ethereum-2 retired for transfers: true | for governance: false
 // ethereum-3 retired for transfers: true | for governance: false
+// ethereum-4 retired for transfers: true | for governance: false
 // A→B again: applied - expect the governance epoch to move from client-0 to gnoland-b over ethereum-2 | tombstones: 1
 // B's notice: acknowledged | epoch 2 over ethereum-2 | tombstones: 0
+// C's notice: acknowledged | epoch 3 over ethereum-3
 // pruned: 1 | D retired for governance: true

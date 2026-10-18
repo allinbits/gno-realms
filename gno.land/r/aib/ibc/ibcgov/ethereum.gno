@@ -335,8 +335,9 @@ func checkExpect(old, next, local string) string {
 	return ""
 }
 
-// tomb is a removed or released transition kept for retention.
-type tomb struct{ old, local string }
+// tomb is a removed or released transition kept for retention: its local
+// client, and every transition still recorded beyond its new router client.
+type tomb struct{ old, to, local string }
 
 func tombKey(old, next, local string) string { return old + "|" + next + "|" + local }
 
@@ -350,19 +351,9 @@ func entomb(old, next, local string) bool {
 	if tombstones.Size() >= maxTombstones {
 		return false
 	}
-	tombstones.Set(k, &tomb{old: old, local: local})
+	tombstones.Set(k, &tomb{old: old, to: next, local: local})
 	chain.Emit("GovTombstone", "from", old, "to", next, "client", local)
 	return true
-}
-
-// entombed reports whether a tombstone retains the gno client c.
-func entombed(c string) bool {
-	found := false
-	tombstones.Iterate("", "", func(_ string, v any) bool {
-		found = v.(*tomb).local == c
-		return found
-	})
-	return found
 }
 
 // clearTombstones drops the tombstones an epoch switch superseded: those
@@ -500,17 +491,61 @@ func release(old, next, local string, owner int64) {
 	}
 }
 
-// reachable is every transition reachable from the epoch client's router
-// counterparty, by the number of steps that first reaches each local client
-// (from 1): an exact walk of at most maxLive edges.
+// retainedRoots is where retention walks start: the epoch client's router
+// counterparty and every tombstone's new router client (whose transitions,
+// still recorded, a removal or release cut off from the epoch client).
+func retainedRoots() []string {
+	roots := []string{core.CounterpartyClientID(EpochClient())}
+	tombstones.Iterate("", "", func(_ string, v any) bool {
+		roots = append(roots, v.(*tomb).to)
+		return false
+	})
+	return roots
+}
+
+// retainedRemotes is every router client reachable from retainedRoots: the
+// transitions an epoch switch keeps. An exact walk of at most maxLive edges.
+func retainedRemotes() map[string]bool {
+	seen := map[string]bool{}
+	front := retainedRoots()
+	for _, c := range front {
+		seen[c] = true
+	}
+	for len(front) > 0 {
+		var next []string
+		for _, c := range front {
+			for _, x := range expectedOf(c) {
+				if !seen[x.to] {
+					seen[x.to] = true
+					next = append(next, x.to)
+				}
+			}
+		}
+		front = next
+	}
+	return seen
+}
+
+// reachable is every local client retained for governance, by the number of
+// steps that first reaches it (from 1): the local clients of the transitions
+// reachable from the epoch client's router counterparty, and, for each
+// tombstone, its own local client and those of the transitions reachable
+// beyond it (a removed or released transition's descendants keep their
+// retention too). An exact walk of at most maxLive edges.
 func reachable() map[string]int {
 	if epoch == 0 {
 		return nil
 	}
 	steps := map[string]int{}
 	seen := map[string]bool{}
-	front := []string{core.CounterpartyClientID(EpochClient())}
-	seen[front[0]] = true
+	tombstones.Iterate("", "", func(_ string, v any) bool {
+		steps[v.(*tomb).local] = 1
+		return false
+	})
+	front := retainedRoots()
+	for _, c := range front {
+		seen[c] = true
+	}
 	for k := 1; len(front) > 0 && k <= maxLive; k++ {
 		var next []string
 		for _, c := range front {
@@ -529,11 +564,11 @@ func reachable() map[string]int {
 	return steps
 }
 
-// pruneUnreachable drops every transition whose old client the epoch
-// client's counterparty no longer reaches (an epoch switch left it behind):
-// bounded by maxLive edges.
+// pruneUnreachable drops every transition whose old client neither the
+// epoch client's counterparty nor a tombstone left standing reaches (an epoch
+// switch left it behind): bounded by maxLive edges.
 func pruneUnreachable() {
-	seen := reachableRemotes()
+	seen := retainedRemotes()
 	var drop []string
 	expected.Iterate("", "", func(old string, v any) bool {
 		if !seen[old] {
@@ -558,7 +593,7 @@ func onExpectedPath(c string) bool {
 	if epoch == 0 {
 		return false
 	}
-	if c == EpochClient() || entombed(c) {
+	if c == EpochClient() {
 		return true
 	}
 	_, ok := reachable()[c]
@@ -888,8 +923,8 @@ func takeNotice(cur realm, source, client string, payload types.Payload) (uint32
 func switchEpoch(cur realm, e uint32, client string, passed []string) {
 	old := EpochClient()
 	setEpoch(e, client)
+	clearTombstones() // first: those left reach no further than the new epoch client
 	pruneUnreachable()
-	clearTombstones()
 	retireForGov(cur, old)
 	awaitingGov.Remove(old)
 	for _, c := range passed {
