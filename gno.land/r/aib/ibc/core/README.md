@@ -515,9 +515,10 @@ does not hold it and no epoch switch has passed it, since a catch-up may
 need it later. ibcgov retires a client for governance only when an
 authenticated epoch switch passes it (the old epoch's client and the
 path's intermediate ones); `PruneGovRetirements` retires those recorded
-while on a path once no path reaches them, which only a switch or a
-governed tombstone purge brings about; a client kept off the graph is
-never pruned (ADR 0004, Governance channel; transfer filetests `z9zv`,
+while on a path once a switch has superseded every path to them (a
+governed tombstone purge never makes a client retirable: the clients it
+disconnects are kept off the graph); a client kept off the graph is never
+pruned (ADR 0004, Governance channel; transfer filetests `z9zv`,
 `z9zza`, `z9zzq`).
 
 `ClientRouteIdentity(clientID)` is the history a client's verifier

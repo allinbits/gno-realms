@@ -395,8 +395,9 @@ Ethereum client carries nothing until a decision makes it a route.
       reaches any more; the clients kept off the graph are never recorded
       there, so no prune retires them, only a switch passing them. Purge a
       tombstone (`NewPurgeTombstoneRequest`) only for a transition Ethereum
-      did not execute: its clients, if nothing else retains them, are then
-      retired by the next prune.
+      did not execute (advice: a purge frees capacity only, and never makes
+      a client retirable: the clients it disconnects are kept off the graph,
+      gov port open, until a switch passes them).
 
    Residuals (ADR 0004 known limits): a forged notice applied by a
    compromised approved local client, or a local client kept Active by
@@ -422,8 +423,9 @@ Ethereum client carries nothing until a decision makes it a route.
    recorded in `awaitingGov` (those on a path when replaced) that no path
    reaches any more, through transitions or tombstones; the count
    (`AwaitingGovRetirement()`) need not reach 0: clients still reachable
-   are kept, and only a superseding epoch switch, or a tombstone purge that
-   leaves them unreachable, makes them eligible (a removal leaves a
+   are kept, and only a superseding epoch switch makes them eligible (a
+   tombstone purge keeps the clients it disconnects off the graph, never
+   prunable) (a removal leaves a
    tombstone, which keeps them retained), so call it again then. A client
    of the governance identity's routes replaced off the graph is not in
    `awaitingGov`: no prune retires it, only a switch passing it. The local client is the new gno
@@ -587,6 +589,27 @@ characters of `a-z`, `0-9`, `-`).
    acknowledgement or a timeout processed it) is proven and settled the same
    way. Receives of `OLD` whose claims or sweep entries paid out and that
    the router never sent are the forged receives (claims and sweeps pages).
+   **Every suspect receive entitlement, paid or not, is part of the
+   reconciliation**: list every claim of `OLD` (open, withheld or done) and
+   every sweep entry of `OLD` (paid or unpaid) from
+   `Render("routes/R/claims?from=<next>")` and `.../sweeps?from=<next>`
+   (keys `OLD/…`), the receives at or after `suspectFrom` (and any earlier
+   one in doubt), and authenticate each against the router's commitment
+   through `NEW` (its packet commitment, sent or not). Each one the router
+   never sent is forged, and its remainder must go before the route
+   reopens or containment is cleared:
+   - unpaid or withheld (`paid` 0): void it as forged
+     (`NewVoidRequest(R, keys, true, INC)`, at once while a guardian's
+     `payouts` flag names it), which drops the remainder;
+   - partly or wholly paid: settle it as a forged receive (action 5,
+     amount what it paid out, step 9), which drops the remainder and books
+     what was paid as the loss, exactly once (a forged void books the same
+     and is the alternative while the route is not yet reconciled; never
+     both: the ledger refuses a second loss of the packet).
+   The reopening does not check this: it waits only for the retired
+   clients' send records. Nothing in the code stops a forged claim left
+   unvoided from being paid once the route is open and the `payouts` flag
+   is cleared, so this is a hard precondition of steps 11 and 12.
 8. **Prove each outcome** through `NEW` (the route's current client), at a
    height `H = (0, slot)` of a consensus state `NEW` holds, with
    `transfer.ProveOutcome(packet, H, receiptProof, ackProof)` from a
@@ -643,7 +666,10 @@ characters of `a-z`, `0-9`, `-`).
     owed sweep entries (`NewReduceRequest(R, key, amount, INC)`), or accept
     a deficit (`NewAcceptDeficitRequest(R, denom, amount, INC)`); whatever
     stays unresolved, the reopening accepts. Check: `Unresolved(R)`.
-11. **Reopen.** First check the whole route: `ReopenBlockers(R)` on the
+11. **Reopen.** Precondition: every forged receive entitlement of step 7
+    is voided or settled (the claims and sweeps pages show none of a
+    retired client's suspect receives `open`, `withheld` or unpaid that the
+    router did not send). First check the whole route: `ReopenBlockers(R)` on the
     controls reader must be empty (after a repeated replacement it lists
     every retired client still unfinished; `SuspectUnsettled(R, client)`
     and `OpenSends(R, client)` say what each still holds).
@@ -655,7 +681,9 @@ characters of `a-z`, `0-9`, `-`).
     call `transfer.ContinueReopen(R)` until it returns true. Ethereum
     reopens by kind 13 (`NewEthReopenRequest(RNEW)`). Check:
     `Closed(R)` false.
-12. **Clear the flags.** The watch keys and guardians clear their own flags
+12. **Clear the flags.** Precondition, as for step 11: no forged receive
+    entitlement remains unvoided, since clearing `payouts` lets every open
+    claim be paid. The watch keys and guardians clear their own flags
     (`ClearFlag`), or `NewUnpauseRouteRequest(R, "sends,credits,payouts,refunds")`
     clears every seat's at once (spent while a hold stands). Clearing
     `payouts` starts a new payouts epoch: the meters refill from empty. Then
