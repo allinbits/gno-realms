@@ -33,24 +33,24 @@ starts with impl/v1 and there is no migration from impl/v0 (round 10).
 
 ## Decision
 
-### Scope: one governance channel, one Ethereum deployment
+### Scope: one governance channel, one Ethereum route
 
-ibcgov has one governance channel, bound once, to one logical Ethereum
-deployment: the chain, the ICS26 router with its commitments slot, and the
-IBCAdmin behind them, the identity the channel is bound over. Only that
-IBCAdmin can replace, settle and reopen the Ethereum side of a route, so
-every enrolled route must belong to that deployment: once the channel is
-bound, enrolling a route of another identity is refused when requested and
-when it executes; before the binding any identity may enrol, but the
-binding is refused, when requested and when it executes, while an enrolled
-route authenticates another identity than the one it binds over (z9zzs,
-z9zzt). Several routes of the bound deployment may be enrolled, and are
-governed alike (route identity, not route key, decides eligibility for
-the governance graph and the retention below). A second Ethereum
-deployment would need an ibcgov instance of its own, wired as governance
-of its own core and transfer proxies; none is shipped, and the shipped
-proxies accept governance from this ibcgov only. Routes over Tendermint
-clients are not enrolled in these controls and are unaffected.
+ibcgov has one governance channel, bound once, and serves one logical
+Ethereum transfer route, ever. IBCAdmin replaces, recovers, settles and
+reopens only the route of the client it governs over (its kind 10 and its
+emergency recovery name that client), so a second route, of the same
+deployment or another, would have no Ethereum replacement or recovery
+path. The first enrolment fixes the route: its key and its deployment's
+identity (chain, ICS26 router with its commitments slot, and the IBCAdmin
+behind them). Any further enrolment is refused when requested and again
+when it executes, before the binding or after it, so of two requested
+together only the first applies (`checkOneRoute`; z9zzs). Replacements keep
+the route's key and identity, and the binding goes over the route's current
+client. Several routes, or a second deployment, need a further ibcgov
+instance wired as governance of its own core and transfer proxies, and
+Ethereum-side support for them; neither is shipped, and the shipped proxies
+accept governance from this ibcgov only. Routes over Tendermint clients are
+not enrolled in these controls and are unaffected.
 
 ### Components
 
@@ -329,7 +329,7 @@ most 1024 bytes (`14 + len(params) ≤ 1024`, the header 14 bytes). Epoch 1
 opens when `NewBindGovernanceRequest` binds the channel to an Ethereum client,
 which must be Active and the current client of an enrolled transfer route
 both when the request is made and when it executes (`checkBindClient`),
-every enrolled route then sharing its identity (the scope above); a
+the one enrolled route (the scope above); a
 standalone binding is refused, and a client that loses health during the
 delay leaves the decision spent. The enrolled-route requirement holds for
 epoch 1 only: each later epoch opens over a local client a transition
@@ -352,12 +352,14 @@ dispatched) and keeps its clients open for governance; an intent records
 the expectation decisions that own it, and goes only when the last of them
 is refused, spent or cancelled, never once active (z9zzd: two kind 10s for
 one transition, one cancelled; a kind 10 and a recovery expectation for
-one transition). The 64 places below bound transition tuples, not their
-owners: recording an expectation for a transition already pending reuses
-its place and appends its decision to the owner list, so that list, and
-the ownership checks and releases that scan it, grow with duplicate
-recordings of one transition, each a governance decision (a kind 10 or a
-recovery expectation, recorded by the governor). The graph holds at most
+one transition). Ownership is indexed: each owning decision is one entry
+keyed by the transition, the intent's generation (given when the intent is
+created, so an owner of an intent a switch dropped never owns a later one
+of the same transition) and the decision, with a live-owner count on the
+transition; checking and releasing an ownership are keyed lookups, O(log)
+whatever the number of duplicate recordings, and each decision removes its
+own entry when it resolves (z9zzt: 60 recordings of one expectation, the
+latest cancelled, the 30th applied, a later one spent). The graph holds at most
 64 transitions, pending, active
 and tombstoned together (`maxLive`, one joint budget: a chain of 64 steps,
 or 16 steps of 4 competing successors; tombstones below): a dispatch or
@@ -568,21 +570,18 @@ follows (`ibcgov/routes.gno`), and in no other way:
   retired for the transfer port only (`RetireClientPort`) and recorded in
   `awaitingGov`, so a decision in flight, the kind 10 among them, can still
   be re-sent and a later step's notice can still arrive.
-- *Off the graph, on a route whose identity is the governance channel's*
-  (any route enrolled with that identity, not only the one the channel
-  rides: `checkLocal` and `govRoute` compare identities, and enrolment does
-  not make them unique), *not yet passed by a switch*: retired for the
+- *Off the graph, on the route once the channel is bound* (the one route,
+  whose identity the channel authenticates: `govRoute`), *not yet passed by
+  a switch*: retired for the
   transfer port only and kept open for governance, outside `awaitingGov`.
   The graph may have had no room for its transition while Ethereum moved
   on by honest recoveries, and a catch-up may need it as a prefix endpoint
   (its notice is addressed to it). Its open gov port is inert meanwhile: a
   notice over it needs an active transition approving it, and decisions go
   over the epoch client only.
-- *Otherwise* (a client a switch already retired for governance; or one of
-  a route of another identity, which the scope above leaves only to a route
-  enrolled before the binding, and which in turn refuses the binding):
-  retired for good. Once the channel is bound every enrolled route has its
-  identity, so this case reduces to clients a switch already passed.
+- *Otherwise* (a client a switch already retired for governance, or one
+  replaced before the channel was bound, which no epoch can need): retired
+  for good.
 
 A client is then retired for governance only by an authenticated epoch
 switch: the switch retires the old epoch's client and the local clients of
@@ -608,7 +607,7 @@ completes the catch-up; z9zza: with the graph at the cap and the epoch
 unchanged, a replaced client on no path keeps its gov port and one on a
 path waits; a switch retires only the old epoch client, then batches).
 This qualifies ADR pr6375's final retirement of a replaced client: on the
-governance identity's routes it is final for transfers at once, and for
+route, once the channel is bound, it is final for transfers at once, and for
 governance only once a switch passes it. z9zx:
 A→B and B→C executed here before any notice, B's notice moves the epoch to
 2 and C's to 3, C's for epoch 2 refused; competing kind 10s C→D and C→F,
@@ -753,7 +752,7 @@ is installed, so the decision is spent:
 | core/transfer add/remove member | member already / not a member / ibcgov itself |
 | transfer block/unblock | blocked already / not blocked |
 | route operations (`GovApply`) | every refusal returned, including no controls installed; a sweep payment or settlement refund that its token or the banker would refuse (`payable`, checked per denom before anything changes: a valid recipient other than the transfer realm, the voucher token and its supply room, the registered GRC20 and this realm's balance, the escrow accounting and the bank balance; z9zr), the entitlement kept; a sweep payment under a payouts flag, or a settlement paying refunds under a refunds hold, is deferred (stays pending) rather than spent |
-| route enrollment | as `GovApply`; the client no longer usable (`checkRouteClient` again at execution: not Active, retired on any port (governance's included: a client an epoch notice moved past, `core.IsClientRetiredAny`), not Ethereum, no counterparty, a route's already), or naming no route identity, or reading another router than the bridge's (z9zt), or, the channel bound meanwhile, authenticating another identity than the governance channel's (z9zzs), before either realm changes |
+| route enrollment | as `GovApply`; the client no longer usable (`checkRouteClient` again at execution: not Active, retired on any port (governance's included: a client an epoch notice moved past, `core.IsClientRetiredAny`), not Ethereum, no counterparty, a route's already), or naming no route identity, or reading another router than the bridge's (z9zt), or a route enrolled already (one Ethereum route per channel, `checkOneRoute`, z9zzs), before either realm changes |
 | route replacement | as `GovApply`; the new client unusable (retired on any port: a stale replacement to a client governance moved past, z9zzb); the route's client moved; the new client no longer authenticating the route's identity (z9zt) |
 | bind governance | bound already; not Active, or not the current client of an enrolled route |
 | seats | an address in two seats; nothing to change |
@@ -897,8 +896,8 @@ realm-issued coin (`/gno.land/r/...:denom`) never travels and is refused.
     `retired: true status: Active`). Retired for good, it takes no new
     packet message, except that the app that registered a packet's port may
     still write the pending asynchronous acknowledgement of a packet received
-    before the retirement. A client of a route with the governance
-    channel's identity is first retired for the transfer port only
+    before the retirement. A client of the route, once the
+    governance channel is bound, is first retired for the transfer port only
     (`RetireClientPort`): new transfer packets are refused, but its gov
     port stays open, for an epoch notice over it, until an authenticated
     epoch switch passes it (the governance retirement rule under "Governance channel" above). This qualifies ADR
@@ -916,7 +915,7 @@ protection or a governance rule, and each has a test documenting the base
 |---|---|---|
 | A packet receipt identifies its packet, `types.CommitPacketReceipt` (R19), so a different packet at a received sequence aborts | the receipt was the constant `0x02`, and a different packet at a received sequence returned `RESPONSE_NOOP` | core `z7p` |
 | Relayer and authority administration of the core and transfer app is governance-only, through ibcgov (R14) | a deployer authority added and removed relayers and members | core `z12*`, `z14*`, transfer `z8*`, ibcgov `z1c` |
-| A client can be retired (`RetireClient`, by a route replacement), or retired for one port only (`RetireClientPort`: a replaced client of a route with the governance channel's identity keeps its gov port until an epoch switch passes it), and carries a trust generation, bumped by every recovery, freeze, upgrade, migration and substitution | no retirement, no generation | core `z9*`, `z8a`, `z16a` |
+| A client can be retired (`RetireClient`, by a route replacement), or retired for one port only (`RetireClientPort`: a replaced client of the route, once the channel is bound, keeps its gov port until an epoch switch passes it), and carries a trust generation, bumped by every recovery, freeze, upgrade, migration and substitution | no retirement, no generation | core `z9*`, `z8a`, `z16a` |
 | The core keeps its own copy of a counterparty's merkle prefix | the core kept the caller's slice, so its later change moved the client's proof namespace | core `z16g` (Tendermint), `z16f` (Ethereum) |
 | The core keeps its own copy of the packet it holds for an asynchronous acknowledgement | the core kept the relayer's payload slices, so their later change changed the packet the acknowledgement is written for | core `z10a` (Tendermint) |
 | `VoucherSend` and `VoucherApprove` (and the authority membership calls) canonicalize their address | an uppercase recipient or spender got a balance or allowance under that string, which the canonical address cannot use | transfer `z4aaaa` (Tendermint), `z9w` |

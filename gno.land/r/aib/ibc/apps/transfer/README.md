@@ -556,6 +556,13 @@ transfer app then requires:
 
 - port `transfer` at both ends, version `ics20-1`, and encoding
   `application/x-protobuf` or `application/x-solidity-abi`;
+- packet client ids, stricter than the core's length and alphabet rule:
+  over a non-Ethereum client both the source and the destination client id
+  pass `types.IsValidClientID` (`{string}-{number}`, so an id like `peer`,
+  which the core accepts, is refused here); over an Ethereum client the
+  local client id passes `IsValidClientID` and the router's client id
+  `types.IsValidRouterClientID` (eureka's grammar: `client-N` or a custom
+  id of up to 128 characters);
 - an amount that is a decimal integer of at most 2^256 - 1 and strictly
   positive read as an int256 (one at or above 2^255, an ABI uint256 word
   included, reads as negative and is refused). To be sent or credited it

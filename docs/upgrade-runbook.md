@@ -295,8 +295,8 @@ Ethereum client carries nothing until a decision makes it a route.
    client, the replacement retires it for transfers only: the epoch moves to
    the new client when IBCAdmin's epoch notice arrives over it (sent when
    Ethereum executes the matching kind 10, or its emergency recovery), and
-   the old client is then retired for good. A client of a route with the
-   governance channel's identity is never retired for the gov port by its
+   the old client is then retired for good. Once the channel is bound, a
+   client of the route is never retired for the gov port by its
    replacement, nor by a prune while off the graph: only a switch passing
    it retires it for governance (ADR 0004, the governance retirement rule). The notice is accepted only
    along a transition ibcgov expects, and over the local client it names
@@ -427,7 +427,7 @@ Ethereum client carries nothing until a decision makes it a route.
    tombstone purge keeps the clients it disconnects off the graph, never
    prunable) (a removal leaves a
    tombstone, which keeps them retained), so call it again then. A client
-   of the governance identity's routes replaced off the graph is not in
+   of the route replaced off the graph is not in
    `awaitingGov`: no prune retires it, only a switch passing it. The local client is the new gno
    client tracking the new router client, Active, its counterparty set. A notice that
    arrives before the replacement executes here moves the epoch all the
@@ -449,8 +449,12 @@ Ethereum client carries nothing until a decision makes it a route.
 
    **Deadline.** A client whose updates stop (an unsupported fork, a
    verifier defect) expires about 9.1 days after its latest trusted slot on
-   mainnet (ADR 0003). The two steps take 14 days at best, more under a
-   guardian hold (a hold defers both until it ends). Prepare ahead: register
+   mainnet (ADR 0003). Recorded one after the other, as recommended (the
+   conversion requested once its implementation is installed), the two
+   steps take 14 days; recorded together, both are due after 7 days and
+   executed in order, the upgrade first, then the conversion (the
+   conversion's availability is checked when it executes), 7 days at the
+   least. A guardian hold defers both until it ends. Prepare ahead: register
    and install the conversion-bearing core implementation before the fork
    it is for, so that only the 7-day `NewReplaceVerifierRequest` remains
    when a client stalls; record it within about two days of the stall and
@@ -464,12 +468,12 @@ Ethereum client carries nothing until a decision makes it a route.
 
 ## 8. Incident drill: replacing a route's client
 
-The drill applies to the routes of the Ethereum deployment the governance
-channel is bound to, the only ones that can be enrolled once it is bound:
-its Ethereum-side steps (kind 10, emergency recovery, settlement, kind 13
-reopening) go to that deployment's IBCAdmin over the channel. A route of
-another deployment has no Ethereum governance here (it would need its own
-ibcgov, not shipped), so none is enrolled.
+The drill applies to the one Ethereum route the governance channel serves
+(one per channel, ever): its Ethereum-side steps (kind 10, emergency
+recovery, settlement, kind 13 reopening) go to IBCAdmin over the channel,
+which governs that route's client. A second route has no Ethereum
+replacement or recovery path (it would need its own ibcgov and Ethereum
+support, not shipped), so none can be enrolled.
 
 A suspect or failed client of a route (a forged header accepted, a frozen or
 expired client that cannot be recovered in time) is replaced on both chains,

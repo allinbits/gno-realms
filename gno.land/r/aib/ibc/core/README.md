@@ -514,7 +514,7 @@ client for the `transfer` port only while ibcgov's governance epoch runs
 over it, or while it is the client of a transition or tombstone on
 ibcgov's expected graph at any distance, so governance packets in flight
 can still be re-sent over it and a later notice can still arrive; and, on
-any route whose identity is the governance channel's, also when the graph
+the governed Ethereum route once ibcgov's channel is bound, also when the graph
 does not hold it and no epoch switch has passed it, since a catch-up may
 need it later. ibcgov retires a client for governance only when an
 authenticated epoch switch passes it (the old epoch's client and the
