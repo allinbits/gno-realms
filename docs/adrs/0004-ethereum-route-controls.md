@@ -1081,10 +1081,23 @@ does not list before it.
   from an Ethereum node trusted independently of the incident, read at an
   independently authenticated finalized block (`eth_call` and
   `eth_getProof` pinned to it, never "latest"). A matching record proves
-  the entitlement genuine; an absent or mismatching one proves it forged
-  only once that finalized block's timestamp has reached the packet's
-  timeout, after which the packet can no longer be sent; until then it
-  stays unresolved and the containment stays in place.
+  the entitlement genuine. Forgery has two proofs that do not wait for
+  the packet's timeout, which a forged packet can set years ahead, so it
+  holds no reconciliation hostage: a record at that (source client,
+  sequence) of another packet (a non-zero commitment that differs) proves
+  it at once, since the transfer app writes its record in the
+  transaction of the send and never rewrites it; and an absent record
+  proves it once the router's last allocated send sequence for that
+  source client (`prevSequenceSends`, read by `eth_getProof` of the
+  router's storage pinned to the same block) is at or past the receive's
+  sequence, since a transfer send at an allocated sequence would have
+  written its record in the same transaction. The timeout stays the
+  fallback: an absent record also proves forgery once that finalized
+  block's timestamp has reached the packet's timeout, after which the
+  packet can no longer be sent. Short of all three it stays unresolved and
+  the containment stays in place. Each reading is pinned to the same
+  independently authenticated finalized block, so fabricated state is
+  refused the same way for all of them.
 - **The parent's surplus sweep has no shipped operation** (ADR pr6375 lets
   governance sweep escrow surplus): `NewSweepRequest` pays only live,
   packet-keyed sweep entries (`PaySweeps`), within the accounted free

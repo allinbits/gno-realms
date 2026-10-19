@@ -700,17 +700,39 @@ characters of `a-z`, `0-9`, `-`).
       equals `types.CommitPacket(P)`. The transfer app
       keeps every send record for good (no code path deletes one), so the
       record outlives the router commitment.
-   3. A matching record is a genuine entitlement. No record at that
-      sequence (a zero commitment), or one of another packet, is
-      conclusive, a forged entitlement, only once that finalized block's
-      timestamp has reached the packet's timeout (`TimeoutTimestamp` of
-      `P`): after it the packet can no longer be sent, so an absence then
-      is final. Until then the entitlement stays unresolved, and the
+   3. A matching record is a genuine entitlement. A forged one is proven by
+      any of three conclusive readings of the same finalized, authenticated
+      block, two of them independent of the packet's timeout (a forged
+      packet can carry one years ahead):
+      - **mismatch**: a record at that (source client, sequence) whose
+        `commitment` is non-zero and differs from `types.CommitPacket(P)`
+        proves forgery at once: the transfer app writes its record in the
+        transaction of the send, from the router's own commitment, and
+        never rewrites it, so that sequence carried another packet;
+      - **absence past the sequence**: no record (a zero commitment) proves
+        forgery once the router's last allocated send sequence for that
+        source client, `prevSequenceSends[sourceClient]` in its ERC-7201
+        `IBCStore` storage (no getter: `eth_getProof` of the mapping's slot
+        on the router, pinned to the same block), is at or past the
+        receive's sequence: the sequence was allocated, and a transfer
+        send would have written its record in the same transaction, so no
+        transfer packet can ever be sent there;
+      - **absence past the timeout** (the fallback, when the router has not
+        reached the sequence yet): no record proves forgery once that
+        finalized block's timestamp has reached the packet's timeout
+        (`TimeoutTimestamp` of `P`): after it the packet can no longer be
+        sent, so an absence then is final.
+      Short of all three, the entitlement stays unresolved, and the
       containment (the closed route, the `payouts` flag) stays in place;
-      read again at a later finalized block. The router's live packet commitment is no evidence either way:
-      the source acknowledgement deletes it, so its absence is
-      inconclusive, never proof of forgery. Evidence that cannot be
-      obtained leaves the entitlement unresolved: the route stays closed.
+      read again at a later finalized block. Every reading is checked
+      against fabricated state the same way: the node trusted
+      independently of the incident, the block's hash and state root
+      authenticated by the operators themselves, `eth_call` and
+      `eth_getProof` pinned to that block, never "latest". The router's
+      live packet commitment is no evidence either way: the source
+      acknowledgement deletes it, so its absence is inconclusive, never
+      proof of forgery. Evidence that cannot be obtained leaves the
+      entitlement unresolved: the route stays closed.
    This procedure is off-chain: gno.land's Ethereum client verifies proofs
    of the router's storage only (`IBCContractAddress`, fixed at its
    creation), not of the transfer app's, so the record is judged by
