@@ -909,6 +909,12 @@ base denom only in the transfer app's wire grammar, the one IBCAdmin's
 alphanumerics, so `gno.land:r:my-org:token` is one), then optionally `.` and
 a slug of 1 to 32 characters of `[A-Za-z0-9_-]`, at most 128 bytes; a
 realm-issued coin (`/gno.land/r/...:denom`) never travels and is refused.
+A hand-over (`NewEthHandOverRequest(exec, codeHash)`, kind 9) only moves
+IBCAdmin's executor pin (the new executor's address and code hash): it takes
+no migration call, and the envelope's migration field is always empty (the
+wire format unchanged, z2b and z2c's kind 9 vectors), since Ethereum spends at
+recording (status 5) a kind 9 that carries one. Any migration is done
+afterwards by the new executor, through its own decisions.
 
 ## Divergences from ADR pr6375
 

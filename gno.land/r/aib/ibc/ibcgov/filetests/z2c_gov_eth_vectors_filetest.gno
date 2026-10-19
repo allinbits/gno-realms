@@ -135,7 +135,7 @@ func main(cur realm) {
 	govern(cur, ibcgov.NewEthUpgradeRequest(cross(cur), "0x6666666666666666666666666666666666666666", "0x7777777777777777777777777777777777777777",
 		"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc", ""))
 	govern(cur, ibcgov.NewEthRoleRequest(cross(cur), true, 1, "0x8888888888888888888888888888888888888888"))
-	govern(cur, ibcgov.NewEthHandOverRequest(cross(cur), "0x9999999999999999999999999999999999999999", "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd", ""))
+	govern(cur, ibcgov.NewEthHandOverRequest(cross(cur), "0x9999999999999999999999999999999999999999", "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"))
 	govern(cur, ibcgov.NewEthRouteReplacementRequest(cross(cur), "client-0", "gnoland-2", 21000000, "ethereum-2"))
 	expect := ibcgov.LastDecision() // the transition's expectation, applied after 7 days
 	govern(cur, ibcgov.NewEthRouteSettingsRequest(cross(cur), "client-0", 1209600))

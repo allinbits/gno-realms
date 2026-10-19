@@ -524,6 +524,12 @@ address; deploying it unchanged hands governance to a key nobody holds.
    `NewRecoverClientRequest(clientID, substituteID)` (7 days). A Frozen
    client is recovered first, then converted.
 
+   **Handing over IBCAdmin's executor.** `NewEthHandOverRequest(exec,
+   codeHash)` (kind 9) only moves IBCAdmin's executor pin to the
+   new executor's address and code hash; it carries no migration call
+   (Ethereum spends at recording a kind 9 that carries one). Any migration
+   is done afterwards by the new executor through its own decisions.
+
 ## 8. Incident drill: replacing a route's client
 
 The drill applies to the one Ethereum route the governance channel serves

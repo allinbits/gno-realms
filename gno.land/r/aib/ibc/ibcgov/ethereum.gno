@@ -1608,15 +1608,14 @@ func NewEthRoleRequest(cur realm, grant bool, roleID uint64, account string) Req
 }
 
 // NewEthHandOverRequest (kind 9) swaps IBCAdmin's executor to exec, pinned to
-// its code hash, with an optional one-time migration call (hex).
-func NewEthHandOverRequest(cur realm, exec, codeHash, migrationCall string) Request {
+// its code hash. It only moves the executor pin: any migration is the new
+// executor's own, done afterwards through its own decisions. The migration
+// call field stays on the wire, always empty: Ethereum spends a kind 9 that
+// carries one at recording.
+func NewEthHandOverRequest(cur realm, exec, codeHash string) Request {
 	e, h := mustEthAddr(exec), mustHash(codeHash)
-	c := []byte{}
-	if migrationCall != "" {
-		c = mustHexBytes(migrationCall)
-	}
-	text := "hand over to " + ethAddrText(e) + " code hash " + hex.EncodeToString(h[:]) + " migration " + hex.EncodeToString(c)
-	return ethRequest(cur, "hand-over", KindHandOver, text, abi.Encode(abi.Address(e), abi.Bytes32(h), abi.Bytes(c)))
+	text := "hand over to " + ethAddrText(e) + " code hash " + hex.EncodeToString(h[:])
+	return ethRequest(cur, "hand-over", KindHandOver, text, abi.Encode(abi.Address(e), abi.Bytes32(h), abi.Bytes([]byte{})))
 }
 
 // NewEthRouteReplacementRequest (kind 10) retires and freezes the router
