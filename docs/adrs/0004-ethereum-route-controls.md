@@ -1064,7 +1064,13 @@ does not list before it.
   received packet, itself matched to the gno.land receipt. gno.land's
   Ethereum client verifies only the router's storage
   (`IBCContractAddress`), so governance judges that record on evidence
-  from an Ethereum node trusted independently of the incident.
+  from an Ethereum node trusted independently of the incident, read at an
+  independently authenticated finalized block (`eth_call` and
+  `eth_getProof` pinned to it, never "latest"). A matching record proves
+  the entitlement genuine; an absent or mismatching one proves it forged
+  only once that finalized block's timestamp has reached the packet's
+  timeout, after which the packet can no longer be sent; until then it
+  stays unresolved and the containment stays in place.
 - **The parent's surplus sweep has no shipped operation** (ADR pr6375 lets
   governance sweep escrow surplus): `NewSweepRequest` pays only live,
   packet-keyed sweep entries (`PaySweeps`), within the accounted free

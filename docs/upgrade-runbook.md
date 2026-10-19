@@ -685,15 +685,22 @@ characters of `a-z`, `0-9`, `-`).
    2. On Ethereum, read the transfer app's retained send record of that
       sequence, `GnoICS20Transfer.sendRecord(sourceClient, seq)` (the
       packet's source client on the router), from an Ethereum archive or
-      full node trusted independently of the incident (an `eth_call`, or
-      `eth_getProof` of the record's storage slot against a finalized
-      block's state root the operators authenticate themselves), and check
-      its `commitment` equals `types.CommitPacket(P)`. The transfer app
+      full node trusted independently of the incident, at a finalized
+      block the operators authenticate themselves (its hash and state root
+      from an independent source): `eth_call` and `eth_getProof` of the
+      record's storage slot both pinned to that block's number or hash,
+      never to "latest" or any unfinalized block. Check its `commitment`
+      equals `types.CommitPacket(P)`. The transfer app
       keeps every send record for good (no code path deletes one), so the
       record outlives the router commitment.
-   3. A matching record is a genuine entitlement; no record at that
-      sequence (a zero commitment), or one of another packet, is a forged
-      one. The router's live packet commitment is no evidence either way:
+   3. A matching record is a genuine entitlement. No record at that
+      sequence (a zero commitment), or one of another packet, is
+      conclusive, a forged entitlement, only once that finalized block's
+      timestamp has reached the packet's timeout (`TimeoutTimestamp` of
+      `P`): after it the packet can no longer be sent, so an absence then
+      is final. Until then the entitlement stays unresolved, and the
+      containment (the closed route, the `payouts` flag) stays in place;
+      read again at a later finalized block. The router's live packet commitment is no evidence either way:
       the source acknowledgement deletes it, so its absence is
       inconclusive, never proof of forgery. Evidence that cannot be
       obtained leaves the entitlement unresolved: the route stays closed.
