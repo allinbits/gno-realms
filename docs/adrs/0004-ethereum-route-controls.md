@@ -478,7 +478,7 @@ transitions live or tombstoned (`pinnedBy` through both) (z9zzk: a route
 moved A→B→C→D here while Ethereum executed A→B and B→C; A→B removed and an
 A→D intent cancelled, neither B, C beyond it nor D is retired for
 governance, A→B approved again, B's notice switches the epoch, clearing the
-A→D tombstone, C's notice follows along B→C, and D is then retired; z9zzl:
+A→D tombstone, C's notice follows along B→C, and D, left behind, is kept off the graph, not retired; z9zzl:
 A→T removed, A's four successors live and cancelled intents filling the
 joint budget, a brand-new transition refused, a loser removed and A→T
 approved again, T's notice switches the epoch; z9zzm: the budget full of
@@ -610,32 +610,39 @@ follows (`ibcgov/routes.gno`), and in no other way:
   replaced before the channel was bound, which no epoch can need): retired
   for good.
 
-A client is then retired for governance only by an authenticated epoch
-switch: the switch retires the old epoch's client and the local clients of
-the path's intermediate steps (at most 63; for good if their route
+A client is then retired for governance only when an applied notice's path
+passes it: the switch retires the old epoch's client and the local clients
+of the path's intermediate steps (at most 63; for good if their route
 replacement executed here, otherwise for the gov port, the replacement
-retiring the rest), in bounded work, and supersedes, by its pruning, the
-transitions and tombstones it leaves behind. The permissionless
-`PruneGovRetirements(n)` (1 to 64 a call, each resuming where the last
-stopped and wrapping round, so a client kept never holds back those after
-it) retires for good only the clients in `awaitingGov` that no path from
-the epoch's client reaches any more, through transitions or tombstones;
-such a client leaves every path while in `awaitingGov` only when a switch
-supersedes its transitions, since a purge takes the clients it disconnects
-out of `awaitingGov`. So only an epoch switch, passing a client or
-superseding its transitions, ever makes it retirable for governance.
-Graph unreachability alone, a full graph, an unchanged epoch or a purge,
-never retires a client: a removal leaves a tombstone, which retains it, and a
+retiring the rest), in bounded work, and nothing else. Its pruning drops
+the transitions and tombstones it leaves behind, but every client that
+pruning disconnects (on a branch the path did not take: a cancelled
+recovery's, or one whose real continuation is not recorded yet) is taken
+out of `awaitingGov` and kept off the graph, its gov port open and inert,
+exactly as a purge keeps the clients it disconnects: Ethereum may still
+reach it another way, and once expected again its notice applies (z9zzu:
+the graph holds A→B and A→C but no B→C while Ethereum runs A→B→C; B's
+notice drops A→C, C is kept, a prune leaves it, B→C is expected and C's
+notice applies). The permissionless `PruneGovRetirements(n)` (1 to 64 a
+call, each resuming where the last stopped and wrapping round) retires for
+good only clients in `awaitingGov` that no path reaches any more, and none
+is ever left so: a removal or a release leaves a tombstone, which retains
+its clients, and a switch and a purge take the clients they disconnect out
+of `awaitingGov`; it remains as a safety net that retires nothing a switch
+did not pass. Graph unreachability alone, a full graph, an unchanged
+epoch, a purge or a switch's pruning, never retires a client: a removal leaves a tombstone, which retains it, and a
 client kept off the graph is never in `awaitingGov`, so no prune touches it
 (z9zzq: the graph full, Ethereum's A→B then B→X by a recovery the graph
 cannot record, the route here moved to B, X, then Y; X kept for governance
 through a prune; B's notice frees the graph, B→X is expected and X's notice
 completes the catch-up; z9zza: with the graph at the cap and the epoch
 unchanged, a replaced client on no path keeps its gov port and one on a
-path waits; a switch retires only the old epoch client, then batches).
+path waits; a switch retires only the old epoch client, and the clients
+it left behind are kept, so the batched prunes retire none).
 This qualifies ADR pr6375's final retirement of a replaced client: on the
 route, once the channel is bound, it is final for transfers at once, and for
-governance only once a switch passes it. z9zx:
+governance only once an applied notice's path passes it; a client the
+epoch's path never passes keeps its gov port, inert, for good. z9zx:
 A→B and B→C executed here before any notice, B's notice moves the epoch to
 2 and C's to 3, C's for epoch 2 refused; competing kind 10s C→D and C→F,
 gno.land's C→F replacement cancelled, D's notice accepted; an emergency

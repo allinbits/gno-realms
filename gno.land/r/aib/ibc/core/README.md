@@ -518,12 +518,11 @@ the governed Ethereum route once ibcgov's channel is bound, also when the graph
 does not hold it and no epoch switch has passed it, since a catch-up may
 need it later. ibcgov retires a client for governance only when an
 authenticated epoch switch passes it (the old epoch's client and the
-path's intermediate ones); `PruneGovRetirements` retires those recorded
-while on a path once a switch has superseded every path to them (a
-governed tombstone purge never makes a client retirable: the clients it
-disconnects are kept off the graph); a client kept off the graph is never
-pruned (ADR 0004, Governance channel; transfer filetests `z9zv`,
-`z9zza`, `z9zzq`).
+path's intermediate ones); a switch's pruning and a tombstone purge never
+retire anything: the clients they disconnect are kept off the graph, gov
+port open and inert, and `PruneGovRetirements` retires nothing a switch
+did not pass (ADR 0004, Governance channel; transfer filetests `z9zv`,
+`z9zza`, `z9zzq`, `z9zzu`).
 
 `ClientRouteIdentity(clientID)` is the history a client's verifier
 authenticates, and the router it reads: for an Ethereum client its chain
