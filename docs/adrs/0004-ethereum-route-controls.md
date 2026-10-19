@@ -1127,6 +1127,17 @@ does not list before it.
 - **A recapitalization authorized and not paid when a route reopens** is
   revoked: the reopening records the remaining unresolved losses as an
   accepted deficit.
+- **After a reopening with an accepted deficit, queued refunds share the
+  shortfall first in, first out** (as ADR pr6375 §7.12 records):
+  `PayRefunds` (`ClaimRefunds`) pays an escrowed denom's queue in order
+  against the lock less `ProvenOwed`, in installments, and stops at the
+  first refund the rest cannot serve. An earlier refund, a genuine one
+  included, can therefore take backing a later genuine refund needs, and
+  the later one waits until the escrow is whole again. Nothing in the code
+  apportions the deficit otherwise: operators either recapitalize the
+  denom before reopening and lifting the `refunds` hold, or accept that the
+  queue's order assigns whatever shortfall remains (the runbook's steps
+  10 to 12).
 - **The pending asynchronous acknowledgement path of a credit by vote** cannot
   be exercised end to end: the transfer app never answers asynchronously, so
   no transfer packet waits for one. The core side (retired clients taking the

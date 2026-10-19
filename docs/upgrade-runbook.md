@@ -826,7 +826,14 @@ characters of `a-z`, `0-9`, `-`).
     revocation (`NewRevokeRecapRequest(R, authorizationID)`)), reduce open or withheld claims or
     owed sweep entries (`NewReduceRequest(R, key, amount, INC)`), or accept
     a deficit (`NewAcceptDeficitRequest(R, denom, amount, INC)`); whatever
-    stays unresolved, the reopening accepts. Check: `Unresolved(R)`.
+    stays unresolved, the reopening accepts. Check: `Unresolved(R)`. An
+    accepted deficit of an escrowed denom leaves its escrow short, and after
+    the reopening `ClaimRefunds` pays the queued refunds first in, first
+    out against the lock less `ProvenOwed`, stopping at the first one the
+    rest cannot serve: an earlier refund can take backing a later genuine
+    refund needs. Recapitalize the denom before reopening and lifting the
+    `refunds` hold, or accept that the queue's order assigns the remaining
+    shortfall.
 11. **Reopen.** Precondition: every forged receive entitlement of step 7
     is voided or settled (the claims and sweeps pages show none of a
     retired client's suspect receives `open`, `withheld` or unpaid that the
@@ -840,8 +847,10 @@ characters of `a-z`, `0-9`, `-`).
     app's `route_gov` event says in its `note` "continue with
     transfer.ContinueReopen" (ibcgov's decision note does not carry it),
     call `transfer.ContinueReopen(R)` until it returns true. Ethereum
-    reopens by kind 13 (`NewEthReopenRequest(RNEW)`). Check:
-    `Closed(R)` false.
+    reopens by kind 13 (`NewEthReopenRequest(RNEW)`). Before proposing
+    it with a deficit left on an escrowed denom, decide as in step 10:
+    recapitalize first, or accept that the queued refunds share the
+    shortfall first in, first out. Check: `Closed(R)` false.
 12. **Clear the flags.** Precondition, as for step 11: no forged receive
     entitlement remains unvoided, since clearing `payouts` lets every open
     claim be paid. The watch keys and guardians clear their own flags
@@ -849,6 +858,9 @@ characters of `a-z`, `0-9`, `-`).
     clears every seat's at once (spent while a hold stands). Clearing
     `payouts` starts a new payouts epoch: the meters refill from empty. Then
     pay what waited: `transfer.ClaimRefunds(NEW, denom, n)` and
-    `transfer.Claim(NEW, denom, n)`. Done when `ibcgov.Flags(R)` is empty,
+    `transfer.Claim(NEW, denom, n)`. Lifting the `refunds` hold on an
+    escrowed denom still short of a deficit pays its queue first in, first
+    out (step 10): recapitalize before clearing it if the order must not
+    decide which genuine refunds wait. Done when `ibcgov.Flags(R)` is empty,
     `ibcgov.Held()` false, `Closed(R)` and `LossClosed(R)` false, and every
     denom's `queued_refunds` drained.
