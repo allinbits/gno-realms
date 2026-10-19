@@ -152,6 +152,7 @@ func (l *logic) OnRecvPacket(_ int, rlm realm, sourceClient, destinationClient s
 	var (
 		data       ics20.FungibleTokenPacketData
 		token      ics20.Token
+		amount     int64
 		ackErr     error
 		ack        = types.NewResultAppAcknowledgement([]byte{byte(1)})
 		recvResult = types.RecvPacketResult{
@@ -205,6 +206,14 @@ func (l *logic) OnRecvPacket(_ int, rlm realm, sourceClient, destinationClient s
 		ack = types.NewErrorAppAcknowledgement(ackErr)
 		return types.RecvPacketResult{Status: types.PacketStatus_Failure}
 	}
+	// Parse the amount before any state change: an error acknowledgement
+	// does not revert what the callback already wrote, so a failure past
+	// this point would leave a denom or escrow change behind.
+	amount, ackErr = token.AmountInt64()
+	if ackErr != nil {
+		ack = types.NewErrorAppAcknowledgement(ackErr)
+		return types.RecvPacketResult{Status: types.PacketStatus_Failure}
+	}
 	// This is the prefix that would have been prefixed to the denomination
 	// on sender chain IF and only if the token originally came from the
 	// receiving chain.
@@ -217,14 +226,8 @@ func (l *logic) OnRecvPacket(_ int, rlm realm, sourceClient, destinationClient s
 
 		// remove prefix added by sender chain
 		token.Denom.Trace = token.Denom.Trace[1:]
-		var transferAmount int64
-		transferAmount, ackErr = token.AmountInt64()
-		if ackErr != nil {
-			ack = types.NewErrorAppAcknowledgement(ackErr)
-			return types.RecvPacketResult{Status: types.PacketStatus_Failure}
-		}
 
-		coin := chain.NewCoin(token.Denom.IBCDenom(), transferAmount)
+		coin := chain.NewCoin(token.Denom.IBCDenom(), amount)
 
 		// The escrow being released was recorded under destinationClient when
 		// this chain originally sent the token out (the packet now arrives on
@@ -258,12 +261,6 @@ func (l *logic) OnRecvPacket(_ int, rlm realm, sourceClient, destinationClient s
 		transfer.EmitDenom(0, rlm, token.Denom.HashHex(), string(token.Denom.MarshalJSON()))
 
 		// Mint voucher tokens to the receiver
-		var amount int64
-		amount, ackErr = token.AmountInt64()
-		if ackErr != nil {
-			ack = types.NewErrorAppAcknowledgement(ackErr)
-			return types.RecvPacketResult{Status: types.PacketStatus_Failure}
-		}
 		l.store.GetOrCreateVoucher(0, rlm, token.Denom.Base, voucherDenom)
 		if err := l.store.MintVoucher(0, rlm, voucherDenom, receiver, amount); err != nil {
 			ackErr = ufmt.Errorf("mint voucher error: %v", err)
