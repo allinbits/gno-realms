@@ -701,8 +701,8 @@ characters of `a-z`, `0-9`, `-`).
       keeps every send record for good (no code path deletes one), so the
       record outlives the router commitment.
    3. A matching record is a genuine entitlement. A forged one is proven by
-      any of three conclusive readings of the same finalized, authenticated
-      block, two of them independent of the packet's timeout (a forged
+      any of four conclusive readings of the same finalized, authenticated
+      block, three of them independent of the packet's timeout (a forged
       packet can carry one years ahead):
       - **mismatch**: a record at that (source client, sequence) whose
         `commitment` is non-zero and differs from `types.CommitPacket(P)`
@@ -717,12 +717,26 @@ characters of `a-z`, `0-9`, `-`).
         receive's sequence: the sequence was allocated, and a transfer
         send would have written its record in the same transaction, so no
         transfer packet can ever be sent there;
+      - **absence on a retired client**: no record proves forgery at once,
+        whatever the sequence counter or the timeout says, when the
+        Ethereum transfer app has retired the client id the receive names:
+        `isRetired(sourceClient)` on the transfer proxy, by `eth_call`
+        pinned to the same block (or, by `eth_getProof` of the proxy's
+        storage, the word at `keccak256(bytes(sourceClient) ‖
+        uint256(0xf3bec7e430c885c7577ab512690266d2e153034fd4fd64588d19040d9649610a))`).
+        `retired[id]` is set only by `migrateRoute` (kind 10, or the
+        emergency recovery) and never cleared, every transfer send over a
+        retired id is refused, and send records are written only on that
+        send path, so no future transfer can write a record there; only a
+        governed, build-verified kind 7 upgrade could change that. A route
+        replacement on Ethereum therefore ends a forged receive's hostage:
+        retire the client it names, then resolve the receive this way;
       - **absence past the timeout** (the fallback, when the router has not
-        reached the sequence yet): no record proves forgery once that
+        reached the sequence yet and the client is not retired): no record proves forgery once that
         finalized block's timestamp has reached the packet's timeout
         (`TimeoutTimestamp` of `P`): after it the packet can no longer be
         sent, so an absence then is final.
-      Short of all three, the entitlement stays unresolved, and the
+      Short of all four, the entitlement stays unresolved, and the
       containment (the closed route, the `payouts` flag) stays in place;
       read again at a later finalized block. Every reading is checked
       against fabricated state the same way: the node trusted

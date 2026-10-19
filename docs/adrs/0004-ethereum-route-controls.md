@@ -1081,7 +1081,7 @@ does not list before it.
   from an Ethereum node trusted independently of the incident, read at an
   independently authenticated finalized block (`eth_call` and
   `eth_getProof` pinned to it, never "latest"). A matching record proves
-  the entitlement genuine. Forgery has two proofs that do not wait for
+  the entitlement genuine. Forgery has three proofs that do not wait for
   the packet's timeout, which a forged packet can set years ahead, so it
   holds no reconciliation hostage: a record at that (source client,
   sequence) of another packet (a non-zero commitment that differs) proves
@@ -1091,10 +1091,22 @@ does not list before it.
   source client (`prevSequenceSends`, read by `eth_getProof` of the
   router's storage pinned to the same block) is at or past the receive's
   sequence, since a transfer send at an allocated sequence would have
-  written its record in the same transaction. The timeout stays the
+  written its record in the same transaction; and an absent record proves
+  it at once, whatever the sequence counter or the timeout says, when the
+  Ethereum transfer app has retired the client id the receive names
+  (`isRetired(sourceClient)` on the transfer proxy, by `eth_call` pinned
+  to the same block, or `eth_getProof` of its storage word
+  `keccak256(bytes(sourceClient) ‖ uint256(0xf3bec7e430c885c7577ab512690266d2e153034fd4fd64588d19040d9649610a))`),
+  since `retired[id]` is set only by `migrateRoute` (kind 10, or the
+  emergency recovery) and never cleared, every transfer send over a
+  retired id is refused, and send records are written only on that send
+  path, so no future transfer writes one there (only a governed,
+  build-verified kind 7 upgrade could change that). A route replacement on
+  Ethereum thus ends a forged receive's hostage: retire the client it
+  names, then resolve the receive by this proof. The timeout stays the
   fallback: an absent record also proves forgery once that finalized
   block's timestamp has reached the packet's timeout, after which the
-  packet can no longer be sent. Short of all three it stays unresolved and
+  packet can no longer be sent. Short of all four it stays unresolved and
   the containment stays in place. Each reading is pinned to the same
   independently authenticated finalized block, so fabricated state is
   refused the same way for all of them.
