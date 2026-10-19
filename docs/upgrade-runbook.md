@@ -289,7 +289,9 @@ address; deploying it unchanged hands governance to a key nobody holds.
    decision. Every seat change waits 7 days and, under a hold, until day 21
    of the hold that first deferred it once due (the first `Execute` under
    that hold records the anchor and returns; a hold cleared and set again
-   never moves it; Ethereum the same), a vacancy (`"1:"`) included: a vacancy removes the holder the seat
+   never moves it; Ethereum anchors at the first hold standing at or after
+   the due time, read from its hold history, so gno.land can only wait
+   longer), a vacancy (`"1:"`) included: a vacancy removes the holder the seat
    had when the request was built, and is skipped if the seat changed hands
    since.
 4. Launch invariant: Ethereum stays at epoch 1 until the binding has
@@ -541,9 +543,10 @@ characters of `a-z`, `0-9`, `-`).
    defects and the implementation versions affected. The default is `0`
    (every record). The controls raise a boundary below the previous
    replacement's height to it (`ReplacedAt`): the first replacement keeps
-   0, since `ReplacedAt` is 0 at enrolment (no record predates the
-   enrolment, so nothing more is covered), and a later one starts no
-   earlier than the replacement that made `OLD` current. A later boundary is allowed only when the operators
+   the height supplied, 0 by default, since `ReplacedAt` is 0 at enrolment
+   (no record predates the enrolment, so 0 covers nothing more), and a
+   later one starts no earlier than the replacement that made `OLD`
+   current. A later boundary is allowed only when the operators
    establish that every consensus state `OLD` retained before it is
    genuine, a safe prefix of its history: each of those roots authenticated
    independently (step 0 of §7), and the verifier sound for the proofs
@@ -596,7 +599,9 @@ characters of `a-z`, `0-9`, `-`).
    client whose records it has just finished). The transfer app's `route_gov` event
    for the replacement says in its `note` attribute "prepare the rest with
    transfer.PrepareReplacement" when more remain (ibcgov's decision note
-   does not carry it): then call `transfer.PrepareReplacement(R, 64)` until
+   does not carry it): then call `transfer.PrepareReplacement(R, n)`
+   (1 ≤ n ≤ 64 steps a call, plus possibly one final move past a finished
+   client), for example `transfer.PrepareReplacement(R, 64)`, until
    it returns true; a settlement refused as "not prepared" says the same. No
    settlement, sweep payment, credit by vote or reopening applies before.
    The replacement moves the flags standing under `NEW` onto `R`, merging
@@ -617,8 +622,9 @@ characters of `a-z`, `0-9`, `-`).
      the number of replacements; the route's `replaced` list
      (`Render("routes/R")`) names every retired client, in order;
    - each keeps its own suspect height, recorded when it was retired
-     (`SuspectFrom(R, client)`: 0 for the route's first client, otherwise
-     raised to at least the replacement height that made it current): enumerate its records against that height (step 7,
+     (`SuspectFrom(R, client)`: the supplied suspect height, zero by
+     default; later replacements clamp it up to the previous replacement
+     height, when the client became current): enumerate its records against that height (step 7,
      keys `client/…`), never against the latest replacement's;
    - each keeps its own incident: settle and book its losses under the
      incident name used for its replacement (`INC` of that drill), so its
