@@ -539,8 +539,11 @@ characters of `a-z`, `0-9`, `-`).
    earliest verification operation (an update, or a membership or absence
    proof checked) that may have been compromised, considering verifier
    defects and the implementation versions affected. The default is `0`
-   (every record; the controls raise it to the height `OLD` became the
-   route's client). A later boundary is allowed only when the operators
+   (every record). The controls raise a boundary below the previous
+   replacement's height to it (`ReplacedAt`): the first replacement keeps
+   0, since `ReplacedAt` is 0 at enrolment (no record predates the
+   enrolment, so nothing more is covered), and a later one starts no
+   earlier than the replacement that made `OLD` current. A later boundary is allowed only when the operators
    establish that every consensus state `OLD` retained before it is
    genuine, a safe prefix of its history: each of those roots authenticated
    independently (step 0 of §7), and the verifier sound for the proofs
@@ -614,8 +617,8 @@ characters of `a-z`, `0-9`, `-`).
      the number of replacements; the route's `replaced` list
      (`Render("routes/R")`) names every retired client, in order;
    - each keeps its own suspect height, recorded when it was retired
-     (`SuspectFrom(R, client)`, raised to at least the height it became the
-     route's client): enumerate its records against that height (step 7,
+     (`SuspectFrom(R, client)`: 0 for the route's first client, otherwise
+     raised to at least the replacement height that made it current): enumerate its records against that height (step 7,
      keys `client/…`), never against the latest replacement's;
    - each keeps its own incident: settle and book its losses under the
      incident name used for its replacement (`INC` of that drill), so its
