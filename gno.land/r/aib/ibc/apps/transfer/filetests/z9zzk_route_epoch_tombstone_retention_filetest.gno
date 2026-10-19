@@ -198,7 +198,8 @@ func expectAll(cur realm) {
 // tombstone, so neither B, nor C beyond it, nor D, all retired for
 // transfers, is retired for governance by a prune. A→B is approved again;
 // B's notice switches the epoch, which clears the A→D tombstone it
-// supersedes, and C's notice follows along B→C; D is then retired for good.
+// supersedes, and C's notice follows along B→C; D, left behind, is kept off
+// the graph, not retired: no switch passed it (design review r27).
 func main(cur realm) {
 	client(cur, "ethereum-1", "client-0")
 	b := client(cur, "ethereum-2", "gnoland-b", noticePacket(1, "gnoland-b", "ethereum-2", 2, "gnoland-b"))
@@ -240,4 +241,4 @@ func main(cur realm) {
 // A→B again: applied - expect the governance epoch to move from client-0 to gnoland-b over ethereum-2 | tombstones: 1
 // B's notice: acknowledged | epoch 2 over ethereum-2 | tombstones: 0
 // C's notice: acknowledged | epoch 3 over ethereum-3
-// pruned: 1 | D retired for governance: true
+// pruned: 0 | D retired for governance: false

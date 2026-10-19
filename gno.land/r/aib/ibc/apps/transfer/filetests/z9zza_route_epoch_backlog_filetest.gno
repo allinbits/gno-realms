@@ -195,10 +195,12 @@ func expectAll(cur realm) {
 // dispatch is refused, and an epoch switch drops the transitions it left
 // behind, freeing the capacity. With the graph at the cap and the epoch
 // unchanged, a replaced client on no path keeps its gov port (a catch-up
-// may need it: design review r10), one on a path waits. The switch retires only the old epoch client; the
-// clients it left behind are retired by PruneGovRetirements, in bounded
-// batches that resume where the last stopped (Codex round 37), so clients
-// still on a path, sorted first, never hold back the others.
+// may need it: design review r10), one on a path waits. The switch retires
+// only the old epoch client (and the path's intermediate ones); the clients
+// it left behind leave the waiting list and keep their gov port, off the
+// graph (design review r27: Ethereum may reach them another way), so
+// PruneGovRetirements, in bounded batches that resume where the last
+// stopped (Codex round 37), retires none of them.
 func main(cur realm) {
 	client(cur, "ethereum-1", "client-0")
 	client(cur, "ethereum-2", "gnoland-b1")
@@ -253,7 +255,8 @@ func main(cur realm) {
 	println("old epoch client retired:", core.IsClientRetired("ethereum-1"), "| waiting:", ibcgov.AwaitingGovRetirement())
 	kind10(cur, "gnoland-d4x1", "gnoland-new", 1, extra)
 	println("the transition refused before:", decided(ibcgov.LastDecision()-1))
-	// Batches of 2: ethereum-10 to 13 are kept, ethereum-6 and 7 retired.
+	// Batches of 2: ethereum-10 to 13 are kept on a path; ethereum-6 and 7,
+	// left behind by the switch, are kept off the graph, not retired.
 	for i := 0; i < 4; i++ {
 		println("pruned:", ibcgov.PruneGovRetirements(cross(cur), 2), "| waiting:", ibcgov.AwaitingGovRetirement())
 	}
@@ -265,10 +268,10 @@ func main(cur realm) {
 // epoch 1 over ethereum-1 | 64 transitions expected
 // graph at the cap, epoch unchanged: waiting 7 | a client on no path retired for governance: false | one on a path kept: false
 // b2's notice: acknowledged | epoch 2 over ethereum-3
-// old epoch client retired: true | waiting: 6
+// old epoch client retired: true | waiting: 4
 // the transition refused before: applied - dispatched as epoch 2 seq 1; its transition is expected from decision 140
-// pruned: 0 | waiting: 6
-// pruned: 0 | waiting: 6
-// pruned: 2 | waiting: 4
 // pruned: 0 | waiting: 4
-// kept on a path: false | retired for good: true true
+// pruned: 0 | waiting: 4
+// pruned: 0 | waiting: 4
+// pruned: 0 | waiting: 4
+// kept on a path: false | retired for good: false false

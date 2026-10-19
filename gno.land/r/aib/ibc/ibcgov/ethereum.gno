@@ -923,13 +923,24 @@ func takeNotice(cur realm, source, client string, payload types.Payload) (uint32
 // clients it passes: the old epoch's client and the local clients of the
 // path's intermediate steps (at most maxNoticeSteps), for good when their
 // route replacement executed here (they are retired for transfers already),
-// otherwise for the gov port, their replacement retiring the rest. Its work
-// is bounded: any other client a replacement retired for transfers while on
-// an expected path is retired by PruneGovRetirements, in bounded batches.
+// otherwise for the gov port, their replacement retiring the rest. Those are
+// the only clients a switch retires: every other client its pruning
+// disconnects (on a branch it left behind, a cancelled recovery's say) is
+// taken out of awaitingGov and kept off the graph, its gov port open and
+// inert, as a purge keeps the clients it disconnects, since Ethereum may
+// still reach it another way (expected again, its notice applies). Its work
+// is bounded: two walks of the graph.
 func switchEpoch(cur realm, e uint32, client string, passed []string) {
 	old := EpochClient()
+	_, before := retained()
 	setEpoch(e, client)
 	pruneUnreachable()
+	_, after := retained()
+	for c := range before {
+		if !after[c] && awaitingGov.Has(c) {
+			awaitingGov.Remove(c)
+		}
+	}
 	// Never the client just adopted (the path is simple; this guards it).
 	for _, c := range append([]string{old}, passed...) {
 		if c == client {
@@ -943,11 +954,11 @@ func switchEpoch(cur realm, e uint32, client string, passed []string) {
 // PruneGovRetirements retires for governance up to n (1 to 64) of the gno
 // clients a route replacement retired for transfers while they were on an
 // expected path of the governance epoch, once they no longer are: anyone may
-// call it. Only an epoch switch makes one unreachable while it stays here
-// (its pruning supersedes the transitions it leaves behind): a removal or a
-// release leaves a tombstone that keeps it reachable, and a purge takes the
-// clients it disconnects out of awaitingGov, so a prune never retires a
-// client no switch superseded. A client on a path, or one whose paths cannot be told within the
+// call it. A safety net only: nothing leaves a client here once no path
+// reaches it (a removal or a release leaves a tombstone that keeps it
+// reachable; a switch and a purge take the clients they disconnect out of
+// awaitingGov), and a switch retires the clients its path passed itself, so
+// a prune retires nothing a switch did not pass. A client on a path, or one whose paths cannot be told within the
 // search's bounds, is kept for a later call. Each call visits n clients from
 // where the last one stopped, wrapping round at the end, so a client kept
 // never holds back those after it. It returns how many it retired.
