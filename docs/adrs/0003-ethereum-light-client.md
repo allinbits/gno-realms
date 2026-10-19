@@ -51,9 +51,11 @@ of solidity-ibc-eureka (client type `ethereum`):
   `TrustedSlot` must equal the client state's `LatestSlot`
   (`checkLatestAnchor`). Older stored consensus states stay usable for
   membership proofs at their heights (those from before a recovery
-  excepted; authenticating a newer state does not make them genuine, so an
-  incident's suspect interval starts no later than the earliest stored
-  root that may have been forged: ADR 0004, runbook §8), but never as the
+  excepted; authenticating a newer state does not make them genuine, and a
+  genuine root does not make a defective verification against it sound, so
+  an incident's suspect interval starts no later than the earliest stored
+  root that may have been forged and the earliest proof an affected
+  verifier version checked: ADR 0004, runbook §8), but never as the
   anchor of an update,
   so a past sync committee cannot insert state roots below the latest slot
   or freeze the client: an update or misbehaviour is verified only against

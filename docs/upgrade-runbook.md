@@ -312,11 +312,18 @@ address; deploying it unchanged hands governance to a key nobody holds.
    during the binding delay, recover it in place
    (`NewRecoverClientRequest(clientID, substitute)`, 7 days, same id) and
    bind again, or, if it cannot be recovered, restart the unlaunched
-   deployment. Keep the route's limits at zero (no denom enabled, so no
-   value moves) until IBCAdmin has recorded its first decision from
-   gno.land. Every Ethereum-bound decision (`NewEth*Request`) is refused
+   deployment. Every Ethereum-bound decision (`NewEth*Request`) is refused
    until the channel is bound.
-5. Enable each denom with `NewSetDenomRequest` (7 days).
+5. **Value gate (mandatory).** The route starts with no enabled denom, so
+   no value moves over it, and Ethereum's transfer app deploys with zero
+   limits. Execute no denom enablement here until IBCAdmin has recorded
+   gno.land's first decision: check on Ethereum that `epoch()` is 1 and
+   `lastSeq() >= 1` (the first governance dispatch, the binding's proof that
+   epoch 1 runs over the verified pair) before executing the first
+   `NewSetDenomRequest` (7 days; record it whenever, execute it only after
+   the check). Ethereum activates its side by a governed kind 4
+   (`NewEthLimitsRequest`). Then enable each denom with
+   `NewSetDenomRequest`.
 6. Once the channel is bound (never before: see step 4), a client of a
    route is replaced with `NewReplaceRouteRequest` (an Active
    Ethereum client that is no route's client yet, authenticating the route's
@@ -546,17 +553,20 @@ characters of `a-z`, `0-9`, `-`).
    the height supplied, 0 by default, since `ReplacedAt` is 0 at enrolment
    (no record predates the enrolment, so 0 covers nothing more), and a
    later one starts no earlier than the replacement that made `OLD`
-   current. A later boundary is allowed only when the operators
-   establish that every consensus state `OLD` retained before it is
-   genuine, a safe prefix of its history: each of those roots authenticated
-   independently (step 0 of §7), and the verifier sound for the proofs
-   checked against them. The boundary is then the gno.land height at which
-   the earliest consensus state that may have been forged was installed
-   (the update that stored it), never later. Authenticating a newer state
-   alone never advances it: a genuine later head says nothing about the
-   older roots the client keeps, and a forged older root can still back a
-   proof. One record too many costs a proof; one too few keeps a forged
-   refund.
+   current. The boundary must cover the earliest operation that may have
+   been compromised: an update, or a membership or non-membership
+   verification (a packet's proof, a `ProveOutcome`, a receive), under any
+   affected verifier implementation version. A later boundary than 0 needs
+   both: a safe prefix (every consensus state `OLD` retained before it is
+   genuine, each root authenticated independently, step 0 of §7), and
+   evidence that no affected verifier version verified any proof, against
+   any root, before it. It is then the gno.land height of the earliest of
+   the two (the installation of the earliest root that may be forged, the
+   first proof an affected version checked), never later. Genuine roots
+   alone never justify it: a sound root says nothing about a defective
+   verification against it, and a forged older root can still back a
+   proof; a newer genuine head never advances it. One record too many costs
+   a proof; one too few keeps a forged refund.
    Ethereum's kind 10 takes its own `suspectFrom`, an Ethereum block.
 4. **Prepare `NEW`.** Authenticate a
    checkpoint independently (§7 step 0), create `NEW` from it with the
