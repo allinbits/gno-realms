@@ -610,11 +610,17 @@ follows (`ibcgov/routes.gno`), and in no other way:
   replaced before the channel was bound, which no epoch can need): retired
   for good.
 
-A client is then retired for governance only when an applied notice's path
-passes it: the switch retires the old epoch's client and the local clients
-of the path's intermediate steps (at most 63; for good if their route
-replacement executed here, otherwise for the gov port, the replacement
-retiring the rest), in bounded work, and nothing else. Its pruning drops
+A client is then retired for governance only when a switch leaves it as
+the old epoch's client: the notice of a later epoch proves Ethereum has
+moved past it (for good if its route replacement executed here, otherwise
+for the gov port, the replacement retiring the rest), in bounded work, and
+nothing else. The path's intermediate clients are not retired: whoever
+applies a recorded notice names its path, so they are not proven to be
+the ones Ethereum passed (with A→B→C and A→X→C both recorded, Ethereum may
+have run A→B→C and later recovered to X); they are kept off the graph,
+gov port open and inert, like every client the switch's pruning
+disconnects (z9zzv: C's notice applied along A→X→C, X is not retired, C→X
+is expected and X's epoch-4 notice applies). Its pruning drops
 the transitions and tombstones it leaves behind, but every client that
 pruning disconnects (on a branch the path did not take: a cancelled
 recovery's, or one whose real continuation is not recorded yet) is taken
@@ -641,8 +647,8 @@ path waits; a switch retires only the old epoch client, and the clients
 it left behind are kept, so the batched prunes retire none).
 This qualifies ADR pr6375's final retirement of a replaced client: on the
 route, once the channel is bound, it is final for transfers at once, and for
-governance only once an applied notice's path passes it; a client the
-epoch's path never passes keeps its gov port, inert, for good. z9zx:
+governance only once a switch leaves it as the old epoch's client; a
+client the epoch never runs over keeps its gov port, inert, for good. z9zx:
 A→B and B→C executed here before any notice, B's notice moves the epoch to
 2 and C's to 3, C's for epoch 2 refused; competing kind 10s C→D and C→F,
 gno.land's C→F replacement cancelled, D's notice accepted; an emergency

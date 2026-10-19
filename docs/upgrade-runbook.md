@@ -431,13 +431,13 @@ address; deploying it unchanged hands governance to a key nobody holds.
       prefix the graph holds (step 5): the switch frees the places behind
       it. Then record the next transitions (`NewExpectRecoveryRequest`, 7
       days each, naming the kept clients), relay their notices afresh, and
-      repeat until gno reaches Ethereum's epoch. Nothing but an applied
-      notice's path retires a client for governance: a switch retires the
-      clients its path passed, and keeps every client its pruning
-      disconnects off the graph, gov port open, so a branch it left behind
+      repeat until gno reaches Ethereum's epoch. A switch retires for
+      governance only the old epoch client, and keeps the path's
+      intermediate clients and every client its pruning disconnects off the
+      graph, gov port open, so a branch it left behind
       (say B→C not recorded when B's notice applied) can still be expected
       and its notice applied; `ibcgov.PruneGovRetirements(64)` retires
-      nothing a switch did not pass. Purge a
+      nothing a switch did not retire. Purge a
       tombstone (`NewPurgeTombstoneRequest`) only for a transition Ethereum
       did not execute (advice: a purge frees capacity only, and never makes
       a client retirable: the clients it disconnects are kept off the graph,
@@ -462,14 +462,15 @@ address; deploying it unchanged hands governance to a key nobody holds.
    the original packet again only returns `RESPONSE_NOOP` (its receipt
    exists); IBCAdmin sends the identical notice bytes in a fresh packet
    (`resendEpochNotice(epoch)`, a new transport sequence), and that packet
-   is relayed. A client is retired for governance only when an applied
-   notice's path passes it (the old epoch client, the path's intermediate
-   ones). A switch, a purge or a removal never retires the others: the
+   is relayed. A client is retired for governance only when a switch
+   leaves it as the old epoch client; the path's intermediate clients are
+   kept (whoever applies a notice names its path, which proves nothing
+   about which clients Ethereum passed). A switch, a purge or a removal never retires the others: the
    clients a switch's pruning or a purge disconnects leave the waiting list
    (`AwaitingGovRetirement()`) and are kept off the graph, gov port open and
    inert, and a removal leaves a tombstone that keeps them on it.
    `ibcgov.PruneGovRetirements(64)` remains as a safety net and retires
-   nothing a switch did not pass; a client kept off the graph that is
+   nothing a switch did not retire; a client kept off the graph that is
    never on the epoch's path keeps its gov port for good. The local client is the new gno
    client tracking the new router client, Active, its counterparty set. A notice that
    arrives before the replacement executes here moves the epoch all the

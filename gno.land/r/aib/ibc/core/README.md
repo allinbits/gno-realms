@@ -517,8 +517,9 @@ can still be re-sent over it and a later notice can still arrive; and, on
 the governed Ethereum route once ibcgov's channel is bound, also when the graph
 does not hold it and no epoch switch has passed it, since a catch-up may
 need it later. ibcgov retires a client for governance only when an
-authenticated epoch switch passes it (the old epoch's client and the
-path's intermediate ones); a switch's pruning and a tombstone purge never
+authenticated epoch switch leaves it as the old epoch's client (the path's
+intermediate clients are kept, since whoever applies a notice names the
+path); a switch's pruning and a tombstone purge never
 retire anything: the clients they disconnect are kept off the graph, gov
 port open and inert, and `PruneGovRetirements` retires nothing a switch
 did not pass (ADR 0004, Governance channel; transfer filetests `z9zv`,
