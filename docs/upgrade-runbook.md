@@ -342,8 +342,8 @@ address; deploying it unchanged hands governance to a key nobody holds.
    Ethereum executes the matching kind 10, or its emergency recovery), and
    the old client is then retired for good. Once the channel is bound, a
    client of the route is never retired for the gov port by its
-   replacement, nor by a prune while off the graph: only a switch passing
-   it retires it for governance (ADR 0004, the governance retirement rule). The notice is accepted only
+   replacement, nor by a prune while off the graph: only a switch leaving
+   it as the old epoch client retires it for governance (ADR 0004, the governance retirement rule). The notice is accepted only
    along a transition ibcgov expects, and over the local client it names
    only: dispatching the kind 10
    (`NewEthRouteReplacementRequest(old, new, suspectFrom, localClient)`)

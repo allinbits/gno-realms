@@ -280,7 +280,10 @@ settlements, route replacement and reopening, channel binding, every seat
 change, a vacancy included, as ADR pr6375 §7.4 has it); revoking a recapitalization authorization applies at once. A
 decision whose call would fail on the live state when it applies (the light
 client's recovery and migration checks and the core's send checks included)
-is refused and spent, never left pending. Proposals
+is refused and spent, not left pending, save the rollback exceptions
+listed under "Governed execution spends rather than aborts" (candidate
+implementation code; a token refusing a governed payment at runtime).
+Proposals
 expire 14 days after they are built. A hold defers every queued decision,
 except a seat change (a vacancy included) from day 21 of the hold that
 first deferred it once it was due: that hold's start is the decision's
@@ -747,8 +750,10 @@ against gno-eth-ibc 6f94541's vectors.
 Every int64 aggregate of the controls goes through one helper set
 (`controls/arith.gno`). Liabilities and payment totals are checked:
 `checkedAdd` refuses the operation that would overflow one (an owed
-claims total, a sweep payment's total, a settlement's payments of a
-denom). The reservation and outstanding-loss counters (in-flight,
+claims total, a sweep payment's total). A settlement's payments are not
+refused for it: the planning bounds them per denom and parks the refunds
+that do not fit (the settlement-payments row below,
+`TestMintedRefundsBeyondInt64`). The reservation and outstanding-loss counters (in-flight,
 returning, queued, parked and proven reservations, unrecovered and
 unresolved losses) are not refused for passing int64: they are exact wide
 counters (`wide`, two limbs) with saturating int64 views, as the tables
@@ -774,7 +779,7 @@ saturates statistics no check reads. Audited:
 | queue and refund sequences, authorization ids, open and pending record counts | grow by one per entry, record or authorization inserted (a settlement can queue up to 64 parked refunds, and a transaction can make several calls): far below int64 in any chain's lifetime |
 | impl/v1: a send's amount plus the route fee | checked |
 
-### Governed execution never aborts
+### Governed execution spends rather than aborts
 
 A request refused when it is recorded (a recovery expectation whose
 transition the graph no longer admits) records a spent decision rather
@@ -1161,8 +1166,11 @@ does not list before it.
   back, the packet's transport completion included (the core keeps the
   commitment): the relayer retries once the token is repaired. Such a
   payment is never parked or skipped. Governed decisions check payments
-  beforehand and spend on failure (`payable`, "Governed execution never
-  aborts" above).
+  beforehand (`payable`): a refusal found there spends the decision, while
+  an unexpected runtime failure of the payment itself (a token refusing
+  the transfer) rolls its execution back and leaves it pending, to be
+  cancelled or executed again (`payable`, "Governed execution spends rather
+  than aborts" above).
 - **A settlement is final once it applies** (an accepted residual of the
   reconciliation): a gno settlement (`NewSettleRequest`) and Ethereum's
   kind 12 (`NewEthSettleRequest`) apply after their 7-day delay, and until
