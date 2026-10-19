@@ -783,7 +783,19 @@ and leave a queued decision pending is only what the preflight cannot
 evaluate: a panic in candidate code itself (a constructor or hook panicking,
 which crosses the realm boundary unrecovered), a constructor whose result
 depends on the store it is handed, or a hook refusing on a condition it
-does not declare through `InstallChecker`. A verifier replacement is not: its conversion runs on a read-only view of the live verifier that
+does not declare through `InstallChecker`; and a governed payment (a sweep
+payment, a settlement's refunds) whose token transfer fails at runtime:
+`payable` checks beforehand what it can (the token's registration, the
+realm's balance, the recipients, the accounting), but cannot predict
+whether an arbitrary GRC20's transfer succeeds, so a token that refuses it
+(paused, or blacklisting the transfer realm) panics and rolls the
+decision's execution back, the decision staying pending. The assumption
+is that an enrolled GRC20 does not pause or blacklist the transfer realm,
+which governance checks before enabling it. When it happens anyway,
+governance cancels the decision (`NewCancelRequest`), or anyone executes
+it again once the token transfers again; if executing it later would be
+unsafe (the state it was decided on has moved), cancel it and propose it
+again. A verifier replacement is not: its conversion runs on a read-only view of the live verifier that
 returns copied states (a retired verifier's consensus states included), a
 panic in it recovered,
 and a converted verifier that fails its checks is refused before anything
@@ -1033,7 +1045,9 @@ does not list before it.
   dropped stays payable: once the route is open and the `payouts` flag
   cleared, nothing in the code stops its payout. Reconciliation must
   therefore enumerate every suspect receive entitlement, paid or not,
-  authenticate each against the router through the replacement client, and
+  authenticate each off-chain (the received packet matched to its gno.land
+  receipt and to Ethereum's retained `sendRecord`, read from independently
+  trusted Ethereum evidence, as below and in the runbook's step 7), and
   void every forged remainder (a void as forged, or a forged-receive
   settlement, action 5, for one that paid out, booking the paid amount
   once) before reopening or clearing containment: a hard precondition of
@@ -1151,7 +1165,7 @@ does not list before it.
   not recoverable inside ibcgov** (accepted residuals; ADR pr6375 trusts
   an approved notice verifier). An approved local client that authenticates
   a forged notice before it is caught moves the governance epoch: the
-  switch retires the clients it passes and prunes the graph, and no
+  switch retires the old epoch client and prunes the graph, and no
   decision undoes it. Whether that loses Ethereum-bound governance depends
   on whether Ethereum can reach the epoch and client gno adopted: a
   premature forged notice naming the epoch and client a legitimate kind 10

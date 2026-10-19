@@ -323,7 +323,14 @@ address; deploying it unchanged hands governance to a key nobody holds.
    `NewSetDenomRequest` (7 days; record it whenever, execute it only after
    the check). Ethereum activates its side by a governed kind 4
    (`NewEthLimitsRequest`). Then enable each denom with
-   `NewSetDenomRequest`.
+   `NewSetDenomRequest`. Before enabling a GRC20, check that the token
+   cannot pause transfers or blacklist the transfer realm (its code, its
+   admin powers): a governed sweep or settlement paying it checks what it
+   can beforehand but cannot predict a token's runtime refusal, and such a
+   refusal rolls the decision's execution back, leaving it pending. If it
+   happens, cancel the decision (`NewCancelRequest`) or execute it again
+   once the token transfers; if executing it later would be unsafe, cancel
+   it and propose it again.
 6. Once the channel is bound (never before: see step 4), a client of a
    route is replaced with `NewReplaceRouteRequest` (an Active
    Ethereum client that is no route's client yet, authenticating the route's
