@@ -321,10 +321,10 @@ and `/r/aib/ibc/core:admin` lists it. `SendPacket` is not restricted: users
 send through their applications.
 
 **While the whitelist is empty, any address may do all of the above.** That
-is the state right after deployment, and the home page says so. Then anyone
-can create clients, including clients of a chain they run, and relay packets
-from them: clients are never removed, and packets from such a client mint
-vouchers only that client's counterparty backs. **Right after deploying,
+is the state right after deployment. Then anyone can create clients,
+including clients of a chain they run, and relay packets from them: clients
+are never removed, and packets from such a client mint vouchers only that
+client's counterparty backs. **Right after deploying,
 the authority adds the relayers** that will serve the realm, one `MsgCall`
 per relayer:
 

@@ -30,8 +30,6 @@ func main(cur realm) {
 //
 // **Upgradeable realm**: the client and packet lifecycle runs in the implementation [`gno.land/r/aib/ibc/core/impl/v0`](/r/aib/ibc/core/impl/v0) (version v0), replaceable by the authority with `UpdateImpl` (see [`admin`](/r/aib/ibc/core:admin)).
 //
-// > **Open relaying**: the relayer whitelist is empty, so any address may create clients and relay packets. The authority restricts it with `AddRelayer` (see [`admin`](/r/aib/ibc/core:admin)).
-//
 // ## Clients (1)
 //
 // | Client | St. | Creator | Cpty | Height | Time | CS | Seq | Cmts | Rcpts | Acks |
