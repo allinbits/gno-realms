@@ -45,8 +45,17 @@ identity (chain, ICS26 router with its commitments slot, and the IBCAdmin
 behind them). Any further enrolment is refused when requested and again
 when it executes, before the binding or after it, so of two requested
 together only the first applies (`checkOneRoute`; z9zzs). Replacements keep
-the route's key and identity, and the binding goes over the route's current
-client. Several routes, or a second deployment, need a further ibcgov
+the route's key and identity, and the binding goes over the route's
+original client, the pair Ethereum's epoch 1 uses with its router client:
+no replacement precedes the binding (`checkBoundForReplace`, refused when
+requested and when it executes, z9zj), since one would retire that client
+for good and leave epoch 1 opened over a pair Ethereum does not use, which
+nothing could repair (Ethereum refuses an emergency recovery until it
+records its first decision from gno.land). A client failing before the
+binding is recovered in place (`NewRecoverClientRequest`, same id), or the
+unlaunched deployment is restarted. Operators are advised to keep the
+route carrying no value (no denom enabled) until Ethereum records the first
+governance decision. Several routes, or a second deployment, need a further ibcgov
 instance wired as governance of its own core and transfer proxies, and
 Ethereum-side support for them; neither is shipped, and the shipped proxies
 accept governance from this ibcgov only. Routes over Tendermint clients are
@@ -737,8 +746,11 @@ saturates statistics no check reads. Audited:
 
 ### Governed execution never aborts
 
-Every decision ibcgov executes refuses deterministically, spending the
-decision, on the failures below that the live state could later clear (by
+A request refused when it is recorded (a recovery expectation whose
+transition the graph no longer admits) records a spent decision rather
+than aborting, so an approved GovDAO proposal is used up, never left to
+execute later without a new vote (z1p). Every decision ibcgov executes
+refuses deterministically, spending the decision, on the failures below that the live state could later clear (by
 preflight before crossing, or a refusal returned by the callee). An
 implementation switch is checked in the preflight against an empty store
 (its built version, and its install hook's declared condition through

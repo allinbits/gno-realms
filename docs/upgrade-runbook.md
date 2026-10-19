@@ -299,13 +299,24 @@ address; deploying it unchanged hands governance to a key nobody holds.
    before the binding anyway, the launch is void: binding opens epoch 1
    here, which Ethereum no longer accepts, and no notice path can repair
    the offset; redeploy. Once the enrollment has executed, bind the
-   governance channel to the route's client with
-   `NewBindGovernanceRequest(clientID)` (7 days): the
-   client must still be Active and the route's current client when it
-   executes. Every Ethereum-bound decision (`NewEth*Request`) is refused
+   governance channel to the route's original client with
+   `NewBindGovernanceRequest(clientID)` (7 days): the client must still be
+   Active and the route's original client when it executes. Before
+   recording it, verify the pair Ethereum's epoch 1 uses: IBCAdmin's
+   `govClient()` is the router client whose counterparty is this gno client
+   (`core.CounterpartyClientID(clientID)`), and this client tracks it. The
+   route's client cannot be replaced before the binding (refused when
+   requested and when it executes): if the client fails (freezes, expires)
+   during the binding delay, recover it in place
+   (`NewRecoverClientRequest(clientID, substitute)`, 7 days, same id) and
+   bind again, or, if it cannot be recovered, restart the unlaunched
+   deployment. Keep the route's limits at zero (no denom enabled, so no
+   value moves) until IBCAdmin has recorded its first decision from
+   gno.land. Every Ethereum-bound decision (`NewEth*Request`) is refused
    until the channel is bound.
 5. Enable each denom with `NewSetDenomRequest` (7 days).
-6. A client of a route is replaced with `NewReplaceRouteRequest` (an Active
+6. Once the channel is bound (never before: see step 4), a client of a
+   route is replaced with `NewReplaceRouteRequest` (an Active
    Ethereum client that is no route's client yet, authenticating the route's
    identity), which closes the route until `NewReopenRouteRequest`; §8 is
    the whole incident drill. While the governance epoch runs over the old
