@@ -289,9 +289,10 @@ address; deploying it unchanged hands governance to a key nobody holds.
    decision. Every seat change waits 7 days and, under a hold, until day 21
    of the hold that first deferred it once due (the first `Execute` under
    that hold records the anchor and returns; a hold cleared and set again
-   never moves it; Ethereum anchors at the first hold standing at or after
-   the due time, read from its hold history, so gno.land can only wait
-   longer), a vacancy (`"1:"`) included: a vacancy removes the holder the seat
+   never moves it; Ethereum anchors from its hold history at the first
+   hold standing at or after the due time; neither anchors earlier than
+   that ideal boundary, and either may anchor later, so either chain's
+   wait can be the longer), a vacancy (`"1:"`) included: a vacancy removes the holder the seat
    had when the request was built, and is skipped if the seat changed hands
    since.
 4. Launch invariant: Ethereum stays at epoch 1 until the binding has

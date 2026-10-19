@@ -293,10 +293,13 @@ z1n: a hold cleared on day 19 and set again on day 20, the replacement
 still lands on day 21 of the first). The two chains anchor differently:
 gno.land anchors at the hold standing at the first `Execute` it defers,
 so a hold no `Execute` met while the decision was due is not counted;
-Ethereum anchors at the start of the first hold standing at or after the
-due time, read from its hold history, so an earlier hold nobody observed
-still counts. Both anchor at that hold's start even when it began before
-the due time. gno.land can therefore only wait longer, never shorter. The
+Ethereum anchors from its hold history, at the first hold standing at or
+after the due time (skipping merged hold intervals), so an earlier hold
+nobody observed still counts. Both anchor at a hold's start even when it
+began before the due time. Neither rule ever anchors earlier than the ideal
+boundary, the start of the first hold standing once the decision is due;
+either can anchor later, through observation timing on gno.land or hold
+compression on Ethereum, so either chain's wait may be the longer. The
 governor cannot end a hold by vacating the flagging seats.
 
 ### Entry points
