@@ -10,7 +10,6 @@ import (
 
 	"gno.land/p/aib/ibc/ics20/v0"
 	"gno.land/p/aib/ibc/types/v0"
-	"gno.land/p/nt/grc20/v0"
 	"gno.land/p/nt/ufmt/v0"
 	"gno.land/r/aib/ibc/apps/transfer"
 )
@@ -254,14 +253,6 @@ func (l *logic) OnRecvPacket(_ int, rlm realm, sourceClient, destinationClient s
 		trace := []ics20.Hop{ics20.NewHop(payload.DestinationPort, destinationClient)}
 		token.Denom.Trace = append(trace, token.Denom.Trace...)
 
-		// The base denomination is stored and becomes the voucher's token
-		// name, both shown by the render routes: refuse anything but a plain
-		// denomination before storing it.
-		if ackErr = validateVoucherBaseDenom(token.Denom.Base); ackErr != nil {
-			ack = types.NewErrorAppAcknowledgement(ackErr)
-			return types.RecvPacketResult{Status: types.PacketStatus_Failure}
-		}
-
 		voucherDenom := token.Denom.IBCDenom()
 		if !l.store.HasDenom(voucherDenom) {
 			l.store.SetDenom(0, rlm, token.Denom)
@@ -279,43 +270,6 @@ func (l *logic) OnRecvPacket(_ int, rlm realm, sourceClient, destinationClient s
 	}
 
 	return recvResult
-}
-
-// validateVoucherBaseDenom checks the base denomination of a voucher about to
-// be minted. It comes from the counterparty and is stored, then shown by the
-// render routes and as the voucher's GRC20 name: markdown in it (links,
-// table separators) would be rendered as is. It must be a plain denomination
-// (see isPlainDenom) that fits a GRC20 name; Cosmos SDK denominations always
-// are, and anything else gets an error acknowledgement, so the counterparty
-// refunds its sender.
-func validateVoucherBaseDenom(base string) error {
-	if len(base) > grc20.MaxNameLen {
-		return ufmt.Errorf("base denomination is longer than %d bytes", grc20.MaxNameLen)
-	}
-	if !isPlainDenom(base) {
-		return errors.New("base denomination must start with a letter and contain only letters, digits, ':', '.', '_' or '-'")
-	}
-	return nil
-}
-
-// isPlainDenom reports whether s is a letter followed by letters, digits,
-// ':', '.', '_' or '-': the Cosmos SDK denomination charset without '/', and
-// the charset of this realm's GRC20 aliases. None of these characters is
-// significant in markdown.
-func isPlainDenom(s string) bool {
-	if s == "" {
-		return false
-	}
-	for i := 0; i < len(s); i++ {
-		c := s[i]
-		switch {
-		case 'a' <= c && c <= 'z', 'A' <= c && c <= 'Z':
-		case i > 0 && ('0' <= c && c <= '9' || c == ':' || c == '.' || c == '_' || c == '-'):
-		default:
-			return false
-		}
-	}
-	return true
 }
 
 // validateBaseDenomNoSlash rejects base denominations containing a slash.

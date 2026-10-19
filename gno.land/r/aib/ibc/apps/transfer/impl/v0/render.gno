@@ -186,8 +186,7 @@ func (rd *Renderer) Denom(w *mux.ResponseWriter, r *mux.Request) {
 	denom := "ibc/" + r.GetVar("hash")
 	d, found := rd.store.Denom(denom)
 	if !found {
-		// The path segment is not echoed: it comes from the URL.
-		RenderNode(w, NodeError("denom not found"))
+		RenderNode(w, NodeError(ufmt.Sprintf("denom %s not found", denom)))
 		return
 	}
 	RenderNode(w, d.RenderJSON())
@@ -195,11 +194,6 @@ func (rd *Renderer) Denom(w *mux.ResponseWriter, r *mux.Request) {
 
 func (rd *Renderer) TotalEscrowForDenom(w *mux.ResponseWriter, r *mux.Request) {
 	denom := r.GetVar("denom")
-	// The denom comes from the URL and is echoed: accept only a plain one.
-	if !isPlainDenom(denom) {
-		RenderNode(w, NodeError("invalid denom"))
-		return
-	}
 	// List the per-client amounts so the client/escrow binding is visible, not
 	// just the aggregate. The total is kept at the top level for quick checks.
 	clients := []*json.Node{}
@@ -242,7 +236,7 @@ func (rd *Renderer) Voucher(w *mux.ResponseWriter, r *mux.Request) {
 	ibcDenom := "ibc/" + r.GetVar("hash")
 	token := rd.store.VoucherToken(ibcDenom)
 	if token == nil {
-		RenderNode(w, NodeError("voucher token not found"))
+		RenderNode(w, NodeError("voucher token %s not found", ibcDenom))
 		return
 	}
 	RenderNode(w, VoucherJSON(ibcDenom, token))
@@ -265,20 +259,13 @@ func (rd *Renderer) VoucherBalance(w *mux.ResponseWriter, r *mux.Request) {
 	addr := r.GetVar("addr")
 	token := rd.store.VoucherToken(ibcDenom)
 	if token == nil {
-		RenderNode(w, NodeError("voucher token not found"))
+		RenderNode(w, NodeError("voucher token %s not found", ibcDenom))
 		return
 	}
-	// Echo only a valid address, in its canonical spelling, which is also
-	// the one the GRC20 ledger keys balances by.
-	canonical, ok := transfer.CanonicalAddress(addr)
-	if !ok {
-		RenderNode(w, NodeError("invalid address"))
-		return
-	}
-	balance := token.BalanceOf(canonical)
+	balance := token.BalanceOf(address(addr))
 	RenderNode(w, json.ObjectNode("", map[string]*json.Node{
 		"denom":   json.StringNode("", ibcDenom),
-		"address": json.StringNode("", string(canonical)),
+		"address": json.StringNode("", addr),
 		"balance": json.NumberNode("", float64(balance)),
 	}))
 }
@@ -415,12 +402,16 @@ func ShortDenom(ibcDenom string) string {
 }
 
 // RenderNode writes n as JSON.
+// RenderNode writes n as JSON. gnoweb renders it as markdown, and values come
+// from counterparties (base denominations, voucher names) or the URL, so
+// markdown in string values is escaped (see jsonpage.MarkdownSafe); the JSON
+// still decodes to the same values.
 func RenderNode(w *mux.ResponseWriter, n *json.Node) {
 	bz, err := json.Marshal(n)
 	if err != nil {
 		panic(err)
 	}
-	w.Write(string(bz))
+	w.Write(string(jsonpage.MarkdownSafe(bz)))
 }
 
 // GRC20RegKey returns the grc20reg key for a voucher ibc denom. grc20reg keys
