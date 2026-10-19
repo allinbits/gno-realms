@@ -79,8 +79,9 @@ import (
 // counterparty leads to its source and is bound to exactly the local client
 // it arrives on, its proof verified by the core through that client (Active,
 // its counterparty the notice's source): the epoch then moves there, past any
-// step in between, and the clients passed are retired for the gov port (for
-// good once their route replacement has executed here too). A gno client on
+// step in between, and the old epoch's client is retired for the gov port
+// (for good once its route replacement has executed here too); the path's
+// intermediate clients are kept, off the graph. A gno client on
 // an expected path from the epoch's is never retired for the gov port
 // before. The
 // app acknowledgement is epoch u32 ‖ seq u64 (0) ‖ status u8 ‖ redispatch u8
@@ -919,12 +920,12 @@ func takeNotice(cur realm, source, client string, payload types.Payload) (uint32
 	return e, StatusRecorded, ""
 }
 
-// switchEpoch opens epoch e over client and retires for governance the
-// clients it passes: the old epoch's client and the local clients of the
-// path's intermediate steps (at most maxNoticeSteps), for good when their
-// route replacement executed here (they are retired for transfers already),
-// otherwise for the gov port, their replacement retiring the rest. Those are
-// the only clients a switch retires: every other client its pruning
+// switchEpoch opens epoch e over client and retires for governance the old
+// epoch's client, for good when its route replacement executed here (it is
+// retired for transfers already), otherwise for the gov port, its
+// replacement retiring the rest. That is the only client a switch retires:
+// the path's intermediate clients (supplied by whoever applied the notice,
+// not proven to be Ethereum's) and every other client its pruning
 // disconnects (on a branch it left behind, a cancelled recovery's say) is
 // taken out of awaitingGov and kept off the graph, its gov port open and
 // inert, as a purge keeps the clients it disconnects, since Ethereum may
@@ -941,12 +942,17 @@ func switchEpoch(cur realm, e uint32, client string, passed []string) {
 			awaitingGov.Remove(c)
 		}
 	}
-	// Never the client just adopted (the path is simple; this guards it).
-	for _, c := range append([]string{old}, passed...) {
-		if c == client {
-			continue
-		}
-		retireForGov(cur, c)
+	// Only the old epoch client: the notice of a later epoch proves
+	// Ethereum has moved past it. The path's intermediate clients are named
+	// by whoever applied the notice, not proven passed (another path to the
+	// same client may be the one Ethereum took), so they are kept off the
+	// graph like every client the pruning disconnects. Never the client
+	// just adopted (the path is simple; this guards it).
+	if old != client {
+		retireForGov(cur, old)
+		awaitingGov.Remove(old)
+	}
+	for _, c := range passed {
 		awaitingGov.Remove(c)
 	}
 }
@@ -957,8 +963,8 @@ func switchEpoch(cur realm, e uint32, client string, passed []string) {
 // call it. A safety net only: nothing leaves a client here once no path
 // reaches it (a removal or a release leaves a tombstone that keeps it
 // reachable; a switch and a purge take the clients they disconnect out of
-// awaitingGov), and a switch retires the clients its path passed itself, so
-// a prune retires nothing a switch did not pass. A client on a path, or one whose paths cannot be told within the
+// awaitingGov), and a switch retires the old epoch client itself, so a
+// prune retires nothing a switch did not. A client on a path, or one whose paths cannot be told within the
 // search's bounds, is kept for a later call. Each call visits n clients from
 // where the last one stopped, wrapping round at the end, so a client kept
 // never holds back those after it. It returns how many it retired.
@@ -1785,7 +1791,7 @@ func (p *purgeParams) apply(cur realm, t int64) (string, string) {
 	// clients it disconnects (no longer reachable, though no switch passed
 	// them) leave awaitingGov, so no prune retires them: they stay as
 	// clients kept off the graph, their gov port open and inert, retired for
-	// governance only by a switch passing them. Bounded: two walks of at
+	// governance only by a switch leaving them as its old epoch client. Bounded: two walks of at
 	// most maxLive edges.
 	_, before := retained()
 	tombstones.Remove(tombKey(p.from, p.to, p.local))
