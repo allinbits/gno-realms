@@ -584,8 +584,9 @@ notice keeps the trust generation of the client that proved it, and applies
 only while that client is Active, not retired and at the same generation:
 after a freeze, an expiry, a recovery, an upgrade or a verifier replacement
 it must be proven afresh. Relaying the original packet again does not do
-that: its receipt exists, so the core answers `RESPONSE_NOOP` before any
-proof or callback. IBCAdmin sends the identical notice bytes in a fresh
+that: its receipt exists, so the core either answers `RESPONSE_NOOP` (once
+its earlier client-status and timeout checks pass) or aborts, before any
+proof or callback; neither authenticates the notice again. IBCAdmin sends the identical notice bytes in a fresh
 packet (a new transport sequence, `resendEpochNotice(epoch)`), and that
 packet is relayed (z9zz relays three such packets). A notice names
 the client it came from, its proof verified by the core through that local
@@ -884,7 +885,7 @@ bridge and recipient bucket levels refilled to now under that epoch, on
 copies. They bound a payout; what a `Claim` actually pays also depends on a
 `payouts` flag, a closed route or unresolved loss (nothing is paid), the
 escrow queued refunds and refund reservations hold (`unescrow`: a claim
-payout is bounded by the lock less `QueuedRefunds` plus `ProvenOwed`), the outstanding supply's
+payout is bounded by `lock - boundAdd(QueuedRefunds, ProvenOwed)`), the outstanding supply's
 headroom (`mint`), the claim's remainder, and the installment rules (the
 fee first and whole, then no slivers below `min(remainder, fee)`).
 
@@ -957,8 +958,13 @@ realm-issued coin (`/gno.land/r/...:denom`) never travels and is refused.
       send has a record;
     - a flag may stand on any Ethereum client id, enrolled or not, so a
       client about to become a route's can be held beforehand;
-    - settlements apply only to the sends of a client a replacement retired,
-      as on Ethereum, and a genuine refund the free escrow (or, minted, the
+    - settlement actions 1 to 4 apply only to the sends of a client a
+      replacement retired, each matching an outcome proven through the
+      replacement client, as on Ethereum; action 5 settles an inbound
+      forged receive of such a client, with no destination-outcome proof,
+      so it can execute while the replacement verifier is Frozen or
+      Expired, subject to the preparation, the 7-day delay and holds; a
+      genuine refund the free escrow (or, minted, the
       room left for minting) cannot pay is parked, as Ethereum parks it:
       owed and reserved, never refusing the settlement.
 11. **A retired client is marked, not frozen**: where ADR pr6375 freezes the

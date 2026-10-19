@@ -473,8 +473,9 @@ address; deploying it unchanged hands governance to a key nobody holds.
    can take over; when Ethereum can reach the adopted epoch and client by
    neither, Ethereum-bound governance is lost, while gno-side governance
    goes on. If it is not, the notice must be proven afresh: relaying
-   the original packet again only returns `RESPONSE_NOOP` (its receipt
-   exists); IBCAdmin sends the identical notice bytes in a fresh packet
+   the original packet again either returns `RESPONSE_NOOP` (its receipt
+   exists, once the core's client-status and timeout checks pass) or
+   aborts, and neither authenticates the notice again; IBCAdmin sends the identical notice bytes in a fresh packet
    (`resendEpochNotice(epoch)`, a new transport sequence), and that packet
    is relayed. A client is retired for governance only when a switch
    leaves it as the old epoch client; the path's intermediate clients are
