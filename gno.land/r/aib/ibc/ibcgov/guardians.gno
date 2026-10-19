@@ -551,14 +551,18 @@ type seatsParams struct {
 	seats      []int
 	addrs      []address
 	held       []address
+	heldGen    []uint64 // each seat's generation when the request was built
 }
 
 func (p *seatsParams) apply(cur realm, t int64) (string, string) {
 	// Re-check against live state: no address may end up in two seats.
 	next := seats
 	for i, s := range p.seats {
-		if p.addrs[i] == "" && seats[s] != p.held[i] {
-			continue // the seat changed hands since: leave it
+		// A vacancy removes the very tenure it was requested against: the
+		// same key in the same generation. A seat that changed hands since,
+		// even back to that key (a new generation), is left alone.
+		if p.addrs[i] == "" && (seats[s] != p.held[i] || seatGen[s] != p.heldGen[i]) {
+			continue
 		}
 		next[s] = p.addrs[i]
 	}
@@ -621,6 +625,7 @@ func NewSetSeatsRequest(cur realm, changes string) Request {
 		p.seats = append(p.seats, n)
 		p.addrs = append(p.addrs, a)
 		p.held = append(p.held, seats[n])
+		p.heldGen = append(p.heldGen, seatGen[n])
 		parts = append(parts, strconv.Itoa(n)+"="+string(a))
 	}
 	if guardians > 2 {
@@ -643,7 +648,7 @@ func NewSetSeatsRequest(cur realm, changes string) Request {
 		// Fresh parameters for every recording: each decision keeps its own
 		// hold anchor, so a Request governed twice makes two decisions that
 		// never share one.
-		q := &seatsParams{seats: p.seats, addrs: p.addrs, held: p.held}
+		q := &seatsParams{seats: p.seats, addrs: p.addrs, held: p.held, heldGen: p.heldGen}
 		decide(cur, "set seats", text, q, made, t, true)
 	})
 }
