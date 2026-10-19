@@ -43,6 +43,16 @@ func decide(cur realm, kind, text string, params applier, made, t int64, queued 
 	return d
 }
 
+// spendAtRecording records a decision refused when it is recorded: spent
+// at once, its effect never applied, so the request that made it (an
+// approved proposal included) is used up, never retried later.
+func spendAtRecording(kind, text string, params applier, made, t int64, refusal string) *decisions.Decision {
+	d := ledger.Record(kind, text, params, made, t, t)
+	ledger.Spend(d, "spent: "+refusal)
+	chain.Emit("Decision", "id", itoa(d.ID), "kind", kind, "state", "spent")
+	return d
+}
+
 func applyDecision(cur realm, d *decisions.Decision, t int64) {
 	p := d.Params.(applier)
 	if _, ok := p.(unpauser); ok && heldAt(t) {

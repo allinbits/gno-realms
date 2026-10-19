@@ -1859,8 +1859,12 @@ func NewExpectRecoveryRequest(cur realm, oldClientID, newClientID, localClientID
 		p := &expectParams{from: oldClientID, to: newClientID, local: localClientID}
 		// An intent from the recording on: it holds the successor's place
 		// and keeps its clients open for governance.
+		// Refused when recorded (the graph changed since the request was
+		// built): a spent decision, no intent, so an approved proposal is
+		// used up rather than left to execute again once room frees.
 		if refusal := checkExpect(oldClientID, newClientID, localClientID); refusal != "" {
-			panic("ibcgov: " + refusal)
+			spendAtRecording("expect recovery", text, p, made, t, refusal)
+			return
 		}
 		d := decide(cur, "expect recovery", text, p, made, t, true)
 		p.owner = d.ID
