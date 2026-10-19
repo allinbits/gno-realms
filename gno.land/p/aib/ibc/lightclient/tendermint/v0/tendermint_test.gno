@@ -460,3 +460,62 @@ func TestUpdateAfterSameRevisionUpgrade(t *testing.T) {
 		uassert.True(t, tm.CheckForMisbehaviour(header("apphash-101", now.Add(-3*time.Minute))))
 	})
 }
+
+// TestAdoptedStateIsCopied checks the client keeps copies of what callers pass
+// in: the caller's realm owns those slices and pointers and may keep writing
+// to them, which must not change the client's trust root, validator set hash,
+// proof specs or upgrade path.
+func TestAdoptedStateIsCopied(t *testing.T) {
+	now := time.Now().UTC()
+	newClient := func(latest types.Height, root, nextVals []byte) (*tendermint.TMLightClient, *tendermint.ClientState) {
+		cs := tendermint.NewClientState(chainID, tendermint.DefaultTrustLevel, trustingPeriod, ubdPeriod, maxClockDrift, latest, ics23.GetSDKProofSpecs(), []string{"upgrade", "upgradedIBCState"})
+		tm := tendermint.NewTMLightClient()
+		urequire.NoError(t, tm.Initialize(*cs, tendermint.ConsensusState{
+			Timestamp:          now,
+			Root:               tendermint.NewMerkleRoot(root),
+			NextValidatorsHash: nextVals,
+		}))
+		return tm, cs
+	}
+	assertConsState := func(t *testing.T, tm *tendermint.TMLightClient, h types.Height, root, nextVals string) {
+		t.Helper()
+		cs, found := tm.GetConsensusState(h)
+		urequire.True(t, found)
+		uassert.Equal(t, root, string(cs.Root.Hash))
+		uassert.Equal(t, nextVals, string(cs.NextValidatorsHash))
+	}
+
+	t.Run("Initialize", func(t *testing.T) {
+		root, nextVals := []byte("root-3"), []byte("vals-3")
+		tm, cs := newClient(types.NewHeight(0, 3), root, nextVals)
+		root[0], nextVals[0] = 'X', 'X'
+		cs.ProofSpecs[0].LeafSpec.Prefix[0] = 0xff
+		cs.UpgradePath[0] = "evil"
+		assertConsState(t, tm, types.NewHeight(0, 3), "root-3", "vals-3")
+		uassert.True(t, tm.ClientState.ProofSpecs[0].SpecEquals(ics23.IavlSpec()))
+		uassert.Equal(t, "upgrade", tm.ClientState.UpgradePath[0])
+	})
+
+	t.Run("UpdateState", func(t *testing.T) {
+		tm, _ := newClient(types.NewHeight(0, 3), []byte("root-3"), []byte("vals-3"))
+		header := &tendermint.MsgHeader{Header: &tendermint.Header{
+			ChainID:            chainID,
+			Height:             10,
+			Time:               now,
+			AppHash:            []byte("root-10"),
+			NextValidatorsHash: []byte("vals-10"),
+		}}
+		tm.UpdateState(header)
+		header.Header.AppHash[0], header.Header.NextValidatorsHash[0] = 'X', 'X'
+		assertConsState(t, tm, types.NewHeight(0, 10), "root-10", "vals-10")
+	})
+
+	t.Run("RecoverClient", func(t *testing.T) {
+		subject, _ := newClient(types.NewHeight(0, 3), []byte("root-3"), []byte("vals-3"))
+		substitute, _ := newClient(types.NewHeight(0, 20), []byte("root-20"), []byte("vals-20"))
+		urequire.NoError(t, subject.RecoverClient(substitute))
+		subCS, _ := substitute.GetConsensusState(types.NewHeight(0, 20))
+		subCS.Root.Hash[0], subCS.NextValidatorsHash[0] = 'X', 'X'
+		assertConsState(t, subject, types.NewHeight(0, 20), "root-20", "vals-20")
+	})
+}
