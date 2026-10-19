@@ -65,7 +65,10 @@ func setupRoute(cur realm) string {
 	clientID := core.CreateClient(cross(cur), ethtesting.ClientState(), ethtesting.ConsensusState())
 	core.RegisterCounterparty(cross(cur), clientID, [][]byte{{}}, "client-0")
 	execute(cur, govern(cur, ibcgov.NewEnrollRouteRequest(cross(cur), clientID, string(collector), bridge)))
-	advance(7*24*time.Hour + time.Second) // keeps the timeline of the goldens
+	// The governance channel is bound before any replacement (one is
+	// refused until then), over the route's original client; its 7 days
+	// keep the timeline of the goldens.
+	execute(cur, govern(cur, ibcgov.NewBindGovernanceRequest(cross(cur), clientID)))
 	return clientID
 }
 
@@ -169,7 +172,6 @@ func main(cur realm) {
 	b := core.CreateClient(cross(cur), ethtesting.ClientState(), ethtesting.ConsensusState())
 	core.RegisterCounterparty(cross(cur), b, [][]byte{{}}, "client-1")
 	execute(cur, govern(cur, ibcgov.NewReplaceRouteRequest(cross(cur), route, b, 1)))
-	execute(cur, govern(cur, ibcgov.NewBindGovernanceRequest(cross(cur), b)))
 	for _, items := range []string{"7:1:1000,7:5:2500", "7:1:1000,7:2:0", "7:5:1,7:5:2", "7:4:5,8:5:1,8:3:0"} {
 		gno := revive(func() { ibcgov.NewSettleRequest(cross(cur), route, route, items, "inc-1") })
 		eth := revive(func() { ibcgov.NewEthSettleRequest(cross(cur), "client-0", items) })

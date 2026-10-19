@@ -87,6 +87,9 @@ func (p *routeParams) apply(cur realm, t int64) (string, string) {
 		if refusal := checkIdentity(p.p.Route, p.p.Client); refusal != "" {
 			return "", refusal
 		}
+		if refusal := checkBoundForReplace(); refusal != "" {
+			return "", refusal
+		}
 	}
 	if refusal := transfer.GovApply(cross(cur), p.op, p.p.Encode()); refusal != "" {
 		return "", refusal
@@ -212,6 +215,22 @@ func enrolIdentity(client, router string) (string, string) {
 		return "", "the bridge's router " + router + " is not the router " + read + " that " + client + " reads"
 	}
 	return identity, ""
+}
+
+// checkBoundForReplace is why the route's client cannot be replaced yet, or
+// "": not before the governance channel is bound. Ethereum's epoch 1 pairs
+// its router client with the route's original gno client; a replacement
+// before the binding would retire that client for good and leave the binding
+// to open epoch 1 over a pair Ethereum does not use, which nothing could
+// repair (Ethereum refuses an emergency recovery until it records its first
+// decision from gno.land). A client that fails before the binding is
+// recovered in place (NewRecoverClientRequest, same id), or the unlaunched
+// deployment is restarted.
+func checkBoundForReplace() string {
+	if epoch == 0 {
+		return "the governance channel is not bound yet: the route's client is replaced only after the binding (before it, recover the client in place, or restart the deployment)"
+	}
+	return ""
 }
 
 // checkOneRoute is why another Ethereum route cannot be enrolled, or "":
@@ -728,6 +747,9 @@ func NewReplaceRouteRequest(cur realm, route, newClientID string, suspectFrom in
 	if refusal := checkIdentity(route, newClientID); refusal != "" {
 		panic("ibcgov: " + refusal)
 	}
+	if refusal := checkBoundForReplace(); refusal != "" {
+		panic("ibcgov: " + refusal)
+	}
 	old := view().Client(route)
 	text := "replace the client of route " + route + ": " + old + " by " + newClientID + ", suspect from gno.land height " + itoa(suspectFrom)
 	rp := &routeParams{op: controls.OpReplace, p: controls.Params{Route: route, Client: newClientID, Height: suspectFrom}, replace: old}
@@ -784,9 +806,11 @@ func checkBindClient(client string) string {
 	if !ok {
 		return client + " is no route's client: no transfer controls"
 	}
-	// The one enrolled route's current client (checkOneRoute).
-	if k := rd.RouteOf(client); k == "" || !routes.Has(k) || rd.Client(k) != client {
-		return client + " is not the current client of the enrolled route"
+	// The one enrolled route's original client (checkOneRoute), the pair
+	// Ethereum's epoch 1 uses: no replacement precedes the binding
+	// (checkBoundForReplace).
+	if k := rd.RouteOf(client); k == "" || !routes.Has(k) || rd.Client(k) != client || k != client {
+		return client + " is not the original client of the enrolled route"
 	}
 	return ""
 }

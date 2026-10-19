@@ -65,7 +65,10 @@ func setupRoute(cur realm) string {
 	clientID := core.CreateClient(cross(cur), ethtesting.ClientState(), ethtesting.ConsensusState())
 	core.RegisterCounterparty(cross(cur), clientID, [][]byte{{}}, "client-0")
 	execute(cur, govern(cur, ibcgov.NewEnrollRouteRequest(cross(cur), clientID, string(collector), bridge)))
-	advance(7*24*time.Hour + time.Second) // keeps the timeline of the goldens
+	// The governance channel is bound before any replacement (one is
+	// refused until then), over the route's original client; its 7 days
+	// keep the timeline of the goldens.
+	execute(cur, govern(cur, ibcgov.NewBindGovernanceRequest(cross(cur), clientID)))
 	return clientID
 }
 
@@ -206,6 +209,6 @@ func main(cur realm) {
 
 // Output:
 // B: Expired | prove through B: client ethereum-2 is Expired, not Active
-// B to C while closed: applied - replace: client ethereum-2 retired, meters emptied | client: ethereum-3 | closed: true
+// B to C while closed: applied - replace: client ethereum-2 retired for transfers (kept for governance), meters emptied | client: ethereum-3 | closed: true
 // A's send proven by ethereum-3
 // settle: applied - settle | reopen: applied - reopen | closed: false

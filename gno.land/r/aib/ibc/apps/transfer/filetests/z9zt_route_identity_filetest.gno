@@ -69,6 +69,9 @@ func main(cur realm) {
 			"0x00000000000000000000000000000000000b0001 0x00000000000000000000000000000000000b0002 0x00000000000000000000000000000000000b0003"))
 	}))
 	execute(cur, govern(cur, ibcgov.NewEnrollRouteRequest(cross(cur), route, string(collector), bridge)))
+	// Replacements need the governance channel bound, over the route's
+	// original client.
+	execute(cur, govern(cur, ibcgov.NewBindGovernanceRequest(cross(cur), route)))
 	println("identity:", ibcgov.RouteIdentity(route))
 
 	// Genuine clients of another router, another commitments slot, another
@@ -122,5 +125,5 @@ func main(cur realm) {
 // replace by ethereum-4: ibcgov: ethereum-4 authenticates (chain 1, genesis validators root 0xd1ec305b97bf6336571c2348e4a8bf173684b0cdb7e55f7e6554d51f8478b5a3, router 0x1d95d544586eacb63b6154e9e45122b32ded11aa, commitment slot 0x1260944489272988d9df285149b5aa1b0f48f2136d6f416159f840a3e0747600), not route ethereum-1's (chain 3151908, genesis validators root 0xd1ec305b97bf6336571c2348e4a8bf173684b0cdb7e55f7e6554d51f8478b5a3, router 0x1d95d544586eacb63b6154e9e45122b32ded11aa, commitment slot 0x1260944489272988d9df285149b5aa1b0f48f2136d6f416159f840a3e0747600)
 // replacement after its client lost the identity: spent - spent: ethereum-5 authenticates no route identity, not route ethereum-1's (chain 3151908, genesis validators root 0xd1ec305b97bf6336571c2348e4a8bf173684b0cdb7e55f7e6554d51f8478b5a3, router 0x1d95d544586eacb63b6154e9e45122b32ded11aa, commitment slot 0x1260944489272988d9df285149b5aa1b0f48f2136d6f416159f840a3e0747600)
 // old client retired: false
-// replacement by a client of the identity: applied - replace: client ethereum-1 retired, meters emptied | old retired: true
+// replacement by a client of the identity: applied - replace: client ethereum-1 retired for transfers, meters emptied; governance epoch 1 stays over ethereum-1 until IBCAdmin's epoch notices arrive | old retired: false
 // identity kept: true

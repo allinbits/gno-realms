@@ -65,7 +65,10 @@ func setupRoute(cur realm) string {
 	clientID := core.CreateClient(cross(cur), ethtesting.ClientState(), ethtesting.ConsensusState())
 	core.RegisterCounterparty(cross(cur), clientID, [][]byte{{}}, "client-0")
 	execute(cur, govern(cur, ibcgov.NewEnrollRouteRequest(cross(cur), clientID, string(collector), bridge)))
-	advance(7*24*time.Hour + time.Second) // keeps the timeline of the goldens
+	// The governance channel is bound before any replacement (one is
+	// refused until then), over the route's original client; its 7 days
+	// keep the timeline of the goldens.
+	execute(cur, govern(cur, ibcgov.NewBindGovernanceRequest(cross(cur), clientID)))
 	return clientID
 }
 
