@@ -554,7 +554,10 @@ steps takes more than one round. Where the gno local client of an
 intermediate transition failed, governance recovers it in place
 (`NewRecoverClientRequest`, 7 days: it keeps its id, the destination of
 Ethereum's packets, and a new trust generation), and the resent notice is
-proven through it; where Ethereum's recovery instead created a new router
+proven through it; a recovery needs, besides the subject being frozen or
+expired, an honest substitute client ahead of it (authenticated
+independently, at a later slot than the subject's latest), so with no such
+substitute the catch-up past that client can fail for good; where Ethereum's recovery instead created a new router
 client, its transition is recorded with a fresh local client by
 `NewExpectRecoveryRequest`. A resend is harmless whatever its epoch: the
 epoch already switched to, over its client, is answered as a duplicate
@@ -1198,7 +1201,10 @@ does not list before it.
     finalizing different headers at one slot, or a different root at a slot
     it holds) when such updates exist, or expires if its updates stop; it is
     then recovered in place (`NewRecoverClientRequest`) and the resent
-    notice proven through it;
+    notice proven through it, but only from an honest substitute ahead of
+    it (independently authenticated, at a later slot than the subject's
+    latest): frozen or expired is not enough, and with no such substitute
+    the catch-up past that client fails for good;
   - nothing else: core and transfer accept loosening governance only from
     ibcgov's fixed package path (`IBCGovPath`, a constant of their immutable
     proxies), so GovDAO cannot point them at a freshly deployed ibcgov,

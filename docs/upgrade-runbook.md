@@ -373,7 +373,11 @@ address; deploying it unchanged hands governance to a key nobody holds.
    next expectations (7 days each) and repeat. If the gno local client of
    an intermediate transition failed, recover it in place
    (`NewRecoverClientRequest`, 7 days; it keeps its id, which Ethereum's
-   packets are addressed to) and relay the resent notice through it; if
+   packets are addressed to) and relay the resent notice through it; the
+   recovery needs the subject frozen or expired and an honest substitute
+   ahead of it (created from an independently authenticated checkpoint at
+   a later slot than the subject's latest): without one, catch-up past
+   that client can fail for good; if
    Ethereum's recovery created a new router client instead, record that
    transition with a fresh local client (`NewExpectRecoveryRequest`).
    Resending is harmless: the current epoch's notice is answered as a
@@ -462,7 +466,9 @@ address; deploying it unchanged hands governance to a key nobody holds.
    local client, so its notice switches from there; its epoch must be above
    gno's, so a gno pushed ahead needs as many recoveries as pass it, each
    step's expectation recorded. A poisoned client is recovered in place
-   only once misbehaviour freezes it or it expires. Core and transfer take
+   only once misbehaviour freezes it or it expires, and only from an honest
+   substitute ahead of it; with no such substitute, catch-up past it fails
+   for good. Core and transfer take
    loosening governance only from ibcgov's fixed path, so no fresh ibcgov
    can take over; when Ethereum can reach the adopted epoch and client by
    neither, Ethereum-bound governance is lost, while gno-side governance
