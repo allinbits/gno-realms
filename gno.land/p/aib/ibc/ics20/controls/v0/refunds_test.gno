@@ -1812,3 +1812,54 @@ func TestReopenBlockersAcrossReplacements(t *testing.T) {
 		t.Fatalf("reopen: %v", err)
 	}
 }
+
+// A settled record takes no proof, preparation or late outcome (Ethereum
+// design review cross-check): a settlement is final, so a reservation made
+// after it could never be released. Settle, void the proofs (a new trust
+// generation), then prove again: refused, and nothing reserved changes.
+func TestSettledRecordTakesNoProof(t *testing.T) {
+	r, rt := newRoute(t)
+	rt.RecordSend(sendRec(1, "ugnot", KindUnescrow, 1_000)) // a forged success hid its refund
+	rt.RecordSend(sendRec(2, "ugnot", KindUnescrow, 1_000)) // delivered
+	rt.RecordSend(sendRec(3, "ugnot", KindUnescrow, 1_000)) // still pending at its settlement
+	rt.Settle(t0, 1, pk(1), OutcomeSuccess, false, 3_000)
+	rt.Settle(t0, 1, pk(2), OutcomeSuccess, false, 3_000)
+	replaceReady(r, "ethereum-1", "ethereum-2", 0, 1000)
+	gen := uint64(1)
+	current := func(_ string, g uint64) bool { return g == gen }
+	prove(t, rt, 1, ProvenRefundable, current)
+	prove(t, rt, 2, ProvenDelivered, current)
+	prove(t, rt, 3, ProvenDelivered, current)
+	items := []SettleItem{{Seq: 1, Action: SettlePay, Amount: 1_000}, {Seq: 2, Action: SettleDelivered}, {Seq: 3, Action: SettleDelivered}}
+	if _, err := rt.SettleRecords("ethereum-1", items, "inc", lockOf(3_000), current); err != nil {
+		t.Fatal(err)
+	}
+	d := rt.Denom("ugnot")
+	owed, reserved, queued, parked := d.Totals.ProvenOwed, d.Reserved(), d.Totals.QueuedRefunds, d.Totals.Parked
+	if owed != 0 {
+		t.Fatalf("proven owed %d after the settlement", owed)
+	}
+	gen++ // the verifier is recovered: every earlier proof is void
+	for _, seq := range []uint64{1, 2, 3} {
+		before, _ := rt.Send(pk(seq))
+		for _, outcome := range []uint8{ProvenRefundable, ProvenCollision, ProvenDelivered} {
+			err := rt.ProveOutcome(pk(seq), before.Packet, outcome, 90, "ethereum-2", gen, current)
+			if err == nil || !strings.Contains(err.Error(), "settled already") {
+				t.Fatalf("send %d: proved outcome %d after its settlement: %v", seq, outcome, err)
+			}
+		}
+		after, _ := rt.Send(pk(seq))
+		if after.Proven != before.Proven || after.ProvenAt != before.ProvenAt || after.ProvenGen != before.ProvenGen || after.ProvenReserve != 0 {
+			t.Fatalf("send %d: a refused proof changed the record: %+v -> %+v", seq, before, after)
+		}
+	}
+	// A late acknowledgement of the pending one moves nothing either, and a
+	// preparation walk reserves nothing for a settled record.
+	if paid, err := rt.Settle(t0, 2, pk(3), OutcomeTimeout, false, 3_000); err != nil || paid != 0 {
+		t.Fatalf("late outcome of a settled send: %d %v", paid, err)
+	}
+	rt.PrepareReplacement(MaxKeys)
+	if d.Totals.ProvenOwed != owed || d.Reserved() != reserved || d.Totals.QueuedRefunds != queued || d.Totals.Parked != parked {
+		t.Fatalf("reservations changed after the settlement: %+v", d.Totals)
+	}
+}
