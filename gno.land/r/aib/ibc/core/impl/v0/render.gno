@@ -483,13 +483,16 @@ func RenderStrings(s []string) *json.Node {
 	return json.ArrayNode("", nodes)
 }
 
-// RenderNode writes n as JSON.
+// RenderNode writes n as JSON. gnoweb renders it as markdown, and values come
+// from client creators (chain ids, counterparty merkle prefixes) or the URL
+// (echoed in errors), so markdown in string values is escaped (see
+// jsonpage.MarkdownSafe); the JSON still decodes to the same values.
 func RenderNode(w *mux.ResponseWriter, n *json.Node) {
 	bz, err := json.Marshal(n)
 	if err != nil {
 		panic(err)
 	}
-	w.Write(string(bz))
+	w.Write(string(jsonpage.MarkdownSafe(bz)))
 }
 
 func NodeErrorClientNotFound(id string) *json.Node {

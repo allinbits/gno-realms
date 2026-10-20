@@ -401,7 +401,6 @@ func ShortDenom(ibcDenom string) string {
 	return ibcDenom
 }
 
-// RenderNode writes n as JSON.
 // RenderNode writes n as JSON. gnoweb renders it as markdown, and values come
 // from counterparties (base denominations, voucher names) or the URL, so
 // markdown in string values is escaped (see jsonpage.MarkdownSafe); the JSON
