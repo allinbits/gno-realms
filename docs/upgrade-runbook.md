@@ -511,12 +511,13 @@ address; deploying it unchanged hands governance to a key nobody holds.
 
    **Deadline.** A client whose updates stop (an unsupported fork, a
    verifier defect) expires about 9.1 days after its latest trusted slot on
-   mainnet (ADR 0003). Recorded one after the other, as recommended (the
-   conversion requested once its implementation is installed), the two
-   steps take 14 days; recorded together, both are due after 7 days and
-   executed in order, the upgrade first, then the conversion (the
-   conversion's availability is checked when it executes), 7 days at the
-   least. A guardian hold defers both until it ends. Prepare ahead: register
+   mainnet (ADR 0003). The two steps are recorded one after the other:
+   record the conversion only once the conversion-bearing implementation is
+   installed, 14 days in all. Never record them together. Execution is
+   permissionless once a decision is due, so anyone could execute the
+   conversion before the upgrade; the conversion is then spent (its
+   availability is checked when it executes), and recording it again costs
+   another 7 days. A guardian hold defers both until it ends. Prepare ahead: register
    and install the conversion-bearing core implementation before the fork
    it is for, so that only the 7-day `NewReplaceVerifierRequest` remains
    when a client stalls; record it within about two days of the stall and
