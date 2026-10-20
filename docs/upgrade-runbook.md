@@ -601,7 +601,18 @@ address; deploying it unchanged hands governance to a key nobody holds.
       stops early at a decision that halts or when gas runs short. Repeat
       adequately funded calls until `lastSeq()` stops advancing and
       `decision(e, lastSeq() + 1)` shows nothing buffered.
-   5. Record new decisions for any cancelled or spent action still wanted.
+   5. Restore ordinary governance. The hand-over changes only the
+      executor pin. IBCAdmin's flags and any hold still stand, and they
+      keep deferring every other 7-day decision: repairs, settlements and
+      reopening. Keep the transfer containment in place, then:
+      - ask each available flagging key to clear its own flag;
+      - while no hold stands, clear earlier flags and conflicts with
+        `NewEthUnpauseRequest(2, "")` (kind 2, IBCAdmin, 24 hours on
+        Ethereum);
+      - replace a flagging key that is no longer available with
+        `NewEthSeatsRequest` (kind 3);
+      - wait out any hold still standing.
+   6. Record new decisions for any cancelled or spent action still wanted.
 
 ## 8. Incident drill: replacing a route's client
 
