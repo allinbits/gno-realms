@@ -555,14 +555,26 @@ address; deploying it unchanged hands governance to a key nobody holds.
       cancel, the hand-over cannot record.
    2. Record `NewEthHandOverRequest(exec, codeHash)`. It records without
       the executor, even with halted decisions behind it.
-   3. Execute it on Ethereum once its delay has passed. A guardian hold
-      defers it until day 21 of the hold, as it does a seat replacement. A
-      standing flag, even from a key no longer available, defers it for
-      at most 21 days from that flag's start. Ethereum pins that start the
-      first time it sees the decision due and flagged, and clearing or
-      re-flagging does not move it.
-   4. Call `drain()` on IBCAdmin to record the halted decisions behind it
-      through the new executor.
+   3. Execute it on Ethereum once its delay has passed.
+      - While an emergency recovery is open, the hand-over (like every
+        execution) is refused `Suspended`. The guardians first cancel the
+        recovery with `cancelRecovery`, reaching its cancellation
+        threshold. That path is IBCAdmin's own and works with a broken
+        executor.
+      - A guardian hold defers the hand-over until day 21 of the hold, as
+        it does a seat replacement.
+      - A standing guardian or watch flag, even from a key no longer
+        available, defers it for at most 21 days from that flag's start.
+      - A conflict flag has no start of its own. It counts from the first
+        execution attempt made once the decision is due, so attempt
+        execution as soon as it is due.
+      - Ethereum pins the anchor at that first attempt, and clearing or
+        re-flagging does not move it.
+   4. Call `drain()` on IBCAdmin to record the decisions buffered behind
+      it through the new executor. One call records at most eight, and it
+      stops early at a decision that halts or when gas runs short. Repeat
+      adequately funded calls until `lastSeq()` stops advancing and
+      `decision(e, lastSeq() + 1)` shows nothing buffered.
    5. Record new decisions for any cancelled or spent action still wanted.
 
 ## 8. Incident drill: replacing a route's client

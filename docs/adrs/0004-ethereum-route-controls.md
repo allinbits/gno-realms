@@ -96,7 +96,9 @@ not enrolled in these controls and are unaffected.
   serve no proof, timestamp or update again.
   A receipt's value is now `types.CommitPacketReceipt(packet)` =
   `sha256(0x03 ‖ uint64be(sequence) ‖ sha256(sourceClient) ‖ CommitPacket(packet))`
-  at the ICS24 receipt path (R19); counterparties only prove absence.
+  at the ICS24 receipt path (R19). Ordinary timeout processing proves only
+  its absence; Ethereum's reconciliation also proves its membership and
+  compares its value (`GnoICS20Evidence`).
 - **Transfer proxy**: unchanged layout plus `ext` (key → value): impl/v1 stores
   one `*controls.Registry` under `"controls"` through `InitExt`, called from
   its `OnInstall` with the `/p/` constructor `controls.NewRegistryAny`, so it

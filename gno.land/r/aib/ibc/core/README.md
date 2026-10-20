@@ -432,7 +432,9 @@ A received packet's receipt is `types.CommitPacketReceipt(packet)`, a sha256
 commitment to the sequence, the source client and the packet's IBC v2
 commitment, stored at the ICS24 receipt path (ADR pr6375 R19). It says which
 packet occupies a sequence, so a reconciliation can recompute it from the
-authenticated packet; counterparties only prove a receipt's absence. The same
+authenticated packet. Ordinary timeout processing proves only a receipt's
+absence; Ethereum's reconciliation also proves its membership and compares
+its value (`GnoICS20Evidence`). The same
 packet relayed again is a no-op once the checks that come before the
 receipt's pass (the destination client known, not retired and Active, the
 counterparty registered and matching the source, the packet not timed out):
