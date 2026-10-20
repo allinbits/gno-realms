@@ -320,9 +320,13 @@ address; deploying it unchanged hands governance to a key nobody holds.
    limits. Execute no denom enablement here until IBCAdmin has recorded
    gno.land's first decision: check on Ethereum that `epoch()` is 1 and
    `lastSeq() >= 1` (the first governance dispatch, the binding's proof that
-   epoch 1 runs over the verified pair) before executing the first
-   `NewSetDenomRequest` (7 days; record it whenever, execute it only after
-   the check). Ethereum activates its side by a governed kind 4
+   epoch 1 runs over the verified pair) before recording the first
+   `NewSetDenomRequest`, that is before approving the GovDAO proposal that
+   records it. Its 7-day delay starts at recording, and once it is due
+   anyone can execute it, so the check cannot wait until execution: a
+   denom enablement recorded before the check could be executed by anyone
+   before the launch is proven. If one was recorded early, cancel it
+   (`NewCancelRequest`) and record it again after the check. Ethereum activates its side by a governed kind 4
    (`NewEthLimitsRequest`). Then enable each denom with
    `NewSetDenomRequest`. Before enabling a GRC20, check that the token
    cannot pause transfers or blacklist the transfer realm (its code, its

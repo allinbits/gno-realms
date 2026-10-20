@@ -55,9 +55,11 @@ records its first decision from gno.land). A client failing before the
 binding is recovered in place (`NewRecoverClientRequest`, same id), or the
 unlaunched deployment is restarted. Value moves only after the launch is
 proven: the route starts with no enabled denom and Ethereum's transfer app
-with zero limits, and the first denom enablement here is executed only
+with zero limits, and the first denom enablement here is recorded only
 once IBCAdmin has recorded gno.land's first decision (`lastSeq() >= 1` at
-epoch 1), Ethereum activating its side by a governed kind 4 (runbook §7
+epoch 1); the check precedes recording because a recorded decision is
+executable by anyone once due, and gno.land does not check Ethereum's
+state on chain. Ethereum activating its side by a governed kind 4 (runbook §7
 step 5, a mandatory launch step). Several routes, or a second deployment, need a further ibcgov
 instance wired as governance of its own core and transfer proxies, and
 Ethereum-side support for them; neither is shipped, and the shipped proxies
