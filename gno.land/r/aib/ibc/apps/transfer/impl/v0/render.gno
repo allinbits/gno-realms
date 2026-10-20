@@ -401,13 +401,16 @@ func ShortDenom(ibcDenom string) string {
 	return ibcDenom
 }
 
-// RenderNode writes n as JSON.
+// RenderNode writes n as JSON. gnoweb renders it as markdown, and values come
+// from counterparties (base denominations, voucher names) or the URL, so
+// markdown in string values is escaped (see jsonpage.MarkdownSafe); the JSON
+// still decodes to the same values.
 func RenderNode(w *mux.ResponseWriter, n *json.Node) {
 	bz, err := json.Marshal(n)
 	if err != nil {
 		panic(err)
 	}
-	w.Write(string(bz))
+	w.Write(string(jsonpage.MarkdownSafe(bz)))
 }
 
 // GRC20RegKey returns the grc20reg key for a voucher ibc denom. grc20reg keys
