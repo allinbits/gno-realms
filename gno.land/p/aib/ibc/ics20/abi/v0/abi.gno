@@ -8,44 +8,24 @@ package abi
 import (
 	"errors"
 
+	abienc "gno.land/p/aib/encoding/abi/v0"
 	"gno.land/p/aib/ibc/ics20/v0"
 )
 
 // Encoding is the ICS20 payload encoding of Solidity ABI packet data.
 const Encoding = "application/x-solidity-abi"
 
-const word = 32
+const word = abienc.Word
 
 var errDecode = errors.New("abi: invalid FungibleTokenPacketData encoding")
 
 // Marshal ABI-encodes data. The amount must be a decimal number below 2^256.
 func Marshal(data ics20.FungibleTokenPacketData) ([]byte, error) {
-	amount, err := decimalToUint256(data.Amount)
+	amount, err := abienc.Uint256Decimal(data.Amount)
 	if err != nil {
 		return nil, err
 	}
-	strs := []string{data.Denom, data.Sender, data.Receiver, data.Memo}
-	// Tuple head: denom, sender, receiver offsets, amount, memo offset.
-	const headLen = 5 * word
-	var tails [][]byte
-	offsets := make([]uint64, len(strs))
-	next := uint64(headLen)
-	for i, s := range strs {
-		offsets[i] = next
-		t := encodeString(s)
-		tails = append(tails, t)
-		next += uint64(len(t))
-	}
-	out := uintWord(word) // offset of the tuple, which is dynamic
-	out = append(out, uintWord(offsets[0])...)
-	out = append(out, uintWord(offsets[1])...)
-	out = append(out, uintWord(offsets[2])...)
-	out = append(out, amount...)
-	out = append(out, uintWord(offsets[3])...)
-	for _, t := range tails {
-		out = append(out, t...)
-	}
-	return out, nil
+	return abienc.Encode(abienc.Tuple(abienc.String(data.Denom), abienc.String(data.Sender), abienc.String(data.Receiver), amount, abienc.String(data.Memo))), nil
 }
 
 // Unmarshal decodes ABI-encoded packet data. Like Solidity's abi.decode it
@@ -80,25 +60,11 @@ func Unmarshal(bz []byte) (ics20.FungibleTokenPacketData, error) {
 	data.Denom = fields[0]
 	data.Sender = fields[1]
 	data.Receiver = fields[2]
-	data.Amount = uint256ToDecimal(amountWord)
+	var amount [word]byte
+	copy(amount[:], amountWord)
+	data.Amount = abienc.WordDecimal(amount)
 	data.Memo = fields[3]
 	return data, nil
-}
-
-func uintWord(v uint64) []byte {
-	w := make([]byte, word)
-	for i := 0; i < 8; i++ {
-		w[word-1-i] = byte(v >> (8 * uint(i)))
-	}
-	return w
-}
-
-func encodeString(s string) []byte {
-	padded := (len(s) + word - 1) / word * word
-	out := uintWord(uint64(len(s)))
-	body := make([]byte, padded)
-	copy(body, s)
-	return append(out, body...)
 }
 
 func slice(b []byte, off, n uint64) ([]byte, error) {
@@ -137,54 +103,4 @@ func readString(tuple []byte, off uint64) (string, error) {
 		return "", err
 	}
 	return string(s), nil
-}
-
-// decimalToUint256 parses a decimal string into a big-endian 32-byte word.
-func decimalToUint256(s string) ([]byte, error) {
-	if s == "" {
-		return nil, errors.New("abi: empty amount")
-	}
-	w := make([]byte, word)
-	for _, c := range []byte(s) {
-		if c < '0' || c > '9' {
-			return nil, errors.New("abi: amount is not a decimal number")
-		}
-		// w = w*10 + digit
-		carry := uint(c - '0')
-		for i := word - 1; i >= 0; i-- {
-			v := uint(w[i])*10 + carry
-			w[i] = byte(v)
-			carry = v >> 8
-		}
-		if carry != 0 {
-			return nil, errors.New("abi: amount overflows uint256")
-		}
-	}
-	return w, nil
-}
-
-// uint256ToDecimal formats a big-endian word as a decimal string.
-func uint256ToDecimal(w []byte) string {
-	n := append([]byte{}, w...)
-	var digits []byte
-	for {
-		zero := true
-		var rem uint
-		for i := range n {
-			v := rem<<8 | uint(n[i])
-			n[i] = byte(v / 10)
-			rem = v % 10
-			if n[i] != 0 {
-				zero = false
-			}
-		}
-		digits = append(digits, byte('0'+rem))
-		if zero {
-			break
-		}
-	}
-	for i, j := 0, len(digits)-1; i < j; i, j = i+1, j-1 {
-		digits[i], digits[j] = digits[j], digits[i]
-	}
-	return string(digits)
 }

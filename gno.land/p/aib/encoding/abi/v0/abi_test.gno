@@ -3,9 +3,6 @@ package abi
 import (
 	"encoding/hex"
 	"testing"
-
-	ics20abi "gno.land/p/aib/ibc/ics20/abi/v0"
-	"gno.land/p/aib/ibc/ics20/v0"
 )
 
 // The expected encodings below were computed independently of this package,
@@ -110,22 +107,6 @@ func TestVectors(t *testing.T) {
 		if hex.EncodeToString(got) != want {
 			t.Errorf("%s:\n got %x\nwant %s", name, got, want)
 		}
-	}
-}
-
-// The ICS20 encoder of the transfer app and this package agree on
-// FungibleTokenPacketData, which Solidity encodes as one dynamic struct.
-func TestAgreesWithICS20(t *testing.T) {
-	data := ics20.FungibleTokenPacketData{
-		Denom: "transfer/client-0/ugnot", Sender: "g1sender", Receiver: "0xreceiver", Amount: "1000", Memo: "memo",
-	}
-	want, err := ics20abi.Marshal(data)
-	if err != nil {
-		t.Fatal(err)
-	}
-	got := Encode(Tuple(String(data.Denom), String(data.Sender), String(data.Receiver), dec(t, data.Amount), String(data.Memo)))
-	if string(got) != string(want) {
-		t.Fatalf("got %x\nwant %x", got, want)
 	}
 }
 

@@ -33,10 +33,10 @@ PACKAGES=(
   # depends on encoding/proto, ibc/host, ibc/types (ICS-20 types of the transfer app)
   "gno.land/p/aib/ibc/ics20/v0:gno.land/p/aib/ibc/ics20/v0"
 
-  # depends on ics20 (Solidity ABI payloads), then the general ABI encoder
-  # (whose tests compare with it)
-  "gno.land/p/aib/ibc/ics20/abi/v0:gno.land/p/aib/ibc/ics20/abi/v0"
+  # the general ABI encoder, then the ICS20 Solidity ABI payloads built on it
+  # (depends on encoding/abi, ics20)
   "gno.land/p/aib/encoding/abi/v0:gno.land/p/aib/encoding/abi/v0"
+  "gno.land/p/aib/ibc/ics20/abi/v0:gno.land/p/aib/ibc/ics20/abi/v0"
 
   # depends on ibc/types
   "gno.land/p/aib/ibc/app/v0:gno.land/p/aib/ibc/app/v0"
