@@ -328,9 +328,12 @@ address; deploying it unchanged hands governance to a key nobody holds.
    before the launch is proven. If one was recorded early, cancel it
    (`NewCancelRequest`) and record it again after the check. Ethereum activates its side by a governed kind 4
    (`NewEthLimitsRequest`). Then enable each denom with
-   `NewSetDenomRequest`. Before enabling a GRC20, check that the token
-   cannot pause transfers or blacklist the transfer realm (its code, its
-   admin powers): a governed sweep or settlement paying it checks what it
+   `NewSetDenomRequest`. Before enabling a GRC20, review the token's code
+   and admin powers. It must not be able to pause transfers or blacklist
+   the transfer realm. Any power to burn or seize the transfer realm's
+   balance, or to change the token's semantics, must be absent or held by
+   a party governance trusts (ADR 0004). Such an action against the escrow
+   leaves a shortfall that no packet-loss remedy repairs. A governed sweep or settlement paying it checks what it
    can beforehand but cannot predict a token's runtime refusal, and such a
    refusal rolls the decision's execution back, leaving it pending. If it
    happens, cancel the decision (`NewCancelRequest`) or execute it again
@@ -535,6 +538,25 @@ address; deploying it unchanged hands governance to a key nobody holds.
    (Ethereum spends at recording a kind 9 that carries one). Any migration
    is done afterwards by the new executor through its own decisions.
 
+   The gno.land builder only parses its arguments, so check the target on
+   Ethereum before recording it. Ethereum checks it only at execution:
+   - the address holds deployed contract code, not an EIP-7702 designator;
+   - that code's hash equals `codeHash`;
+   - `bindings()` returns exactly the existing router, AccessManager and
+     transfer proxy addresses within 100,000 gas.
+
+   A target failing any check spends the hand-over at execution
+   (`codehash` or `bindings`), and the replacement then needs a fresh
+   decision. Also review the new executor's storage layout against
+   IBCAdmin's, because it runs by delegatecall in IBCAdmin's storage.
+
+   Repair through kind 9 also depends on two things:
+   - an authenticated governance channel, or recovery components that work
+     well enough to restore one;
+   - the transfer app's `gnoBusy()` view answering accurately. Delivery,
+     draining and execution all consult it, kind 9 included, and there is
+     no bypass (ADR pr6375 R14, R15).
+
    **Replacing a failed executor.** A failed executor affects the decisions
    it has to record in two ways, and resending repairs delivery, never a
    spent decision:
@@ -556,8 +578,8 @@ address; deploying it unchanged hands governance to a key nobody holds.
    2. Record `NewEthHandOverRequest(exec, codeHash)`. It records without
       the executor, even with halted decisions behind it.
    3. Execute it on Ethereum once its delay has passed.
-      - While an emergency recovery is open, the hand-over (like every
-        execution) is refused `Suspended`. The guardians first cancel the
+      - While an emergency recovery is open, the hand-over is refused
+        `Suspended`, as are kinds 3 and 6 to 10. The guardians first cancel the
         recovery with `cancelRecovery`, reaching its cancellation
         threshold. That path is IBCAdmin's own and works with a broken
         executor.

@@ -807,7 +807,17 @@ whether an arbitrary GRC20's transfer succeeds, so a token that refuses it
 (paused, or blacklisting the transfer realm) panics and rolls the
 decision's execution back, the decision staying pending. The assumption
 is that an enrolled GRC20 does not pause or blacklist the transfer realm,
-which governance checks before enabling it. When it happens anyway,
+which governance checks before enabling it. More broadly, an enrolled
+GRC20 issuer's powers are trusted, as the parent ADR trusts Ethereum token
+issuers (pr6375 §8.1, R11). These powers are pausing, blacklisting,
+burning or seizing the transfer realm's balance, and changing the token's
+semantics. Governance enables a GRC20 only if they are absent or their
+holder is trusted. If they are exercised against the escrow, the shortfall
+is outside every packet-loss remedy: accounted backing stays as it was,
+refunds and payouts that need the missing balance cannot pay, and a
+route replacement does not restore it. Recapitalization is tied to a
+recorded incident, so the controls offer no remedy, and the shortfall
+can be permanent. When a refusal happens anyway,
 governance cancels the decision (`NewCancelRequest`), or anyone executes
 it again once the token transfers again; if executing it later would be
 unsafe (the state it was decided on has moved), cancel it and propose it
