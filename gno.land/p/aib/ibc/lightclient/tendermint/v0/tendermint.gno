@@ -78,8 +78,9 @@ func (tm *TMLightClient) CheckForMisbehaviour(clientMsg lightclient.ClientMessag
 		// UpdateClient.
 		// The placeholder stored at the upgraded height by
 		// VerifyUpgradeAndUpdateState is not a header, so it is treated as
-		// absent: the genuine header at that height must replace it, not be
-		// read as conflicting with it (which would freeze the client).
+		// absent, here and by the neighbour lookups below: the genuine header
+		// at that height must replace it, and headers around it must not be
+		// compared to its timestamp (either would freeze the client).
 		if existingConsState, found := tm.GetConsensusState(msg.GetHeight()); found && !existingConsState.isSentinel() {
 			// This header has already been submitted and the necessary state is
 			// already stored in client store, thus we can return early without
@@ -572,12 +573,17 @@ func (tm *TMLightClient) GetConsensusState(height types.Height) (*ConsensusState
 }
 
 // GetNextConsensusState returns the lowest consensus state that is larger than
-// the given height.
+// the given height. The placeholder an upgrade stores (SentinelRoot) is
+// skipped: it is not a header, and its timestamp, from the block that
+// scheduled the upgrade, is earlier than the headers below its height.
 func (tm *TMLightClient) GetNextConsensusState(height types.Height) (*ConsensusState, bool) {
 	var cs *ConsensusState
 	tm.ConsensusStateByHeight.Iterate(height.StringNatSort(), "", func(k string, v any) bool {
 		if k == height.StringNatSort() {
 			return false // ignore passed height
+		}
+		if v.(*ConsensusState).isSentinel() {
+			return false
 		}
 		cs = v.(*ConsensusState)
 		return true
@@ -586,12 +592,16 @@ func (tm *TMLightClient) GetNextConsensusState(height types.Height) (*ConsensusS
 }
 
 // GetPreviousConsensusState returns the highest consensus state that is lower
-// than the given height.
+// than the given height, skipping upgrade placeholders like
+// GetNextConsensusState.
 func (tm *TMLightClient) GetPreviousConsensusState(height types.Height) (*ConsensusState, bool) {
 	var cs *ConsensusState
 	tm.ConsensusStateByHeight.ReverseIterate("", height.StringNatSort(), func(k string, v any) bool {
 		if k == height.StringNatSort() {
 			return false // ignore passed height
+		}
+		if v.(*ConsensusState).isSentinel() {
+			return false
 		}
 		cs = v.(*ConsensusState)
 		return true

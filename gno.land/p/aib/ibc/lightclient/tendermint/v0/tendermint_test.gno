@@ -398,29 +398,32 @@ func TestPruneExpiredConsensusStates(t *testing.T) {
 	})
 }
 
-// TestUpdateAfterSameRevisionUpgrade covers the header at the height an
+// TestUpdateAfterSameRevisionUpgrade covers the headers around the height an
 // upgrade installed. VerifyUpgradeAndUpdateState stores a placeholder there
-// (SentinelRoot), and nothing requires the upgrade to bump the revision, so the
-// genuine header at that height can be submitted. It must replace the
-// placeholder; it used to be read as conflicting with it, freezing the client.
+// (SentinelRoot), and nothing requires the upgrade to bump the revision, so
+// genuine headers at and below that height can be submitted. The one at that
+// height must replace the placeholder; it used to be read as conflicting with
+// it, freezing the client. The ones below it must not be compared to the
+// placeholder's timestamp, which is earlier than theirs; they used to be read
+// as a BFT time violation, freezing the client too.
 func TestUpdateAfterSameRevisionUpgrade(t *testing.T) {
 	const upgradeChainID = "chain-1"
 	var (
 		now            = time.Now().UTC()
 		upgradedHeight = types.NewHeight(1, 101)
 	)
-	header := func(apphash string, ts time.Time) *tendermint.MsgHeader {
+	header := func(height uint64, apphash string, ts time.Time) *tendermint.MsgHeader {
 		return &tendermint.MsgHeader{Header: &tendermint.Header{
 			ChainID:            upgradeChainID,
-			Height:             101,
+			Height:             height,
 			Time:               ts,
 			AppHash:            []byte(apphash),
 			NextValidatorsHash: []byte("nextVals"),
 		}}
 	}
-	// The client after an upgrade from 1-100 to 1-101: the trusted state at
-	// 1-100 and the sentinel placeholder at 1-101.
-	setup := func() *tendermint.TMLightClient {
+	// The client after an upgrade from 1-100 to upgradedHeight: the trusted
+	// state at 1-100 and the sentinel placeholder at upgradedHeight.
+	setup := func(upgradedHeight types.Height) *tendermint.TMLightClient {
 		tm := tendermint.NewTMLightClient()
 		clientState := tendermint.NewClientState(upgradeChainID, tendermint.DefaultTrustLevel, trustingPeriod, ubdPeriod, maxClockDrift, upgradedHeight, ics23.GetSDKProofSpecs(), upgradePath)
 		urequire.NoError(t, tm.Initialize(*clientState, tendermint.ConsensusState{
@@ -437,8 +440,8 @@ func TestUpdateAfterSameRevisionUpgrade(t *testing.T) {
 	}
 
 	t.Run("genuine header replaces the placeholder", func(t *testing.T) {
-		tm := setup()
-		msg := header("apphash-101", now)
+		tm := setup(upgradedHeight)
+		msg := header(101, "apphash-101", now)
 
 		uassert.False(t, tm.CheckForMisbehaviour(msg), "the placeholder is not a conflicting header")
 		heights := tm.UpdateState(msg)
@@ -450,14 +453,32 @@ func TestUpdateAfterSameRevisionUpgrade(t *testing.T) {
 
 		// Once replaced, the height behaves as any other: the same header is
 		// a duplicate, a different one is misbehaviour.
-		uassert.False(t, tm.CheckForMisbehaviour(header("apphash-101", now)))
-		uassert.True(t, tm.CheckForMisbehaviour(header("apphash-conflict", now)))
+		uassert.False(t, tm.CheckForMisbehaviour(header(101, "apphash-101", now)))
+		uassert.True(t, tm.CheckForMisbehaviour(header(101, "apphash-conflict", now)))
 	})
 
 	t.Run("header replacing the placeholder must keep timestamps monotonic", func(t *testing.T) {
-		tm := setup()
+		tm := setup(upgradedHeight)
 		// Not after the trusted state at 1-100.
-		uassert.True(t, tm.CheckForMisbehaviour(header("apphash-101", now.Add(-3*time.Minute))))
+		uassert.True(t, tm.CheckForMisbehaviour(header(101, "apphash-101", now.Add(-3*time.Minute))))
+	})
+
+	t.Run("header below the placeholder is not compared to it", func(t *testing.T) {
+		// An upgrade from 1-100 to 1-105 leaves a gap: the genuine header at
+		// 1-104 is later than the placeholder's timestamp.
+		tm := setup(types.NewHeight(1, 105))
+		uassert.False(t, tm.CheckForMisbehaviour(header(104, "apphash-104", now)), "the placeholder is not a next header")
+
+		// The genuine neighbours are still checked: not after the trusted
+		// state at 1-100.
+		uassert.True(t, tm.CheckForMisbehaviour(header(104, "apphash-104", now.Add(-3*time.Minute))))
+		// Not before a genuine state above it.
+		tm.SetConsensusState(types.NewHeight(1, 106), &tendermint.ConsensusState{
+			Timestamp:          now.Add(time.Minute),
+			Root:               tendermint.NewMerkleRoot([]byte("apphash-106")),
+			NextValidatorsHash: []byte("nextVals"),
+		})
+		uassert.True(t, tm.CheckForMisbehaviour(header(104, "apphash-104", now.Add(2*time.Minute))))
 	})
 }
 
