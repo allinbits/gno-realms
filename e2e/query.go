@@ -295,6 +295,24 @@ func queryGnoGRC20Alias(containerID, denom string) (string, error) {
 	return strings.Trim(parts[0], "\""), nil
 }
 
+// queryGnoVoucherSymbol queries the transfer realm for the GRC20 symbol of
+// the voucher of an IBC denom by calling transfer.VoucherSymbol via vm/qeval.
+func queryGnoVoucherSymbol(containerID, ibcDenom string) (string, error) {
+	expr := fmt.Sprintf("VoucherSymbol(\"%s\")", ibcDenom)
+	content, err := gnoEval(containerID, "r/aib/ibc/apps/transfer", expr)
+	if err != nil {
+		return "", err
+	}
+	// qeval returns: ("IBC1" string)
+	content = strings.TrimPrefix(content, "(")
+	content = strings.TrimSuffix(content, ")")
+	parts := strings.Fields(content)
+	if len(parts) != 2 || parts[0] == `""` {
+		return "", fmt.Errorf("unexpected qeval result: %s", content)
+	}
+	return strings.Trim(parts[0], "\""), nil
+}
+
 // queryGnoGRC20TestBalance returns the GRC20 test token balance for an address
 // by calling grc20test.BalanceOf via vm/qeval.
 func queryGnoGRC20TestBalance(containerID, addr string) (int64, error) {

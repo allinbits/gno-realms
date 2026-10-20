@@ -146,9 +146,9 @@ func main(cur realm) {
 // --- denoms/ibc/CAEF9CA8CE6C302D73A831A49E34E59149D3A9AD96CCEBDFBF62F6D5710D92D8
 // {"base":"uphoton","path":"transfer/07-tendermint-1/uphoton","denom":"ibc/CAEF9CA8CE6C302D73A831A49E34E59149D3A9AD96CCEBDFBF62F6D5710D92D8"}
 // --- vouchers
-// {"items":[{"denom":"ibc/CAEF9CA8CE6C302D73A831A49E34E59149D3A9AD96CCEBDFBF62F6D5710D92D8","grc20reg_key":"gno.land/r/aib/ibc/apps/transfer.CAEF9CA8CE6","name":"uphoton","symbol":"CAEF9CA8CE6","decimals":0,"total_supply":100}],"page":1,"total":1}
+// {"items":[{"denom":"ibc/CAEF9CA8CE6C302D73A831A49E34E59149D3A9AD96CCEBDFBF62F6D5710D92D8","grc20reg_key":"gno.land/r/aib/ibc/apps/transfer.IBC1","name":"uphoton","symbol":"IBC1","decimals":0,"total_supply":100}],"page":1,"total":1}
 // --- voucher/ibc/CAEF9CA8CE6C302D73A831A49E34E59149D3A9AD96CCEBDFBF62F6D5710D92D8
-// {"denom":"ibc/CAEF9CA8CE6C302D73A831A49E34E59149D3A9AD96CCEBDFBF62F6D5710D92D8","grc20reg_key":"gno.land/r/aib/ibc/apps/transfer.CAEF9CA8CE6","name":"uphoton","symbol":"CAEF9CA8CE6","decimals":0,"total_supply":100}
+// {"denom":"ibc/CAEF9CA8CE6C302D73A831A49E34E59149D3A9AD96CCEBDFBF62F6D5710D92D8","grc20reg_key":"gno.land/r/aib/ibc/apps/transfer.IBC1","name":"uphoton","symbol":"IBC1","decimals":0,"total_supply":100}
 // --- voucher/ibc/CAEF9CA8CE6C302D73A831A49E34E59149D3A9AD96CCEBDFBF62F6D5710D92D8/balance/g1wfjkxetfwejhyh6lta047h6lta047h6llm82yl
 // {"denom":"ibc/CAEF9CA8CE6C302D73A831A49E34E59149D3A9AD96CCEBDFBF62F6D5710D92D8","address":"g1wfjkxetfwejhyh6lta047h6lta047h6llm82yl","balance":100}
 // --- total_escrow/uphoton

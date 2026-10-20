@@ -3,6 +3,7 @@ package transfer
 import (
 	"chain"
 	"chain/banker"
+	"strconv"
 	"strings"
 
 	"gno.land/p/aib/ibc/ics20/v0"
@@ -85,10 +86,10 @@ var (
 	denoms        *bptree.BPTree // ibcDenom:ics20.Denom
 	totalEscrow   *bptree.BPTree // clientID:*bptree.BPTree(denom:chain.Coin)
 	voucherTokens *bptree.BPTree // ibcDenom:*voucher
+	voucherDenoms *bptree.BPTree // symbol:ibcDenom
 
-	// nextVoucherID allocates a unique grc20 token id for each voucher. Voucher
-	// symbols are truncated IBC-hash prefixes that can collide, so a shared
-	// monotonic id keeps every token's grc20 identifier distinct.
+	// nextVoucherID allocates a unique id for each voucher: its grc20 token id,
+	// and the number in its symbol (see voucherSymbol).
 	nextVoucherID seqid.ID
 
 	// Gno persists package-level vars to the realm store at end of tx. These
@@ -119,6 +120,7 @@ func init() {
 	denoms = bptree.NewBPTree32()
 	totalEscrow = bptree.NewBPTree32()
 	voucherTokens = bptree.NewBPTree32()
+	voucherDenoms = bptree.NewBPTree32()
 }
 
 // transferStore implements Store over the package-level state.
@@ -438,18 +440,39 @@ func getDenom(ibcDenom string) (ics20.Denom, bool) {
 	return d.(ics20.Denom), true
 }
 
-// VoucherSymbol returns the grc20 token symbol for an IBC voucher denom: the IBC
-// hash truncated to grc20's MaxSymbolLen. The full voucherDenom ("ibc/<64-hex-
-// hash>") can't be a symbol because v2 grc20 enforces MaxSymbolLen and
-// [A-Za-z0-9_-] only. Since grc20reg keys tokens by rlmpath.symbol, this is also
-// the symbol component of a voucher's registry key, so callers locate a voucher
-// via grc20reg.Get(<this realm's pkgpath> + "." + VoucherSymbol(ibcDenom)).
+// VoucherSymbol returns the grc20 token symbol of the voucher for an IBC denom,
+// or "" if no voucher was minted for it. Since grc20reg keys tokens by
+// rlmpath.symbol, this is also the symbol component of a voucher's registry
+// key, so callers locate a voucher via
+// grc20reg.Get(<this realm's pkgpath> + "." + VoucherSymbol(ibcDenom)).
 func VoucherSymbol(ibcDenom string) string {
-	symbol := strings.TrimPrefix(ibcDenom, "ibc/")
-	if len(symbol) > grc20.MaxSymbolLen {
-		symbol = symbol[:grc20.MaxSymbolLen]
+	v := getVoucher(ibcDenom)
+	if v == nil {
+		return ""
 	}
-	return symbol
+	return v.token.GetSymbol()
+}
+
+// VoucherDenom returns the IBC denom ("ibc/<hash>") of the voucher with the
+// given grc20 symbol, or "" if there is none: the reverse of VoucherSymbol,
+// for callers that start from a grc20reg token.
+func VoucherDenom(symbol string) string {
+	v := voucherDenoms.Get(symbol)
+	if v == nil {
+		return ""
+	}
+	return v.(string)
+}
+
+// voucherSymbol is the symbol of the voucher with the given id: "IBC" and the
+// id, so symbols are unique. A symbol derived from the IBC hash cannot be:
+// grc20 caps symbols at 11 characters, 44 bits of the hash, and a counterparty
+// can search a base denom whose hash matches another voucher's prefix.
+// grc20reg.Register panics on a key already taken and never frees one, so
+// such a voucher, minted first, made every later packet minting the other
+// panic, and its registry key resolve to the wrong token.
+func voucherSymbol(id seqid.ID) string {
+	return "IBC" + strconv.FormatUint(uint64(id), 10)
 }
 
 // getOrCreateVoucher returns the existing voucher instance for the given IBC
@@ -457,19 +480,18 @@ func VoucherSymbol(ibcDenom string) string {
 // discoverability. Non-crossing helper; rlm is needed to issue the cross
 // call into grc20reg.Register from this realm's frame.
 //
-// The token symbol is a truncated IBC hash (see VoucherSymbol); its name is the
-// base denom, and nextVoucherID keeps each token's grc20 id distinct. grc20reg
-// keys the token by rlmpath.symbol (not the slug), so the full-hash slug is
-// retained only as event metadata. Because the key is the truncated symbol,
-// two vouchers whose hashes share an 11-char prefix would collide on the
-// registry key (astronomically unlikely, but no longer guarded by the slug).
+// The token symbol is unique to the voucher (see voucherSymbol); its name is
+// the base denom. grc20reg keys the token by rlmpath.symbol (not the slug), so
+// the full-hash slug is retained only as event metadata.
 func getOrCreateVoucher(_ int, rlm realm, baseDenom, voucherDenom string) *voucher {
 	if v := voucherTokens.Get(voucherDenom); v != nil {
 		return v.(*voucher)
 	}
-	token, ledger := grc20.NewToken(baseDenom, VoucherSymbol(voucherDenom), 0, nextVoucherID.Next(), rlm)
+	id := nextVoucherID.Next()
+	token, ledger := grc20.NewToken(baseDenom, voucherSymbol(id), 0, id, rlm)
 	inst := &voucher{token: token, ledger: ledger}
 	voucherTokens.Set(voucherDenom, inst)
+	voucherDenoms.Set(token.GetSymbol(), voucherDenom)
 	grc20reg.Register(cross(rlm), token, voucherDenom[len("ibc/"):])
 	return inst
 }

@@ -243,14 +243,22 @@ Voucher tokens can be discovered in two ways:
 
 2. **From `grc20reg`** — `grc20reg` keys tokens by `rlmPath.symbol`, so voucher
    tokens are registered as `gno.land/r/aib/ibc/apps/transfer.{SYMBOL}`, where
-   `{SYMBOL}` is the uppercase hex SHA256 hash from the `ibc/{HASH}` denom
-   truncated to `grc20.MaxSymbolLen` (11 chars) — *not* the full hash, which
-   exceeds the symbol length limit. Enumerate entries with the
+   `{SYMBOL}` is `IBC` followed by the voucher's sequence number, in the order
+   vouchers were first minted (`IBC1`, `IBC2`, ...). It is not derived from
+   the `ibc/{HASH}` denom: get it with `VoucherSymbol("ibc/{HASH}")` or from
+   the `vouchers` endpoint, and the other way round with
+   `VoucherDenom("{SYMBOL}")`. Enumerate entries with the
    `gno.land/r/aib/ibc/apps/transfer.` prefix.
 
-The token name is the base denomination (e.g. `uatom`) and the symbol is the
-truncated hash (e.g. `CAEF9CA8CE6`). For the full denom and richer metadata
-(trace hops, total supply), query the render endpoint `voucher/ibc/{HASH}`.
+The token name is the base denomination (e.g. `uatom`) and the symbol is
+`IBC{N}` (e.g. `IBC1`). For the full denom and richer metadata (trace hops,
+total supply), query the render endpoint `voucher/ibc/{HASH}`.
+
+The symbol is not a prefix of the hash because grc20 caps symbols at 11
+characters, and 11 hex characters (44 bits) can be matched on purpose: a
+counterparty could search a base denomination whose voucher shares another
+voucher's prefix and register it first, and `grc20reg` refuses a key already
+taken and never frees one.
 
 Base denominations are the counterparty's and are accepted as received, like
 ibc-go does. gnoweb renders every page as markdown, JSON included, so the
@@ -270,8 +278,8 @@ routes write markdown characters in string values as `\u` escapes
 
 The same base denomination (e.g. `uatom`) arriving from different chains
 produces distinct voucher tokens with different IBC hashes. A DEX should use the
-full `ibc/{HASH}` denom to distinguish them — the token symbol is only the
-truncated hash, so read the full denom from the `denom` field of the `vouchers`
+full `ibc/{HASH}` denom to distinguish them — the token symbol is only a
+sequence number, so read the full denom from the `denom` field of the `vouchers`
 render endpoint — and query `denoms/ibc/{HASH}` to resolve the trace path for
 display purposes.
 
