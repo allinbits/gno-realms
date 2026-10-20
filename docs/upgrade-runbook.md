@@ -535,6 +535,36 @@ address; deploying it unchanged hands governance to a key nobody holds.
    (Ethereum spends at recording a kind 9 that carries one). Any migration
    is done afterwards by the new executor through its own decisions.
 
+   **Replacing a failed executor.** A failed executor affects the decisions
+   it has to record in two ways, and resending repairs delivery, never a
+   spent decision:
+   - *Halted* (status 2, buffered, unspent): the executor's code is not the
+     pinned one or its answer is malformed. The decision stays buffered,
+     and every later seq waits behind it. Read `IBCAdmin.decision(e, seq)`
+     to see which seqs hold.
+   - *Spent* (status 5): the executor reverted when recording it. Redispatch
+     sends the same seq and bytes, which IBCAdmin answers as a duplicate,
+     so the action is lost. If it is still wanted, record a new decision:
+     it gets a fresh seq and its kind's normal delay.
+
+   The repair:
+   1. If a halted decision is ahead of the hand-over, cancel it with
+      `NewEthCancelRequest`. Its tombstones apply when it arrives on
+      Ethereum, even while the cancel itself is buffered, and a tombstoned
+      decision is recorded as cancelled without the executor. Without the
+      cancel, the hand-over cannot record.
+   2. Record `NewEthHandOverRequest(exec, codeHash)`. It records without
+      the executor, even with halted decisions behind it.
+   3. Execute it on Ethereum once its delay has passed. A guardian hold
+      defers it until day 21 of the hold, as it does a seat replacement. A
+      standing flag, even from a key no longer available, defers it for
+      at most 21 days from that flag's start. Ethereum pins that start the
+      first time it sees the decision due and flagged, and clearing or
+      re-flagging does not move it.
+   4. Call `drain()` on IBCAdmin to record the halted decisions behind it
+      through the new executor.
+   5. Record new decisions for any cancelled or spent action still wanted.
+
 ## 8. Incident drill: replacing a route's client
 
 The drill applies to the one Ethereum route the governance channel serves
