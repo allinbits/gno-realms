@@ -39,16 +39,13 @@ func init(cur realm) {
 	)
 }
 
-// assertGovernance panics unless the caller of the realm function holding rlm
-// is the ibcgov realm. rlm must be that function's live cur.
-func assertGovernance(_ int, rlm realm, op string) {
-	if !rlm.IsCurrent() {
-		panic(op + ": rlm is not the caller's live realm")
-	}
-	if p := rlm.Previous().PkgPath(); p != IBCGovPath {
+// assertGovernance panics unless the caller of the crossing function whose
+// cur it is passed (a non-crossing call) is the ibcgov realm.
+func assertGovernance(cur realm, op string) {
+	if p := cur.Previous().PkgPath(); p != IBCGovPath {
 		caller := p
 		if caller == "" {
-			caller = string(rlm.Previous().Address())
+			caller = string(cur.Previous().Address())
 		}
 		panic(ufmt.Sprintf("%s: only %s decides this, not %s", op, IBCGovPath, caller))
 	}
@@ -60,7 +57,7 @@ func assertGovernance(_ int, rlm realm, op string) {
 
 // AddAuthorityMember adds a member to the authority. Governance only.
 func AddAuthorityMember(cur realm, addr address) {
-	assertGovernance(0, cur, "add_authority_member")
+	assertGovernance(cur, "add_authority_member")
 	addr = mustCanonicalAddress(addr)
 	auth.AddMember(0, cur, addr)
 	chain.Emit(EventTypeAuthorityMemberAdded, "address", string(addr))
@@ -69,7 +66,7 @@ func AddAuthorityMember(cur realm, addr address) {
 // RemoveAuthorityMember removes a member; the last one cannot be removed.
 // Governance only.
 func RemoveAuthorityMember(cur realm, addr address) {
-	assertGovernance(0, cur, "remove_authority_member")
+	assertGovernance(cur, "remove_authority_member")
 	addr = mustCanonicalAddress(addr)
 	if addr == chain.PackageAddress(IBCGovPath) {
 		// ibcgov changes membership as a member: removing it would freeze
@@ -112,7 +109,7 @@ func blockAddress(_ int, rlm realm, addr address) {
 
 // UnblockAddress removes addr from the blocklist. Governance only.
 func UnblockAddress(cur realm, addr address) {
-	assertGovernance(0, cur, "unblock_address")
+	assertGovernance(cur, "unblock_address")
 	canonical := mustCanonicalAddress(addr)
 	blocked.Remove(string(canonical))
 	chain.Emit(EventTypeUnblock, "address", string(canonical))

@@ -52,16 +52,13 @@ func init(cur realm) {
 // whose Previous() is the GovDAO proxy, whereas a crossing call from inside
 // the callback would present this realm itself.
 
-// assertGovernance panics unless the caller of the realm function holding rlm
-// is the ibcgov realm. rlm must be that function's live cur.
-func assertGovernance(_ int, rlm realm, op string) {
-	if !rlm.IsCurrent() {
-		panic(op + ": rlm is not the caller's live realm")
-	}
-	if p := rlm.Previous().PkgPath(); p != IBCGovPath {
+// assertGovernance panics unless the caller of the crossing function whose
+// cur it is passed (a non-crossing call) is the ibcgov realm.
+func assertGovernance(cur realm, op string) {
+	if p := cur.Previous().PkgPath(); p != IBCGovPath {
 		caller := p
 		if caller == "" {
-			caller = string(rlm.Previous().Address())
+			caller = string(cur.Previous().Address())
 		}
 		panic(ufmt.Sprintf("%s: only %s decides this, not %s", op, IBCGovPath, caller))
 	}
@@ -69,7 +66,7 @@ func assertGovernance(_ int, rlm realm, op string) {
 
 // AddAuthorityMember adds a member to the authority. Governance only.
 func AddAuthorityMember(cur realm, addr address) {
-	assertGovernance(0, cur, "add_authority_member")
+	assertGovernance(cur, "add_authority_member")
 	auth.AddMember(0, cur, addr)
 	chain.Emit(EventTypeAuthorityMemberAdded, "address", string(addr))
 }
@@ -77,7 +74,7 @@ func AddAuthorityMember(cur realm, addr address) {
 // RemoveAuthorityMember removes a member; the last one cannot be removed.
 // Governance only.
 func RemoveAuthorityMember(cur realm, addr address) {
-	assertGovernance(0, cur, "remove_authority_member")
+	assertGovernance(cur, "remove_authority_member")
 	if addr == chain.PackageAddress(IBCGovPath) {
 		// ibcgov changes membership as a member: removing it would freeze
 		// the membership and its tightening powers for good.
@@ -100,14 +97,14 @@ func IsAuthorityMember(addr address) bool {
 // AddRelayer adds an address to the authorized relayer whitelist. Governance
 // only.
 func AddRelayer(cur realm, addr address) {
-	assertGovernance(0, cur, "add_relayer")
+	assertGovernance(cur, "add_relayer")
 	relayers.Set(string(addr), true)
 }
 
 // RemoveRelayer removes an address from the authorized relayer whitelist.
 // Governance only: removing the last one opens relaying to anyone.
 func RemoveRelayer(cur realm, addr address) {
-	assertGovernance(0, cur, "remove_relayer")
+	assertGovernance(cur, "remove_relayer")
 	relayers.Remove(string(addr))
 }
 
@@ -139,7 +136,7 @@ func pause(_ int, rlm realm) {
 
 // Unpause resumes the packet path. Governance only.
 func Unpause(cur realm) {
-	assertGovernance(0, cur, "unpause")
+	assertGovernance(cur, "unpause")
 	paused = false
 	chain.Emit(EventTypeUnpause)
 }
@@ -162,7 +159,7 @@ func ensureNotPaused() {
 // the old client of a route that a new client replaces, after which the old
 // route's packets are settled by reconciliation. Governance only.
 func RetireClient(cur realm, clientID string) {
-	assertGovernance(0, cur, "retire_client")
+	assertGovernance(cur, "retire_client")
 	if store.getClient(clientID) == nil {
 		panic(ufmt.Sprintf("client %s not found", clientID))
 	}
@@ -186,7 +183,7 @@ func IsClientRetired(clientID string) bool {
 // two-phase epoch switch); RetireClient retires it for good once IBCAdmin's
 // epoch notice moves the channel. Governance only.
 func RetireClientPort(cur realm, clientID, port string) {
-	assertGovernance(0, cur, "retire_client_port")
+	assertGovernance(cur, "retire_client_port")
 	if store.getClient(clientID) == nil {
 		panic(ufmt.Sprintf("client %s not found", clientID))
 	}

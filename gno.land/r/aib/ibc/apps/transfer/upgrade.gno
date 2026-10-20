@@ -215,7 +215,7 @@ func RegisterImpl(cur realm, ctor func(Store) Logic, version string, over []stri
 // OnInstall hook runs before the switch, so a panic there leaves the previous
 // implementation active. Rollback is UpdateImpl with the previous path.
 func UpdateImpl(cur realm, path string) {
-	assertGovernance(0, cur, "update_impl")
+	assertGovernance(cur, "update_impl")
 	install(0, cur, path)
 }
 
@@ -231,11 +231,12 @@ func install(_ int, rlm realm, path string) {
 	if l == nil {
 		panic(ufmt.Sprintf("implementation %s returned a nil Logic", path))
 	}
-	_, keeps := l.(ControlsLogic)
-	if m := implManifests.Get(path).(manifest); l.Version() != m.Version || keeps != m.KeepsControls {
-		panic(ufmt.Sprintf("implementation %s is not what its manifest declared (version %s, keeps controls %t)", path, m.Version, m.KeepsControls))
+	m := implManifests.Get(path).(manifest)
+	if mismatch := manifestMismatch(path, m, l); mismatch != "" {
+		panic(mismatch)
 	}
-	if refusal := controlsContinuity(keeps); refusal != "" {
+	// l keeps the controls exactly when its manifest says so.
+	if refusal := controlsContinuity(m.KeepsControls); refusal != "" {
 		panic(refusal)
 	}
 	// A panic in the hook unwinds the transaction: nothing below runs and
@@ -250,6 +251,18 @@ func install(_ int, rlm realm, path string) {
 		AttributeKeyNewPath, path,
 		AttributeKeyVersion, implVersion,
 	)
+}
+
+// manifestMismatch is how l, built by the implementation registered at path,
+// differs from its manifest m (its version, and whether it keeps the route
+// controls), or "".
+func manifestMismatch(path string, m manifest, l Logic) string {
+	_, keeps := l.(ControlsLogic)
+	if l.Version() == m.Version && keeps == m.KeepsControls {
+		return ""
+	}
+	return ufmt.Sprintf("implementation %s is not what its manifest declared (version %s, keeps controls %t): it builds version %s, keeps controls %t",
+		path, m.Version, m.KeepsControls, l.Version(), keeps)
 }
 
 // InstallChecker is implemented by an implementation whose OnInstall
@@ -286,10 +299,8 @@ func CheckUpdateImpl(path string) string {
 	if l == nil {
 		return "implementation " + path + " returned a nil Logic"
 	}
-	_, keeps := l.(ControlsLogic)
-	if l.Version() != m.Version || keeps != m.KeepsControls {
-		return ufmt.Sprintf("implementation %s is not what its manifest declared (version %s, keeps controls %t): it builds version %s, keeps controls %t",
-			path, m.Version, m.KeepsControls, l.Version(), keeps)
+	if mismatch := manifestMismatch(path, m, l); mismatch != "" {
+		return mismatch
 	}
 	if ic, ok := l.(InstallChecker); ok {
 		if err := ic.CheckInstall(implPath, implVersion); err != nil {

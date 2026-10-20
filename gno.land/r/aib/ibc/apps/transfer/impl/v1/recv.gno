@@ -1,7 +1,6 @@
 package impl
 
 import (
-	"chain"
 	"strconv"
 
 	"gno.land/p/aib/ibc/ics20/controls/v0"
@@ -9,36 +8,13 @@ import (
 	"gno.land/p/aib/ibc/types/v0"
 	"gno.land/p/nt/ufmt/v0"
 	"gno.land/r/aib/ibc/apps/transfer"
-	"gno.land/r/aib/ibc/core"
+	implv0 "gno.land/r/aib/ibc/apps/transfer/impl/v0"
 	"gno.land/r/aib/ibc/ibcgov"
 )
 
-// bridgeRealms are the realms of the bridge with no withdrawal entry point:
-// a credit to one of them is swept (ADR pr6375 §7.1), never paid to an
-// address whose code could not move it. Every implementation the core and
-// transfer proxies ever registered is one too, read from their registries
-// (isBridgeRealm), so a registration after deployment is covered at once.
-var bridgeRealms = []string{
-	"gno.land/r/aib/ibc/core",
-	transfer.PkgPath,
-	"gno.land/r/aib/ibc/ibcgov",
-	"gno.land/r/aib/ibc/ethrelay",
-	// Kept as a library and never registered (a fresh deployment starts
-	// with impl/v1), so no registry lists it.
-	"gno.land/r/aib/ibc/apps/transfer/impl/v0",
-}
-
-func isBridgeRealm(a address) bool {
-	for _, p := range bridgeRealms {
-		if chain.PackageAddress(p) == a {
-			return true
-		}
-	}
-	// A registry only grows: an implementation stays listed when another
-	// replaces it. One keyed lookup in each proxy's address index, whatever
-	// the number registered.
-	return core.IsImplAddress(a) || transfer.IsImplAddress(a)
-}
+// isBridgeRealm reports whether a is a realm of the bridge
+// (ibcgov.BridgeRealm): a credit to one is swept, never paid.
+func isBridgeRealm(a address) bool { return ibcgov.BridgeRealm(a) != "" }
 
 // receivedDenom is the denom a received token is booked under on rt, its
 // accounting denom and accounting: a gno-native token returning is released
@@ -101,7 +77,7 @@ func (l *logic) OnRecvPacket(_ int, rlm realm, sourceClient, destinationClient s
 	if err != nil {
 		return refuse(err)
 	}
-	if err := validateBaseDenomNoSlash(token); err != nil {
+	if err := implv0.ValidateBaseDenomNoSlash(token); err != nil {
 		return refuse(err)
 	}
 	if ibcgov.Flagged(rt.Key, ibcgov.FnCredits) {

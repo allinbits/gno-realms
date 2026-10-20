@@ -143,7 +143,7 @@ func (rt *Route) track(r *SendRecord, was bool) {
 		d.Totals.sub(wInFlight, r.inFlight)
 		r.inFlight = 0
 	}
-	client, _, _ := ParsePacketKey(r.Key)
+	client := clientOfKey(r.Key)
 	var n int64
 	if v := rt.openSends.Get(client); v != nil {
 		n = v.(int64)
@@ -185,7 +185,7 @@ func (rt *Route) processedOf(client string, create bool) *processedSet {
 
 // markProcessed adds a record whose outcome was just attached.
 func (rt *Route) markProcessed(r *SendRecord) {
-	client, _, _ := ParsePacketKey(r.Key)
+	client := clientOfKey(r.Key)
 	ps := rt.processedOf(client, true)
 	ps.root, _ = ps.root.Set(processedKey(r.ProcessedHeight, r.Key), true)
 	rt.reblock(client)
@@ -196,7 +196,7 @@ func (rt *Route) unmarkProcessed(r *SendRecord) {
 	if r.Outcome == OutcomePending {
 		return
 	}
-	client, _, _ := ParsePacketKey(r.Key)
+	client := clientOfKey(r.Key)
 	if ps := rt.processedOf(client, false); ps != nil {
 		ps.root, _, _, _ = ps.root.Remove(processedKey(r.ProcessedHeight, r.Key))
 	}
@@ -266,6 +266,15 @@ func (rt *Route) Send(key string) (SendRecord, bool) {
 	c.Packet = copyPacket(r.Packet)
 	c.Commitment = append([]byte{}, r.Commitment...)
 	return c, true
+}
+
+// SendPayment is the payment state of the send record at key, "" if none:
+// Send without copying the record.
+func (rt *Route) SendPayment(key string) string {
+	if r := rt.send(key); r != nil {
+		return r.Payment
+	}
+	return ""
 }
 
 func (rt *Route) send(key string) *SendRecord {

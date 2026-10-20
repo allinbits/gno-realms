@@ -1,6 +1,7 @@
 package ibcgov
 
 import (
+	"encoding/hex"
 	"strconv"
 	"strings"
 
@@ -92,17 +93,7 @@ func dispatchJSON(e uint32, seq uint64) string {
 	}
 	return "{\"epoch\":" + strconv.FormatUint(uint64(d.epoch), 10) + ",\"seq\":" + u64s(d.seq) +
 		",\"kind\":" + strconv.Itoa(int(d.kind)) + ",\"decision\":" + itoa(d.decision) +
-		",\"body\":" + strconv.Quote(hexs(d.body)) + ",\"status\":" + strconv.Itoa(int(d.status)) +
+		",\"body\":" + strconv.Quote(hex.EncodeToString(d.body)) + ",\"status\":" + strconv.Itoa(int(d.status)) +
 		",\"redispatch\":" + strconv.FormatBool(d.redispatch) + ",\"in_flight\":" + strconv.FormatBool(d.inFlight) +
 		",\"transport\":" + u64s(d.transport) + ",\"sends\":" + strconv.Itoa(d.sends) + ",\"event\":" + strconv.Quote(d.event) + "}"
-}
-
-const hexDigits = "0123456789abcdef"
-
-func hexs(b []byte) string {
-	out := make([]byte, 2*len(b))
-	for i, c := range b {
-		out[2*i], out[2*i+1] = hexDigits[c>>4], hexDigits[c&0xf]
-	}
-	return string(out)
 }

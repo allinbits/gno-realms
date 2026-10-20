@@ -1,17 +1,12 @@
 package impl
 
 import (
-	"strings"
-
 	"gno.land/p/aib/ibc/ics20/abi/v0"
 	"gno.land/p/aib/ibc/ics20/v0"
 	"gno.land/p/aib/ibc/types/v0"
 	"gno.land/p/nt/ufmt/v0"
 	"gno.land/r/aib/ibc/apps/transfer"
 )
-
-// The helpers below are impl/v0's (unexported there); validatePayload checks
-// a route's two kinds of client ids.
 
 // validatePayload enforces the transfer port on both sides, the local client
 // id in the {string}-{number} format and the Ethereum router's client id in
@@ -32,24 +27,6 @@ func validatePayload(localClient, routerClient string, payload types.Payload) er
 	}
 	if payload.Encoding != transfer.EncodingProtobuf && payload.Encoding != abi.Encoding {
 		return ufmt.Errorf("invalid encoding: expected %s or %s, got %s", transfer.EncodingProtobuf, abi.Encoding, payload.Encoding)
-	}
-	return nil
-}
-
-func validatePendingSend(expected transfer.PendingSend, sender, sourceClient, denom string, amount int64) error {
-	if expected.Sender != sender ||
-		expected.SourceClient != sourceClient ||
-		expected.Denom != denom ||
-		expected.Amount != amount {
-		return ufmt.Errorf("does not match transfer.Transfer")
-	}
-	return nil
-}
-
-// validateBaseDenomNoSlash rejects base denominations containing a slash.
-func validateBaseDenomNoSlash(token ics20.Token) error {
-	if strings.Contains(token.Denom.Base, "/") {
-		return ufmt.Errorf("base denomination %s cannot contain slashes for IBC v2 packet", token.Denom.Base)
 	}
 	return nil
 }

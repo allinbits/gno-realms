@@ -554,6 +554,16 @@ type seatsParams struct {
 	heldGen    []uint64 // each seat's generation when the request was built
 }
 
+// holdDeadline implements holdBounded: a seat change lands from
+// holdReplacementWait into the hold that first deferred it once it was due.
+func (p *seatsParams) holdDeadline() (anchor, deadline int64, first bool) {
+	first = p.holdAnchor == 0
+	if first {
+		p.holdAnchor = holdSince
+	}
+	return p.holdAnchor, p.holdAnchor + holdReplacementWait, first
+}
+
 func (p *seatsParams) apply(cur realm, t int64) (string, string) {
 	// Re-check against live state: no address may end up in two seats.
 	next := seats

@@ -89,7 +89,7 @@ Gated on the governance realm; the decision is built with
 
 `r/aib/ibc/core/client.gno`:
 
-1. `assertGovernance(0, cur, "recover_client")`: the caller must be
+1. `assertGovernance(cur, "recover_client")`: the caller must be
    `gno.land/r/aib/ibc/ibcgov`; neither client may be retired.
 2. Subject and substitute IDs must differ; both must resolve; `typ` must match.
 3. Subject status ∈ {`Frozen`, `Expired`}; substitute status must be `Active`.

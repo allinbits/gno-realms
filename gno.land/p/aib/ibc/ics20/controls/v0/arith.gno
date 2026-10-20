@@ -117,16 +117,7 @@ func wideRest(a, b wide) int64 {
 // minusWideSat is the counter less o (at most the counter), exact, as a
 // saturated int64.
 func (w wide) minusWideSat(o wide) int64 {
-	w.hi -= o.hi
-	w.lo -= o.lo
-	if w.lo < 0 {
-		w.lo += wideBase
-		w.hi--
-	}
-	if w.hi < 0 {
-		panic("controls: a wide counter went negative")
-	}
-	return w.sat()
+	return wideMinus(w, o).sat()
 }
 
 // wideMinus is w less o (at most w), exact.

@@ -107,9 +107,8 @@ func (l *logic) settle(_ int, rlm realm, rt *controls.Route, rec controls.SendRe
 	if pay > 0 {
 		l.payOut(0, rlm, rt, rec.Denom, rec.Sender, pay)
 	}
-	after, _ := rt.Send(rec.Key)
 	transfer.EmitRoute(0, rlm, "settle", "route", rt.Key, "packet", rec.Key, "outcome", outcome,
-		"payment", after.Payment, "refunded", strconv.FormatInt(pay, 10))
+		"payment", rt.SendPayment(rec.Key), "refunded", strconv.FormatInt(pay, 10))
 }
 
 // payOut moves amount of denom to `to`: out of the route's escrow for a

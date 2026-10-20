@@ -291,20 +291,46 @@ func quoteIdentity(s string) string {
 	return "(" + s + ")"
 }
 
+// bridgeRealms are the realms of the bridge with no withdrawal entry point.
+// Every implementation the core and transfer proxies ever registered is one
+// too, read from their registries (BridgeRealm), so a registration after
+// deployment is covered at once.
+var bridgeRealms = []string{
+	CorePath,
+	TransferPath,
+	PkgPath,
+	"gno.land/r/aib/ibc/ethrelay",
+	// Kept as a library and never registered (a fresh deployment starts
+	// with impl/v1), so no registry lists it.
+	"gno.land/r/aib/ibc/apps/transfer/impl/v0",
+}
+
+// BridgeRealm is which realm of the bridge a is, or "" for none: its path,
+// or "a registered implementation". A credit to one of them is swept (ADR
+// pr6375 §7.1), never paid to an address whose code could not move it, and
+// none can be a fee collector.
+func BridgeRealm(a address) string {
+	for _, p := range bridgeRealms {
+		if chain.PackageAddress(p) == a {
+			return p
+		}
+	}
+	// Every registered implementation, superseded ones included (a registry
+	// only grows): one keyed lookup in each proxy's address index, whatever
+	// the number registered.
+	if core.IsImplAddress(a) || transfer.IsImplAddress(a) {
+		return "a registered implementation"
+	}
+	return ""
+}
+
 // mustCollector reads a fee collector: an address that is no realm of the
 // bridge (the transfer app checks it again when the decision executes,
 // against every implementation registered by then).
 func mustCollector(s string) address {
 	a := mustAddr(s)
-	for _, p := range []string{CorePath, TransferPath, PkgPath, "gno.land/r/aib/ibc/ethrelay", "gno.land/r/aib/ibc/apps/transfer/impl/v0"} {
-		if chain.PackageAddress(p) == a {
-			panic("ibcgov: the fee collector " + string(a) + " is a realm of the bridge (" + p + ")")
-		}
-	}
-	// Every registered implementation, superseded ones included: one keyed
-	// lookup in each proxy's address index, whatever the number registered.
-	if core.IsImplAddress(a) || transfer.IsImplAddress(a) {
-		panic("ibcgov: the fee collector " + string(a) + " is a realm of the bridge (a registered implementation)")
+	if p := BridgeRealm(a); p != "" {
+		panic("ibcgov: the fee collector " + string(a) + " is a realm of the bridge (" + p + ")")
 	}
 	return a
 }

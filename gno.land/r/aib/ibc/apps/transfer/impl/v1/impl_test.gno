@@ -8,6 +8,7 @@ import (
 	"gno.land/p/aib/ibc/ics20/v0"
 	"gno.land/p/nt/testutils/v0"
 	"gno.land/p/nt/uassert/v0"
+	"gno.land/r/aib/ibc/apps/transfer"
 )
 
 func replacedRoute(t *testing.T) *controls.Route {
@@ -61,7 +62,13 @@ func TestCheckRecipient(cur realm, t *testing.T) {
 }
 
 func TestBridgeRealms(t *testing.T) {
-	for _, p := range bridgeRealms {
+	for _, p := range []string{
+		"gno.land/r/aib/ibc/core",
+		transfer.PkgPath,
+		"gno.land/r/aib/ibc/ibcgov",
+		"gno.land/r/aib/ibc/ethrelay",
+		"gno.land/r/aib/ibc/apps/transfer/impl/v0",
+	} {
 		uassert.True(t, isBridgeRealm(chain.PackageAddress(p)), p)
 	}
 	uassert.True(t, isBridgeRealm(chain.PackageAddress("gno.land/r/aib/ibc/apps/transfer/impl/v1"))) // registered

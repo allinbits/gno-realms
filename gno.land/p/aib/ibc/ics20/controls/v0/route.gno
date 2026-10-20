@@ -97,6 +97,10 @@ func ParsePacketKey(key string) (clientID string, sequence uint64, ok bool) {
 	return key[:i], seq, true
 }
 
+// clientOfKey is the client id of key, the key of a stored send record:
+// RecordSend validated it (ParsePacketKey) before writing the record.
+func clientOfKey(key string) string { return key[:strings.LastIndex(key, "/")] }
+
 func seqKey(n int64) string {
 	s := strconv.FormatInt(n, 10)
 	return strings.Repeat("0", 19-len(s)) + s
@@ -315,7 +319,7 @@ func (rt *Route) PendingSends(clientID string) int64 {
 }
 
 func (rt *Route) addPending(key string, delta int64) {
-	client, _, _ := ParsePacketKey(key)
+	client := clientOfKey(key)
 	n := rt.PendingSends(client) + delta
 	if n == 0 {
 		rt.pending.Remove(client)

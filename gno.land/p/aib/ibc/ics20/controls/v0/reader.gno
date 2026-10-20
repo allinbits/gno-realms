@@ -1,6 +1,7 @@
 package controls
 
 import (
+	"encoding/hex"
 	"strconv"
 	"strings"
 
@@ -334,7 +335,7 @@ func fromClaimJSON(e SweepEntry) string {
 // SendJSON is a send record's JSON: the full packet (hex payload values), its
 // commitment, the send's metadata and what the callbacks attached.
 func SendJSON(r SendRecord) string {
-	return "{\"key\":" + q(r.Key) + ",\"packet\":" + packetJSON(r.Packet) + ",\"commitment\":" + q(hexs(r.Commitment)) +
+	return "{\"key\":" + q(r.Key) + ",\"packet\":" + packetJSON(r.Packet) + ",\"commitment\":" + q(hex.EncodeToString(r.Commitment)) +
 		",\"sender\":" + q(string(r.Sender)) + ",\"receiver\":" + q(r.Receiver) + ",\"denom\":" + q(r.Denom) +
 		",\"kind\":" + q(r.Kind) + ",\"amount\":" + itoa(r.Amount) + ",\"fee\":" + itoa(r.Fee) +
 		",\"sent_height\":" + itoa(r.SentHeight) + ",\"sent_at\":" + itoa(r.SentAt) + ",\"outcome\":" + q(r.Outcome) +
@@ -346,21 +347,11 @@ func packetJSON(p types.Packet) string {
 	var pl []string
 	for _, x := range p.Payloads {
 		pl = append(pl, "{\"source_port\":"+q(x.SourcePort)+",\"destination_port\":"+q(x.DestinationPort)+
-			",\"version\":"+q(x.Version)+",\"encoding\":"+q(x.Encoding)+",\"value\":"+q(hexs(x.Value))+"}")
+			",\"version\":"+q(x.Version)+",\"encoding\":"+q(x.Encoding)+",\"value\":"+q(hex.EncodeToString(x.Value))+"}")
 	}
 	return "{\"sequence\":" + strconv.FormatUint(p.Sequence, 10) + ",\"source_client\":" + q(p.SourceClient) +
 		",\"destination_client\":" + q(p.DestinationClient) + ",\"timeout_timestamp\":" +
 		strconv.FormatUint(p.TimeoutTimestamp, 10) + ",\"payloads\":[" + strings.Join(pl, ",") + "]}"
-}
-
-const hexDigits = "0123456789abcdef"
-
-func hexs(b []byte) string {
-	out := make([]byte, 2*len(b))
-	for i, c := range b {
-		out[2*i], out[2*i+1] = hexDigits[c>>4], hexDigits[c&0xf]
-	}
-	return string(out)
 }
 
 // LossJSON is a loss's JSON.

@@ -14,6 +14,7 @@ import (
 	"gno.land/p/aib/ibc/types/v0"
 	"gno.land/p/nt/ufmt/v0"
 	"gno.land/r/aib/ibc/apps/transfer"
+	implv0 "gno.land/r/aib/ibc/apps/transfer/impl/v0"
 	"gno.land/r/aib/ibc/core"
 	"gno.land/r/aib/ibc/ibcgov"
 	"gno.land/r/nt/grc20reg/v0"
@@ -256,7 +257,7 @@ func (l *logic) OnSendPacket(_ int, rlm realm, sourceClient, destinationClient s
 	if transfer.IsBlocked(address(data.Sender)) {
 		return ufmt.Errorf("sender %s is blocked", data.Sender)
 	}
-	if err := validateBaseDenomNoSlash(token); err != nil {
+	if err := implv0.ValidateBaseDenomNoSlash(token); err != nil {
 		return err
 	}
 	coin, err := token.ToCoin()
@@ -269,7 +270,7 @@ func (l *logic) OnSendPacket(_ int, rlm realm, sourceClient, destinationClient s
 		if !ok {
 			return ufmt.Errorf("voucher packet must be initiated through transfer.Transfer")
 		}
-		if err := validatePendingSend(expected, data.Sender, sourceClient, token.Denom.Path(), coin.Amount); err != nil {
+		if err := implv0.ValidatePendingSend(expected, data.Sender, sourceClient, token.Denom.Path(), coin.Amount); err != nil {
 			return ufmt.Errorf("voucher packet %v", err)
 		}
 		internal := toInternal(token.Denom, rt).IBCDenom()
@@ -281,7 +282,7 @@ func (l *logic) OnSendPacket(_ int, rlm realm, sourceClient, destinationClient s
 		if !ok {
 			return ufmt.Errorf("GRC20 packet must be initiated through transfer.Transfer")
 		}
-		if err := validatePendingSend(expected, data.Sender, sourceClient, token.Denom.Path(), coin.Amount); err != nil {
+		if err := implv0.ValidatePendingSend(expected, data.Sender, sourceClient, token.Denom.Path(), coin.Amount); err != nil {
 			return ufmt.Errorf("GRC20 packet %v", err)
 		}
 		denomKey := transfer.ResolveGRC20Alias(token.Denom.Base)

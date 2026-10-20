@@ -88,7 +88,7 @@ func UpgradeClient(cur realm, clientID string, clientState, consensusState, proo
 // (ADR pr6375 R14): a recovery trusts the substitute, so it waits for its
 // decision's delay in ibcgov.
 func RecoverClient(cur realm, subjectClientID, substituteClientID string) {
-	assertGovernance(0, cur, "recover_client")
+	assertGovernance(cur, "recover_client")
 	ensureNotRetired(subjectClientID)
 	ensureNotRetired(substituteClientID)
 	mustImpl().RecoverClient(0, cur, subjectClientID, substituteClientID)
@@ -197,7 +197,7 @@ type ClientMigrator interface {
 // returns "" once it is installed, or why it was refused, nothing changed.
 // Governance only. Panics if the active implementation migrates nothing.
 func MigrateClient(cur realm, clientID, migration string, params []byte) string {
-	assertGovernance(0, cur, "migrate_client")
+	assertGovernance(cur, "migrate_client")
 	ensureNotRetired(clientID)
 	m, ok := mustImpl().(ClientMigrator)
 	if !ok {

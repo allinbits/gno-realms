@@ -186,7 +186,7 @@ func RegisterImpl(cur realm, ctor func(Store) Logic, version string, over []stri
 // OnInstall hook runs before the switch, so a panic there leaves the previous
 // implementation active. Rollback is UpdateImpl with the previous path.
 func UpdateImpl(cur realm, path string) {
-	assertGovernance(0, cur, "update_impl")
+	assertGovernance(cur, "update_impl")
 	install(0, cur, path)
 }
 

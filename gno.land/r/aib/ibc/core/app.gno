@@ -60,7 +60,7 @@ func RegisterApp(cur realm, portID string, a app.IBCApp) {
 // ApproveApp activates the pending registration of pkgPath for portID.
 // Governance only.
 func ApproveApp(cur realm, portID, pkgPath string) {
-	assertGovernance(0, cur, "approve_app")
+	assertGovernance(cur, "approve_app")
 	key := pendingKey(portID, pkgPath)
 	v := store.pendingApps.Get(key)
 	if v == nil {
@@ -131,7 +131,7 @@ func pauseApp(_ int, rlm realm, portID string) {
 
 // UnpauseApp resumes the application registered on portID. Governance only.
 func UnpauseApp(cur realm, portID string) {
-	assertGovernance(0, cur, "unpause_app")
+	assertGovernance(cur, "unpause_app")
 	setAppPaused(portID, false)
 	chain.Emit(EventTypeAppUnpaused, "port", portID)
 }

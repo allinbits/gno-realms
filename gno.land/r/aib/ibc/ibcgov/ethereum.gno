@@ -146,8 +146,8 @@ const (
 	maxEthGuardianSeats = 2
 )
 
-// Epoch notice statuses: the notice switched the epoch, or named the epoch it
-// had switched to already.
+// NoticeVersion is the version byte that opens an epoch notice; noticeHeader
+// is the length of its fixed part, the version and the epoch.
 const (
 	NoticeVersion = uint8(1)
 	noticeHeader  = 5
@@ -175,7 +175,6 @@ func ParseEpochNotice(b []byte) (e uint32, newClient string, ok bool) {
 type epochRec struct {
 	client string
 	last   uint64
-	opened int64 // block height
 }
 
 // dispatch is one Ethereum-bound decision's packet: its bytes, immutable once
@@ -711,16 +710,14 @@ var govIdentity string
 // bindChannel opens epoch 1 over client.
 func bindChannel(client string) {
 	govIdentity = RouteIdentity(client)
-	epoch = 1
-	epochs.Set(epochKey(epoch), &epochRec{client: client, opened: chainHeight()})
-	chain.Emit("GovEpoch", "epoch", "1", "client", client)
+	setEpoch(1, client)
 }
 
 // setEpoch opens epoch e over client (IBCAdmin's epoch notice): the earlier
 // epochs' unacknowledged decisions are never sent again.
 func setEpoch(e uint32, client string) {
 	epoch = e
-	epochs.Set(epochKey(epoch), &epochRec{client: client, opened: chainHeight()})
+	epochs.Set(epochKey(epoch), &epochRec{client: client})
 	chain.Emit("GovEpoch", "epoch", strconv.FormatUint(uint64(epoch), 10), "client", client)
 }
 
@@ -972,6 +969,10 @@ func PruneGovRetirements(cur realm, n int) int {
 	if n < 1 || n > 64 {
 		panic("ibcgov: prune 1 to 64 clients a call")
 	}
+	// onExpectedPath, with the epoch client and the retained graph read
+	// once: the walk changes neither.
+	epochClient := EpochClient()
+	_, locals := retained()
 	var done []string
 	seen := 0
 	last := ""
@@ -981,7 +982,7 @@ func PruneGovRetirements(cur realm, n int) int {
 		}
 		seen++
 		last = c
-		if !onExpectedPath(c) {
+		if epoch == 0 || c != epochClient && !locals[c] {
 			done = append(done, c)
 		}
 		return false
@@ -1045,7 +1046,12 @@ func applicable(e uint32, client, source string) bool {
 func pinnedBy(from, to, local string, all bool) string {
 	// The transitions a path may take: active ones only, or (all) every
 	// live one and every tombstone, which an approval could make active.
+	// Read once a router client: the graph does not change during the call.
+	memo := map[string][]expEdge{}
 	outs := func(c string) []expEdge {
+		if out, ok := memo[c]; ok {
+			return out
+		}
 		var out []expEdge
 		for _, x := range expectedOf(c) {
 			if x.active || all {
@@ -1057,6 +1063,7 @@ func pinnedBy(from, to, local string, all bool) string {
 				out = append(out, expEdge{to: t.to, local: t.local})
 			}
 		}
+		memo[c] = out
 		return out
 	}
 	// The steps i - 1 (0 to 63) in which from is reached exactly.

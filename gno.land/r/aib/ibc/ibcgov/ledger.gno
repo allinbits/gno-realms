@@ -23,6 +23,14 @@ type unpauser interface{ unpause() }
 // defers (it stays pending): deferredBy is the reason, "" if none.
 type deferrer interface{ deferredBy() string }
 
+// holdBounded is implemented by a decision a guardian hold defers only until
+// a deadline: holdDeadline anchors it at the standing hold on the first
+// deferral, and returns the anchor, the deadline and whether this call set
+// the anchor.
+type holdBounded interface {
+	holdDeadline() (anchor, deadline int64, first bool)
+}
+
 // applier is implemented by every gno-side decision's parameters: apply makes
 // the change and returns a note, or the reason it cannot apply now.
 type applier interface {
@@ -80,7 +88,7 @@ func Execute(cur realm, id int64) {
 		panic("ibcgov: " + err.Error())
 	}
 	if heldAt(t) {
-		sp, ok := d.Params.(*seatsParams)
+		hb, ok := d.Params.(holdBounded)
 		if !ok {
 			panic("ibcgov: decision " + itoa(id) + " is deferred: a guardian hold stands since " + itoa(holdSince))
 		}
@@ -90,16 +98,13 @@ func Execute(cur realm, id int64) {
 		// cleared, never resets that deadline (ADR pr6375 §7.4; Ethereum
 		// anchors it the same way). The first deferral records the anchor
 		// and returns, so the record stands.
-		first := sp.holdAnchor == 0
-		if first {
-			sp.holdAnchor = holdSince
-		}
-		if t < sp.holdAnchor+holdReplacementWait {
+		anchor, deadline, first := hb.holdDeadline()
+		if t < deadline {
 			if first {
-				chain.Emit("Decision", "id", itoa(d.ID), "kind", d.Kind, "state", "deferred", "until", itoa(sp.holdAnchor+holdReplacementWait))
+				chain.Emit("Decision", "id", itoa(d.ID), "kind", d.Kind, "state", "deferred", "until", itoa(deadline))
 				return
 			}
-			panic("ibcgov: decision " + itoa(id) + " is deferred: a guardian hold first deferred it on " + itoa(sp.holdAnchor) + ", until " + itoa(sp.holdAnchor+holdReplacementWait))
+			panic("ibcgov: decision " + itoa(id) + " is deferred: a guardian hold first deferred it on " + itoa(anchor) + ", until " + itoa(deadline))
 		}
 	}
 	// One flag stops a route's payouts, governed ones included: a decision

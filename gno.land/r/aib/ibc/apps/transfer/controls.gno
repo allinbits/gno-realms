@@ -76,7 +76,7 @@ func Recapitalize(cur realm, route string, id int64) {
 // calls it, with a decision's parameters; it returns "" when applied and the
 // reason otherwise.
 func GovApply(cur realm, op string, params []byte) string {
-	assertGovernance(0, cur, "gov_apply")
+	assertGovernance(cur, "gov_apply")
 	// An implementation without the controls (a rollback to impl/v0) refuses
 	// deterministically, so the decision is spent rather than left pending
 	// until the controls come back.

@@ -114,10 +114,6 @@ func (l *logic) CheckInstall(prevPath, prevVersion string) error {
 	return ufmt.Errorf("core impl %s cannot install over version %s", version, prevVersion)
 }
 
-// MigrateClient implements core.ClientMigrator. The proxy has checked that
-// ibcgov decided it and that the client is not retired.
-// migration resolves a migration's subject and parameters, or why it cannot
-// apply.
 // forkMigrator is a verifier whose fork schedule a governed migration can
 // change: ethereum/v0's verifier, and any later version that embeds it or
 // implements the same.
@@ -126,6 +122,8 @@ type forkMigrator interface {
 	MigrateForkParameters(fp ethereum.ForkParameters) error
 }
 
+// migration resolves a migration's subject and parameters, or why it cannot
+// apply.
 func (l *logic) migration(clientID, migration string, params []byte) (forkMigrator, ethereum.ForkParameters, error) {
 	c := l.store.Client(clientID)
 	if c == nil {
@@ -163,8 +161,9 @@ func (l *logic) CheckMigrateClient(clientID, migration string, params []byte) er
 	return lc.CheckForkParameters(fp)
 }
 
-// MigrateClient implements core.ClientMigrator: a refusal is returned with
-// nothing changed, so the governed decision is spent.
+// MigrateClient implements core.ClientMigrator. The proxy has checked that
+// ibcgov decided it and that the client is not retired. A refusal is
+// returned with nothing changed, so the governed decision is spent.
 func (l *logic) MigrateClient(_ int, rlm realm, clientID, migration string, params []byte) error {
 	if migration == MigrationEthereumVerifier {
 		return l.replaceVerifier(0, rlm, clientID, string(params))
