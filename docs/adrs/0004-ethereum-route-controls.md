@@ -807,7 +807,18 @@ whether an arbitrary GRC20's transfer succeeds, so a token that refuses it
 (paused, or blacklisting the transfer realm) panics and rolls the
 decision's execution back, the decision staying pending. The assumption
 is that an enrolled GRC20 does not pause or blacklist the transfer realm,
-which governance checks before enabling it. More broadly, an enrolled
+which governance checks before enabling it. The escrow accounting and the
+full-refund guarantees also assume the token behaves exactly:
+- a transfer moves exactly the stated amount, with no fee, tax or
+  rounding;
+- balance queries are truthful;
+- no balance changes on its own (no rebasing, interest or decay);
+- no hook alters the escrow's balance.
+
+Accounting records the stated amount, never a measured balance change. A
+token without these properties leaves the escrow short with no packet
+loss to remedy. Governance verifies them before enabling a GRC20. More
+broadly, an enrolled
 GRC20 issuer's powers are trusted, as the parent ADR trusts Ethereum token
 issuers (pr6375 §8.1, R11). These powers are pausing, blacklisting,
 burning or seizing the transfer realm's balance, and changing the token's
@@ -1059,7 +1070,9 @@ does not list before it.
   decision stays executable but drops off that page, so operators read the
   complete ledger with `Render("decisions")` (JSON) or `Decision(id)`; tightening applies at once (see Delays): unpauses, member
   removals and a relayer's removal while others remain are immediate, and
-  GovDAO keeps its immediate tightening powers.
+  GovDAO keeps its immediate tightening powers while it remains an
+  authority member. ibcgov can remove it at once; only ibcgov itself is
+  irremovable.
 - A forged Ethereum delivery is bounded by the meters and stopped by a payouts
   flag; a forged refund by the refund meter and the refunds hold.
 - Every send and every receive has a packet-keyed record a reconciliation can
@@ -1280,7 +1293,8 @@ does not list before it.
     proxies), so GovDAO cannot point them at a freshly deployed ibcgov,
     and ibcgov, plain code with its ledger, sequences and epoch, cannot be
     replaced; GovDAO keeps only its tightening powers (pausing the core or
-    an app, rejecting an app). IBCAdmin is immutable too. When Ethereum
+    an app, rejecting an app), and only while it remains an authority
+    member. IBCAdmin is immutable too. When Ethereum
     cannot reach the adopted epoch and client, by a decision it already
     holds or by its emergency recovery, Ethereum-bound governance is lost
     for good.

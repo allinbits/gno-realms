@@ -373,9 +373,12 @@ Emitted events: `app_paused` and `app_unpaused`, with a `port` attribute.
 Administration is split by direction (ADR pr6375 R14):
 
 - **Tightening operations** (`Pause`, `PauseApp`, `RejectApp`) act at once and
-  are gated by an authority (`p/aib/authority`) whose members are fixed at
-  init to the GovDAO proxy `gno.land/r/gov/dao` and the governance realm
+  are gated by an authority (`p/aib/authority`). Its initial members are
+  the GovDAO proxy `gno.land/r/gov/dao` and the governance realm
   `gno.land/r/aib/ibc/ibcgov` (`IBCGovPath`). There is no deployer member.
+  ibcgov can remove GovDAO at once (`NewCoreRemoveMemberRequest`); only
+  ibcgov itself is irremovable, so GovDAO's tightening powers last only
+  while it remains a member.
 - **Governed operations** (`Unpause`, `UnpauseApp`, `ApproveApp`,
   `AddRelayer`, `RemoveRelayer`, `RecoverClient`, `UpdateImpl`,
   `MigrateClient`, `RetireClient`, `RetireClientPort`, `AddAuthorityMember`,

@@ -329,8 +329,12 @@ address; deploying it unchanged hands governance to a key nobody holds.
    (`NewCancelRequest`) and record it again after the check. Ethereum activates its side by a governed kind 4
    (`NewEthLimitsRequest`). Then enable each denom with
    `NewSetDenomRequest`. Before enabling a GRC20, review the token's code
-   and admin powers. It must not be able to pause transfers or blacklist
-   the transfer realm. Any power to burn or seize the transfer realm's
+   and admin powers. Each transfer must move exactly the stated amount (no
+   fee, tax or rounding), its balance queries must be truthful, and no
+   balance may change on its own (no rebasing) or through a hook. Escrow
+   accounting records stated amounts, so any of these leaves a shortfall.
+   It must not be able to pause transfers or blacklist the transfer
+   realm. Any power to burn or seize the transfer realm's
    balance, or to change the token's semantics, must be absent or held by
    a party governance trusts (ADR 0004). Such an action against the escrow
    leaves a shortfall that no packet-loss remedy repairs. A governed sweep or settlement paying it checks what it

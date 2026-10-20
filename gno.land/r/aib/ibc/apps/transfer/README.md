@@ -124,9 +124,11 @@ gnokey maketx call -pkgpath gno.land/r/aib/ibc/apps/transfer -func Transfer \
 
 Administration follows the core realm's split (ADR pr6375 R14). The
 tightening operation `BlockAddress` acts at once and is gated by an authority
-(`p/aib/authority`) whose members are fixed at init to the GovDAO proxy and the
+(`p/aib/authority`). Its initial members are the GovDAO proxy and the
 governance realm `gno.land/r/aib/ibc/ibcgov` (`IBCGovPath`); there is no
-deployer member. GovDAO submits it with `NewBlockAddressProposalRequest`, as
+deployer member. ibcgov can remove GovDAO at once
+(`NewTransferRemoveMemberRequest`); only ibcgov itself is irremovable, so
+GovDAO's tightening power lasts only while it remains a member. GovDAO submits it with `NewBlockAddressProposalRequest`, as
 described in the core README. Every other operation (`UnblockAddress`,
 `UpdateImpl`, `AddAuthorityMember`, `RemoveAuthorityMember`, and the Ethereum
 route controls of `GovApply`) is a decision of `gno.land/r/aib/ibc/ibcgov`
