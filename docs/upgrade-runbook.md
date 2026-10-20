@@ -580,7 +580,12 @@ address; deploying it unchanged hands governance to a key nobody holds.
       decision is recorded as cancelled without the executor. Without the
       cancel, the hand-over cannot record.
    2. Record `NewEthHandOverRequest(exec, codeHash)`. It records without
-      the executor, even with halted decisions behind it.
+      the executor, even with halted decisions behind it. Each delivery
+      drains at most eight buffered decisions, so with many cancelled
+      predecessors the hand-over can stay buffered after its delivery.
+      Repeat adequately funded `drain()` calls on IBCAdmin until
+      `decision(e, seq)` shows the hand-over pending. Its 7-day delay runs
+      from Ethereum's `recordedTime`, not from its dispatch here.
    3. Execute it on Ethereum once its delay has passed.
       - While an emergency recovery is open, the hand-over is refused
         `Suspended`, as are kinds 3 and 6 to 10. The guardians first cancel the
