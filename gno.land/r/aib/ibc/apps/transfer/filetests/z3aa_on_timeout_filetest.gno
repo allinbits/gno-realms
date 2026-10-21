@@ -344,7 +344,7 @@ func main(cur realm) {
 //     "attrs": [
 //       {
 //         "key": "token",
-//         "value": "gno.land/r/aib/ibc/apps/transfer.F9A67CB19B2.0000001"
+//         "value": "gno.land/r/aib/ibc/apps/transfer.IBC1.0000001"
 //       },
 //       {
 //         "key": "name",
@@ -352,7 +352,7 @@ func main(cur realm) {
 //       },
 //       {
 //         "key": "symbol",
-//         "value": "F9A67CB19B2"
+//         "value": "IBC1"
 //       },
 //       {
 //         "key": "decimals",
@@ -366,7 +366,7 @@ func main(cur realm) {
 //     "attrs": [
 //       {
 //         "key": "token_path",
-//         "value": "gno.land/r/aib/ibc/apps/transfer.F9A67CB19B2"
+//         "value": "gno.land/r/aib/ibc/apps/transfer.IBC1"
 //       },
 //       {
 //         "key": "pkgpath",
@@ -378,7 +378,7 @@ func main(cur realm) {
 //       },
 //       {
 //         "key": "symbol",
-//         "value": "F9A67CB19B2"
+//         "value": "IBC1"
 //       }
 //     ],
 //     "pkg_path": "gno.land/r/nt/grc20reg/v0"
@@ -388,7 +388,7 @@ func main(cur realm) {
 //     "attrs": [
 //       {
 //         "key": "token",
-//         "value": "gno.land/r/aib/ibc/apps/transfer.F9A67CB19B2.0000001"
+//         "value": "gno.land/r/aib/ibc/apps/transfer.IBC1.0000001"
 //       },
 //       {
 //         "key": "from",
@@ -496,7 +496,7 @@ func main(cur realm) {
 //     "attrs": [
 //       {
 //         "key": "token",
-//         "value": "gno.land/r/aib/ibc/apps/transfer.F9A67CB19B2.0000001"
+//         "value": "gno.land/r/aib/ibc/apps/transfer.IBC1.0000001"
 //       },
 //       {
 //         "key": "from",
@@ -588,7 +588,7 @@ func main(cur realm) {
 //     "attrs": [
 //       {
 //         "key": "token",
-//         "value": "gno.land/r/aib/ibc/apps/transfer.F9A67CB19B2.0000001"
+//         "value": "gno.land/r/aib/ibc/apps/transfer.IBC1.0000001"
 //       },
 //       {
 //         "key": "from",

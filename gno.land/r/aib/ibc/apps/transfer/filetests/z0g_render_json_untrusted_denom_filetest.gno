@@ -122,8 +122,8 @@ func recv(cur realm, base, receiver string) string {
 // denoms/ibc/5651E44595E4B57D8432BFDEF9C12582F7BFE84A8797DC348CC368C2796427B7 -> raw markdown: false
 // {"base":"\u005bsend\u005d\u0028\u0026#47;r\u0026#47;evil$help\u0026func=VoucherSend\u0026to=a1\u0029","path":"transfer/07-tendermint-1/\u005bsend\u005d\u0028\u0026#47;r\u0026#47;evil$help\u0026func=VoucherSend\u0026to=a1\u0029","denom":"ibc/5651E44595E4B57D8432BFDEF9C12582F7BFE84A8797DC348CC368C2796427B7"}
 // vouchers -> raw markdown: false
-// {"items":[{"denom":"ibc/5651E44595E4B57D8432BFDEF9C12582F7BFE84A8797DC348CC368C2796427B7","grc20reg_key":"gno.land/r/aib/ibc/apps/transfer.5651E44595E","name":"\u005bsend\u005d\u0028\u0026#47;r\u0026#47;evil$help\u0026func=VoucherSend\u0026to=a1\u0029","symbol":"5651E44595E","decimals":0,"total_supply":100}],"page":1,"total":1}
+// {"items":[{"denom":"ibc/5651E44595E4B57D8432BFDEF9C12582F7BFE84A8797DC348CC368C2796427B7","grc20reg_key":"gno.land/r/aib/ibc/apps/transfer.IBC1","name":"\u005bsend\u005d\u0028\u0026#47;r\u0026#47;evil$help\u0026func=VoucherSend\u0026to=a1\u0029","symbol":"IBC1","decimals":0,"total_supply":100}],"page":1,"total":1}
 // voucher/ibc/5651E44595E4B57D8432BFDEF9C12582F7BFE84A8797DC348CC368C2796427B7 -> raw markdown: false
-// {"denom":"ibc/5651E44595E4B57D8432BFDEF9C12582F7BFE84A8797DC348CC368C2796427B7","grc20reg_key":"gno.land/r/aib/ibc/apps/transfer.5651E44595E","name":"\u005bsend\u005d\u0028\u0026#47;r\u0026#47;evil$help\u0026func=VoucherSend\u0026to=a1\u0029","symbol":"5651E44595E","decimals":0,"total_supply":100}
+// {"denom":"ibc/5651E44595E4B57D8432BFDEF9C12582F7BFE84A8797DC348CC368C2796427B7","grc20reg_key":"gno.land/r/aib/ibc/apps/transfer.IBC1","name":"\u005bsend\u005d\u0028\u0026#47;r\u0026#47;evil$help\u0026func=VoucherSend\u0026to=a1\u0029","symbol":"IBC1","decimals":0,"total_supply":100}
 // denoms/ibc/[x](&#47;r&#47;evil) -> raw markdown: false
 // {"error":"denom ibc/\u005bx\u005d\u0028\u0026#47;r\u0026#47;evil\u0029 not found"}

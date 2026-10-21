@@ -38,8 +38,7 @@ func main(cur realm) {
 	mintVoucher(cur, clientID, counterpartyID, trustedHeight, owner)
 
 	voucherDenom := ics20.NewDenom("uphoton", ics20.NewHop(transfer.PortID, clientID)).IBCDenom()
-	// grc20reg keys tokens by rlmpath.symbol; the voucher symbol is the truncated
-	// IBC hash (VoucherSymbol), not the full hash.
+	// grc20reg keys tokens by rlmpath.symbol, see VoucherSymbol.
 	token := grc20reg.MustGet("gno.land/r/aib/ibc/apps/transfer." + transfer.VoucherSymbol(voucherDenom))
 
 	println("allowance before VoucherApprove:", token.Allowance(owner, spender))
@@ -192,7 +191,7 @@ func mintVoucher(cur realm, clientID, counterpartyID string, trustedHeight types
 //     "attrs": [
 //       {
 //         "key": "token",
-//         "value": "gno.land/r/aib/ibc/apps/transfer.CAEF9CA8CE6.0000001"
+//         "value": "gno.land/r/aib/ibc/apps/transfer.IBC1.0000001"
 //       },
 //       {
 //         "key": "name",
@@ -200,7 +199,7 @@ func mintVoucher(cur realm, clientID, counterpartyID string, trustedHeight types
 //       },
 //       {
 //         "key": "symbol",
-//         "value": "CAEF9CA8CE6"
+//         "value": "IBC1"
 //       },
 //       {
 //         "key": "decimals",
@@ -214,7 +213,7 @@ func mintVoucher(cur realm, clientID, counterpartyID string, trustedHeight types
 //     "attrs": [
 //       {
 //         "key": "token_path",
-//         "value": "gno.land/r/aib/ibc/apps/transfer.CAEF9CA8CE6"
+//         "value": "gno.land/r/aib/ibc/apps/transfer.IBC1"
 //       },
 //       {
 //         "key": "pkgpath",
@@ -226,7 +225,7 @@ func mintVoucher(cur realm, clientID, counterpartyID string, trustedHeight types
 //       },
 //       {
 //         "key": "symbol",
-//         "value": "CAEF9CA8CE6"
+//         "value": "IBC1"
 //       }
 //     ],
 //     "pkg_path": "gno.land/r/nt/grc20reg/v0"
@@ -236,7 +235,7 @@ func mintVoucher(cur realm, clientID, counterpartyID string, trustedHeight types
 //     "attrs": [
 //       {
 //         "key": "token",
-//         "value": "gno.land/r/aib/ibc/apps/transfer.CAEF9CA8CE6.0000001"
+//         "value": "gno.land/r/aib/ibc/apps/transfer.IBC1.0000001"
 //       },
 //       {
 //         "key": "from",
@@ -318,7 +317,7 @@ func mintVoucher(cur realm, clientID, counterpartyID string, trustedHeight types
 //     "attrs": [
 //       {
 //         "key": "token",
-//         "value": "gno.land/r/aib/ibc/apps/transfer.CAEF9CA8CE6.0000001"
+//         "value": "gno.land/r/aib/ibc/apps/transfer.IBC1.0000001"
 //       },
 //       {
 //         "key": "owner",

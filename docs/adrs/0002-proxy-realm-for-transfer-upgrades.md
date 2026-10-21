@@ -44,8 +44,8 @@ here.
 
 1. **User entry points** with their current signatures: `Transfer`,
    `VoucherSend`, `VoucherApprove`; the read helpers `VoucherBalanceOf`,
-   `VoucherSymbol`, `GRC20Alias`; `Render`. Logic-bearing ones forward
-   non-crossing to the implementation.
+   `VoucherSymbol`, `VoucherDenom`, `GRC20Alias`; `Render`. Logic-bearing
+   ones forward non-crossing to the implementation.
 2. **The direct-user-call guard stays in the proxy.** `Transfer` refuses any
    caller but a direct user call before delegating, since the packet sender is
    the tx origin and `OriginSend` describes coins that landed at the proxy. The
