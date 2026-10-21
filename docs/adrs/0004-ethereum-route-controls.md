@@ -9,6 +9,9 @@
   tokens), the relayers and the monitors are out of scope.
 - Supersedes: the authority sections of ADR 0001 and ADR 0002 (no deployer
   member; loosening powers move to `gno.land/r/aib/ibc/ibcgov`).
+- Superseded in part by: ADR 0005 (amounts are `uint256`; the "Checked
+  arithmetic" section below, the minted supply's int64 headroom and the
+  parking of minted settlement refunds no longer apply).
 - Depends on: ADR 0001, ADR 0002, ADR 0003.
 
 ## Context
@@ -750,6 +753,10 @@ against gno-eth-ibc 6f94541's vectors.
 | §7.13 refund meter, refunds hold, send records for every send | `controls/refunds.gno`, `transfer/impl/v1/ack.gno`, `send.gno`, `controls.gno` (`ClaimRefunds`) |
 
 ### Checked arithmetic
+
+**Superseded by ADR 0005**: every amount and aggregate is a `uint256` now,
+the wide counters and the minted headroom are gone, and the table below
+describes the int64 implementation this document was written against.
 
 Every int64 aggregate of the controls goes through one helper set
 (`controls/arith.gno`). Liabilities and payment totals are checked:

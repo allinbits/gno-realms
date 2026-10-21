@@ -155,8 +155,9 @@ Most IBC functions require `MsgRun` (not `MsgCall`) because they take complex ar
 IBC voucher tokens (minted on RecvPacket for cross-chain tokens) use **GRC20 tokens** instead of native banker coins. This enables DeFi compatibility (Gnoswap, etc.) via the `grc20reg` registry.
 
 ### Key Dependencies
-- `gno.land/p/nt/grc20/v0` - GRC20 token implementation. Interrealm v2 added a realm capability to the value-moving APIs: `grc20.NewToken(0, rlm, name, symbol, decimals)`, `token.RealmTeller(0, cur)`, and `teller.TransferFrom(0, cur, from, to, amount)` all take the `(_ int, rlm/cur realm, …)` non-crossing form. `PrivateLedger.Mint/Burn` move tokens without a realm arg.
-- `gno.land/r/nt/grc20reg/v0` - Global token registry (`Register(cross(cur), token, slug)`, `Get`)
+- `gno.land/p/nt/grc20/v1` - GRC20 token implementation with `uint256` amounts (ADR 0005; `v0` counts in `int64` and is not used by the bridge). Interrealm v2 added a realm capability to the value-moving APIs: `token.RealmTeller(0, cur)` and `teller.TransferFrom(0, cur, from, to, amount)` take the `(_ int, rlm/cur realm, …)` non-crossing form. `PrivateLedger.Mint/Burn` move tokens without a realm arg.
+- `gno.land/r/nt/grc20reg/v1` - Global token registry of v1 tokens (`Register(cross(cur), token, slug)`, `Get`)
+- Amounts are `uint256` everywhere but native coins (`chain.Coin`, the banker), which stay `int64`: the transfer realm converts at that boundary only (`transfer.CoinAmount`, `coinOf`). `ufmt`/`uassert` take no `uint256`: format with `strconv.FormatUint256`, compare natively. On an Ethereum route every amount is at most `2^96 - 1` (`abi.MaxAmount`).
 
 ### How It Works
 - **OnRecvPacket (mint)**: `getOrCreateGRC20(ibcDenom, baseDenom)` creates a GRC20 token + registers in grc20reg, then `inst.ledger.Mint(receiver, amount)`

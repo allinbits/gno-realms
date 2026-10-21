@@ -888,8 +888,8 @@ characters of `a-z`, `0-9`, `-`).
      (`0` for one refunded in full, which only settles it); a refund the
      supply (minted) or the free escrow (escrowed) cannot pay now is parked,
      owed and reserved, never refusing the settlement, and paid by
-     `ClaimRefunds` after the reopening, as the supply's headroom or the
-     escrow allows (an escrow a forged receive drained: recapitalize it, step
+     `ClaimRefunds` after the reopening, as the escrow allows (a minted
+     refund is always paid by the settlement itself, ADR 0005) (an escrow a forged receive drained: recapitalize it, step
      10, or accept the deficit and reopen, the refund then waiting for the
      escrow to be whole);
    - proven delivered, a queued refund none of which was paid: `2`, amount
