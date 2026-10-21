@@ -123,6 +123,20 @@ func TestClientStateValidateBasic(t *testing.T) {
 			expErr:      "proof spec cannot be nil at index: 1",
 		},
 		{
+			name:        "proof specs are not the SDK ones",
+			clientState: tendermint.NewClientState(chainID, tendermint.DefaultTrustLevel, trustingPeriod, ubdPeriod, maxClockDrift, height, []*ics23.ProofSpec{ics23.TendermintSpec(), ics23.IavlSpec()}, upgradePath),
+			expErr:      "proof specs must be the Cosmos SDK IAVL and Tendermint specs",
+		},
+		{
+			name: "proof spec differs from the SDK one only in EmptyChild",
+			clientState: func() *tendermint.ClientState {
+				specs := ics23.GetSDKProofSpecs()
+				specs[0].InnerSpec.EmptyChild = make([]byte, 33)
+				return tendermint.NewClientState(chainID, tendermint.DefaultTrustLevel, trustingPeriod, ubdPeriod, maxClockDrift, height, specs, upgradePath)
+			}(),
+			expErr: "proof specs must be the Cosmos SDK IAVL and Tendermint specs",
+		},
+		{
 			name:        "invalid upgrade path",
 			clientState: tendermint.NewClientState(chainID, tendermint.DefaultTrustLevel, trustingPeriod, ubdPeriod, maxClockDrift, height, ics23.GetSDKProofSpecs(), invalidUpgradePath),
 			expErr:      "key in upgrade path at index 1 cannot be empty",
