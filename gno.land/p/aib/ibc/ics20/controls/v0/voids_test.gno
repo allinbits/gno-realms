@@ -1440,3 +1440,43 @@ func TestMirrorLossAcceptedOnly(t *testing.T) {
 		t.Fatalf("the mirror is not accepted: %v", err)
 	}
 }
+
+// A forged void's losses are checked against the ledger's balances before
+// anything changes (uint256 code review r1 #2): each is within a paid claim
+// or entry, but the balances hold every earlier loss too, of every incident
+// of the denom, and the batch is summed per denom.
+func TestForgedVoidLossesPreflighted(t *testing.T) {
+	_, rt := newRoute(t)
+	if err := rt.RecordLoss(pk(1), "ibc/WETH", maxAmount-5, ChainGno, "inc", "collision"); err != nil {
+		t.Fatal(err)
+	}
+	for i, paid := range []uint256{3, 3, 6} {
+		k := pk(uint64(100 + i))
+		rt.claims.Set(k, &Claim{Key: k, Denom: "ibc/WETH", To: alice, Amount: paid, Paid: paid, State: Done})
+	}
+	d := rt.Denom("ibc/WETH")
+	before, booked := d.Totals, rt.lossesBooked
+	// One payout past the room, two that fit alone but not together; the
+	// denom's room is shared by its incidents.
+	for _, keys := range [][]string{{pk(102)}, {pk(100), pk(101)}} {
+		for _, inc := range []string{"inc", "inc-2"} {
+			if err := rt.Void(keys, true, inc); err == nil {
+				t.Fatalf("voided %v under %s past the ledger's balances", keys, inc)
+			}
+		}
+	}
+	if d.Totals != before || rt.lossesBooked != booked {
+		t.Fatalf("a refused void changed state: %+v", d.Totals)
+	}
+	for _, k := range []string{pk(100), pk(101), pk(102)} {
+		if c, _ := rt.Claim(k); c.State != Done {
+			t.Fatalf("%s voided", k)
+		}
+	}
+	if err := rt.Void([]string{pk(100)}, true, "inc-2"); err != nil {
+		t.Fatal(err)
+	}
+	if d.Totals.OpenUnrecovered != maxAmount-2 || rt.Incident("ibc/WETH", "inc-2").OpenUnrecovered != 3 {
+		t.Fatalf("booked %+v", d.Totals)
+	}
+}

@@ -2,6 +2,7 @@ package ibcgov
 
 import (
 	"chain"
+	"math"
 	"strconv"
 	"strings"
 
@@ -632,12 +633,17 @@ func NewRecordLossRequest(cur realm, route, key, denom string, amount uint256, c
 
 // NewRecapitalizeRequest authorizes a recapitalization of route's escrow of
 // denom by amount after 7 days; anyone then pays it with
-// transfer.Recapitalize(route, id).
+// transfer.Recapitalize(route, id). A recapitalization in coins is paid as
+// one coin, an int64, so it is at most the chain's coin maximum; a GRC20
+// one takes the whole uint256 range.
 func NewRecapitalizeRequest(cur realm, route, denom string, amount uint256, incident string) Request {
 	route = mustRoute(route)
 	mustIncident(incident)
 	if !isDenom(denom) || amount == 0 {
 		panic("ibcgov: a recapitalization names a denom and a positive amount")
+	}
+	if !transfer.IsGRC20Alias(denom) && amount > math.MaxInt64 {
+		panic("ibcgov: a recapitalization in coins is at most " + u256s(math.MaxInt64) + " " + denom + ": no coin can pay more")
 	}
 	return routeRequest(cur, controls.OpRecapitalize, "recapitalize", "recapitalize "+u256s(amount)+" "+denom+" on route "+route+" (incident "+incident+")",
 		controls.Params{Route: route, Denom: denom, Amount: amount, Incident: incident}, true)

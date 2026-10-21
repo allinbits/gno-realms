@@ -576,8 +576,9 @@ func (rt *Route) PlanSettlement(client string, items []SettleItem, incident stri
 	// remainder within Owed or Withheld), so the sums never overflow.
 	relQueued, relProven := map[string]uint256{}, map[string]uint256{}
 	relOwed, relWithheld := map[string]uint256{}, map[string]uint256{}
-	// A batch's losses are booked one by one into the ledger's balances,
-	// which no batch of refunds paid and forged can take past 2^256.
+	// The losses the batch books (forged refunds and receives), summed per
+	// denom, must fit the ledger's balances with every earlier loss (lossesFit).
+	losses := map[string]uint256{}
 	for i, it := range items {
 		key := PacketKey(client, it.Seq)
 		if it.Action == SettleForgedReceive {
@@ -594,6 +595,9 @@ func (rt *Route) PlanSettlement(client string, items []SettleItem, incident stri
 			}
 			if err := rt.checkIncidentKind(denom, incident, false); err != nil {
 				return nil, ufmt.Errorf("controls: item %d: %v", i, err)
+			}
+			if !addLossTo(losses, denom, paid) {
+				return nil, ufmt.Errorf("controls: item %d: %v", i, errLossOverflow)
 			}
 			if c := rt.claim(key); c != nil {
 				switch c.State {
@@ -665,9 +669,15 @@ func (rt *Route) PlanSettlement(client string, items []SettleItem, incident stri
 			if err := rt.checkIncidentKind(r.Denom, incident, false); err != nil {
 				return nil, ufmt.Errorf("controls: item %d: %v", i, err)
 			}
+			if !addLossTo(losses, r.Denom, it.Amount) {
+				return nil, ufmt.Errorf("controls: item %d: %v", i, errLossOverflow)
+			}
 		default:
 			return nil, ufmt.Errorf("controls: item %d: unknown action %d", i, it.Action)
 		}
+	}
+	if err := rt.lossesFit(losses, incident); err != nil {
+		return nil, err
 	}
 	plan := &SettlePlan{client: client, incident: incident, items: items, parked: map[uint64]bool{}}
 	// Every genuine refund of the batch is a liability before any is paid:

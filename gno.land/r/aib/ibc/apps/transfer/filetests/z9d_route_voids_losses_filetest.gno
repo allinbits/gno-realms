@@ -199,6 +199,20 @@ func main(cur realm) {
 	testing.SetOriginSend(nil)
 	testing.SetRealm(testing.NewCodeRealm("gno.land/r/aib/main"))
 
+	// A recapitalization in coins is paid as one coin, an int64: an amount
+	// above the chain's coin maximum is refused by the builder and, should
+	// a decision carry one, by the transfer realm (uint256 code review r1
+	// #1); a GRC20 one takes the whole uint256 range.
+	println("coins past the maximum:", revive(func() {
+		ibcgov.NewRecapitalizeRequest(cross(cur), route, "ugnot", 1<<63, "inc-1")
+	}))
+	grc20 := transfer.GRC20Alias("gno.land/r/demo/token.TOK")
+	ibcgov.NewRecapitalizeRequest(cross(cur), route, grc20, 1<<63, "inc-1")
+	testing.SetRealm(testing.NewCodeRealm(transfer.IBCGovPath))
+	println("decided anyway:", transfer.GovApply(cross(cur), controls.OpRecapitalize, controls.Params{Route: route, Denom: "ugnot", Amount: 1 << 63, Incident: "inc-1"}.Encode()))
+	println("grc20 past int64:", transfer.GovApply(cross(cur), controls.OpRecapitalize, controls.Params{Route: route, Denom: grc20, Amount: 1 << 63, Incident: "inc-1"}.Encode()))
+	testing.SetRealm(testing.NewCodeRealm("gno.land/r/aib/main"))
+
 	// An accepted deficit closes the rest; the route reopens.
 	execute(cur, govern(cur, ibcgov.NewAcceptDeficitRequest(cross(cur), route, "ugnot", 500, "inc-1")))
 	println(totals(route), "| closed:", controlsView().LossClosed(route))
@@ -261,6 +275,9 @@ func main(cur realm) {
 // {"denom":"ugnot","amount":"15000","clients":[{"client":"ethereum-1","amount":"15000"}]}
 // revoke: applied - revoke recap
 // stale payment: no unpaid recapitalization 2 on route ethereum-1
+// coins past the maximum: ibcgov: a recapitalization in coins is at most 9223372036854775807 ugnot: no coin can pay more
+// decided anyway: a recapitalization in coins is at most 9223372036854775807 ugnot: no coin can pay more
+// grc20 past int64: controls: denom gno.land:r:demo:token.TOK is not enabled on route ethereum-1
 // owed 1500 withheld 0 swept 10 lost 2500 unrecovered 500 | closed: false
 // owed 1500 withheld 0 swept 10 lost 2600 unrecovered 600
 // the voided receive's loss recorded again: spent - spent: controls: receive ethereum-1/00000000000000000001 is represented here: void it as forged or settle it (action 5) | owed 1500 withheld 0 swept 10 lost 2600 unrecovered 600

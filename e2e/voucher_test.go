@@ -103,12 +103,12 @@ func (s *E2ETestSuite) TestVoucherSendApprove() {
 	s.T().Logf("Spender TransferFrom %d → %s", spendAmount, spendRecipient)
 	script := fmt.Sprintf(`package main
 
-import "gno.land/r/nt/grc20reg/v0"
+import "gno.land/r/nt/grc20reg/v1"
 
 func main(cur realm) {
 	token := grc20reg.MustGet("%s")
 	teller := token.RealmTeller(0, cur)
-	if err := teller.TransferFrom(0, cur, address("%s"), address("%s"), int64(%d)); err != nil {
+	if err := teller.TransferFrom(0, cur, address("%s"), address("%s"), uint256(%d)); err != nil {
 		panic(err)
 	}
 }

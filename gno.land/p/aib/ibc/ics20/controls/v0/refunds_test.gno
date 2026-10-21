@@ -1750,3 +1750,48 @@ func TestSettledRecordTakesNoProof(t *testing.T) {
 		t.Fatalf("reservations changed after the settlement: %+v", d.Totals)
 	}
 }
+
+// A settlement's losses, forged refunds (action 4) and forged receives
+// (action 5), are checked against the ledger's balances whole, summed per
+// denom, before anything changes (uint256 code review r1 #2).
+func TestSettlementLossesPreflighted(t *testing.T) {
+	r, rt := newRoute(t)
+	if err := rt.RecordLoss(pk(50), "ibc/WETH", maxAmount-5, ChainGno, "inc", "collision"); err != nil {
+		t.Fatal(err)
+	}
+	for i := uint64(1); i <= 2; i++ {
+		rec := sendRec(i, "ibc/WETH", KindMint, 3)
+		rec.Refunded, rec.Outcome = 3, OutcomeTimeout
+		rt.sends.Set(rec.Key, &rec)
+	}
+	rt.claims.Set(pk(100), &Claim{Key: pk(100), Denom: "ibc/WETH", To: alice, Amount: 3, Paid: 3, State: Done})
+	replaceReady(r, "ethereum-1", "ethereum-2", 0, 1000)
+	d := rt.Denom("ibc/WETH")
+	before, booked := d.Totals, rt.lossesBooked
+	refused := [][]SettleItem{
+		{{Seq: 1, Action: SettleLoss, Amount: 3}, {Seq: 2, Action: SettleLoss, Amount: 3}},
+		{{Seq: 1, Action: SettleLoss, Amount: 3}, {Seq: 100, Action: SettleForgedReceive, Amount: 3}},
+	}
+	for i, items := range refused {
+		for _, inc := range []string{"inc", "inc-2"} {
+			if _, err := settleProven(rt, "ethereum-1", items, inc, lockOf(0)); err == nil {
+				t.Fatalf("settlement %d under %s booked losses past the ledger's balances", i, inc)
+			}
+		}
+	}
+	if d.Totals != before || rt.lossesBooked != booked {
+		t.Fatalf("a refused settlement changed state: %+v", d.Totals)
+	}
+	for i := uint64(1); i <= 2; i++ {
+		if rec, _ := rt.Send(pk(i)); rec.Settlement != 0 {
+			t.Fatalf("send %d settled", i)
+		}
+	}
+	// Each item fits alone.
+	if _, err := settleProven(rt, "ethereum-1", []SettleItem{{Seq: 1, Action: SettleLoss, Amount: 3}}, "inc-2", lockOf(0)); err != nil {
+		t.Fatal(err)
+	}
+	if d.Totals.OpenUnrecovered != maxAmount-2 || rt.Incident("ibc/WETH", "inc-2").OpenUnrecovered != 3 {
+		t.Fatalf("booked %+v", d.Totals)
+	}
+}

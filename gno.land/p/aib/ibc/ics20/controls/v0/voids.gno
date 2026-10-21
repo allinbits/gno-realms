@@ -173,6 +173,7 @@ func (rt *Route) Void(keys []string, forged bool, incident string) error {
 	if err := parseKeys(keys); err != nil {
 		return err
 	}
+	losses := map[string]uint256{}
 	for _, k := range keys {
 		if !rt.Voidable(k, forged) {
 			return errors.New("controls: " + k + " cannot be voided " + voidWord(forged) + " as it stands")
@@ -182,15 +183,25 @@ func (rt *Route) Void(keys []string, forged bool, incident string) error {
 		if !forged {
 			continue
 		}
-		denom := ""
+		var denom string
+		var paid uint256
 		if c := rt.claim(k); c != nil {
-			denom = c.Denom
+			denom, paid = c.Denom, c.Paid
 		} else if e := rt.sweep(k); e != nil {
-			denom = e.Denom
+			denom, paid = e.Denom, e.paidOut()
 		}
 		if err := rt.checkIncidentKind(denom, incident, false); err != nil {
 			return err
 		}
+		if !addLossTo(losses, denom, paid) {
+			return errLossOverflow
+		}
+	}
+	// The losses the batch books, summed per denom, must fit the ledger's
+	// balances before anything changes: each is within a paid claim or
+	// entry, but the balances hold every earlier loss too.
+	if err := rt.lossesFit(losses, incident); err != nil {
+		return err
 	}
 	for _, k := range keys {
 		if c := rt.claim(k); c != nil {
@@ -302,6 +313,8 @@ func (rt *Route) recover(denom, incident string, amount uint256) {
 	it.OpenUnresolved -= x
 }
 
+var errLossOverflow = errors.New("controls: the loss would overflow the ledger's balances")
+
 // lossFits refuses a loss the ledger's outstanding balances (the denom's and
 // the incident's unrecovered and unresolved losses) could not hold without
 // passing 2^256 - 1. Lifetime statistics are not checked: they saturate, and
@@ -314,15 +327,37 @@ func (rt *Route) lossFits(denom, incident string, amount uint256) error {
 	it := rt.Incident(denom, incident)
 	for _, b := range []uint256{d.Totals.OpenUnrecovered, d.Totals.OpenUnresolved, it.OpenUnrecovered, it.OpenUnresolved} {
 		if _, ok := checkedAdd(b, amount); !ok {
-			return errors.New("controls: the loss would overflow the ledger's balances")
+			return errLossOverflow
 		}
 	}
 	return nil
 }
 
-// addLoss books a loss its caller checked fits (lossFits, or an amount
-// within a booked claim or refund); an addition that would still overflow
-// is a broken invariant and aborts.
+// lossesFit is lossFits for the losses a batch books under incident, summed
+// per denom (addLossTo): a forged void of several payouts, a settlement's
+// forged refunds and receives. Each loss is within a paid claim, entry or
+// refund, but the balances hold every earlier loss too, so the batch is
+// checked whole before anything changes.
+func (rt *Route) lossesFit(losses map[string]uint256, incident string) error {
+	for denom, amount := range losses {
+		if err := rt.lossFits(denom, incident, amount); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// addLossTo adds amount to losses[denom], and whether the sum fits.
+func addLossTo(losses map[string]uint256, denom string, amount uint256) bool {
+	s, ok := checkedAdd(losses[denom], amount)
+	if ok {
+		losses[denom] = s
+	}
+	return ok
+}
+
+// addLoss books a loss its caller checked fits (lossFits or lossesFit); an
+// addition that would still overflow is a broken invariant and aborts.
 func (rt *Route) addLoss(d *Denom, l Loss) {
 	it := rt.incident(l.Denom, l.Incident)
 	if l.Direction != DirRecv && l.Direction != DirSend || rt.losses.Has(lossID(l.Direction, l.Key)) {

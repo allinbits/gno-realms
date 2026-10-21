@@ -3,6 +3,7 @@ package impl
 import (
 	"bytes"
 	"chain"
+	"math"
 	"strconv"
 	"strings"
 
@@ -395,6 +396,11 @@ func (l *logic) GovApply(_ int, rlm realm, op string, params []byte) string {
 	case controls.OpLoss:
 		err = rt.RecordLoss(p.Key, p.Denom, p.Amount, p.Chain, p.Incident, p.Cause)
 	case controls.OpRecapitalize:
+		// A recapitalization in coins is paid as one coin, an int64: an
+		// authorization above the chain's coin maximum could never be paid.
+		if !transfer.IsGRC20Alias(p.Denom) && p.Amount > math.MaxInt64 {
+			return "a recapitalization in coins is at most " + u(math.MaxInt64) + " " + p.Denom + ": no coin can pay more"
+		}
 		var id int64
 		id, err = rt.AuthorizeRecap(p.Denom, p.Amount, p.Incident)
 		note = strconv.FormatInt(id, 10)
