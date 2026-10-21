@@ -54,7 +54,7 @@ func (sandboxStore) UnescrowNative(_ int, rlm realm, clientID, receiver, denom s
 
 func (sandboxStore) VoucherToken(string) *grc20.Token { return nil }
 func (sandboxStore) Vouchers() bptree.ITree           { return emptyTree() }
-func (sandboxStore) GetOrCreateVoucher(_ int, rlm realm, baseDenom, voucherDenom string) *grc20.Token {
+func (sandboxStore) GetOrCreateVoucher(_ int, rlm realm, baseDenom, voucherDenom string, decimals int) *grc20.Token {
 	refuseSandbox()
 	return nil
 }

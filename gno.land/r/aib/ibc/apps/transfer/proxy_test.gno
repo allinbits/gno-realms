@@ -181,7 +181,7 @@ func TestReadOnlyViewsAndGates(cur realm, t *testing.T) {
 	uassert.PanicsContains(t, cur, "read-only tree", func() { view.Set("k", 1) })
 
 	// The voucher view hands out tokens, never the voucher entry with its ledger.
-	tok := store.GetOrCreateVoucher(0, cur, "uatom", d.IBCDenom())
+	tok := store.GetOrCreateVoucher(0, cur, "uatom", d.IBCDenom(), 0)
 	uassert.Equal(t, tok.GetSymbol(), store.Vouchers().Get(d.IBCDenom()).(*grc20.Token).GetSymbol())
 	uassert.Equal(t, 1, store.Vouchers().Size())
 
@@ -190,6 +190,33 @@ func TestReadOnlyViewsAndGates(cur realm, t *testing.T) {
 	uassert.PanicsContains(t, cur, "access denied", func() { store.SetDenom(0, stale, d) })
 	uassert.PanicsContains(t, cur, "access denied", func() { store.MintVoucher(0, stale, d.IBCDenom(), cur.Address(), 1) })
 	uassert.PanicsContains(t, cur, "access denied", func() { EmitTransfer(0, stale, "", "", "", "", "") })
+}
+
+// A voucher takes its decimals when it is created and keeps them: a later
+// request with others returns the same token, and the decimals of a voucher
+// that does not exist yet are nobody's.
+func TestVoucherDecimalsFixedAtCreation(cur realm, t *testing.T) {
+	resetUpgradeState()
+	defer resetUpgradeState()
+
+	weth := ics20.NewDenom("0x457df1a9866af7b6a78eeba9291fc3e58b4d864b", ics20.NewHop(PortID, "ethereum-1")).IBCDenom()
+	_, ok := VoucherDecimals(weth)
+	uassert.False(t, ok)
+
+	tok := store.GetOrCreateVoucher(0, cur, "0x457df1a9866af7b6a78eeba9291fc3e58b4d864b", weth, grc20.MaxDecimals)
+	uassert.Equal(t, grc20.MaxDecimals, tok.GetDecimals())
+	d, ok := VoucherDecimals(weth)
+	uassert.True(t, ok)
+	uassert.Equal(t, grc20.MaxDecimals, d)
+
+	again := store.GetOrCreateVoucher(0, cur, "0x457df1a9866af7b6a78eeba9291fc3e58b4d864b", weth, 6)
+	uassert.Equal(t, tok.GetSymbol(), again.GetSymbol())
+	uassert.Equal(t, grc20.MaxDecimals, again.GetDecimals())
+	uassert.Equal(t, 1, store.Vouchers().Size())
+
+	// grc20's bound holds here too.
+	uatom := ics20.NewDenom("uatom", ics20.NewHop(PortID, "07-tendermint-1")).IBCDenom()
+	uassert.PanicsContains(t, cur, "invalid decimals", func() { store.GetOrCreateVoucher(0, cur, "uatom", uatom, grc20.MaxDecimals+1) })
 }
 
 func captureRealm(cur realm) realm { return cur }

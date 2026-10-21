@@ -169,7 +169,7 @@ func claimState(route string, seq uint64) string {
 func main(cur realm) {
 	route := setupRoute(cur)
 	const supply = 100_000_000_000_000_000_000_000 // 1e26 base units: an 18-decimal token's 100 million
-	execute(cur, govern(cur, ibcgov.NewSetDenomRequest(cross(cur), route, weth, "mint", 4_000, supply, 10, 1, 0, 0, 4_000, "")))
+	execute(cur, govern(cur, ibcgov.NewSetDenomRequest(cross(cur), route, weth, "mint", 4_000, supply, 10, 1, 0, 0, 4_000, "", 0)))
 	voucher := ics20.NewDenom(weth, ics20.NewHop("transfer", route)).IBCDenom()
 
 	// bob gets 1000 vouchers (an owed sweep entry paid by decision), and

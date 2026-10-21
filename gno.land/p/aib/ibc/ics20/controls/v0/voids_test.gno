@@ -458,9 +458,11 @@ func boolInt(b bool) int {
 }
 
 func TestCodecRoundTrip(t *testing.T) {
+	cfg := gnot()
+	cfg.Decimals = MaxDecimals
 	p := Params{
 		Route: "ethereum-1", Denom: "ugnot", Key: pk(3), Client: "ethereum-2", Chain: ChainGno, Incident: "inc", Cause: "c",
-		To: alice, Keys: []string{pk(1), pk(2)}, Forged: true, Amount: 42, Config: gnot(),
+		To: alice, Keys: []string{pk(1), pk(2)}, Forged: true, Amount: 42, Config: cfg,
 		Items: []SettleItem{{Seq: 7, Action: SettlePay, Amount: 5}, {Seq: 9, Action: SettleDelivered}},
 	}
 	got, err := DecodeParams(p.Encode())
@@ -486,6 +488,10 @@ func TestCodecRoundTrip(t *testing.T) {
 	manyItems := Params{Items: make([]SettleItem, MaxKeys+1)}
 	if _, err := DecodeParams(manyItems.Encode()); err == nil {
 		t.Fatalf("too many items")
+	}
+	tooFine := Params{Config: DenomConfig{Decimals: MaxDecimals + 1}}
+	if _, err := DecodeParams(tooFine.Encode()); err == nil {
+		t.Fatalf("too many decimals")
 	}
 	if _, err := DecodeParams(Params{}.Encode()); err != nil {
 		t.Fatalf("empty params: %v", err)

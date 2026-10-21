@@ -332,6 +332,13 @@ func (l *logic) GovApply(_ int, rlm realm, op string, params []byte) string {
 		var outstanding uint256
 		if tok := l.store.VoucherToken(p.Denom); minted && tok != nil {
 			outstanding = tok.TotalSupply()
+			// grc20 fixes a token's decimals at its creation, and the
+			// voucher is the token wallets hold: a configuration naming
+			// others is refused (ibcgov refuses it when built as well; a
+			// first receive during the delay creates the voucher).
+			if d := tok.GetDecimals(); d != p.Config.Decimals {
+				return "the voucher of " + p.Denom + " exists with " + strconv.Itoa(d) + " decimals, which never change"
+			}
 		}
 		// The meters refill at the old caps up to now first: a new cap
 		// never applies to the time before it.

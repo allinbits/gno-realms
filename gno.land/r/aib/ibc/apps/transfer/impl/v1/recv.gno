@@ -106,9 +106,12 @@ func (l *logic) OnRecvPacket(_ int, rlm realm, sourceClient, destinationClient s
 	}
 
 	denom, accDenom, kind := receivedDenom(rt, sourceClient, payload, token)
-	if acc := rt.Denom(accDenom); acc != nil && acc.Config.Kind != kind {
+	acc := rt.Denom(accDenom)
+	if acc != nil && acc.Config.Kind != kind {
 		return refuse(ufmt.Errorf("denom %s is accounted as %s on route %s", accDenom, acc.Config.Kind, rt.Key))
 	}
+	// CheckCredit refuses a denom not enabled on the route: acc is set from
+	// here.
 	if err := rt.CheckCredit(accDenom, amount); err != nil {
 		return refuse(err)
 	}
@@ -119,7 +122,9 @@ func (l *logic) OnRecvPacket(_ int, rlm realm, sourceClient, destinationClient s
 			l.store.SetDenom(0, rlm, denom)
 		}
 		transfer.EmitDenom(0, rlm, denom.HashHex(), string(denom.MarshalJSON()))
-		l.store.GetOrCreateVoucher(0, rlm, denom.Base, accDenom)
+		// The first receive creates the voucher with the decimals governance
+		// configured; a later configuration cannot change them (GovApply).
+		l.store.GetOrCreateVoucher(0, rlm, denom.Base, accDenom, acc.Config.Decimals)
 	}
 	if reason == "" && isBridgeRealm(receiver) {
 		reason = "bridge realm"

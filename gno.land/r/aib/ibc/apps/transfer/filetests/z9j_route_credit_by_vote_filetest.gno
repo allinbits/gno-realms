@@ -109,7 +109,7 @@ func main(cur realm) {
 	core.RegisterCounterparty(cross(cur), id, [][]byte{{}}, "client-0")
 	voucher := ics20.NewDenom(weth, ics20.NewHop("transfer", client)).IBCDenom()
 	execute(cur, govern(cur, ibcgov.NewEnrollRouteRequest(cross(cur), client, string(collector), bridge)))
-	execute(cur, govern(cur, ibcgov.NewSetDenomRequest(cross(cur), client, weth, "mint", 4_000, 10_000, 10, 1, 0, 0, 4_000, "")))
+	execute(cur, govern(cur, ibcgov.NewSetDenomRequest(cross(cur), client, weth, "mint", 4_000, 10_000, 10, 1, 0, 0, 4_000, "", 0)))
 
 	relay(cur, router, p2)
 	e, _ := controlsView().Sweep(client, controls.PacketKey(client, 2))

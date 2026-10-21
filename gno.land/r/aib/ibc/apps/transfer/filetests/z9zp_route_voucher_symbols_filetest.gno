@@ -147,7 +147,7 @@ func main(cur realm) {
 		tokenB = "0x1000000000000000000000000000000000691bd4"
 	)
 	for _, tok := range []string{tokenA, tokenB} {
-		execute(cur, govern(cur, ibcgov.NewSetDenomRequest(cross(cur), route, tok, "mint", 4_000, 10_000, 10, 1, 0, 0, 4_000, "")))
+		execute(cur, govern(cur, ibcgov.NewSetDenomRequest(cross(cur), route, tok, "mint", 4_000, 10_000, 10, 1, 0, 0, 4_000, "", 0)))
 	}
 	voucherA := ics20.NewDenom(tokenA, ics20.NewHop("transfer", route)).IBCDenom()
 	voucherB := ics20.NewDenom(tokenB, ics20.NewHop("transfer", route)).IBCDenom()

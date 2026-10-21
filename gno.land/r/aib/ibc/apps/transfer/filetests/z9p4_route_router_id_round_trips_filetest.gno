@@ -148,7 +148,7 @@ func main(cur realm) {
 		execute(cur, govern(cur, ibcgov.NewEnrollRouteRequest(cross(cur), client, string(collector), bridge)))
 		for _, spec := range strings.Split(denoms, ";") {
 			f := strings.Fields(spec)
-			execute(cur, govern(cur, ibcgov.NewSetDenomRequest(cross(cur), client, f[0], f[1], 10000, 0, 20, 2, 25000, 40, 10000, f[9])))
+			execute(cur, govern(cur, ibcgov.NewSetDenomRequest(cross(cur), client, f[0], f[1], 10000, 0, 20, 2, 25000, 40, 10000, f[9], 0)))
 		}
 		send(cur, client, 1_000, 1_020, ethReceiver)
 		grc20test.Mint(cross(cur), sender, 1_020)

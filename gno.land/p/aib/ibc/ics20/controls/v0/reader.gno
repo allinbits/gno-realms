@@ -300,6 +300,7 @@ func denomJSON(d *Denom) string {
 		",\"cap_floor\":" + qu(c.CapFloor) + ",\"launch_cap_floor\":" + qu(d.LaunchCapFloor) +
 		",\"supply_cap\":" + qu(c.SupplyCap) + ",\"fee\":" + qu(c.Fee) + ",\"fee_floor\":" + qu(c.FeeFloor) +
 		",\"send_max\":" + qu(c.SendMax) + ",\"send_min\":" + qu(c.SendMin) + ",\"refund_cap\":" + qu(c.RefundCap) + ",\"remote\":" + q(c.Remote) +
+		",\"decimals\":" + itoa(int64(c.Decimals)) +
 		",\"meter\":{\"level\":" + qu(d.meter.Level) + ",\"at\":" + itoa(d.meter.At) + ",\"epoch\":" + itoa(d.meter.Epoch) + "}" +
 		",\"refund_meter\":{\"level\":" + qu(d.refundMeter.Level) + ",\"at\":" + itoa(d.refundMeter.At) + "}" +
 		",\"waiting\":" + itoa(int64(d.waiting.Size())) + ",\"queued_refunds\":" + itoa(int64(d.refundQueue.Size())) +

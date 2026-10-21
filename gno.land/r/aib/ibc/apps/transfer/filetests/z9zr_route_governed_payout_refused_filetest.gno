@@ -125,7 +125,7 @@ func decided(id int64) string {
 func main(cur realm) {
 	route := setupRoute(cur)
 	alias := transfer.GRC20Alias(token)
-	execute(cur, govern(cur, ibcgov.NewSetDenomRequest(cross(cur), route, alias, "unescrow", 10_000, 0, 20, 2, 25_000, 40, 10_000, "0x0000000000000000000000000000000000c0ffee")))
+	execute(cur, govern(cur, ibcgov.NewSetDenomRequest(cross(cur), route, alias, "unescrow", 10_000, 0, 20, 2, 25_000, 40, 10_000, "0x0000000000000000000000000000000000c0ffee", 0)))
 	transferAddr := chain.PackageAddress(transfer.PkgPath)
 	grc20test.Mint(cross(cur), sender, 5_000)
 	grc20test.Approve(cross(cur), sender, transferAddr, 1_000)

@@ -402,14 +402,14 @@ func denomText(denom string, c controls.DenomConfig) string {
 	}
 	return denom + " kind=" + c.Kind + " capFloor=" + u256s(c.CapFloor) + " supplyCap=" + u256s(c.SupplyCap) +
 		" fee=" + u256s(c.Fee) + " feeFloor=" + u256s(c.FeeFloor) + " sendMax=" + u256s(c.SendMax) + " sendMin=" + u256s(c.SendMin) +
-		" refundCap=" + u256s(c.RefundCap) + " remoteToken=" + remote
+		" refundCap=" + u256s(c.RefundCap) + " remoteToken=" + remote + " decimals=" + strconv.Itoa(c.Decimals)
 }
 
 // denomConfig checks a denom's configuration as NewSetDenomRequest takes it
 // and returns the accounting denom (a minted denom named by its token's
 // Ethereum address becomes its voucher's IBC denom on route) and the
 // configuration.
-func denomConfig(route, denom, kind string, capFloor, supplyCap, fee, feeFloor, sendMax, sendMin, refundCap uint256, remoteToken string) (string, controls.DenomConfig) {
+func denomConfig(route, denom, kind string, capFloor, supplyCap, fee, feeFloor, sendMax, sendMin, refundCap uint256, remoteToken string, decimals int) (string, controls.DenomConfig) {
 	if !isDenom(denom) {
 		panic("ibcgov: not a denom: " + denom)
 	}
@@ -432,7 +432,7 @@ func denomConfig(route, denom, kind string, capFloor, supplyCap, fee, feeFloor, 
 		remote = a.Lower()
 	}
 	c := controls.DenomConfig{Kind: kind, CapFloor: capFloor, SupplyCap: supplyCap, Fee: fee, FeeFloor: feeFloor,
-		SendMax: sendMax, SendMin: sendMin, RefundCap: refundCap, Remote: remote}
+		SendMax: sendMax, SendMin: sendMin, RefundCap: refundCap, Remote: remote, Decimals: decimals}
 	if err := c.Validate(); err != nil {
 		panic("ibcgov: " + err.Error())
 	}
@@ -446,17 +446,25 @@ func denomConfig(route, denom, kind string, capFloor, supplyCap, fee, feeFloor, 
 // cap (mint); supplyCap the voucher supply cap (mint, else 0); fee and its
 // floor; sendMax and sendMin (unescrow, else 0); refundCap the refund meter's
 // day cap; remoteToken (unescrow, else "") the token's GnoVoucher on Ethereum,
-// which sends may never name as their receiver. Amounts are base units of the
+// which sends may never name as their receiver; decimals (mint, else 0) the
+// decimals of the token on Ethereum, 0 to 18, which its voucher is created
+// with on its first receive (ADR 0005, "Voucher decimals": an ICS20 packet
+// carries no token metadata). Amounts are base units of the
 // denom, as uint256 (an 18-decimal token's limits are set in its own units). For a minted denom, denom may be the token's Ethereum address
 // (0x…): the voucher denom is then computed, ibc/<sha256("transfer/<route>/
 // <lower-case address>")>, the denom this chain keys the token's vouchers by.
 // A change that only tightens applies at once; a new denom or any loosening
-// waits 7 days.
-func NewSetDenomRequest(cur realm, route, denom, kind string, capFloor, supplyCap, fee, feeFloor, sendMax, sendMin, refundCap uint256, remoteToken string) Request {
+// waits 7 days, a change of the decimals too. Once the voucher exists its
+// decimals never change: a configuration naming others is refused here and
+// when the decision executes.
+func NewSetDenomRequest(cur realm, route, denom, kind string, capFloor, supplyCap, fee, feeFloor, sendMax, sendMin, refundCap uint256, remoteToken string, decimals int) Request {
 	route = mustRoute(route)
-	denom, c := denomConfig(route, denom, kind, capFloor, supplyCap, fee, feeFloor, sendMax, sendMin, refundCap, remoteToken)
+	denom, c := denomConfig(route, denom, kind, capFloor, supplyCap, fee, feeFloor, sendMax, sendMin, refundCap, remoteToken, decimals)
 	if old, ok := view().DenomConfig(route, denom); ok && old.Kind != kind {
 		panic("ibcgov: a denom never changes accounting")
+	}
+	if d, ok := transfer.VoucherDecimals(denom); ok && d != decimals {
+		panic("ibcgov: the voucher of " + denom + " exists with " + strconv.Itoa(d) + " decimals, which never change")
 	}
 	// At once or queued is decided against the configuration when the
 	// decision is recorded: another decision may have changed it since the

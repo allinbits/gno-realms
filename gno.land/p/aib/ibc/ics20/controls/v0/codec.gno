@@ -61,6 +61,7 @@ func (p Params) Encode() []byte {
 	w.Bool(p.Forged).Uint256(p.Amount).Int(p.ID)
 	c := p.Config
 	w.Str(c.Kind).Uint256(c.CapFloor).Uint256(c.SupplyCap).Uint256(c.Fee).Uint256(c.FeeFloor).Uint256(c.SendMax).Uint256(c.SendMin).Uint256(c.RefundCap).Str(c.Remote)
+	w.Uvarint(uint64(c.Decimals))
 	w.Uvarint(uint64(len(p.Items)))
 	for _, it := range p.Items {
 		w.Uvarint(it.Seq).Uvarint(uint64(it.Action)).Uint256(it.Amount)
@@ -88,6 +89,11 @@ func DecodeParams(bz []byte) (Params, error) {
 	p.Config.Kind = r.Str()
 	p.Config.CapFloor, p.Config.SupplyCap, p.Config.Fee, p.Config.FeeFloor = r.Uint256(), r.Uint256(), r.Uint256(), r.Uint256()
 	p.Config.SendMax, p.Config.SendMin, p.Config.RefundCap, p.Config.Remote = r.Uint256(), r.Uint256(), r.Uint256(), r.Str()
+	decimals := r.Uvarint()
+	if r.Err() == nil && decimals > MaxDecimals {
+		return Params{}, ufmt.Errorf("controls: params: more than %d decimals", MaxDecimals)
+	}
+	p.Config.Decimals = int(decimals)
 	n = r.Uvarint()
 	if r.Err() == nil && n > MaxKeys {
 		return Params{}, ufmt.Errorf("controls: more than %d items", MaxKeys)

@@ -271,7 +271,9 @@ func (l *logic) OnRecvPacket(_ int, rlm realm, sourceClient, destinationClient s
 			ack = types.NewErrorAppAcknowledgement(ackErr)
 			return types.RecvPacketResult{Status: types.PacketStatus_Failure}
 		}
-		l.store.GetOrCreateVoucher(0, rlm, token.Denom.Base, voucherDenom)
+		// No configuration names the counterparty's decimals for a client
+		// the route controls do not cover: the voucher counts base units.
+		l.store.GetOrCreateVoucher(0, rlm, token.Denom.Base, voucherDenom, 0)
 		if err := l.store.MintVoucher(0, rlm, voucherDenom, receiver, amount); err != nil {
 			ackErr = ufmt.Errorf("mint voucher error: %v", err)
 			ack = types.NewErrorAppAcknowledgement(ackErr)

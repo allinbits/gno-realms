@@ -181,6 +181,7 @@ func TestConfigValidateAndLoosens(t *testing.T) {
 		func(c *DenomConfig) { c.Remote = "" },              // no Ethereum token (Codex review #17)
 		func(c *DenomConfig) { c.Remote = "0x0000000000000000000000000000000000C0FFEE" },
 		func(c *DenomConfig) { c.Remote = "0x0000000000000000000000000000000000000000" },
+		func(c *DenomConfig) { c.Decimals = 1 }, // a gno-native token's voucher is minted on Ethereum, not here
 	}
 	for i, m := range bad {
 		c := gnot()
@@ -189,7 +190,19 @@ func TestConfigValidateAndLoosens(t *testing.T) {
 			t.Errorf("case %d validated: %+v", i, c)
 		}
 	}
+	// A voucher's decimals are within grc20's bound.
 	mc := mintCfg()
+	mc.Decimals = MaxDecimals
+	if err := mc.Validate(); err != nil {
+		t.Errorf("minted denom with %d decimals: %v", MaxDecimals, err)
+	}
+	for _, d := range []int{MaxDecimals + 1, -1} {
+		mc.Decimals = d
+		if mc.Validate() == nil {
+			t.Errorf("minted denom with %d decimals validated", d)
+		}
+	}
+	mc = mintCfg()
 	mc.SendMax = 1
 	if mc.Validate() == nil {
 		t.Errorf("minted denom with send limits")
@@ -237,6 +250,12 @@ func TestConfigValidateAndLoosens(t *testing.T) {
 		if Loosens(base, n) != tc.loose {
 			t.Errorf("case %d: loosens %v", i, !tc.loose)
 		}
+	}
+	// A change of a voucher's decimals waits in either direction.
+	mint18 := mintCfg()
+	mint18.Decimals = 18
+	if !Loosens(mintCfg(), mint18) || !Loosens(mint18, mintCfg()) {
+		t.Errorf("a change of decimals does not wait")
 	}
 }
 

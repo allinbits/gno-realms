@@ -73,7 +73,10 @@ type Store interface {
 	VoucherToken(ibcDenom string) *grc20.Token
 	// Vouchers is a read-only view; values are *grc20.Token.
 	Vouchers() bptree.ITree
-	GetOrCreateVoucher(_ int, rlm realm, baseDenom, voucherDenom string) *grc20.Token
+	// GetOrCreateVoucher is the voucher of voucherDenom, created with
+	// decimals (0 to grc20.MaxDecimals) if it did not exist: an existing
+	// voucher keeps the decimals it was created with, whatever is passed.
+	GetOrCreateVoucher(_ int, rlm realm, baseDenom, voucherDenom string, decimals int) *grc20.Token
 	MintVoucher(_ int, rlm realm, ibcDenom string, to address, amount uint256) error
 	BurnVoucher(_ int, rlm realm, ibcDenom string, from address, amount uint256) error
 
@@ -274,9 +277,9 @@ func (transferStore) Vouchers() bptree.ITree {
 	return readOnlyTree{t: voucherTokens, mapValue: func(v any) any { return v.(*voucher).token }}
 }
 
-func (transferStore) GetOrCreateVoucher(_ int, rlm realm, baseDenom, voucherDenom string) *grc20.Token {
+func (transferStore) GetOrCreateVoucher(_ int, rlm realm, baseDenom, voucherDenom string, decimals int) *grc20.Token {
 	assertProxyRealm(0, rlm)
-	return getOrCreateVoucher(0, rlm, baseDenom, voucherDenom).token
+	return getOrCreateVoucher(0, rlm, baseDenom, voucherDenom, decimals).token
 }
 
 func (transferStore) MintVoucher(_ int, rlm realm, ibcDenom string, to address, amount uint256) error {
@@ -555,6 +558,17 @@ func VoucherSymbol(ibcDenom string) string {
 	return v.(*voucher).symbol
 }
 
+// VoucherDecimals returns the decimals of the voucher of an IBC denom, and
+// whether it has one yet. A voucher's decimals are fixed when it is created
+// (getOrCreateVoucher): a route's configuration naming others is refused.
+func VoucherDecimals(ibcDenom string) (int, bool) {
+	v := voucherTokens.Get(ibcDenom)
+	if v == nil {
+		return 0, false
+	}
+	return v.(*voucher).token.GetDecimals(), true
+}
+
 // voucherSymbolOf is the symbol of the voucher with grc20 id id.
 func voucherSymbolOf(id uint64) string {
 	sym := "IBC-" + strings.ToUpper(strconv.FormatUint(id, 36))
@@ -572,14 +586,17 @@ func voucherSymbolOf(id uint64) string {
 // The token's name is the base denom, its symbol is allocated from the
 // voucher ids (see VoucherSymbol), and its grc20reg slug is the full hash:
 // the registry key rlmpath.symbol is unique per voucher, so no denom,
-// whatever its hash, can take another's key.
-func getOrCreateVoucher(_ int, rlm realm, baseDenom, voucherDenom string) *voucher {
+// whatever its hash, can take another's key. Its decimals are the
+// implementation's to name (an ICS20 packet carries no token metadata: on an
+// Ethereum route the denom's governed configuration, 0 elsewhere), and
+// grc20 fixes them at creation: an existing voucher keeps its own.
+func getOrCreateVoucher(_ int, rlm realm, baseDenom, voucherDenom string, decimals int) *voucher {
 	if v := voucherTokens.Get(voucherDenom); v != nil {
 		return v.(*voucher)
 	}
 	id := nextVoucherID.Next()
 	sym := voucherSymbolOf(uint64(id))
-	token, ledger := grc20.NewToken(baseDenom, sym, 0, id, rlm)
+	token, ledger := grc20.NewToken(baseDenom, sym, decimals, id, rlm)
 	inst := &voucher{token: token, ledger: ledger, symbol: sym}
 	voucherTokens.Set(voucherDenom, inst)
 	grc20reg.Register(cross(rlm), token, voucherDenom[len("ibc/"):])

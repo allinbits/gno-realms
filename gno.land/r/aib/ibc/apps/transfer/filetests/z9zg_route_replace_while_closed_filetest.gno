@@ -170,7 +170,7 @@ func setTime(t time.Time) {
 // route's current client C and settled, and the route reopens.
 func main(cur realm) {
 	route := setupRoute(cur)
-	execute(cur, govern(cur, ibcgov.NewSetDenomRequest(cross(cur), route, "ugnot", "unescrow", 10_000, 0, 20, 2, 25_000, 40, 10_000, "0x0000000000000000000000000000000000c0ffee")))
+	execute(cur, govern(cur, ibcgov.NewSetDenomRequest(cross(cur), route, "ugnot", "unescrow", 10_000, 0, 20, 2, 25_000, 40, 10_000, "0x0000000000000000000000000000000000c0ffee", 0)))
 	send(cur, route, 1_000, 1_020, ethReceiver)
 	rec, _ := controlsView().Send(route, controls.PacketKey(route, 1))
 	packet := rec.Packet
