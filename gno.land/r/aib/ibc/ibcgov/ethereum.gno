@@ -1430,14 +1430,6 @@ func mustHexBytes(s string) []byte {
 	return b
 }
 
-func mustUint256(name, s string) abi.Value {
-	v, err := abi.Uint256Decimal(s)
-	if err != nil {
-		panic("ibcgov: " + name + ": " + err.Error())
-	}
-	return v
-}
-
 func ethAddrText(a [20]byte) string { return ethaddr.Address(a).String() }
 
 // NewEthCancelRequest (kind 1) cancels Ethereum-bound decisions of the
@@ -1525,17 +1517,16 @@ func NewEthSeatsRequest(cur realm, changes string) Request {
 
 // NewEthLimitsRequest (kind 4) sets a token's limits on the route of the
 // router client clientID: per-message maximum, day cap, refund cap, and for
-// Ethereum-native tokens the send maximum and minimum (0 unset), in base units
-// as decimal digits. IBCAdmin applies a pure lowering at recording, anything
-// else after 7 days.
-func NewEthLimitsRequest(cur realm, clientID, token, maxPerMessage, dayCap, refundCap, sendMax, sendMin string) Request {
+// Ethereum-native tokens the send maximum and minimum (0 unset), in base
+// units (the uint256 of the kind's tuple). IBCAdmin applies a pure lowering
+// at recording, anything else after 7 days.
+func NewEthLimitsRequest(cur realm, clientID, token string, maxPerMessage, dayCap, refundCap, sendMax, sendMin uint256) Request {
 	mustEthClientID(clientID)
 	tok := mustEthAddr(token)
 	vals := []abi.Value{abi.String(clientID), abi.Address(tok),
-		mustUint256("maxPerMessage", maxPerMessage), mustUint256("dayCap", dayCap), mustUint256("refundCap", refundCap),
-		mustUint256("sendMax", sendMax), mustUint256("sendMin", sendMin)}
-	text := "limits of " + ethAddrText(tok) + " on " + clientID + ": maxPerMessage=" + maxPerMessage + " dayCap=" + dayCap +
-		" refundCap=" + refundCap + " sendMax=" + sendMax + " sendMin=" + sendMin
+		abi.Uint256Of(maxPerMessage), abi.Uint256Of(dayCap), abi.Uint256Of(refundCap), abi.Uint256Of(sendMax), abi.Uint256Of(sendMin)}
+	text := "limits of " + ethAddrText(tok) + " on " + clientID + ": maxPerMessage=" + u256s(maxPerMessage) + " dayCap=" + u256s(dayCap) +
+		" refundCap=" + u256s(refundCap) + " sendMax=" + u256s(sendMax) + " sendMin=" + u256s(sendMin)
 	return ethRequest(cur, "limits", KindLimits, text, abi.Encode(vals...))
 }
 
@@ -1906,8 +1897,8 @@ func NewEthRouteSettingsRequest(cur realm, clientID string, quarantineSeconds ui
 // NewEthSettleRequest (kind 12) applies a reconciliation's outcomes to the
 // send records of clientId, the router client a route replacement retired
 // (ADR pr6375 §5.4, §7.12): items is a comma-separated list of
-// "sequence:action:amount" (amount in base units as decimal digits), at most
-// 8, each sequence once:
+// "sequence:action:amount" (amount in base units as decimal digits, below
+// 2^256), at most 8, each sequence once:
 //
 //   - 1 a genuine refund: pay its remainder, amount exactly the entitlement
 //     minus what was already refunded (a refund is never cut short), 0 for one
@@ -1942,13 +1933,15 @@ func NewEthSettleRequest(cur realm, clientID, items string) Request {
 		if err1 != nil || err2 != nil || seq == 0 || seen[settleItemKey(seq, action)] || action < 1 || action > 5 {
 			panic("ibcgov: not a settlement item, or a sequence named twice in its direction: " + it)
 		}
-		amount := mustUint256("amount", parts[2])
-		zero := strings.TrimLeft(parts[2], "0") == ""
-		if ((action == 4 || action == 5) && zero) || ((action == 2 || action == 3) && !zero) {
+		amount, err := strconv.ParseUint256(parts[2], 10)
+		if err != nil {
+			panic("ibcgov: amount: " + err.Error())
+		}
+		if ((action == 4 || action == 5) && amount == 0) || ((action == 2 || action == 3) && amount != 0) {
 			panic("ibcgov: a forged refund or receive names its positive amount, a rejection or a delivery 0: " + it)
 		}
 		seen[settleItemKey(seq, action)] = true
-		vals = append(vals, abi.Tuple(abi.Uint64(seq), abi.Uint64(action), amount))
+		vals = append(vals, abi.Tuple(abi.Uint64(seq), abi.Uint64(action), abi.Uint256Of(amount)))
 	}
 	return ethRequest(cur, "settle", KindSettle, "settle sends of "+clientID+": "+strings.Join(list, ","),
 		abi.Encode(abi.String(clientID), abi.Array(vals...)))

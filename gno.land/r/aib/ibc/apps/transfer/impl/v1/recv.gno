@@ -3,6 +3,7 @@ package impl
 import (
 	"strconv"
 
+	"gno.land/p/aib/ibc/ics20/abi/v0"
 	"gno.land/p/aib/ibc/ics20/controls/v0"
 	"gno.land/p/aib/ibc/ics20/v0"
 	"gno.land/p/aib/ibc/types/v0"
@@ -93,9 +94,15 @@ func (l *logic) OnRecvPacket(_ int, rlm realm, sourceClient, destinationClient s
 	} else if transfer.IsBlocked(receiver) {
 		return refuse(ufmt.Errorf("receiver %s is blocked", data.Receiver))
 	}
-	amount, err := token.AmountInt64()
+	amount, err := token.AmountUint256()
 	if err != nil {
 		return refuse(err)
+	}
+	// A genuine send from Ethereum never carries more than abi.MaxAmount
+	// (its transfer app refuses it, ADR pr6375 E6): a receive above it can
+	// only be a forgery, refused before any state change.
+	if amount > abi.MaxAmount {
+		return refuse(ufmt.Errorf("the amount %s is above Ethereum's maximum of 2^96 - 1", u(amount)))
 	}
 
 	denom, accDenom, kind := receivedDenom(rt, sourceClient, payload, token)
@@ -140,6 +147,6 @@ func (l *logic) OnRecvPacket(_ int, rlm realm, sourceClient, destinationClient s
 		transfer.AttributeKeyAckSuccess, strconv.FormatBool(ack.Success()),
 	)
 	transfer.EmitRoute(0, rlm, "credit", "route", rt.Key, "packet", key, "denom", accDenom,
-		"receiver", string(receiver), "amount", strconv.FormatInt(amount, 10), "booked", booked)
+		"receiver", string(receiver), "amount", u(amount), "booked", booked)
 	return types.RecvPacketResult{Status: types.PacketStatus_Success, Acknowledgement: ack.MarshalJSON()}
 }

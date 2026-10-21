@@ -32,7 +32,7 @@ func (l *logic) routeFor(_ int, rlm realm, clientOrRoute string) *controls.Route
 
 // lockOf is the escrow a gno-native denom of the route holds (its lock), 0
 // for a minted denom.
-func (l *logic) lockOf(rt *controls.Route, denom string) int64 {
+func (l *logic) lockOf(rt *controls.Route, denom string) uint256 {
 	if acc := rt.Denom(denom); acc == nil || acc.Config.Kind == controls.KindMint {
 		return 0
 	}
@@ -63,7 +63,7 @@ func (l *logic) Claim(_ int, rlm realm, clientID, denom string, n int) int {
 		l.payOut(0, rlm, rt, denom, p.To, p.Amount)
 		l.payOut(0, rlm, rt, denom, rt.FeeCollector, p.Fee)
 		transfer.EmitRoute(0, rlm, "claim", "route", rt.Key, "packet", p.Key, "denom", denom, "to", string(p.To),
-			"amount", strconv.FormatInt(p.Amount, 10), "fee", strconv.FormatInt(p.Fee, 10))
+			"amount", u(p.Amount), "fee", u(p.Fee))
 	}
 	return len(ps)
 }
@@ -81,7 +81,7 @@ func (l *logic) ClaimRefunds(_ int, rlm realm, clientID, denom string, n int) in
 	for _, p := range ps {
 		l.payOut(0, rlm, rt, denom, p.To, p.Amount)
 		transfer.EmitRoute(0, rlm, "refund", "route", rt.Key, "packet", p.Key, "denom", denom, "to", string(p.To),
-			"amount", strconv.FormatInt(p.Amount, 10))
+			"amount", u(p.Amount))
 	}
 	return len(ps)
 }
@@ -172,7 +172,7 @@ func (l *logic) ContinueReopen(_ int, rlm realm, route string) bool {
 	if err != nil {
 		panic(err)
 	}
-	transfer.EmitRoute(0, rlm, "reopen", "route", rt.Key, "accepted", strconv.FormatInt(accepted, 10), "open", strconv.FormatBool(done))
+	transfer.EmitRoute(0, rlm, "reopen", "route", rt.Key, "accepted", u(accepted), "open", strconv.FormatBool(done))
 	return done
 }
 
@@ -199,25 +199,26 @@ func (l *logic) Recapitalize(_ int, rlm realm, sent []chain.Coin, route string, 
 		panic(ufmt.Sprintf("no unpaid recapitalization %d on route %s", id, route))
 	}
 	payer := rlm.Previous().Address()
-	c := chain.NewCoin(r.Denom, r.Amount)
 	if transfer.IsGRC20Alias(r.Denom) {
 		if len(sent) > 0 {
 			panic("a GRC20 recapitalization takes no coins")
 		}
-		if err := l.store.EscrowGRC20(0, rlm, rt.Key, transfer.ResolveGRC20Alias(r.Denom), payer, c); err != nil {
+		if err := l.store.EscrowGRC20(0, rlm, rt.Key, transfer.ResolveGRC20Alias(r.Denom), payer, r.Amount); err != nil {
 			panic(err)
 		}
 	} else {
-		if len(sent) != 1 || sent[0].Denom != r.Denom || sent[0].Amount != r.Amount {
-			panic(ufmt.Sprintf("send exactly %d%s in a direct call", r.Amount, r.Denom))
+		// A native coin is an int64: an authorization above the chain's
+		// coin maximum can match no coin sent.
+		if len(sent) != 1 || sent[0].Denom != r.Denom || transfer.CoinAmount(sent[0]) != r.Amount {
+			panic("send exactly " + u(r.Amount) + r.Denom + " in a direct call")
 		}
-		l.store.AddEscrow(0, rlm, rt.Key, c)
+		l.store.AddEscrow(0, rlm, rt.Key, r.Denom, r.Amount)
 	}
 	if err := rt.Recapitalize(id, r.Denom, r.Amount, payer); err != nil {
 		panic(err)
 	}
 	transfer.EmitRoute(0, rlm, "recapitalize", "route", rt.Key, "id", strconv.FormatInt(id, 10), "denom", r.Denom,
-		"amount", strconv.FormatInt(r.Amount, 10), "payer", string(payer))
+		"amount", u(r.Amount), "payer", string(payer))
 }
 
 // successAckCommitment is the acknowledgement commitment of this app's
@@ -247,7 +248,7 @@ func (l *logic) creditPending(_ int, rlm realm, rt *controls.Route, p controls.P
 		return err.Error()
 	}
 	_, accDenom, _ := receivedDenom(rt, pkt.SourceClient, pkt.Payloads[0], token)
-	carried, err := token.AmountInt64()
+	carried, err := token.AmountUint256()
 	if err != nil {
 		return err.Error()
 	}
@@ -327,7 +328,7 @@ func (l *logic) GovApply(_ int, rlm realm, op string, params []byte) string {
 		}
 		// A minted denom's vouchers already in circulation (minted by
 		// impl/v0) count against its supply cap from the start.
-		var outstanding int64
+		var outstanding uint256
 		if tok := l.store.VoucherToken(p.Denom); minted && tok != nil {
 			outstanding = tok.TotalSupply()
 		}
@@ -398,20 +399,19 @@ func (l *logic) GovApply(_ int, rlm realm, op string, params []byte) string {
 		id, err = rt.AuthorizeRecap(p.Denom, p.Amount, p.Incident)
 		note = strconv.FormatInt(id, 10)
 	case controls.OpRevokeRecap:
-		err = rt.RevokeRecap(p.Amount)
+		err = rt.RevokeRecap(p.ID)
 	case controls.OpReduce:
 		err = rt.Reduce(p.Key, p.Amount, p.Incident)
 	case controls.OpAccept:
 		err = rt.Accept(p.Denom, p.Amount, p.Incident)
 	case controls.OpSettle:
 		// The settlement is planned first, changing nothing: which refunds
-		// it pays now and which it parks, the room left for
-		// minting bounded by the voucher token's supply too. Only the
-		// payments it makes now are checked against their token or the
-		// banker; one that would fail refuses the decision, the records
-		// unsettled. Then the plan applies whole.
+		// it pays now and which it parks. Only the payments it makes now
+		// are checked against their token or the banker; one that would
+		// fail refuses the decision, the records unsettled. Then the plan
+		// applies whole.
 		var plan *controls.SettlePlan
-		plan, err = rt.PlanSettlement(p.Client, p.Items, p.Incident, func(denom string) int64 { return l.lockOf(rt, denom) }, l.mintRoom, verifierTrusted)
+		plan, err = rt.PlanSettlement(p.Client, p.Items, p.Incident, func(denom string) uint256 { return l.lockOf(rt, denom) }, verifierTrusted)
 		if err != nil {
 			break
 		}
@@ -429,10 +429,10 @@ func (l *logic) GovApply(_ int, rlm realm, op string, params []byte) string {
 			note = "parked " + strconv.Itoa(len(parked)) + " refunds"
 		}
 	case controls.OpReopen:
-		var accepted int64
+		var accepted uint256
 		var done bool
 		accepted, done, err = rt.Reopen()
-		note = "accepted deficit " + strconv.FormatInt(accepted, 10)
+		note = "accepted deficit " + u(accepted)
 		if !done {
 			note += "; continue with transfer.ContinueReopen"
 		}

@@ -10,7 +10,7 @@ import (
 	"gno.land/p/aib/ibc/ics20/v0"
 	"gno.land/p/aib/ibc/types/v0"
 	"gno.land/p/nt/bptree/v0"
-	"gno.land/p/nt/grc20/v0"
+	"gno.land/p/nt/grc20/v1"
 	"gno.land/p/nt/uassert/v0"
 )
 
@@ -44,7 +44,7 @@ func (l *upgradeTestLogic) Render(path string) string {
 	return "rendered by " + l.version + ": " + path
 }
 
-func (l *upgradeTestLogic) Transfer(_ int, rlm realm, sent []chain.Coin, clientID, receiver, denom string, amount int64, timeoutTimestamp uint64, memo string) (types.MsgSendPacket, uint64) {
+func (l *upgradeTestLogic) Transfer(_ int, rlm realm, sent []chain.Coin, clientID, receiver, denom string, amount uint256, timeoutTimestamp uint64, memo string) (types.MsgSendPacket, uint64) {
 	panic("upgradeTestLogic.Transfer: not implemented")
 }
 

@@ -70,7 +70,7 @@ func setupRoute(cur realm) string {
 
 // send transfers amount of ugnot from sender to an Ethereum receiver, sending
 // coins with the call (the coins land at the transfer realm first).
-func send(cur realm, route string, amount, coins int64, receiver string) uint64 {
+func send(cur realm, route string, amount uint256, coins int64, receiver string) uint64 {
 	testing.IssueCoins(chain.PackageAddress(transfer.PkgPath), chain.NewCoins(chain.NewCoin("ugnot", coins)))
 	testing.SetRealm(testing.NewUserRealm(sender))
 	testing.SetOriginSend(chain.NewCoins(chain.NewCoin("ugnot", coins)))
@@ -82,8 +82,8 @@ func send(cur realm, route string, amount, coins int64, receiver string) uint64 
 
 // recv delivers a packet from Ethereum to the transfer app as the core does
 // after verifying its proof.
-func recv(cur realm, route string, seq uint64, denom, receiver string, amount int64) types.RecvPacketResult {
-	data := ics20.NewFungibleTokenPacketData(denom, strconv.FormatInt(amount, 10), "0x5f67a5398d91087d1b37a8a43436196a7830867f", receiver, "")
+func recv(cur realm, route string, seq uint64, denom, receiver string, amount uint256) types.RecvPacketResult {
+	data := ics20.NewFungibleTokenPacketData(denom, strconv.FormatUint256(amount, 10), "0x5f67a5398d91087d1b37a8a43436196a7830867f", receiver, "")
 	bz, err := abi.Marshal(data)
 	if err != nil {
 		panic(err)
@@ -100,11 +100,11 @@ func controlsView() controls.Reader { return transfer.ExtView("controls").(contr
 
 func ugnot(a address) int64 { return banker.NewReadonlyBanker().GetCoin(a, "ugnot") }
 
-func sendGRC20(cur realm, route string, amount int64) uint64 {
+func sendGRC20(cur realm, route string, amount uint256) uint64 {
 	return sendGRC20To(cur, route, amount, ethReceiver)
 }
 
-func sendGRC20To(cur realm, route string, amount int64, receiver string) uint64 {
+func sendGRC20To(cur realm, route string, amount uint256, receiver string) uint64 {
 	testing.SetRealm(testing.NewUserRealm(sender))
 	_, seq := transfer.Transfer(cross(cur), route, receiver, token, amount, uint64(time.Now().Add(time.Hour).Unix()), "")
 	testing.SetRealm(testing.NewCodeRealm("gno.land/r/aib/main"))
@@ -248,12 +248,12 @@ func main(cur realm) {
 // to its Ethereum token: the receiver is the token itself
 // allowance below amount + fee: send packet failed for payload #0 app "transfer": escrow GRC20 gno.land/r/aib/ibc/apps/testing/grc20test.TEST error: insufficient allowance
 // sent 2 | sender 4000 | collector + 20 | realm 980
-// {"denom":"gno.land:r:aib:ibc:apps:testing:grc20test.TEST","amount":980,"clients":[{"client":"ethereum-1","amount":980}]}
+// {"denom":"gno.land:r:aib:ibc:apps:testing:grc20test.TEST","amount":"980","clients":[{"client":"ethereum-1","amount":"980"}]}
 // record: true 980 20 wire denom gno.land:r:aib:ibc:apps:testing:grc20test.TEST
 // after the timeout: sender 4000 | realm 980
 // return: (1 gno.land/p/aib/ibc/types/v0.PacketStatus)
 // alice 480 | collector 80
-// {"denom":"gno.land:r:aib:ibc:apps:testing:grc20test.TEST","amount":1380,"clients":[{"client":"ethereum-1","amount":1380}]}
+// {"denom":"gno.land:r:aib:ibc:apps:testing:grc20test.TEST","amount":"1380","clients":[{"client":"ethereum-1","amount":"1380"}]}
 // collector the transfer realm: ibcgov: the fee collector g1tp3gk4quumurav4858hjfdy6hxtyffwmnxyr00 is a realm of the bridge (gno.land/r/aib/ibc/apps/transfer)
 // collector an implementation registered meanwhile: spent - spent: the fee collector g1u54yy6kljq98wlgsfgvtgwkj2esqyz880a3ad3 is a realm of the bridge
 // send fee to the collector: 20

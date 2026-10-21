@@ -93,7 +93,7 @@ func main(cur realm) {
 
 	govern(cur, ibcgov.NewEthUnpauseRequest(cross(cur), 1, "client-0"))
 	govern(cur, ibcgov.NewEthSeatsRequest(cross(cur), "0:"+a1+",4:"+a2))
-	govern(cur, ibcgov.NewEthLimitsRequest(cross(cur), "client-0", a1, "25000000000", "100000000000", "100000000000", "0", "40000000"))
+	govern(cur, ibcgov.NewEthLimitsRequest(cross(cur), "client-0", a1, 25000000000, 100000000000, 100000000000, 0, 40000000))
 	govern(cur, ibcgov.NewEthVoucherRequest(cross(cur), "client-0", "ugnot", a1, hash))
 	govern(cur, ibcgov.NewEthClientRequest(cross(cur), 1, "gnoland-2", client, "6d61696e", a1, hash))
 	govern(cur, ibcgov.NewEthUpgradeRequest(cross(cur), a1, a2, "0x"+hash, "cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd"))

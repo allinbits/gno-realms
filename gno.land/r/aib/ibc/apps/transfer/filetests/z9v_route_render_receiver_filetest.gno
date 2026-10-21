@@ -71,7 +71,7 @@ func setupRoute(cur realm) string {
 
 // send transfers amount of ugnot from sender to an Ethereum receiver, sending
 // coins with the call (the coins land at the transfer realm first).
-func send(cur realm, route string, amount, coins int64, receiver string) uint64 {
+func send(cur realm, route string, amount uint256, coins int64, receiver string) uint64 {
 	testing.IssueCoins(chain.PackageAddress(transfer.PkgPath), chain.NewCoins(chain.NewCoin("ugnot", coins)))
 	testing.SetRealm(testing.NewUserRealm(sender))
 	testing.SetOriginSend(chain.NewCoins(chain.NewCoin("ugnot", coins)))
@@ -83,8 +83,8 @@ func send(cur realm, route string, amount, coins int64, receiver string) uint64 
 
 // recv delivers a packet from Ethereum to the transfer app as the core does
 // after verifying its proof.
-func recv(cur realm, route string, seq uint64, denom, receiver string, amount int64) types.RecvPacketResult {
-	data := ics20.NewFungibleTokenPacketData(denom, strconv.FormatInt(amount, 10), "0x5f67a5398d91087d1b37a8a43436196a7830867f", receiver, "")
+func recv(cur realm, route string, seq uint64, denom, receiver string, amount uint256) types.RecvPacketResult {
+	data := ics20.NewFungibleTokenPacketData(denom, strconv.FormatUint256(amount, 10), "0x5f67a5398d91087d1b37a8a43436196a7830867f", receiver, "")
 	bz, err := abi.Marshal(data)
 	if err != nil {
 		panic(err)
@@ -103,20 +103,20 @@ func ugnot(a address) int64 { return banker.NewReadonlyBanker().GetCoin(a, "ugno
 
 func state(route string, seq uint64) string {
 	c, _ := controlsView().Claim(route, controls.PacketKey(route, seq))
-	return c.State + " paid " + strconv.FormatInt(c.Paid, 10) + " of " + strconv.FormatInt(c.Amount, 10)
+	return c.State + " paid " + strconv.FormatUint256(c.Paid, 10) + " of " + strconv.FormatUint256(c.Amount, 10)
 }
 
 func totals(route string) string {
 	t, _ := controlsView().Totals(route, "ugnot")
-	return "owed " + strconv.FormatInt(t.Owed, 10) + " withheld " + strconv.FormatInt(t.Withheld, 10) +
-		" swept " + strconv.FormatInt(t.Swept, 10) + " lost " + strconv.FormatInt(t.Lost, 10) +
-		" unrecovered " + strconv.FormatInt(t.Unrecovered(), 10)
+	return "owed " + strconv.FormatUint256(t.Owed, 10) + " withheld " + strconv.FormatUint256(t.Withheld, 10) +
+		" swept " + strconv.FormatUint256(t.Swept, 10) + " lost " + strconv.FormatUint256(t.Lost, 10) +
+		" unrecovered " + strconv.FormatUint256(t.Unrecovered(), 10)
 }
 
-func recapitalize(cur realm, route string, id, amount int64) {
-	testing.IssueCoins(chain.PackageAddress(transfer.PkgPath), chain.NewCoins(chain.NewCoin("ugnot", amount)))
+func recapitalize(cur realm, route string, id int64, amount uint256) {
+	testing.IssueCoins(chain.PackageAddress(transfer.PkgPath), chain.NewCoins(chain.NewCoin("ugnot", int64(amount))))
 	testing.SetRealm(testing.NewUserRealm(funder))
-	testing.SetOriginSend(chain.NewCoins(chain.NewCoin("ugnot", amount)))
+	testing.SetOriginSend(chain.NewCoins(chain.NewCoin("ugnot", int64(amount))))
 	transfer.Recapitalize(cross(cur), route, id)
 	testing.SetOriginSend(nil)
 	testing.SetRealm(testing.NewCodeRealm("gno.land/r/aib/main"))
@@ -156,7 +156,7 @@ func main(cur realm) {
 
 // Output:
 // kept raw: true
-// {"entries":[{"key":"ethereum-1/00000000000000000001","denom":"ugnot","to":"\u005bclaim refund\u005d\u0028https://attacker.example\u0029 \u003cimg src=x\u003e \u0060x\u0060 \u002a\u002ay\u002a\u002a","amount":300,"reduced":0,"reason":"invalid receiver","height":123,"voided":false,"paid":false,"paid_to":""}],"next":""}
+// {"entries":[{"key":"ethereum-1/00000000000000000001","denom":"ugnot","to":"\u005bclaim refund\u005d\u0028https://attacker.example\u0029 \u003cimg src=x\u003e \u0060x\u0060 \u002a\u002ay\u002a\u002a","amount":"300","reduced":"0","reason":"invalid receiver","height":123,"voided":false,"paid":false,"paid_to":""}],"next":""}
 // active markdown on the page: false
 // {"error":"invalid sequence \"\u005bx\u005d\u0028https:attacker\u0029\": strconv.ParseUint: parsing \"\u005bx\u005d\u0028https:attacker\u0029\": invalid syntax"}
 // {"error":"denom ibc/\u005bx\u005d\u0028https:attacker\u0029 not found"}

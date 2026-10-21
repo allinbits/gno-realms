@@ -66,7 +66,7 @@ func setupRoute(cur realm) string {
 
 // send transfers amount of ugnot from sender to an Ethereum receiver, sending
 // coins with the call (the coins land at the transfer realm first).
-func send(cur realm, route string, amount, coins int64, receiver string) uint64 {
+func send(cur realm, route string, amount uint256, coins int64, receiver string) uint64 {
 	testing.IssueCoins(chain.PackageAddress(transfer.PkgPath), chain.NewCoins(chain.NewCoin("ugnot", coins)))
 	testing.SetRealm(testing.NewUserRealm(sender))
 	testing.SetOriginSend(chain.NewCoins(chain.NewCoin("ugnot", coins)))
@@ -78,8 +78,8 @@ func send(cur realm, route string, amount, coins int64, receiver string) uint64 
 
 // recv delivers a packet from Ethereum to the transfer app as the core does
 // after verifying its proof.
-func recv(cur realm, route string, seq uint64, denom, receiver string, amount int64) types.RecvPacketResult {
-	data := ics20.NewFungibleTokenPacketData(denom, strconv.FormatInt(amount, 10), "0x5f67a5398d91087d1b37a8a43436196a7830867f", receiver, "")
+func recv(cur realm, route string, seq uint64, denom, receiver string, amount uint256) types.RecvPacketResult {
+	data := ics20.NewFungibleTokenPacketData(denom, strconv.FormatUint256(amount, 10), "0x5f67a5398d91087d1b37a8a43436196a7830867f", receiver, "")
 	bz, err := abi.Marshal(data)
 	if err != nil {
 		panic(err)
@@ -125,7 +125,7 @@ func claimRefunds(cur realm, route string) int {
 
 func record(route string, seq uint64) string {
 	r, _ := controlsView().Send(route, controls.PacketKey(route, seq))
-	return r.Outcome + "/" + r.Payment + " refunded " + strconv.FormatInt(r.Refunded, 10) + " at height " + strconv.FormatInt(r.ProcessedHeight, 10)
+	return r.Outcome + "/" + r.Payment + " refunded " + strconv.FormatUint256(r.Refunded, 10) + " at height " + strconv.FormatInt(r.ProcessedHeight, 10)
 }
 
 // Refunds on a route (ADR pr6375 §7.13, §7.3): acknowledgements and timeouts
@@ -191,5 +191,5 @@ func main(cur realm) {
 // claim a day later: 0 sender + 0
 // s3: timeout/claimed refunded 1500 at height 123
 // s4: timeout/claimed refunded 600 at height 123
-// {"denom":"ugnot","amount":1000,"clients":[{"client":"ethereum-1","amount":1000}]}
+// {"denom":"ugnot","amount":"1000","clients":[{"client":"ethereum-1","amount":"1000"}]}
 // a settled send again: controls: send ethereum-1/00000000000000000003 is settled already (timeout)

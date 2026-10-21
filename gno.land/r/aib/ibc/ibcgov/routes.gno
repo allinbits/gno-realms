@@ -399,16 +399,16 @@ func denomText(denom string, c controls.DenomConfig) string {
 	if remote == "" {
 		remote = "-"
 	}
-	return denom + " kind=" + c.Kind + " capFloor=" + itoa(c.CapFloor) + " supplyCap=" + itoa(c.SupplyCap) +
-		" fee=" + itoa(c.Fee) + " feeFloor=" + itoa(c.FeeFloor) + " sendMax=" + itoa(c.SendMax) + " sendMin=" + itoa(c.SendMin) +
-		" refundCap=" + itoa(c.RefundCap) + " remoteToken=" + remote
+	return denom + " kind=" + c.Kind + " capFloor=" + u256s(c.CapFloor) + " supplyCap=" + u256s(c.SupplyCap) +
+		" fee=" + u256s(c.Fee) + " feeFloor=" + u256s(c.FeeFloor) + " sendMax=" + u256s(c.SendMax) + " sendMin=" + u256s(c.SendMin) +
+		" refundCap=" + u256s(c.RefundCap) + " remoteToken=" + remote
 }
 
 // denomConfig checks a denom's configuration as NewSetDenomRequest takes it
 // and returns the accounting denom (a minted denom named by its token's
 // Ethereum address becomes its voucher's IBC denom on route) and the
 // configuration.
-func denomConfig(route, denom, kind string, capFloor, supplyCap, fee, feeFloor, sendMax, sendMin, refundCap int64, remoteToken string) (string, controls.DenomConfig) {
+func denomConfig(route, denom, kind string, capFloor, supplyCap, fee, feeFloor, sendMax, sendMin, refundCap uint256, remoteToken string) (string, controls.DenomConfig) {
 	if !isDenom(denom) {
 		panic("ibcgov: not a denom: " + denom)
 	}
@@ -445,12 +445,13 @@ func denomConfig(route, denom, kind string, capFloor, supplyCap, fee, feeFloor, 
 // cap (mint); supplyCap the voucher supply cap (mint, else 0); fee and its
 // floor; sendMax and sendMin (unescrow, else 0); refundCap the refund meter's
 // day cap; remoteToken (unescrow, else "") the token's GnoVoucher on Ethereum,
-// which sends may never name as their receiver. For a minted denom, denom may be the token's Ethereum address
+// which sends may never name as their receiver. Amounts are base units of the
+// denom, as uint256 (an 18-decimal token's limits are set in its own units). For a minted denom, denom may be the token's Ethereum address
 // (0x…): the voucher denom is then computed, ibc/<sha256("transfer/<route>/
 // <lower-case address>")>, the denom this chain keys the token's vouchers by.
 // A change that only tightens applies at once; a new denom or any loosening
 // waits 7 days.
-func NewSetDenomRequest(cur realm, route, denom, kind string, capFloor, supplyCap, fee, feeFloor, sendMax, sendMin, refundCap int64, remoteToken string) Request {
+func NewSetDenomRequest(cur realm, route, denom, kind string, capFloor, supplyCap, fee, feeFloor, sendMax, sendMin, refundCap uint256, remoteToken string) Request {
 	route = mustRoute(route)
 	denom, c := denomConfig(route, denom, kind, capFloor, supplyCap, fee, feeFloor, sendMax, sendMin, refundCap, remoteToken)
 	if old, ok := view().DenomConfig(route, denom); ok && old.Kind != kind {
@@ -574,16 +575,16 @@ func NewRestoreRequest(cur realm, route, keys string) Request {
 // only a packet received on the route with a success acknowledgement, for
 // its whole payable amount (a haircut goes through NewReduceRequest), never
 // above the free lock, deduplicated against every claim of the packet.
-func NewCreditRequest(cur realm, route, key, denom, to string, amount int64) Request {
+func NewCreditRequest(cur realm, route, key, denom, to string, amount uint256) Request {
 	route = mustRoute(route)
 	if _, _, ok := controls.ParsePacketKey(key); !ok {
 		panic("ibcgov: not a packet key: " + key)
 	}
-	if !isDenom(denom) || amount <= 0 {
+	if !isDenom(denom) || amount == 0 {
 		panic("ibcgov: a credit names a denom and a positive amount")
 	}
 	a := mustAddr(to)
-	text := "credit " + itoa(amount) + " " + denom + " to " + string(a) + " for packet " + key + " on route " + route
+	text := "credit " + u256s(amount) + " " + denom + " to " + string(a) + " for packet " + key + " on route " + route
 	return routeRequest(cur, controls.OpCredit, "credit", text, controls.Params{Route: route, Key: key, Denom: denom, To: a, Amount: amount}, true)
 }
 
@@ -612,7 +613,7 @@ var lossCauses = map[string]bool{
 // represented on gno.land (a claim or a sweep entry) books its loss by a void
 // as forged or a forged-receive settlement, so a "gno" loss of it is refused,
 // and a second loss of any packet is refused (controls.Route.RecordLoss).
-func NewRecordLossRequest(cur realm, route, key, denom string, amount int64, chain, incident, cause string) Request {
+func NewRecordLossRequest(cur realm, route, key, denom string, amount uint256, chain, incident, cause string) Request {
 	route = mustRoute(route)
 	mustIncident(incident)
 	if !lossCauses[cause] {
@@ -621,10 +622,10 @@ func NewRecordLossRequest(cur realm, route, key, denom string, amount int64, cha
 	if chain != controls.ChainGno && chain != controls.ChainEthereum {
 		panic("ibcgov: a loss happens on gno or ethereum")
 	}
-	if _, _, ok := controls.ParsePacketKey(key); !ok || !isDenom(denom) || amount <= 0 {
+	if _, _, ok := controls.ParsePacketKey(key); !ok || !isDenom(denom) || amount == 0 {
 		panic("ibcgov: a loss names a packet key, a denom and a positive amount")
 	}
-	text := "loss of " + itoa(amount) + " " + denom + " on " + chain + " for packet " + key + " on route " + route + " (" + cause + ", incident " + incident + ")"
+	text := "loss of " + u256s(amount) + " " + denom + " on " + chain + " for packet " + key + " on route " + route + " (" + cause + ", incident " + incident + ")"
 	return routeRequest(cur, controls.OpLoss, "record loss", text,
 		controls.Params{Route: route, Key: key, Denom: denom, Amount: amount, Chain: chain, Incident: incident, Cause: cause}, true)
 }
@@ -632,13 +633,13 @@ func NewRecordLossRequest(cur realm, route, key, denom string, amount int64, cha
 // NewRecapitalizeRequest authorizes a recapitalization of route's escrow of
 // denom by amount after 7 days; anyone then pays it with
 // transfer.Recapitalize(route, id).
-func NewRecapitalizeRequest(cur realm, route, denom string, amount int64, incident string) Request {
+func NewRecapitalizeRequest(cur realm, route, denom string, amount uint256, incident string) Request {
 	route = mustRoute(route)
 	mustIncident(incident)
-	if !isDenom(denom) || amount <= 0 {
+	if !isDenom(denom) || amount == 0 {
 		panic("ibcgov: a recapitalization names a denom and a positive amount")
 	}
-	return routeRequest(cur, controls.OpRecapitalize, "recapitalize", "recapitalize "+itoa(amount)+" "+denom+" on route "+route+" (incident "+incident+")",
+	return routeRequest(cur, controls.OpRecapitalize, "recapitalize", "recapitalize "+u256s(amount)+" "+denom+" on route "+route+" (incident "+incident+")",
 		controls.Params{Route: route, Denom: denom, Amount: amount, Incident: incident}, true)
 }
 
@@ -653,38 +654,39 @@ func NewRevokeRecapRequest(cur realm, route string, id int64) Request {
 		panic("ibcgov: no unpaid recapitalization " + itoa(id) + " on route " + route)
 	}
 	return routeRequest(cur, controls.OpRevokeRecap, "revoke recap", "revoke recapitalization "+itoa(id)+" on route "+route,
-		controls.Params{Route: route, Amount: id}, false)
+		controls.Params{Route: route, ID: id}, false)
 }
 
 // NewReduceRequest cuts an open or withheld claim, or an unpaid owed sweep
 // entry, by amount against an incident after 7 days (a published liability
 // reduction; refunds are never reduced).
-func NewReduceRequest(cur realm, route, key string, amount int64, incident string) Request {
+func NewReduceRequest(cur realm, route, key string, amount uint256, incident string) Request {
 	route = mustRoute(route)
 	mustIncident(incident)
-	if _, _, ok := controls.ParsePacketKey(key); !ok || amount <= 0 {
+	if _, _, ok := controls.ParsePacketKey(key); !ok || amount == 0 {
 		panic("ibcgov: a reduction names a packet key and a positive amount")
 	}
-	return routeRequest(cur, controls.OpReduce, "reduce", "reduce the liability of "+key+" on route "+route+" by "+itoa(amount)+" (incident "+incident+")",
+	return routeRequest(cur, controls.OpReduce, "reduce", "reduce the liability of "+key+" on route "+route+" by "+u256s(amount)+" (incident "+incident+")",
 		controls.Params{Route: route, Key: key, Amount: amount, Incident: incident}, true)
 }
 
 // NewAcceptDeficitRequest records an accepted deficit after 7 days: the route
 // reopens with amount of its losses unrecovered, as the trust statement says.
-func NewAcceptDeficitRequest(cur realm, route, denom string, amount int64, incident string) Request {
+func NewAcceptDeficitRequest(cur realm, route, denom string, amount uint256, incident string) Request {
 	route = mustRoute(route)
 	mustIncident(incident)
-	if !isDenom(denom) || amount <= 0 {
+	if !isDenom(denom) || amount == 0 {
 		panic("ibcgov: an accepted deficit names a denom and a positive amount")
 	}
-	return routeRequest(cur, controls.OpAccept, "accept deficit", "accept a deficit of "+itoa(amount)+" "+denom+" on route "+route+" (incident "+incident+")",
+	return routeRequest(cur, controls.OpAccept, "accept deficit", "accept a deficit of "+u256s(amount)+" "+denom+" on route "+route+" (incident "+incident+")",
 		controls.Params{Route: route, Denom: denom, Amount: amount, Incident: incident}, true)
 }
 
 // NewSettleRequest applies a reconciliation's outcomes to the sends of
 // client, a client a replacement retired from route, after 7 days (ADR pr6375
 // §7.12, the gno analogue of Ethereum's kind 12): items is a comma-separated
-// list of "sequence:action:amount", action 1 a genuine refund: pay its whole
+// list of "sequence:action:amount" (the amount in base units as decimal
+// digits), action 1 a genuine refund: pay its whole
 // remainder (amount equals what the send carried minus what was refunded: a
 // refund is never cut short; 0 for one paid in full, which only settles the
 // record), 2 reject a queued refund none of which was paid (amount 0), 3
@@ -716,8 +718,8 @@ func NewSettleRequest(cur realm, route, client, items, incident string) Request 
 		}
 		seq, err1 := strconv.ParseUint(parts[0], 10, 64)
 		action, err2 := strconv.ParseUint(parts[1], 10, 8)
-		amount, err3 := strconv.ParseInt(parts[2], 10, 64)
-		if err1 != nil || err2 != nil || err3 != nil || seq == 0 || seen[settleItemKey(seq, action)] || action < 1 || action > 5 || amount < 0 {
+		amount, err3 := strconv.ParseUint256(parts[2], 10)
+		if err1 != nil || err2 != nil || err3 != nil || seq == 0 || seen[settleItemKey(seq, action)] || action < 1 || action > 5 {
 			panic("ibcgov: not a settlement item, or a sequence named twice in its direction: " + it)
 		}
 		if ((action == 4 || action == 5) && amount == 0) || ((action == 2 || action == 3) && amount != 0) {

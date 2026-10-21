@@ -73,6 +73,25 @@ func Uint256(w [Word]byte) Value {
 	return Value{kind: kindWord, word: w}
 }
 
+// Uint256Of is a uint256 holding v.
+func Uint256Of(v uint256) Value {
+	var w [Word]byte
+	for i := Word - 1; i >= 0; i-- {
+		w[i] = byte(v)
+		v >>= 8
+	}
+	return Uint256(w)
+}
+
+// WordUint256 reads a big-endian 32-byte word as a uint256.
+func WordUint256(w [Word]byte) uint256 {
+	var v uint256
+	for _, c := range w {
+		v = v<<8 | uint256(c)
+	}
+	return v
+}
+
 // Uint256Decimal is a uint256 given in decimal digits: no sign, no leading
 // "+", no spaces, at least one digit; leading zeros are accepted. It errs when
 // the number does not fit 256 bits.

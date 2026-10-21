@@ -68,8 +68,8 @@ func setupRoute(cur realm) string {
 }
 
 // ethPacket is a transfer packet the Ethereum router sent to client.
-func ethPacket(client string, seq uint64, token, receiver string, amount int64, timeout uint64) types.Packet {
-	data := ics20.NewFungibleTokenPacketData(token, strconv.FormatInt(amount, 10), ethReceiver, receiver, "")
+func ethPacket(client string, seq uint64, token, receiver string, amount uint256, timeout uint64) types.Packet {
+	data := ics20.NewFungibleTokenPacketData(token, strconv.FormatUint256(amount, 10), ethReceiver, receiver, "")
 	bz, err := abi.Marshal(data)
 	if err != nil {
 		panic(err)

@@ -75,7 +75,7 @@ func setupRoute(cur realm) string {
 
 // send transfers amount of ugnot from sender to an Ethereum receiver, sending
 // coins with the call (the coins land at the transfer realm first).
-func send(cur realm, route string, amount, coins int64, receiver string) uint64 {
+func send(cur realm, route string, amount uint256, coins int64, receiver string) uint64 {
 	testing.IssueCoins(chain.PackageAddress(transfer.PkgPath), chain.NewCoins(chain.NewCoin("ugnot", coins)))
 	testing.SetRealm(testing.NewUserRealm(sender))
 	testing.SetOriginSend(chain.NewCoins(chain.NewCoin("ugnot", coins)))
@@ -87,8 +87,8 @@ func send(cur realm, route string, amount, coins int64, receiver string) uint64 
 
 // recv delivers a packet from Ethereum to the transfer app as the core does
 // after verifying its proof.
-func recv(cur realm, route string, seq uint64, denom, receiver string, amount int64) types.RecvPacketResult {
-	data := ics20.NewFungibleTokenPacketData(denom, strconv.FormatInt(amount, 10), "0x5f67a5398d91087d1b37a8a43436196a7830867f", receiver, "")
+func recv(cur realm, route string, seq uint64, denom, receiver string, amount uint256) types.RecvPacketResult {
+	data := ics20.NewFungibleTokenPacketData(denom, strconv.FormatUint256(amount, 10), "0x5f67a5398d91087d1b37a8a43436196a7830867f", receiver, "")
 	bz, err := abi.Marshal(data)
 	if err != nil {
 		panic(err)
@@ -106,8 +106,8 @@ func controlsView() controls.Reader { return transfer.ExtView("controls").(contr
 func ugnot(a address) int64 { return banker.NewReadonlyBanker().GetCoin(a, "ugnot") }
 
 // recvOn delivers a packet arriving on client dst from the router client src.
-func recvOn(cur realm, src, dst string, seq uint64, denom, receiver string, amount int64) types.RecvPacketResult {
-	data := ics20.NewFungibleTokenPacketData(denom, strconv.FormatInt(amount, 10), ethReceiver, receiver, "")
+func recvOn(cur realm, src, dst string, seq uint64, denom, receiver string, amount uint256) types.RecvPacketResult {
+	data := ics20.NewFungibleTokenPacketData(denom, strconv.FormatUint256(amount, 10), ethReceiver, receiver, "")
 	bz, _ := abi.Marshal(data)
 	payload := types.Payload{SourcePort: "transfer", DestinationPort: "transfer", Version: "ics20-1", Encoding: abi.Encoding, Value: bz}
 	testing.SetRealm(testing.NewCodeRealm("gno.land/r/aib/ibc/core"))
@@ -117,7 +117,7 @@ func recvOn(cur realm, src, dst string, seq uint64, denom, receiver string, amou
 	return res
 }
 
-func sendVoucher(cur realm, client, voucher string, amount int64) uint64 {
+func sendVoucher(cur realm, client, voucher string, amount uint256) uint64 {
 	testing.SetRealm(testing.NewUserRealm(bob))
 	_, seq := transfer.Transfer(cross(cur), client, ethReceiver, voucher, amount, uint64(time.Now().Add(time.Hour).Unix()), "")
 	testing.SetRealm(testing.NewCodeRealm("gno.land/r/aib/main"))
@@ -134,7 +134,7 @@ func wireDenom(route, client string, seq uint64) string {
 func meters(route, denom string) string {
 	epoch, at := ibcgov.PayoutsEpoch(route)
 	b, r := controlsView().Meters(route, denom, bob, time.Now().Unix(), epoch, at, 0)
-	return "bridge " + strconv.FormatInt(b, 10) + ", bob " + strconv.FormatInt(r, 10)
+	return "bridge " + strconv.FormatUint256(b, 10) + ", bob " + strconv.FormatUint256(r, 10)
 }
 
 // sendBack is the home page's "send back" action of the voucher (its link
@@ -156,20 +156,20 @@ func decided(id int64) string {
 
 func claimState(route string, seq uint64) string {
 	c, _ := controlsView().Claim(route, controls.PacketKey(route, seq))
-	return c.State + " paid " + strconv.FormatInt(c.Paid, 10)
+	return c.State + " paid " + strconv.FormatUint256(c.Paid, 10)
 }
 
-// A genuine refund the voucher token's supply cannot hold is parked by the
-// settlement decision, not refused (Codex round 31 #1): the settlement is
-// planned first, only its immediate payments are checked against their
-// token, then it applies whole. Here the vouchers in circulation reach
-// MaxInt64 after a return's reservation was released by a forged success;
-// the return is proven refundable through the replacement client, its
-// settlement executes (the refund parked, the record settled), and the route
-// reopens.
+// A genuine refund of a minted denom is always paid by the settlement
+// decision, never parked or cut: nothing bounds the vouchers it mints again
+// (the supply cap governs admission only), and the supply counts in uint256
+// (ADR pr6375 R15 as amended). Here the vouchers in circulation pass the
+// int64 maximum after a return's reservation was released by a forged
+// success; the return is proven refundable through the replacement client,
+// its settlement pays it whole, and the route reopens.
 func main(cur realm) {
 	route := setupRoute(cur)
-	execute(cur, govern(cur, ibcgov.NewSetDenomRequest(cross(cur), route, weth, "mint", 4_000, 9_223_372_036_854_775_807, 10, 1, 0, 0, 4_000, "")))
+	const supply = 100_000_000_000_000_000_000_000 // 1e26 base units: an 18-decimal token's 100 million
+	execute(cur, govern(cur, ibcgov.NewSetDenomRequest(cross(cur), route, weth, "mint", 4_000, supply, 10, 1, 0, 0, 4_000, "")))
 	voucher := ics20.NewDenom(weth, ics20.NewHop("transfer", route)).IBCDenom()
 
 	// bob gets 1000 vouchers (an owed sweep entry paid by decision), and
@@ -186,11 +186,12 @@ func main(cur realm) {
 	}
 	testing.SetRealm(testing.NewCodeRealm("gno.land/r/aib/main"))
 
-	// Forged credits fill the supply: MaxInt64 vouchers to carol.
-	recv(cur, route, 2, weth, "not-an-address", 9_223_372_036_854_775_807)
+	// Forged credits take the supply past int64: the rest of the cap, less
+	// 1000, to carol.
+	recv(cur, route, 2, weth, "not-an-address", supply-1_000)
 	execute(cur, govern(cur, ibcgov.NewSweepRequest(cross(cur), route, controls.PacketKey(route, 2), string(carol))))
 	t, _ := controlsView().Totals(route, voucher)
-	println("vouchers out:", t.Outstanding, "| returning:", t.Returning)
+	println("vouchers out:", t.Outstanding, "| returning:", t.Returning, "| carol:", transfer.VoucherBalanceOf(voucher, carol))
 
 	// The replacement proves the return never arrived.
 	router := ethtesting.NewRouter()
@@ -206,7 +207,8 @@ func main(cur realm) {
 	println("settle:", decided(settle))
 	rec, _ = controlsView().Send(route, controls.PacketKey(route, ret))
 	t, _ = controlsView().Totals(route, voucher)
-	println("record: settlement", rec.Settlement, "payment", rec.Payment, "| queued", t.QueuedRefunds, "parked", t.Parked, "returning", t.Returning)
+	println("record: settlement", rec.Settlement, "payment", rec.Payment, "refunded", rec.Refunded, "| queued", t.QueuedRefunds, "returning", t.Returning, "out", t.Outstanding)
+	println("bob:", transfer.VoucherBalanceOf(voucher, bob))
 
 	reopen := govern(cur, ibcgov.NewReopenRouteRequest(cross(cur), route))
 	execute(cur, reopen)
@@ -214,7 +216,8 @@ func main(cur realm) {
 }
 
 // Output:
-// vouchers out: 9223372036854775807 | returning: 0
+// vouchers out: 99999999999999999999000 | returning: 0 | carol: 99999999999999999999000
 // settle: applied - settle
-// record: settlement 1 payment queued | queued 1000 parked 1000 returning 0
+// record: settlement 1 payment reconciled refunded 1000 | queued 0 returning 0 out 100000000000000000000000
+// bob: 1000
 // reopen: applied - reopen | closed: false

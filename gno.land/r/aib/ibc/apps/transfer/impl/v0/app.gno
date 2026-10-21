@@ -2,7 +2,6 @@ package impl
 
 import (
 	"bytes"
-	"chain"
 	"chain/runtime/unsafe"
 	"errors"
 	"strconv"
@@ -76,39 +75,40 @@ func (l *logic) OnSendPacket(_ int, rlm realm, sourceClient, destinationClient s
 		return err
 	}
 
-	coin, err := token.ToCoin()
+	amount, err := token.AmountUint256()
 	if err != nil {
-		return ufmt.Errorf("token to coin error: %v", err)
+		return err
 	}
+	ibcDenom := token.Denom.IBCDenom()
 	if token.Denom.HasPrefix(payload.SourcePort, sourceClient) {
 		expected, ok := l.store.ConsumePendingVoucherSend(0, rlm)
 		if !ok {
 			return ufmt.Errorf("voucher packet must be initiated through transfer.Transfer")
 		}
-		if err := ValidatePendingSend(expected, data.Sender, sourceClient, token.Denom.Path(), coin.Amount); err != nil {
+		if err := ValidatePendingSend(expected, data.Sender, sourceClient, token.Denom.Path(), amount); err != nil {
 			return ufmt.Errorf("voucher packet %v", err)
 		}
 
 		// Burn the voucher tokens from sender
-		if err := l.store.BurnVoucher(0, rlm, coin.Denom, address(data.Sender), coin.Amount); err != nil {
-			if l.store.VoucherToken(coin.Denom) == nil {
+		if err := l.store.BurnVoucher(0, rlm, ibcDenom, address(data.Sender), amount); err != nil {
+			if l.store.VoucherToken(ibcDenom) == nil {
 				return err
 			}
-			return ufmt.Errorf("burn voucher %s error: %v", coin.String(), err)
+			return ufmt.Errorf("burn voucher %s%s error: %v", token.Amount, ibcDenom, err)
 		}
 	} else if transfer.IsGRC20Alias(token.Denom.Base) {
 		expected, ok := l.store.ConsumePendingGRC20Send(0, rlm)
 		if !ok {
 			return ufmt.Errorf("GRC20 packet must be initiated through transfer.Transfer")
 		}
-		if err := ValidatePendingSend(expected, data.Sender, sourceClient, token.Denom.Path(), coin.Amount); err != nil {
+		if err := ValidatePendingSend(expected, data.Sender, sourceClient, token.Denom.Path(), amount); err != nil {
 			return ufmt.Errorf("GRC20 packet %v", err)
 		}
 
 		// Non-IBC GRC20 token: escrow via TransferFrom.
 		// The caller must have approved the transfer app realm address.
 		denomKey := transfer.ResolveGRC20Alias(token.Denom.Base)
-		if err := l.store.EscrowGRC20(0, rlm, sourceClient, denomKey, address(data.Sender), coin); err != nil {
+		if err := l.store.EscrowGRC20(0, rlm, sourceClient, denomKey, address(data.Sender), amount); err != nil {
 			return err
 		}
 	} else {
@@ -116,10 +116,15 @@ func (l *logic) OnSendPacket(_ int, rlm realm, sourceClient, destinationClient s
 		// here because PreviousRealm() is the core realm (not the EOA), so
 		// the escrow envelope is verified upstream by Transfer() and handed
 		// off through the store. A direct caller of core.SendPacket for a
-		// native packet will find the slot empty and be rejected.
+		// native packet will find the slot empty and be rejected. A coin is
+		// an int64: the packet's amount must fit one.
 		expected, ok := l.store.PendingNativeEscrow()
 		if !ok {
 			return ufmt.Errorf("native packet must be initiated through transfer.Transfer")
+		}
+		coin, err := token.ToCoin()
+		if err != nil {
+			return ufmt.Errorf("token to coin error: %v", err)
 		}
 		if coin.Denom != expected.Denom || coin.Amount != expected.Amount {
 			return ufmt.Errorf(
@@ -128,7 +133,7 @@ func (l *logic) OnSendPacket(_ int, rlm realm, sourceClient, destinationClient s
 			)
 		}
 		// Escrow the coin on the proxy's balance, accounted under sourceClient.
-		l.store.AddEscrow(0, rlm, sourceClient, coin)
+		l.store.AddEscrow(0, rlm, sourceClient, coin.Denom, transfer.CoinAmount(coin))
 	}
 
 	transfer.EmitTransfer(0, rlm, data.Sender, data.Receiver, token.Denom.Path(), token.Amount, data.Memo)
@@ -137,7 +142,7 @@ func (l *logic) OnSendPacket(_ int, rlm realm, sourceClient, destinationClient s
 
 // ValidatePendingSend checks that a send matches the transfer.Transfer call
 // that announced it.
-func ValidatePendingSend(expected transfer.PendingSend, sender, sourceClient, denom string, amount int64) error {
+func ValidatePendingSend(expected transfer.PendingSend, sender, sourceClient, denom string, amount uint256) error {
 	if expected.Sender != sender ||
 		expected.SourceClient != sourceClient ||
 		expected.Denom != denom ||
@@ -220,14 +225,13 @@ func (l *logic) OnRecvPacket(_ int, rlm realm, sourceClient, destinationClient s
 
 		// remove prefix added by sender chain
 		token.Denom.Trace = token.Denom.Trace[1:]
-		var transferAmount int64
-		transferAmount, ackErr = token.AmountInt64()
+		var amount uint256
+		amount, ackErr = token.AmountUint256()
 		if ackErr != nil {
 			ack = types.NewErrorAppAcknowledgement(ackErr)
 			return types.RecvPacketResult{Status: types.PacketStatus_Failure}
 		}
-
-		coin := chain.NewCoin(token.Denom.IBCDenom(), transferAmount)
+		denom := token.Denom.IBCDenom()
 
 		// The escrow being released was recorded under destinationClient when
 		// this chain originally sent the token out (the packet now arrives on
@@ -235,10 +239,10 @@ func (l *logic) OnRecvPacket(_ int, rlm realm, sourceClient, destinationClient s
 		// Debiting destinationClient, not sourceClient, is what prevents a
 		// packet arriving on a different client from draining escrow that
 		// belongs to another client.
-		if transfer.IsGRC20Alias(coin.Denom) {
-			ackErr = l.store.UnescrowGRC20(0, rlm, destinationClient, string(receiver), coin)
+		if transfer.IsGRC20Alias(denom) {
+			ackErr = l.store.UnescrowGRC20(0, rlm, destinationClient, string(receiver), denom, amount)
 		} else {
-			ackErr = l.store.UnescrowNative(0, rlm, destinationClient, string(receiver), coin)
+			ackErr = l.store.UnescrowNative(0, rlm, destinationClient, string(receiver), denom, amount)
 		}
 		if ackErr != nil {
 			ack = types.NewErrorAppAcknowledgement(ackErr)
@@ -261,8 +265,8 @@ func (l *logic) OnRecvPacket(_ int, rlm realm, sourceClient, destinationClient s
 		transfer.EmitDenom(0, rlm, token.Denom.HashHex(), string(token.Denom.MarshalJSON()))
 
 		// Mint voucher tokens to the receiver
-		var amount int64
-		amount, ackErr = token.AmountInt64()
+		var amount uint256
+		amount, ackErr = token.AmountUint256()
 		if ackErr != nil {
 			ack = types.NewErrorAppAcknowledgement(ackErr)
 			return types.RecvPacketResult{Status: types.PacketStatus_Failure}
@@ -361,28 +365,29 @@ func (l *logic) OnTimeoutPacket(_ int, rlm realm, sourceClient, destinationClien
 // refundPacketToken returns to sender what OnSendPacket took: it re-mints
 // burnt vouchers, or releases the escrow recorded under sourceClient.
 func (l *logic) refundPacketToken(_ int, rlm realm, sourcePort, sourceClient, sender string, token ics20.Token) error {
-	coin, err := token.ToCoin()
+	amount, err := token.AmountUint256()
 	if err != nil {
-		return ufmt.Errorf("token to coin error: %v", err)
+		return err
 	}
+	denom := token.Denom.IBCDenom()
 	if token.Denom.HasPrefix(sourcePort, sourceClient) {
 		// Re-mint voucher tokens that were burnt during OnSendPacket
-		if err := l.store.MintVoucher(0, rlm, coin.Denom, address(sender), coin.Amount); err != nil {
-			if l.store.VoucherToken(coin.Denom) == nil {
+		if err := l.store.MintVoucher(0, rlm, denom, address(sender), amount); err != nil {
+			if l.store.VoucherToken(denom) == nil {
 				return err
 			}
 			return ufmt.Errorf("re-mint voucher error: %v", err)
 		}
-	} else if transfer.IsGRC20Alias(coin.Denom) {
+	} else if transfer.IsGRC20Alias(denom) {
 		// Non-IBC GRC20: return escrowed tokens to sender. These tokens were
 		// escrowed under sourceClient on OnSendPacket, so release there.
-		if err := l.store.UnescrowGRC20(0, rlm, sourceClient, sender, coin); err != nil {
+		if err := l.store.UnescrowGRC20(0, rlm, sourceClient, sender, denom, amount); err != nil {
 			return err
 		}
 	} else {
 		// Native: return escrowed coins to sender. These coins were escrowed
 		// under sourceClient on OnSendPacket, so release there.
-		if err := l.store.UnescrowNative(0, rlm, sourceClient, sender, coin); err != nil {
+		if err := l.store.UnescrowNative(0, rlm, sourceClient, sender, denom, amount); err != nil {
 			return err
 		}
 	}

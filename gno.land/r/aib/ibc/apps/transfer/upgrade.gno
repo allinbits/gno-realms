@@ -57,7 +57,7 @@ type Logic interface {
 	// in the store, builds the packet and sends it through the IBC core.
 	// sent is the send envelope of the transaction, read by the proxy (see
 	// transfer.gno for why the implementation must not read it itself).
-	Transfer(_ int, rlm realm, sent []chain.Coin, clientID, receiver, denom string, amount int64, timeoutTimestamp uint64, memo string) (packet types.MsgSendPacket, sequence uint64)
+	Transfer(_ int, rlm realm, sent []chain.Coin, clientID, receiver, denom string, amount uint256, timeoutTimestamp uint64, memo string) (packet types.MsgSendPacket, sequence uint64)
 
 	// The app.IBCApp callbacks, in the non-crossing form.
 	OnSendPacket(_ int, rlm realm, sourceClient, destinationClient string, sequence uint64, payload types.Payload) error

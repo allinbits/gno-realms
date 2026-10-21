@@ -22,7 +22,7 @@ const (
 	OpSweep        = "sweep"        // Route, Keys, To
 	OpLoss         = "loss"         // Route, Key, Denom, Amount, Chain, Incident, Cause
 	OpRecapitalize = "recapitalize" // Route, Denom, Amount, Incident
-	OpRevokeRecap  = "revoke recap" // Route, Amount (the authorization id)
+	OpRevokeRecap  = "revoke recap" // Route, ID (the authorization id)
 	OpReduce       = "reduce"       // Route, Key, Amount, Incident
 	OpAccept       = "accept"       // Route, Denom, Amount, Incident
 	OpSettle       = "settle"       // Route, Client (the retired client), Items, Incident
@@ -43,7 +43,8 @@ type Params struct {
 	To       address
 	Keys     []string
 	Forged   bool
-	Amount   int64
+	Amount   uint256
+	ID       int64
 	Config   DenomConfig
 	Items    []SettleItem
 	Height   int64
@@ -57,12 +58,12 @@ func (p Params) Encode() []byte {
 	for _, k := range p.Keys {
 		w.Str(k)
 	}
-	w.Bool(p.Forged).Int(p.Amount)
+	w.Bool(p.Forged).Uint256(p.Amount).Int(p.ID)
 	c := p.Config
-	w.Str(c.Kind).Int(c.CapFloor).Int(c.SupplyCap).Int(c.Fee).Int(c.FeeFloor).Int(c.SendMax).Int(c.SendMin).Int(c.RefundCap).Str(c.Remote)
+	w.Str(c.Kind).Uint256(c.CapFloor).Uint256(c.SupplyCap).Uint256(c.Fee).Uint256(c.FeeFloor).Uint256(c.SendMax).Uint256(c.SendMin).Uint256(c.RefundCap).Str(c.Remote)
 	w.Uvarint(uint64(len(p.Items)))
 	for _, it := range p.Items {
-		w.Uvarint(it.Seq).Uvarint(uint64(it.Action)).Int(it.Amount)
+		w.Uvarint(it.Seq).Uvarint(uint64(it.Action)).Uint256(it.Amount)
 	}
 	w.Int(p.Height)
 	return w.Bytes()
@@ -82,16 +83,17 @@ func DecodeParams(bz []byte) (Params, error) {
 		p.Keys = append(p.Keys, r.Str())
 	}
 	p.Forged = r.Bool()
-	p.Amount = r.Int()
+	p.Amount = r.Uint256()
+	p.ID = r.Int()
 	p.Config.Kind = r.Str()
-	p.Config.CapFloor, p.Config.SupplyCap, p.Config.Fee, p.Config.FeeFloor = r.Int(), r.Int(), r.Int(), r.Int()
-	p.Config.SendMax, p.Config.SendMin, p.Config.RefundCap, p.Config.Remote = r.Int(), r.Int(), r.Int(), r.Str()
+	p.Config.CapFloor, p.Config.SupplyCap, p.Config.Fee, p.Config.FeeFloor = r.Uint256(), r.Uint256(), r.Uint256(), r.Uint256()
+	p.Config.SendMax, p.Config.SendMin, p.Config.RefundCap, p.Config.Remote = r.Uint256(), r.Uint256(), r.Uint256(), r.Str()
 	n = r.Uvarint()
 	if r.Err() == nil && n > MaxKeys {
 		return Params{}, ufmt.Errorf("controls: more than %d items", MaxKeys)
 	}
 	for i := uint64(0); i < n && r.Err() == nil; i++ {
-		seq, action, amount := r.Uvarint(), r.Uvarint(), r.Int()
+		seq, action, amount := r.Uvarint(), r.Uvarint(), r.Uint256()
 		if action > 255 {
 			return Params{}, errors.New("controls: params: action out of range")
 		}

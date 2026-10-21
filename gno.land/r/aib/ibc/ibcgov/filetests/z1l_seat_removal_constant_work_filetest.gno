@@ -83,8 +83,8 @@ func clearAs(cur realm, who address, route, fn string) {
 
 // recv delivers a packet from Ethereum to the transfer app as the core does
 // after verifying its proof.
-func recv(cur realm, route string, seq uint64, denom, receiver string, amount int64) {
-	data := ics20.NewFungibleTokenPacketData(denom, strconv.FormatInt(amount, 10), "0x5f67a5398d91087d1b37a8a43436196a7830867f", receiver, "")
+func recv(cur realm, route string, seq uint64, denom, receiver string, amount uint256) {
+	data := ics20.NewFungibleTokenPacketData(denom, strconv.FormatUint256(amount, 10), "0x5f67a5398d91087d1b37a8a43436196a7830867f", receiver, "")
 	bz, err := abi.Marshal(data)
 	if err != nil {
 		panic(err)
@@ -107,12 +107,12 @@ func claim(cur realm, route, denom string) int {
 
 // meters is what the route's bridge meter and bob's meter of denom hold now,
 // under the payouts epoch ibcgov reports.
-func meters(route, denom string) (int64, int64) {
+func meters(route, denom string) (uint256, uint256) {
 	epoch, at := ibcgov.PayoutsEpoch(route)
 	return transfer.ExtView("controls").(controls.Reader).Meters(route, denom, bob, time.Now().Unix(), epoch, at, 0)
 }
 
-func paid(route string) int64 {
+func paid(route string) uint256 {
 	c, _ := transfer.ExtView("controls").(controls.Reader).Claim(route, controls.PacketKey(route, 1))
 	return c.Paid
 }

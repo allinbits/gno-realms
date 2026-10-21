@@ -89,6 +89,9 @@ func itoa(n int64) string { return strconv.FormatInt(n, 10) }
 
 func u64s(n uint64) string { return strconv.FormatUint(n, 10) }
 
+// u256s is an amount in decimal digits (ufmt takes no uint256).
+func u256s(v uint256) string { return strconv.FormatUint256(v, 10) }
+
 // who names a previous realm in a refusal: its pkgpath, or a user's address.
 func who(_ int, r realm) string {
 	if p := r.PkgPath(); p != "" {

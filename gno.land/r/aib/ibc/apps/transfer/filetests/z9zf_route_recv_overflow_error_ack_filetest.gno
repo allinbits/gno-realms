@@ -2,7 +2,6 @@
 package main
 
 import (
-	"math"
 	"strconv"
 	"testing"
 	"time"
@@ -68,8 +67,8 @@ func setupRoute(cur realm) string {
 }
 
 // ethPacket is a transfer packet the Ethereum router sent to client.
-func ethPacket(client string, seq uint64, token, receiver string, amount int64, timeout uint64) types.Packet {
-	data := ics20.NewFungibleTokenPacketData(token, strconv.FormatInt(amount, 10), ethReceiver, receiver, "")
+func ethPacket(client string, seq uint64, token, receiver string, amount uint256, timeout uint64) types.Packet {
+	data := ics20.NewFungibleTokenPacketData(token, strconv.FormatUint256(amount, 10), ethReceiver, receiver, "")
 	bz, err := abi.Marshal(data)
 	if err != nil {
 		panic(err)
@@ -94,31 +93,32 @@ func decided(id int64) string {
 	return d.State() + " - " + d.Note
 }
 
-// A receive that would overflow what the route owes is refused with an
-// error acknowledgement through the core, before anything is booked (Codex
-// round 12 #4): CheckCredit makes Credit's own checked addition.
+// A receive above Ethereum's maximum of 2^96 - 1 (abi.MaxAmount, the most
+// its transfer app sends) can only be a forgery: it is refused with an error
+// acknowledgement before any state change, and nothing is booked for it. One
+// at the maximum is booked as any other (here swept, above the free lock):
+// the liabilities count in uint256, so no genuine receive overflows them.
 func main(cur realm) {
 	const client = "ethereum-1"
 	timeout := uint64(time.Now().Add(90 * 24 * time.Hour).Unix())
-	big := ethPacket(client, 1, "transfer/client-0/ugnot", bob.String(), math.MaxInt64, timeout) // above the free lock: swept
-	one := ethPacket(client, 2, "transfer/client-0/ugnot", bob.String(), 1, timeout)
+	big := ethPacket(client, 1, "transfer/client-0/ugnot", bob.String(), abi.MaxAmount, timeout) // above the free lock: swept
+	over := ethPacket(client, 2, "transfer/client-0/ugnot", bob.String(), abi.MaxAmount+1, timeout)
 	router := ethtesting.NewRouter()
 	router.CommitPacket(big)
-	router.CommitPacket(one)
+	router.CommitPacket(over)
 	id := core.CreateClient(cross(cur), ethtesting.ClientState(), ethtesting.ConsensusStateWithRoot(router.StateRoot()))
 	core.RegisterCounterparty(cross(cur), id, [][]byte{{}}, "client-0")
 	execute(cur, govern(cur, ibcgov.NewEnrollRouteRequest(cross(cur), client, string(collector), bridge)))
 	execute(cur, govern(cur, ibcgov.NewSetDenomRequest(cross(cur), client, "ugnot", "unescrow", 10_000, 0, 20, 2, 25_000, 40, 10_000, "0x0000000000000000000000000000000000c0ffee")))
-
 	relay(cur, router, big)
 	t, _ := controlsView().Totals(client, "ugnot")
 	println("swept:", t.Swept)
-	relay(cur, router, one)
+	relay(cur, router, over)
 	errAck := types.CommitAcknowledgement(types.Acknowledgement{AppAcknowledgements: [][]byte{types.UniversalErrorAcknowledgement()}})
 	_, booked := controlsView().Sweep(client, controls.PacketKey(client, 2))
 	println("error ack:", string(core.PacketAcknowledgement(client, 2)) == string(errAck), "| booked:", booked)
 }
 
 // Output:
-// swept: 9223372036854775807
+// swept: 79228162514264337593543950335
 // error ack: true | booked: false
