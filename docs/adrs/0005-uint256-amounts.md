@@ -189,7 +189,11 @@ the only party that knows the counterparty's is governance.
   WETH received as `10^18` base units into an 18-decimal voucher; a change
   after the first receive refused by the builder and by `GovApply`; the
   same decimals with another change accepted; a denom configured without
-  decimals gets 0; the route JSON).
+  decimals gets 0; the route JSON), filetest `z9zzx` (the race: a
+  correction queued before any receive, the voucher created during its
+  delay, the decision spent at execution and never executable again, with
+  the route's configuration, meters, accounting, claims and the voucher's
+  decimals, supply and balances identical to the moment before).
 
 ### What the implementations do
 
