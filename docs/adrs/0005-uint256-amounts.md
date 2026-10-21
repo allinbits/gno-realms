@@ -139,6 +139,58 @@ voids and restores, the loss ledger's remedies, send records, the refund
 meter and hold, preparation, proofs and settlements, reopening, route
 replacement — keeps its rules and its tests, ported to `uint256`.
 
+### Voucher decimals
+
+An ICS20 packet carries an amount and a denom, no token metadata, so every
+voucher used to be created with 0 decimals: exact base units, which a
+wallet or gnoweb shows as `1000000000000000000` for 1 WETH. `grc20/v1`
+fixes a token's decimals at `NewToken` (0 to `MaxDecimals`, 18) and has no
+setter, so the decimals must be known before the voucher is created, and
+the only party that knows the counterparty's is governance.
+
+- `controls.DenomConfig` gains `Decimals int`, set with
+  `ibcgov.NewSetDenomRequest`'s trailing `decimals` parameter and carried
+  on the wire as a uvarint after `Remote` (`DecodeParams` refuses one above
+  `MaxDecimals`). `Validate` refuses a value outside 0 to
+  `controls.MaxDecimals` (= `grc20.MaxDecimals`), and a non-zero one on a
+  `KindUnescrow` denom: that token is gno-native, its escrow has no
+  metadata, and the voucher with decimals is Ethereum's `GnoVoucher` (E3),
+  so a value there could only be a mistake; refusing it keeps the record
+  honest rather than silently ignoring it.
+- The first receive of a minted denom on a route creates the voucher with
+  the configured decimals (`Store.GetOrCreateVoucher` takes them;
+  `impl/v1`'s `OnRecvPacket` reads the denom's configuration, which the
+  default-deny `CheckCredit` guarantees exists). A client the controls do
+  not cover (`impl/v0`, a Tendermint route) has no configuration and keeps
+  0. Amounts are base units whatever the decimals: the packet's amount is
+  the amount minted, as before.
+- Decimals are fixed once the voucher exists, as on Ethereum, where
+  `setCustomERC20` refuses a denom that has a token: a configuration whose
+  decimals differ from an existing voucher's is refused by the builder
+  (`transfer.VoucherDecimals`) and again when the decision executes
+  (`GovApply`, which spends it: a first receive during the 7-day delay
+  creates the voucher). A voucher minted before its denom was configured
+  (by `impl/v0`, 0 decimals) therefore takes only a configuration naming
+  0. Before the first receive, a change is accepted.
+- `controls.Loosens` treats any change of the decimals as loosening, so it
+  waits 7 days in either direction, like a change of the fee floor or of
+  the Ethereum token: neither direction tightens anything, and the value
+  is a commitment the voucher keeps for good, so the delay is the window to
+  catch a wrong one.
+- Renders: `routes/<route>`'s denom entries carry `"decimals"` (a JSON
+  number, a count); the voucher JSON's existing `"decimals"` now reflects
+  the token's real value; the decision text (`denomText`) ends with
+  ` decimals=N`.
+- Tests: `TestConfigValidateAndLoosens` (range, the unescrow refusal, the
+  delay in both directions), `TestCodecRoundTrip` (the wire field and its
+  bound), `TestVoucherDecimalsFixedAtCreation` (the store keeps the first
+  value), filetest `z9zzw` (the decision text; a change before the first
+  receive accepted; 19, -1 and an unescrowed denom's decimals refused; 1
+  WETH received as `10^18` base units into an 18-decimal voucher; a change
+  after the first receive refused by the builder and by `GovApply`; the
+  same decimals with another change accepted; a denom configured without
+  decimals gets 0; the route JSON).
+
 ### What the implementations do
 
 - `apps/transfer` (the proxy): the `Store` interface takes `uint256` amounts

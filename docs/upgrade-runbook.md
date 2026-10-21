@@ -328,7 +328,13 @@ address; deploying it unchanged hands governance to a key nobody holds.
    before the launch is proven. If one was recorded early, cancel it
    (`NewCancelRequest`) and record it again after the check. Ethereum activates its side by a governed kind 4
    (`NewEthLimitsRequest`). Then enable each denom with
-   `NewSetDenomRequest`. Before enabling a GRC20, review the token's code
+   `NewSetDenomRequest`. For an Ethereum token (`mint`), name its decimals
+   (the ERC20's `decimals()`, 0 to 18; ADR 0005 "Voucher decimals") with
+   the request: the first receive creates the voucher with them, and from
+   then on they never change (a configuration naming others is refused when
+   built and when it executes), so verify them before the first receive; a
+   correction is a 7-day decision only while no voucher exists. An
+   `unescrow` denom takes 0. Before enabling a GRC20, review the token's code
    and admin powers. Each transfer must move exactly the stated amount (no
    fee, tax or rounding), its balance queries must be truthful, and no
    balance may change on its own (no rebasing) or through a hook. Escrow

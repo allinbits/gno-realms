@@ -11,7 +11,9 @@
   member; loosening powers move to `gno.land/r/aib/ibc/ibcgov`).
 - Superseded in part by: ADR 0005 (amounts are `uint256`; the "Checked
   arithmetic" section below, the minted supply's int64 headroom and the
-  parking of minted settlement refunds no longer apply).
+  parking of minted settlement refunds no longer apply; a denom's
+  configuration also names its voucher's decimals, a change of which waits
+  7 days, see ADR 0005 "Voucher decimals").
 - Depends on: ADR 0001, ADR 0002, ADR 0003.
 
 ## Context

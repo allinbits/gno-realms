@@ -160,7 +160,7 @@ IBC voucher tokens (minted on RecvPacket for cross-chain tokens) use **GRC20 tok
 - Amounts are `uint256` everywhere but native coins (`chain.Coin`, the banker), which stay `int64`: the transfer realm converts at that boundary only (`transfer.CoinAmount`, `coinOf`). `ufmt`/`uassert` take no `uint256`: format with `strconv.FormatUint256`, compare natively. On an Ethereum route every amount is at most `2^96 - 1` (`abi.MaxAmount`).
 
 ### How It Works
-- **OnRecvPacket (mint)**: `getOrCreateGRC20(ibcDenom, baseDenom)` creates a GRC20 token + registers in grc20reg, then `inst.ledger.Mint(receiver, amount)`
+- **OnRecvPacket (mint)**: `getOrCreateVoucher(ibcDenom, baseDenom, decimals)` creates a GRC20 token + registers in grc20reg, then `inst.ledger.Mint(receiver, amount)`. An ICS20 packet carries no token metadata: on an Ethereum route the voucher takes the decimals governance configured for the denom (`ibcgov.NewSetDenomRequest`'s trailing `decimals`, 0..18, `controls.DenomConfig.Decimals`; a change waits 7 days and is refused once the voucher exists), elsewhere 0. Amounts are base units either way (ADR 0005, "Voucher decimals").
 - **OnSendPacket (burn)**: `getGRC20(ibcDenom)` retrieves the token, then `inst.ledger.Burn(sender, amount)`
 - **Refund (ack error / timeout)**: `getGRC20(ibcDenom)` + `inst.ledger.Mint(sender, amount)` to re-mint
 

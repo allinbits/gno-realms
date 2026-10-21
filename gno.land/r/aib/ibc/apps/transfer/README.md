@@ -424,10 +424,15 @@ Voucher tokens can be discovered in two ways:
    `gno.land/r/aib/ibc/apps/transfer.` prefix.
 
 The token name is the base denomination (e.g. `uatom`) and the symbol is
-allocated when the voucher is created (e.g. `IBC-1`). Every voucher has zero decimals: the
-counterparty's decimal metadata is not carried over, and balances are the
-unscaled base-unit amounts the packets carried. For the full denom and richer metadata
-(trace hops, total supply), query the render endpoint `voucher/ibc/{HASH}`.
+allocated when the voucher is created (e.g. `IBC-1`). An ICS20 packet carries
+no decimal metadata, so balances are always the unscaled base-unit amounts the
+packets carried. A voucher's decimals only tell wallets how to show them: on
+an Ethereum route they are the denom's governed configuration
+(`ibcgov.NewSetDenomRequest`'s `decimals`, 0 to 18, ADR 0005 "Voucher
+decimals"), fixed when the first receive creates the voucher; a voucher of a
+client the route controls do not cover (a Tendermint chain) has zero. For the
+full denom and richer metadata (trace hops, total supply), query the render
+endpoint `voucher/ibc/{HASH}`.
 
 ### Trading
 
