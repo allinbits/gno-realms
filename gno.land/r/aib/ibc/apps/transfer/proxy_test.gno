@@ -69,6 +69,8 @@ func (l *upgradeTestLogic) OnAcknowledgementPacket(_ int, rlm realm, sourceClien
 func resetUpgradeState() {
 	denoms = bptree.NewBPTree32()
 	totalEscrow = bptree.NewBPTree32()
+	escrowByDenom = bptree.NewBPTree32()
+	escrowTotals = bptree.NewBPTree32()
 	voucherTokens = bptree.NewBPTree32()
 	clearPendingSends()
 	impl = nil

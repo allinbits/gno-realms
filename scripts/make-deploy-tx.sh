@@ -166,4 +166,8 @@ cat <<EOT
        gnokey broadcast -remote $REMOTE $OUT
   4. On an "inert" chain the packages park until the approvers enable them; poll with
        gnokey query vm/qpkgmeta_json -data <pkgpath> -remote $REMOTE   (status: inert -> live)
+  5. Once the core is live, the authority adds the relayers: until then the relayer whitelist is
+     empty and any address may create clients and relay (see gno.land/r/aib/ibc/core/README.md,
+     "Relayer whitelist"). One MsgCall per relayer, through the same multisig flow:
+       gnokey maketx call -pkgpath gno.land/r/aib/ibc/core -func AddRelayer -args <relayer-address> ...
 EOT

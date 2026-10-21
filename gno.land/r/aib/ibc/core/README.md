@@ -310,6 +310,29 @@ do not carry a pause switch of their own.
 
 Emitted events: `app_paused` and `app_unpaused`, with a `port` attribute.
 
+## Relayer whitelist
+
+Client operations (`CreateClient`, `UpdateClient`, `UpgradeClient`) and packet
+relaying (`RecvPacket`, `Acknowledgement`, `Timeout`) are restricted to the
+relayers in a whitelist, checked against the transaction signer. The authority
+manages it with `AddRelayer(addr)` / `RemoveRelayer(addr)` (GovDAO
+constructors `NewAddRelayerProposalRequest` / `NewRemoveRelayerProposalRequest`),
+and `/r/aib/ibc/core:admin` lists it. `SendPacket` is not restricted: users
+send through their applications.
+
+**While the whitelist is empty, any address may do all of the above.** That
+is the state right after deployment. Then anyone can create clients,
+including clients of a chain they run, and relay packets from them: clients
+are never removed, and packets from such a client mint vouchers only that
+client's counterparty backs. **Right after deploying,
+the authority adds the relayers** that will serve the realm, one `MsgCall`
+per relayer:
+
+```sh
+gnokey maketx call -pkgpath gno.land/r/aib/ibc/core -func AddRelayer \
+    -args <relayer-address> ... <authority-member>
+```
+
 ## Authority
 
 Administrative operations (`AddRelayer`, `RemoveRelayer`, `Pause`, `Unpause`,
