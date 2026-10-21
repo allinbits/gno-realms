@@ -220,9 +220,14 @@ replacement — keeps its rules and its tests, ported to `uint256`.
   governance builders and `controls.Params`' wire format change as above.
 - Readers of the renders and events (the monitors, the watch tool, the
   TypeScript relayer, the e2e suite) parse amounts as decimal strings.
-- `p/nt/grc20/v1` and `r/nt/grc20reg/v1` must be in the chain's genesis
-  (pr6388: a `p/nt` path cannot be added after it); the test tooling fetches
-  them from the pinned gno's examples (`make mod-download`).
+- The route launches on a fresh chain (pr6375 §13, the owner's decision),
+  never by an in-place upgrade: its genesis is built from a gno release
+  carrying #6387 and #6388, lists `p/nt/grc20/v1`, `r/nt/grc20reg/v1` and
+  `p/nt/treasury/v1` with the IBC realms (pr6388: a `p/nt` path cannot be
+  added after genesis), and passes the #6387 rollout's reserved-name scan
+  (no genesis package declares `int256` or `uint256`, or imports a package
+  of either name unaliased). The test tooling fetches the v1 packages from
+  the pinned gno's examples (`make mod-download`).
 - The realms cannot be transpiled to Go (they use `uint256`), which nothing
   in this repository does.
 - ADR 0004's "Checked arithmetic" table and its headroom rules are
@@ -235,9 +240,6 @@ replacement — keeps its rules and its tests, ported to `uint256`.
 2. Whether the Ethereum bound stays a constant of the transfer app
    (`abi.MaxAmount`) or becomes a per-route governance parameter, should
    Ethereum's transfer app ever raise it by a kind 7 upgrade.
-3. The launch path: the route needs a chain launched with gno #6387 and
-   #6388 at genesis (#6387 excludes an in-place upgrade), while pr6375 §13
-   still plans a gnoland-1 upgrade; the owner decides (pr6375 §13).
 
 ## Review log
 
@@ -248,5 +250,6 @@ replacement — keeps its rules and its tests, ported to `uint256`.
   `lossesFit`, `TestForgedVoidLossesPreflighted`,
   `TestSettlementLossesPreflighted`); the e2e allowance test moved to
   `grc20reg/v1`; the runbook's settlement step no longer parks minted
-  refunds; pr6375 §7.1, §7.12 and §8.5 19 corrected, and §13's launch path
-  left to the owner (open question 3).
+  refunds; pr6375 §7.1, §7.12 and §8.5 19 corrected, and its launch
+  rewritten around a fresh chain whose genesis carries #6387/#6388 (the
+  owner's decision; Consequences).
