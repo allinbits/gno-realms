@@ -885,13 +885,13 @@ characters of `a-z`, `0-9`, `-`).
 9. **Settle**, at most 64 items a decision, each record once:
    `NewSettleRequest(R, OLD, "seq:action:amount,…", INC)` (7 days):
    - proven refundable or collision: `1` with the amount minus `refunded`
-     (`0` for one refunded in full, which only settles it); a refund the
-     supply (minted) or the free escrow (escrowed) cannot pay now is parked,
-     owed and reserved, never refusing the settlement, and paid by
-     `ClaimRefunds` after the reopening, as the escrow allows (a minted
-     refund is always paid by the settlement itself, ADR 0005) (an escrow a forged receive drained: recapitalize it, step
-     10, or accept the deficit and reopen, the refund then waiting for the
-     escrow to be whole);
+     (`0` for one refunded in full, which only settles it); a minted refund
+     is always paid by the settlement itself (ADR 0005); an escrowed refund
+     the free escrow cannot pay now is parked, owed and reserved, never
+     refusing the settlement, and paid by `ClaimRefunds` after the
+     reopening, as the escrow allows (an escrow a forged receive drained:
+     recapitalize it, step 10, or accept the deficit and reopen, the refund
+     then waiting for the escrow to be whole);
    - proven delivered, a queued refund none of which was paid: `2`, amount
      `0`;
    - proven delivered, no refund paid: `3`, amount `0`;
@@ -925,7 +925,9 @@ characters of `a-z`, `0-9`, `-`).
     loss once, from the payout chain's open balance: a mirror is never
     added. Then, on gno.land, per denom and incident (`Render("routes/R/losses")`,
     `Totals(R, denom)`): recapitalize an `unescrow` denom
-    (`NewRecapitalizeRequest(R, denom, amount, INC)`, then anyone pays it
+    (`NewRecapitalizeRequest(R, denom, amount, INC)`, `amount` at most
+    `2^63 - 1` for a coin denom, which one coin pays, any `uint256` for a
+    GRC20; then anyone pays it
     with `transfer.Recapitalize(R, authorizationID)`: the authorization id
     is the route's own numbering, not the ibcgov decision number; read it
     from the transfer app's `route_gov` event of the executed decision

@@ -73,7 +73,7 @@ Every aggregate goes through `controls/arith.gno`, by what reads it:
 
 | Helper | Rule | Used by |
 |---|---|---|
-| `checkedAdd` | refuses the operation that would pass `2^256 - 1` before anything changes | a credit's liabilities (`CheckCredit`, `CreditPending`: the "would overflow what is owed" refusal keeps its rule, at the uint256 maximum), a loss recorded by decision (`RecordLoss` through `lossFits`, against the denom's and the incident's outstanding balances), a sweep payment's total and the outstanding supply it adds to (`PaySweeps`), a settlement's escrowed refunds total (past the maximum the denom's refunds all park), `payable`'s per-denom totals and a voucher token's supply |
+| `checkedAdd` | refuses the operation that would pass `2^256 - 1` before anything changes | a credit's liabilities (`CheckCredit`, `CreditPending`: the "would overflow what is owed" refusal keeps its rule, at the uint256 maximum), every loss against the denom's and the incident's outstanding balances (`lossFits`: one recorded by decision, `RecordLoss`; `lossesFit`: a forged void's payouts and a settlement's forged refunds and receives, each batch summed per denom), a sweep payment's total and the outstanding supply it adds to (`PaySweeps`), a settlement's escrowed refunds total (past the maximum the denom's refunds all park), `payable`'s per-denom totals and a voucher token's supply |
 | `mustAdd`, `mustSub` | an overflow or a negative result where an earlier check bounds the result is a broken invariant and aborts the transaction | every move between totals, every payment within what is owed, the reservation and loss counters (`InFlight`, `Returning`, `QueuedRefunds`, `ProvenOwed`, `OpenUnrecovered`, `OpenUnresolved`), the escrow accounting (`addEscrowForClient`) |
 | `boundAdd` | saturates at the maximum: a sum used only as the upper bound of what is reserved or booked can only refuse more | `Reserved`, `booked`, `liabilities`, `Route.Unrecovered`/`Unresolved` |
 | `statAdd` | saturates: a statistic no check reads | `Credited`, `Paid`, `Fees`, `SweepPaid`, `Sent`, `SendFees`, `Refunded`, `Lost`, `Recapitalized`, `Reduced`, `Accepted`, a reopening's accepted total |
@@ -108,13 +108,24 @@ it whole.
    with its bound moved from `2^63 - 1` to `2^256 - 1` (unreachable on a
    route, since each packet is at most `2^96 - 1`); a receive above
    `2^96 - 1` is refused instead (above).
-3. **A loss recorded by decision** (`NewRecordLossRequest`) that the
-   ledger's balances could not hold is refused (spent), where the wide
-   counters took any loss; a void's or a settlement's loss, within a booked
-   claim or refund, aborts on a broken invariant instead.
+3. **A loss the ledger could not hold is refused**, before anything
+   changes, where the wide counters took any loss: one recorded by decision
+   (`NewRecordLossRequest`, spent), and the losses a forged void or a
+   settlement derives from paid claims, entries and refunds, checked whole
+   (summed per denom, against the denom's and the incident's outstanding
+   balances with every earlier loss) so a batch never aborts halfway; the
+   void or settlement is refused and the decision spent. Each loss is
+   within a booked payout, but the balances are not bounded by it. (A
+   balance near `2^256` takes a recorded loss of that size: unreachable on
+   a route by traffic, but a decision can record one.)
 4. **Native coin boundary**: a native send whose amount plus the route fee
    is above `math.MaxInt64` is refused (before, "the amount plus the route
-   fee overflows"); a native release above it is refused by the store.
+   fee overflows"); a native release above it is refused by the store; and
+   **a recapitalization in coins is at most `math.MaxInt64`**, refused by
+   `NewRecapitalizeRequest` and by `GovApply` (it is paid as one coin, an
+   int64, so a larger authorization could never be paid and would reserve
+   the incident's losses until revoked); a GRC20 one keeps the `uint256`
+   range.
 5. **Renders and events**: every amount in the controls' JSON
    (`routes/<route>`, `claims`, `sweeps`, `sends`, `losses`), in the
    transfer realm's `total_escrow/<denom>`, `vouchers`, `voucher/ibc/<hash>`
@@ -142,10 +153,15 @@ replacement — keeps its rules and its tests, ported to `uint256`.
 - `impl/v1` (Ethereum routes): the bound above on `Transfer` and
   `OnRecvPacket`; `payable` checks a voucher's supply against `2^256 - 1`
   and a native payment against `math.MaxInt64`; `GovApply` reads
-  `Params.ID` for a revocation.
+  `Params.ID` for a revocation and refuses a recapitalization in coins
+  above `math.MaxInt64`.
 - `ibcgov`: the builders take `uint256` amounts; kind 4 encodes them with
   `abi.Uint256Of` (the wire bytes are unchanged, pinned by the vector
-  filetests z2b and z2c); kind 12 parses its item amounts strictly.
+  filetests z2b and z2c); kind 12 parses its item amounts strictly;
+  `NewRecapitalizeRequest` refuses an amount in coins above
+  `math.MaxInt64`.
+- `e2e`: the allowance test's spender script imports `grc20reg/v1` and
+  spends a `uint256`.
 
 ### Tests
 
@@ -160,6 +176,9 @@ replacement — keeps its rules and its tests, ported to `uint256`.
   `TestSettlementNetReservations` (both refunds paid),
   `TestLossesNearMaximum`, `TestBatchLossesNeverWrap`,
   `TestLossCapacityFreedByRecovery` (a loss past the maximum refused),
+  `TestForgedVoidLossesPreflighted` and `TestSettlementLossesPreflighted`
+  (derived losses refused whole, per denom, against the balances every
+  incident shares),
   `TestLossLedgerBeyondInt64`, `TestMeterNearMaxCap` (the largest cap),
   `TestReturnAfterPartialRefund` (9e19 vouchers). The int64 escrow
   boundary of `TestStaggeredProofsKeepSiblingBacking` stays, as the escrow
@@ -170,7 +189,9 @@ replacement — keeps its rules and its tests, ported to `uint256`.
   coin boundary (`TestCoinOfBoundary`); filetest z9zf (a receive at
   `2^96 - 1` booked, one above it error-acked) and z9zw (a settlement pays
   a minted refund whole with the supply past int64) replace their int64
-  versions; every golden with amounts shows them as strings.
+  versions; z9d refuses a recapitalization in coins above `math.MaxInt64`
+  at the builder and at `GovApply`, a GRC20 one passing both; every golden
+  with amounts shows them as strings.
 
 ## Alternatives considered
 
@@ -214,3 +235,18 @@ replacement — keeps its rules and its tests, ported to `uint256`.
 2. Whether the Ethereum bound stays a constant of the transfer app
    (`abi.MaxAmount`) or becomes a per-route governance parameter, should
    Ethereum's transfer app ever raise it by a kind 7 upgrade.
+3. The launch path: the route needs a chain launched with gno #6387 and
+   #6388 at genesis (#6387 excludes an in-place upgrade), while pr6375 §13
+   still plans a gnoland-1 upgrade; the owner decides (pr6375 §13).
+
+## Review log
+
+- Round 1 (code: 3 P2; design: 1 P2, 4 P3): a recapitalization in coins
+  bounded by `math.MaxInt64` at the builder and at `GovApply` (rule 4); the
+  losses a forged void or a settlement derives checked whole, per denom,
+  against the ledger's balances before anything changes (rule 3,
+  `lossesFit`, `TestForgedVoidLossesPreflighted`,
+  `TestSettlementLossesPreflighted`); the e2e allowance test moved to
+  `grc20reg/v1`; the runbook's settlement step no longer parks minted
+  refunds; pr6375 §7.1, §7.12 and §8.5 19 corrected, and §13's launch path
+  left to the owner (open question 3).
