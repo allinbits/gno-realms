@@ -18,8 +18,9 @@ for examples.
 ## RegisterApp
 
 Applications register themselves with `core.RegisterApp(cross(cur), portID, app)`
-from their own realm (a user cannot call it), each port at most once, and a port
-is never freed.
+from their own realm (a user cannot call it). A port routes to one app at a
+time; only the authority frees it or hands it to a successor (see
+UnregisterApp / ReplaceApp).
 
 - A registration from this project's namespace, `gno.land/r/aib/...`, is active
   immediately: only the owner of the `aib` namespace can deploy there.
@@ -30,9 +31,42 @@ is never freed.
   see the Authority section). Pending registrations claim no port, so they can
   neither block a trusted app nor be approved once the port is taken.
   `IsAppPending(portID, pkgPath)` and `/r/aib/ibc/core:apps/pending` report them.
+- A registration for a port that is already active is recorded as pending
+  whatever the namespace, and can only take the port through `ReplaceApp`. The
+  active app registering its own port again is refused.
 
 Emitted events: `app_registered`, `app_registration_pending`, `app_approved`,
 `app_rejected`, with `port` and `pkg_path` attributes.
+
+## UnregisterApp / ReplaceApp
+
+Realms are immutable, so an application that is buggy or abandoned cannot be
+fixed in place. Two authority-gated, `MsgCall`-compatible operations let its
+port move on:
+
+- `core.ReplaceApp(portID, pkgPath)` hands the port from its active app to the
+  pending registration of `pkgPath`, in one step, so the port is never free
+  between two transactions. The successor first calls `RegisterApp` for the
+  taken port, which records it as pending. It inherits the pause state of the
+  port, so a paused port stays paused until `UnpauseApp`.
+- `core.UnregisterApp(portID)` frees the port: packets for it find no route,
+  and any realm may register it again.
+
+Both refuse while the current app owes an asynchronous acknowledgement, which
+only that realm may write. Neither can tell which in-flight packets the app
+sent: their acknowledgements and timeouts go to the successor after
+`ReplaceApp`, and find no route after `UnregisterApp`, so the refunds the
+previous app owes would not run. Pause the app first, and wait for its
+in-flight packets to be acknowledged or timed out, unless the successor can
+refund them (for instance because it shares the previous app's state). GovDAO
+constructors: `NewReplaceAppProposalRequest`, `NewUnregisterAppProposalRequest`.
+
+Value the previous app holds (escrow, token ledgers) stays with it. Proxied
+apps such as transfer are upgraded with their own `UpdateImpl` instead; the
+transfer README details what `ReplaceApp` would strand there.
+
+Emitted events: `app_replaced` with `port`, `old_pkg_path` and `new_pkg_path`
+attributes, and `app_unregistered` with `port` and `pkg_path`.
 
 ## CreateClient
 

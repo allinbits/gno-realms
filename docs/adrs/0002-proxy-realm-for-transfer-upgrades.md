@@ -118,7 +118,7 @@ Positive:
 - Escrowed coins, GRC20 escrow, user approvals, voucher ledgers and the
   `grc20reg` keys survive an upgrade because the proxy's address and path never
   change and the ledgers never leave it. The port registration in core is the
-  proxy forever, which is why core needs no `ReplaceApp` (issue #59).
+  proxy forever, so a transfer upgrade never needs core's `ReplaceApp`.
 - A transfer upgrade is an ordinary implementation upgrade: same runbook, same
   authority, no counterparty or relayer involvement.
 
