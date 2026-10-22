@@ -81,14 +81,16 @@ func settle(cur realm, id string) {
 // ethereum-3. gnoland-b is no client of the route here, current or
 // retired, yet its send records may still need settling (returning
 // vouchers stayed sendable while Ethereum's route was closed), so the
-// router clients the governance epoch ran over are kept, and a catch-up's
-// path adds the router clients it passed.
+// router clients the governance epoch ran over are kept, and a catch-up
+// adds every router client of the expected graph on a path to the
+// notice's client, not only the path whoever applied it named.
 func main(cur realm) {
 	route := client(cur, "client-0") // ethereum-1
 	lb := client(cur, "gnoland-b")   // ethereum-2
 	lc := client(cur, "gnoland-c")   // ethereum-3
 	ld := client(cur, "gnoland-d")   // ethereum-4
-	le := client(cur, "gnoland-e")   // ethereum-5
+	lx := client(cur, "gnoland-x")   // ethereum-5
+	le := client(cur, "gnoland-e")   // ethereum-6
 	execute(cur, govern(cur, ibcgov.NewEnrollRouteRequest(cross(cur), route, string(collector), bridge)))
 	execute(cur, govern(cur, ibcgov.NewBindGovernanceRequest(cross(cur), route)))
 
@@ -103,15 +105,25 @@ func main(cur realm) {
 	settle(cur, "client-0")
 	settle(cur, "gnoland-d")
 
-	// A catch-up: Ethereum moves on to gnoland-d, then gnoland-e; only
-	// gnoland-e's notice arrives, applied along the path through gnoland-d.
+	// A catch-up with two approved paths: Ethereum moves on to gnoland-e
+	// through gnoland-d (kind 10s gnoland-c to gnoland-d, gnoland-d to
+	// gnoland-e), the competing kind 10s through gnoland-x approved too;
+	// only gnoland-e's notice arrives, and whoever applies it names the
+	// path through gnoland-x. Every router client on an approved path from
+	// gnoland-c to gnoland-e enters the history, gnoland-d included, which
+	// Ethereum retired on its way; an id governance never approved stays
+	// out.
 	replace(cur, "gnoland-c", "gnoland-d", ld)
+	replace(cur, "gnoland-c", "gnoland-x", lx)
 	replace(cur, "gnoland-d", "gnoland-e", le)
+	replace(cur, "gnoland-x", "gnoland-e", le)
 	notice(cur, 5, "gnoland-e", le) // two steps on: recorded as proven
-	ibcgov.ApplyEpochNotice(cross(cur), 5, le, "gnoland-d/"+ld+",gnoland-e/"+le)
+	ibcgov.ApplyEpochNotice(cross(cur), 5, le, "gnoland-x/"+lx+",gnoland-e/"+le)
 	println("epoch", ibcgov.Epoch(), "over", ibcgov.EpochClient())
 	settle(cur, "gnoland-d")
+	settle(cur, "gnoland-x")
 	settle(cur, "gnoland-b")
+	settle(cur, "gnoland-z")
 }
 
 // Output:
@@ -120,6 +132,8 @@ func main(cur realm) {
 // settle gnoland-b: dispatched as epoch 3 seq 1
 // settle client-0: dispatched as epoch 3 seq 2
 // settle gnoland-d: ibcgov: gnoland-d is not an Ethereum router client of the route, current or retired: client-0, gnoland-b, gnoland-c
-// epoch 5 over ethereum-5
+// epoch 5 over ethereum-6
 // settle gnoland-d: dispatched as epoch 5 seq 1
-// settle gnoland-b: dispatched as epoch 5 seq 2
+// settle gnoland-x: dispatched as epoch 5 seq 2
+// settle gnoland-b: dispatched as epoch 5 seq 3
+// settle gnoland-z: ibcgov: gnoland-z is not an Ethereum router client of the route, current or retired: client-0, gnoland-b, gnoland-c, gnoland-d, gnoland-e, gnoland-x

@@ -935,13 +935,19 @@ epoch notice since established and which Ethereum keys the route by (a
 decision of the epoch before is abandoned by the switch, so no other id
 ever names the route); a settlement (kind 12) any router client of the
 route this chain has a record of: every one the governance epoch ran over
-or a catch-up's path passed (`routerHistory`, recorded at each switch and
-kept apart from the transfer route's replacements here, which may skip
-one Ethereum retired: Ethereum moves A→B→C while the route here moves from
-A to C, and B's send records still need settling, z2g), and the
-counterparties of the route's current and replaced gno clients (Ethereum
-refuses one it has not retired, which this chain cannot always tell: its
-own replacement and the notice of Ethereum's may lag either way); a
+or Ethereum may have passed on its way to one (`routerHistory`: at each
+switch, before the pruning, every router client of the expected graph on
+a path from the old epoch's router client to the new one, live
+transitions and tombstones alike, all of them governance named; the
+caller of `ApplyEpochNotice` names one path, and Ethereum's own may be
+another to the same client, since a notice proves the client it came
+from, not the path; kept apart from the transfer route's replacements
+here, which may skip one Ethereum retired: Ethereum moves A→B→C while the
+route here moves from A to C, and B's send records still need settling,
+z2g), and the counterparties of the route's current and replaced gno
+clients (Ethereum refuses one it has not retired, which this chain cannot
+always tell: its own replacement and the notice of Ethereum's may lag
+either way; an id governance never approved stays out); a
 verifier migration (kind 6 op 2) any router client this realm pairs with
 a governed client, the route's and every successor an expected transition
 or tombstone names (a successor is migrated once its kind 10 is
