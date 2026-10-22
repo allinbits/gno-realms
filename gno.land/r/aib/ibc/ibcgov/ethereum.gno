@@ -234,6 +234,14 @@ var (
 	// old router client the new epoch client reaches through neither, and a
 	// governed purge drops one at a time (NewPurgeTombstoneRequest).
 	tombstones avl.Tree // tombKey(old, next, local) -> *tomb
+	// routerHistory is every router client the governance epoch ran over
+	// or a catch-up passed, from the binding on: the route's router clients
+	// as Ethereum's own history went, kept apart from the transfer route's
+	// replacements here, which may skip one (the route moved from A to C
+	// here while Ethereum went through B, whose send records still need
+	// settling). A settlement (kind 12) may name any of them; a retired
+	// router client is final, so nothing leaves it.
+	routerHistory avl.Tree // router client id -> true
 )
 
 const (
@@ -718,6 +726,7 @@ func bindChannel(client string) {
 func setEpoch(e uint32, client string) {
 	epoch = e
 	epochs.Set(epochKey(epoch), &epochRec{client: client})
+	routerHistory.Set(core.CounterpartyClientID(client), true)
 	chain.Emit("GovEpoch", "epoch", strconv.FormatUint(uint64(epoch), 10), "client", client)
 }
 
@@ -949,8 +958,13 @@ func switchEpoch(cur realm, e uint32, client string, passed []string) {
 		retireForGov(cur, old)
 		awaitingGov.Remove(old)
 	}
+	// The path's router clients (each step an expected transition, whose
+	// router client is its local client's counterparty) enter the history
+	// as passed: Ethereum retired them on its way, or never had them, on
+	// another path to the same client, and then refuses to settle them.
 	for _, c := range passed {
 		awaitingGov.Remove(c)
+		routerHistory.Set(core.CounterpartyClientID(c), true)
 	}
 }
 
@@ -1434,30 +1448,37 @@ const (
 	// epoch switch abandons the decisions of the epoch before, so no other
 	// id names the route (kinds 2, 4, 5, 11, 13).
 	currentRouterClient
-	// lineageRouterClient is a router client of the route, current or
-	// retired by a replacement: what a kind 12 settles. Ethereum refuses
-	// one it has not retired, which this chain cannot always tell, as its
-	// own replacement and the notice of Ethereum's may lag either way.
-	lineageRouterClient
+	// routeRouterClient is a router client of the route, current or
+	// retired: what a kind 12 settles. Every one this chain has a record
+	// of: those the governance epoch ran over or a catch-up passed
+	// (routerHistory), and the counterparties of the transfer route's
+	// current and replaced clients here. Ethereum refuses one it has not
+	// retired, which this chain cannot always tell, as its own replacement
+	// and the notice of Ethereum's may lag either way.
+	routeRouterClient
 	// knownRouterClient is any router client this realm pairs with a
-	// governed client of this chain: the lineage, the epoch's, and every
-	// successor an expected transition or tombstone names (kind 6 op 2).
+	// governed client of this chain: the route's, and every successor an
+	// expected transition or tombstone names (kind 6 op 2).
 	knownRouterClient
 )
 
-// routeRouterClient is the Ethereum router's current client of the route
+// epochRouterClient is the Ethereum router's current client of the route
 // the governance channel serves.
-func routeRouterClient() string { return core.CounterpartyClientID(EpochClient()) }
+func epochRouterClient() string { return core.CounterpartyClientID(EpochClient()) }
 
-// routeLineage is every router client a client of the enrolled route is
-// paired with: its current client's and those of the clients replacements
-// retired from it.
-func routeLineage() []string {
-	rd := view()
+// routeRouterClients is every router client of the route this chain has a
+// record of (routeRouterClient): the governance epoch's history, then the
+// counterparties of the transfer route's current and replaced clients.
+func routeRouterClients() []string {
 	var ids []string
+	routerHistory.Iterate("", "", func(id string, _ any) bool {
+		ids = append(ids, id)
+		return false
+	})
+	rd := view()
 	for _, key := range rd.Routes() {
 		for _, c := range append([]string{rd.Client(key)}, rd.Replaced(key)...) {
-			if cp := core.CounterpartyClientID(c); cp != "" {
+			if cp := core.CounterpartyClientID(c); cp != "" && !contains(ids, cp) {
 				ids = append(ids, cp)
 			}
 		}
@@ -1465,10 +1486,10 @@ func routeLineage() []string {
 	return ids
 }
 
-// routerClients is every router client this realm pairs with a governed
-// client of this chain (knownRouterClient).
-func routerClients() []string {
-	ids := routeLineage()
+// knownRouterClients is every router client this realm pairs with a
+// governed client of this chain (knownRouterClient).
+func knownRouterClients() []string {
+	ids := routeRouterClients()
 	remotes, _ := retained()
 	for id := range remotes {
 		if !contains(ids, id) {
@@ -1492,11 +1513,11 @@ func checkRouterClient(clientID string, scope int) string {
 	var what string
 	switch scope {
 	case currentRouterClient:
-		ids, what = []string{routeRouterClient()}, "the Ethereum router's current client of the route, "
-	case lineageRouterClient:
-		ids, what = routeLineage(), "an Ethereum router client of the route, current or retired: "
+		ids, what = []string{epochRouterClient()}, "the Ethereum router's current client of the route, "
+	case routeRouterClient:
+		ids, what = routeRouterClients(), "an Ethereum router client of the route, current or retired: "
 	default:
-		ids, what = routerClients(), "an Ethereum router client this realm pairs with a client of this chain: "
+		ids, what = knownRouterClients(), "an Ethereum router client this realm pairs with a client of this chain: "
 	}
 	if contains(ids, clientID) {
 		return ""
@@ -2040,7 +2061,7 @@ func NewEthRouteSettingsRequest(cur realm, clientID string, quarantineSeconds ui
 
 // NewEthSettleRequest (kind 12) applies a reconciliation's outcomes to the
 // send records of clientId, the router client a route replacement retired
-// (ADR pr6375 §5.4, §7.12; lineageRouterClient): items is a comma-separated
+// (ADR pr6375 §5.4, §7.12; routeRouterClient): items is a comma-separated
 // list of "sequence:action:amount" (amount in base units as decimal
 // digits), at most 8, each sequence once:
 //
@@ -2058,7 +2079,7 @@ func NewEthRouteSettingsRequest(cur realm, clientID string, quarantineSeconds ui
 //
 // IBCAdmin applies it after 7 days; each send record is settled at most once.
 func NewEthSettleRequest(cur realm, clientID, items string) Request {
-	p := ethRouteParams(KindSettle, clientID, lineageRouterClient)
+	p := ethRouteParams(KindSettle, clientID, routeRouterClient)
 	list := splitList(items)
 	if len(list) == 0 || len(list) > maxSettleItems {
 		panic("ibcgov: name 1 to " + strconv.Itoa(maxSettleItems) + " settlement items")
