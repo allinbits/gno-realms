@@ -234,12 +234,15 @@ var (
 	// old router client the new epoch client reaches through neither, and a
 	// governed purge drops one at a time (NewPurgeTombstoneRequest).
 	tombstones avl.Tree // tombKey(old, next, local) -> *tomb
-	// routerHistory is every router client the governance epoch ran over
-	// or a catch-up passed, from the binding on: the route's router clients
-	// as Ethereum's own history went, kept apart from the transfer route's
-	// replacements here, which may skip one (the route moved from A to C
-	// here while Ethereum went through B, whose send records still need
-	// settling). A settlement (kind 12) may name any of them; a retired
+	// routerHistory is every router client the governance epoch ran over,
+	// or that Ethereum may have passed on its way to one, from the binding
+	// on: the route's router clients as Ethereum's own history may have
+	// gone (every switch records the graph's router clients on a path from
+	// the old epoch's to the new one, all governance named), kept apart
+	// from the transfer route's replacements here, which may skip one (the
+	// route moved from A to C here while Ethereum went through B, whose
+	// send records still need settling). A settlement (kind 12) may name
+	// any of them, Ethereum refusing one it did not retire; a retired
 	// router client is final, so nothing leaves it.
 	routerHistory avl.Tree // router client id -> true
 )
@@ -939,7 +942,21 @@ func takeNotice(cur realm, source, client string, payload types.Payload) (uint32
 // is bounded: two walks of the graph.
 func switchEpoch(cur realm, e uint32, client string, passed []string) {
 	old := EpochClient()
-	_, before := retained()
+	remotes, before := retained()
+	// Every router client Ethereum may have passed on its way to the
+	// notice's source enters the history before the pruning drops it: the
+	// graph's, on a path from the old epoch's router client to the source,
+	// live transitions and tombstones alike, every one governance named.
+	// The path the caller gave is one of them; Ethereum's own may be
+	// another to the same client, whose router clients it retired on the
+	// way and which a settlement must still name. Bounded: at most 65
+	// reachable router clients, each walked once.
+	target := core.CounterpartyClientID(client)
+	for id := range remotes {
+		if id == target || reaches(id, target) {
+			routerHistory.Set(id, true)
+		}
+	}
 	setEpoch(e, client)
 	pruneUnreachable()
 	_, after := retained()
@@ -958,13 +975,8 @@ func switchEpoch(cur realm, e uint32, client string, passed []string) {
 		retireForGov(cur, old)
 		awaitingGov.Remove(old)
 	}
-	// The path's router clients (each step an expected transition, whose
-	// router client is its local client's counterparty) enter the history
-	// as passed: Ethereum retired them on its way, or never had them, on
-	// another path to the same client, and then refuses to settle them.
 	for _, c := range passed {
 		awaitingGov.Remove(c)
-		routerHistory.Set(core.CounterpartyClientID(c), true)
 	}
 }
 
@@ -1450,11 +1462,12 @@ const (
 	currentRouterClient
 	// routeRouterClient is a router client of the route, current or
 	// retired: what a kind 12 settles. Every one this chain has a record
-	// of: those the governance epoch ran over or a catch-up passed
-	// (routerHistory), and the counterparties of the transfer route's
-	// current and replaced clients here. Ethereum refuses one it has not
-	// retired, which this chain cannot always tell, as its own replacement
-	// and the notice of Ethereum's may lag either way.
+	// of: those the governance epoch ran over or Ethereum may have passed
+	// on its way to one (routerHistory), and the counterparties of the
+	// transfer route's current and replaced clients here. Ethereum refuses
+	// one it has not retired, which this chain cannot always tell, as its
+	// own replacement and the notice of Ethereum's may lag either way, and
+	// a notice proves the client it came from, not the path to it.
 	routeRouterClient
 	// knownRouterClient is any router client this realm pairs with a
 	// governed client of this chain: the route's, and every successor an
