@@ -335,7 +335,7 @@ func checkExpect(old, next, local string) string {
 	}
 	remotes, _ := retained()
 	if !remotes[old] {
-		return "router client " + old + " is not reachable from the governance epoch's client: Ethereum is past it"
+		return "router client " + old + " is not reachable from the governance epoch's client: Ethereum is past it" + gnoClientHint(old)
 	}
 	if refusal := checkLocal(local, next); refusal != "" {
 		return refusal
@@ -1325,6 +1325,11 @@ type ethParams struct {
 	kind   uint8
 	params []byte
 	epoch  uint32 // a cancel: the epoch whose numbers it names (0: any)
+	// the router client the decision names, and the scope it must be in
+	// (checkRouterClient), checked again here: an epoch switch between a
+	// request and its recording moves the route's router client
+	client string
+	scope  int
 	// a kind 10: the transition it makes Ethereum expect, recorded here
 	// when it is dispatched (router client ids), and the local gno client
 	// approved to carry the epoch over the new one
@@ -1334,6 +1339,9 @@ type ethParams struct {
 func (p *ethParams) apply(cur realm, t int64) (string, string) {
 	if p.epoch != 0 && p.epoch != epoch {
 		return "", "the cancel names numbers of epoch " + strconv.FormatUint(uint64(p.epoch), 10) + ", which is past"
+	}
+	if refusal := checkRouterClient(p.client, p.scope); refusal != "" {
+		return "", refusal
 	}
 	if p.to != "" {
 		if refusal := checkExpect(p.from, p.to, p.local); refusal != "" {
@@ -1369,6 +1377,17 @@ func ethRequestIn(cur realm, name string, kind uint8, text string, params []byte
 	return ethRequestP(cur, name, text, &ethParams{kind: kind, params: params, epoch: bound})
 }
 
+// ethRouteParams is the parameters of a decision naming the router client
+// clientID in scope, checked now (a refusal panics) and again when the
+// decision is recorded; the builder adds the encoded params.
+func ethRouteParams(kind uint8, clientID string, scope int) *ethParams {
+	mustEthClientID(clientID)
+	if refusal := checkRouterClient(clientID, scope); refusal != "" {
+		panic("ibcgov: " + refusal)
+	}
+	return &ethParams{kind: kind, client: clientID, scope: scope}
+}
+
 func ethRequestP(cur realm, name, text string, p *ethParams) Request {
 	kind, params := p.kind, p.params
 	if epochRecOf(epoch) == nil {
@@ -1398,6 +1417,105 @@ func mustEthClientID(s string) string {
 		panic("ibcgov: not an Ethereum router client id: " + s)
 	}
 	return s
+}
+
+// The scope a decision's router client id must be in. A clientId on the
+// wire is the Ethereum router's, never this chain's (ADR pr6375 §5.4), and
+// this chain knows the pairing: the counterparty the core registered for
+// each of its Ethereum clients. A decision naming this chain's own client
+// of the route, which the router's grammar admits, would be recorded on
+// Ethereum under a route key nothing uses, so every id is checked against
+// the pairing, when the request is built and when it is recorded.
+const (
+	noRouterClient = iota
+	// currentRouterClient is the router's current client of the route:
+	// the epoch client's counterparty, which the binding and every epoch
+	// notice since established. Ethereum keys the route by it, and an
+	// epoch switch abandons the decisions of the epoch before, so no other
+	// id names the route (kinds 2, 4, 5, 11, 13).
+	currentRouterClient
+	// lineageRouterClient is a router client of the route, current or
+	// retired by a replacement: what a kind 12 settles. Ethereum refuses
+	// one it has not retired, which this chain cannot always tell, as its
+	// own replacement and the notice of Ethereum's may lag either way.
+	lineageRouterClient
+	// knownRouterClient is any router client this realm pairs with a
+	// governed client of this chain: the lineage, the epoch's, and every
+	// successor an expected transition or tombstone names (kind 6 op 2).
+	knownRouterClient
+)
+
+// routeRouterClient is the Ethereum router's current client of the route
+// the governance channel serves.
+func routeRouterClient() string { return core.CounterpartyClientID(EpochClient()) }
+
+// routeLineage is every router client a client of the enrolled route is
+// paired with: its current client's and those of the clients replacements
+// retired from it.
+func routeLineage() []string {
+	rd := view()
+	var ids []string
+	for _, key := range rd.Routes() {
+		for _, c := range append([]string{rd.Client(key)}, rd.Replaced(key)...) {
+			if cp := core.CounterpartyClientID(c); cp != "" {
+				ids = append(ids, cp)
+			}
+		}
+	}
+	return ids
+}
+
+// routerClients is every router client this realm pairs with a governed
+// client of this chain (knownRouterClient).
+func routerClients() []string {
+	ids := routeLineage()
+	remotes, _ := retained()
+	for id := range remotes {
+		if !contains(ids, id) {
+			ids = append(ids, id)
+		}
+	}
+	return ids
+}
+
+// checkRouterClient is why clientID cannot name a router client in scope,
+// or "": a client of this chain named in its place is told the router
+// client it is paired with, the id that was meant.
+func checkRouterClient(clientID string, scope int) string {
+	if scope == noRouterClient {
+		return ""
+	}
+	if epoch == 0 {
+		return "the governance channel is not bound"
+	}
+	var ids []string
+	var what string
+	switch scope {
+	case currentRouterClient:
+		ids, what = []string{routeRouterClient()}, "the Ethereum router's current client of the route, "
+	case lineageRouterClient:
+		ids, what = routeLineage(), "an Ethereum router client of the route, current or retired: "
+	default:
+		ids, what = routerClients(), "an Ethereum router client this realm pairs with a client of this chain: "
+	}
+	if contains(ids, clientID) {
+		return ""
+	}
+	return clientID + " is not " + what + strings.Join(ids, ", ") + gnoClientHint(clientID)
+}
+
+// gnoClientHint names, after a refusal of id as a router client id, the
+// router client it is paired with when it is a client of this chain: the
+// mistake these checks catch is naming this chain's client of the route
+// where the router's goes.
+func gnoClientHint(id string) string {
+	if core.ClientType(id) == "" {
+		return ""
+	}
+	if cp := core.CounterpartyClientID(id); cp != "" {
+		return "; " + id + " is this chain's client, paired with " + cp
+	}
+	return "; " + id + " is this chain's client, with no counterparty registered"
 }
 
 // mustCustomEthClientID is a router client id that governance adds (kind 6
@@ -1463,21 +1581,24 @@ func NewEthCancelRequest(cur realm, ranges string) Request {
 }
 
 // NewEthUnpauseRequest (kind 2) unpauses an object on Ethereum after 24 hours
-// there: object 1 is the transfer route of the router client clientID, object
-// 2 IBCAdmin itself (clientID empty).
+// there: object 1 is the transfer route, named by its router client
+// clientID (currentRouterClient), object 2 IBCAdmin itself (clientID
+// empty).
 func NewEthUnpauseRequest(cur realm, object int, clientID string) Request {
+	var p *ethParams
 	switch object {
 	case 1:
-		mustEthClientID(clientID)
+		p = ethRouteParams(KindUnpause, clientID, currentRouterClient)
 	case 2:
 		if clientID != "" {
 			panic("ibcgov: object 2 (IBCAdmin) names no client")
 		}
+		p = &ethParams{kind: KindUnpause}
 	default:
 		panic("ibcgov: object 1 (a transfer route) or 2 (IBCAdmin)")
 	}
-	return ethRequest(cur, "unpause", KindUnpause, "unpause object "+strconv.Itoa(object)+" "+clientID,
-		abi.Encode(abi.Uint64(uint64(object)), abi.String(clientID)))
+	p.params = abi.Encode(abi.Uint64(uint64(object)), abi.String(clientID))
+	return ethRequestP(cur, "unpause", "unpause object "+strconv.Itoa(object)+" "+clientID, p)
 }
 
 // NewEthSeatsRequest (kind 3) sets IBCAdmin's seats: changes is a
@@ -1515,54 +1636,68 @@ func NewEthSeatsRequest(cur realm, changes string) Request {
 	return ethRequest(cur, "seats", KindSeats, "set seats "+strings.Join(parts, ","), abi.Encode(abi.Array(vals...)))
 }
 
-// NewEthLimitsRequest (kind 4) sets a token's limits on the route of the
-// router client clientID: per-message maximum, day cap, refund cap, and for
-// Ethereum-native tokens the send maximum and minimum (0 unset), in base
-// units (the uint256 of the kind's tuple). IBCAdmin applies a pure lowering
-// at recording, anything else after 7 days.
+// NewEthLimitsRequest (kind 4) sets a token's limits on the route, named by
+// its router client clientID (currentRouterClient): per-message maximum,
+// day cap, refund cap, and for Ethereum-native tokens the send maximum and
+// minimum (0 unset), in base units (the uint256 of the kind's tuple).
+// IBCAdmin applies a pure lowering at recording, anything else after 7
+// days.
 func NewEthLimitsRequest(cur realm, clientID, token string, maxPerMessage, dayCap, refundCap, sendMax, sendMin uint256) Request {
-	mustEthClientID(clientID)
+	p := ethRouteParams(KindLimits, clientID, currentRouterClient)
 	tok := mustEthAddr(token)
-	vals := []abi.Value{abi.String(clientID), abi.Address(tok),
-		abi.Uint256Of(maxPerMessage), abi.Uint256Of(dayCap), abi.Uint256Of(refundCap), abi.Uint256Of(sendMax), abi.Uint256Of(sendMin)}
+	p.params = abi.Encode(abi.String(clientID), abi.Address(tok),
+		abi.Uint256Of(maxPerMessage), abi.Uint256Of(dayCap), abi.Uint256Of(refundCap), abi.Uint256Of(sendMax), abi.Uint256Of(sendMin))
 	text := "limits of " + ethAddrText(tok) + " on " + clientID + ": maxPerMessage=" + u256s(maxPerMessage) + " dayCap=" + u256s(dayCap) +
 		" refundCap=" + u256s(refundCap) + " sendMax=" + u256s(sendMax) + " sendMin=" + u256s(sendMin)
-	return ethRequest(cur, "limits", KindLimits, text, abi.Encode(vals...))
+	return ethRequestP(cur, "limits", text, p)
 }
 
 // NewEthVoucherRequest (kind 5) registers the GnoVoucher of a gno denom on
-// the route of clientID (setCustomERC20), pinned to its code hash. baseDenom
-// is the denom as the transfer app puts it on the wire (isGnoWireDenom): a
-// native denom, or a GRC20 alias; a realm-issued coin ("/gno.land/r/...:x")
-// never travels and is refused.
+// the route, named by its router client clientID (currentRouterClient),
+// pinned to its code hash (setCustomERC20). baseDenom is the denom as the
+// transfer app puts it on the wire (isGnoWireDenom): a native denom, or a
+// GRC20 alias; a realm-issued coin ("/gno.land/r/...:x") never travels and
+// is refused.
 func NewEthVoucherRequest(cur realm, clientID, baseDenom, voucher, codeHash string) Request {
-	mustEthClientID(clientID)
+	p := ethRouteParams(KindVoucher, clientID, currentRouterClient)
 	if !isGnoWireDenom(baseDenom) {
 		panic("ibcgov: not a gno.land denom the transfer app sends: " + baseDenom)
 	}
 	v, h := mustEthAddr(voucher), mustHash(codeHash)
+	p.params = abi.Encode(abi.String(clientID), abi.String(baseDenom), abi.Address(v), abi.Bytes32(h))
 	text := "voucher of " + baseDenom + " on " + clientID + ": " + ethAddrText(v) + " code hash " + hex.EncodeToString(h[:])
-	return ethRequest(cur, "voucher", KindVoucher, text, abi.Encode(abi.String(clientID), abi.String(baseDenom), abi.Address(v), abi.Bytes32(h)))
+	return ethRequestP(cur, "voucher", text, p)
 }
 
 // NewEthClientRequest (kind 6) adds (op 1) or migrates (op 2) a router light
 // client: clientID is the router's client id, counterpartyClientID the gno
 // client it tracks (op 1), merklePrefix a comma-separated list of hex items,
-// lightClient the contract and codeHash its code hash.
+// lightClient the contract and codeHash its code hash. Op 1 adds the custom
+// id that the gno client is paired with (its registered counterparty); op
+// 2 names a router client this realm pairs with a governed client
+// (knownRouterClient).
 func NewEthClientRequest(cur realm, op int, clientID, counterpartyClientID, merklePrefix, lightClient, codeHash string) Request {
-	if op != 1 && op != 2 {
-		panic("ibcgov: op 1 (add) or 2 (migrate)")
-	}
-	if op == 1 {
+	var p *ethParams
+	switch op {
+	case 1:
 		mustCustomEthClientID(clientID)
 		if core.ClientType(counterpartyClientID) == "" {
 			panic("ibcgov: the counterparty " + counterpartyClientID + " is not a gno client")
 		}
-	} else {
-		mustEthClientID(clientID)
+		if cp := core.CounterpartyClientID(counterpartyClientID); cp != clientID {
+			if cp == "" {
+				cp = "no router client yet"
+			}
+			panic("ibcgov: the gno client " + counterpartyClientID + " is paired with " + cp + ", not " + clientID)
+		}
+		p = &ethParams{kind: KindClient}
+	case 2:
+		p = ethRouteParams(KindClient, clientID, knownRouterClient)
 		if counterpartyClientID != "" {
 			mustEthClientID(counterpartyClientID)
 		}
+	default:
+		panic("ibcgov: op 1 (add) or 2 (migrate)")
 	}
 	var prefix []abi.Value
 	var prefixText []string
@@ -1572,10 +1707,10 @@ func NewEthClientRequest(cur realm, op int, clientID, counterpartyClientID, merk
 		prefixText = append(prefixText, hex.EncodeToString(b))
 	}
 	lc, h := mustEthAddr(lightClient), mustHash(codeHash)
+	p.params = abi.Encode(abi.Uint64(uint64(op)), abi.String(clientID), abi.String(counterpartyClientID), abi.Array(prefix...), abi.Address(lc), abi.Bytes32(h))
 	text := "client op " + strconv.Itoa(op) + " " + clientID + " counterparty " + counterpartyClientID + " prefix [" +
 		strings.Join(prefixText, ",") + "] light client " + ethAddrText(lc) + " code hash " + hex.EncodeToString(h[:])
-	return ethRequest(cur, "client", KindClient, text, abi.Encode(abi.Uint64(uint64(op)), abi.String(clientID),
-		abi.String(counterpartyClientID), abi.Array(prefix...), abi.Address(lc), abi.Bytes32(h)))
+	return ethRequestP(cur, "client", text, p)
 }
 
 // NewEthUpgradeRequest (kind 7) upgrades a proxy to an implementation pinned
@@ -1886,19 +2021,20 @@ func NewExpectRecoveryRequest(cur realm, oldClientID, newClientID, localClientID
 	})
 }
 
-// NewEthRouteSettingsRequest (kind 11) sets the quarantine of the route of
-// clientID after a validator-set transition, in seconds (0 disables it).
+// NewEthRouteSettingsRequest (kind 11) sets the quarantine of the route,
+// named by its router client clientID (currentRouterClient), after a
+// validator-set transition, in seconds (0 disables it).
 func NewEthRouteSettingsRequest(cur realm, clientID string, quarantineSeconds uint64) Request {
-	mustEthClientID(clientID)
-	return ethRequest(cur, "route settings", KindRouteSettings, "quarantine of "+clientID+": "+u64s(quarantineSeconds)+" s",
-		abi.Encode(abi.String(clientID), abi.Uint64(quarantineSeconds)))
+	p := ethRouteParams(KindRouteSettings, clientID, currentRouterClient)
+	p.params = abi.Encode(abi.String(clientID), abi.Uint64(quarantineSeconds))
+	return ethRequestP(cur, "route settings", "quarantine of "+clientID+": "+u64s(quarantineSeconds)+" s", p)
 }
 
 // NewEthSettleRequest (kind 12) applies a reconciliation's outcomes to the
 // send records of clientId, the router client a route replacement retired
-// (ADR pr6375 §5.4, §7.12): items is a comma-separated list of
-// "sequence:action:amount" (amount in base units as decimal digits, below
-// 2^256), at most 8, each sequence once:
+// (ADR pr6375 §5.4, §7.12; lineageRouterClient): items is a comma-separated
+// list of "sequence:action:amount" (amount in base units as decimal
+// digits, below 2^256), at most 8, each sequence once:
 //
 //   - 1 a genuine refund: pay its remainder, amount exactly the entitlement
 //     minus what was already refunded (a refund is never cut short), 0 for one
@@ -1914,7 +2050,7 @@ func NewEthRouteSettingsRequest(cur realm, clientID string, quarantineSeconds ui
 //
 // IBCAdmin applies it after 7 days; each send record is settled at most once.
 func NewEthSettleRequest(cur realm, clientID, items string) Request {
-	mustEthClientID(clientID)
+	p := ethRouteParams(KindSettle, clientID, lineageRouterClient)
 	list := splitList(items)
 	if len(list) == 0 || len(list) > maxSettleItems {
 		panic("ibcgov: name 1 to " + strconv.Itoa(maxSettleItems) + " settlement items")
@@ -1943,18 +2079,20 @@ func NewEthSettleRequest(cur realm, clientID, items string) Request {
 		seen[settleItemKey(seq, action)] = true
 		vals = append(vals, abi.Tuple(abi.Uint64(seq), abi.Uint64(action), abi.Uint256Of(amount)))
 	}
-	return ethRequest(cur, "settle", KindSettle, "settle sends of "+clientID+": "+strings.Join(list, ","),
-		abi.Encode(abi.String(clientID), abi.Array(vals...)))
+	p.params = abi.Encode(abi.String(clientID), abi.Array(vals...))
+	return ethRequestP(cur, "settle", "settle sends of "+clientID+": "+strings.Join(list, ","), p)
 }
 
-// NewEthReopenRequest (kind 13) reopens the route of clientID that a route
-// replacement or the emergency recovery closed (ADR pr6375 §5.4). IBCAdmin
-// applies it after 7 days; Ethereum refuses it while any send record of the
-// route's retired client ids is open, and records every loss not
-// recapitalized as an accepted deficit.
+// NewEthReopenRequest (kind 13) reopens the route, named by its router
+// client clientID (currentRouterClient), that a route replacement or the
+// emergency recovery closed (ADR pr6375 §5.4). IBCAdmin applies it after 7
+// days; Ethereum refuses it while any send record of the route's retired
+// client ids is open, and records every loss not recapitalized as an
+// accepted deficit.
 func NewEthReopenRequest(cur realm, clientID string) Request {
-	mustEthClientID(clientID)
-	return ethRequest(cur, "reopen", KindReopen, "reopen the route of "+clientID, abi.Encode(abi.String(clientID)))
+	p := ethRouteParams(KindReopen, clientID, currentRouterClient)
+	p.params = abi.Encode(abi.String(clientID))
+	return ethRequestP(cur, "reopen", "reopen the route of "+clientID, p)
 }
 
 // isGnoWireDenom is the grammar of a gno.land denom as the transfer app puts

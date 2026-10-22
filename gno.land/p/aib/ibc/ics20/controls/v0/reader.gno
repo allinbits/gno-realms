@@ -65,6 +65,15 @@ func (rd Reader) Client(route string) string {
 	return ""
 }
 
+// Replaced lists the clients replacements retired from a route, oldest
+// first.
+func (rd Reader) Replaced(route string) []string {
+	if rt := rd.route(route); rt != nil {
+		return append([]string{}, rt.Replaced...)
+	}
+	return nil
+}
+
 // SuspectUnsettled is how many send records of a retired client processed
 // in its suspect interval are not settled (see Route.SuspectUnsettled).
 func (rd Reader) SuspectUnsettled(route, clientID string) int64 {
