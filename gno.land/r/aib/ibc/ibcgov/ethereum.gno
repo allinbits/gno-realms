@@ -234,16 +234,20 @@ var (
 	// old router client the new epoch client reaches through neither, and a
 	// governed purge drops one at a time (NewPurgeTombstoneRequest).
 	tombstones avl.Tree // tombKey(old, next, local) -> *tomb
-	// routerHistory is every router client the governance epoch ran over,
-	// or that Ethereum may have passed on its way to one, from the binding
-	// on: the route's router clients as Ethereum's own history may have
-	// gone (every switch records the graph's router clients on a path from
-	// the old epoch's to the new one, all governance named), kept apart
-	// from the transfer route's replacements here, which may skip one (the
-	// route moved from A to C here while Ethereum went through B, whose
-	// send records still need settling). A settlement (kind 12) may name
-	// any of them, Ethereum refusing one it did not retire; a retired
-	// router client is final, so nothing leaves it.
+	// routerHistory is every router client governance named, from the
+	// binding on: the epoch clients' counterparties (the binding, each
+	// switch), a dispatched kind 10's old and new clients, a recorded
+	// recovery expectation's, and a dispatched kind 6 op 1's. It is the
+	// route's router clients as Ethereum's own history may have gone, kept
+	// apart from the transfer route's replacements here, which may skip
+	// one (the route moved from A to C here while Ethereum went through B,
+	// whose send records still need settling), and from the expected
+	// graph, which a switch prunes and whose paths a notice does not prove
+	// (Ethereum's own may be another, a recovery of its own among its
+	// steps). A settlement (kind 12) may name any of them, Ethereum
+	// refusing one it did not retire; a retired router client is final, so
+	// nothing leaves it. It grows by at most two ids per such decision and
+	// one per epoch, every one governed: nothing permissionless adds to it.
 	routerHistory avl.Tree // router client id -> true
 )
 
@@ -942,21 +946,7 @@ func takeNotice(cur realm, source, client string, payload types.Payload) (uint32
 // is bounded: two walks of the graph.
 func switchEpoch(cur realm, e uint32, client string, passed []string) {
 	old := EpochClient()
-	remotes, before := retained()
-	// Every router client Ethereum may have passed on its way to the
-	// notice's source enters the history before the pruning drops it: the
-	// graph's, on a path from the old epoch's router client to the source,
-	// live transitions and tombstones alike, every one governance named.
-	// The path the caller gave is one of them; Ethereum's own may be
-	// another to the same client, whose router clients it retired on the
-	// way and which a settlement must still name. Bounded: at most 65
-	// reachable router clients, each walked once.
-	target := core.CounterpartyClientID(client)
-	for id := range remotes {
-		if id == target || reaches(id, target) {
-			routerHistory.Set(id, true)
-		}
-	}
+	_, before := retained()
 	setEpoch(e, client)
 	pruneUnreachable()
 	_, after := retained()
@@ -1356,6 +1346,10 @@ type ethParams struct {
 	// request and its recording moves the route's router client
 	client string
 	scope  int
+	// the router clients the decision names on Ethereum (a kind 10's old
+	// and new, a kind 6 op 1's new), entered in routerHistory when it is
+	// dispatched
+	names []string
 	// a kind 10: the transition it makes Ethereum expect, recorded here
 	// when it is dispatched (router client ids), and the local gno client
 	// approved to carry the epoch over the new one
@@ -1377,6 +1371,9 @@ func (p *ethParams) apply(cur realm, t int64) (string, string) {
 	seq, refusal := bind(cur, ledger.Last(), p.kind, p.params)
 	if refusal != "" {
 		return "", refusal
+	}
+	for _, id := range p.names {
+		routerHistory.Set(id, true)
 	}
 	note := "dispatched as epoch " + strconv.FormatUint(uint64(epoch), 10) + " seq " + u64s(seq)
 	if p.to != "" {
@@ -1462,15 +1459,16 @@ const (
 	currentRouterClient
 	// routeRouterClient is a router client of the route, current or
 	// retired: what a kind 12 settles. Every one this chain has a record
-	// of: those the governance epoch ran over or Ethereum may have passed
-	// on its way to one (routerHistory), and the counterparties of the
-	// transfer route's current and replaced clients here. Ethereum refuses
-	// one it has not retired, which this chain cannot always tell, as its
-	// own replacement and the notice of Ethereum's may lag either way, and
-	// a notice proves the client it came from, not the path to it.
+	// of: those governance named (routerHistory), and the counterparties
+	// of the transfer route's current and replaced clients here. Ethereum
+	// refuses one it has not retired, which this chain cannot always tell,
+	// as its own replacement and the notice of Ethereum's may lag either
+	// way, and a notice proves the client it came from, not the path to
+	// it.
 	routeRouterClient
 	// knownRouterClient is any router client this realm pairs with a
-	// governed client of this chain: the route's, and every successor an
+	// governed client of this chain: the route's (a client a kind 6 op 1
+	// added among them, from its dispatch), and every successor an
 	// expected transition or tombstone names (kind 6 op 2).
 	knownRouterClient
 )
@@ -1724,7 +1722,7 @@ func NewEthClientRequest(cur realm, op int, clientID, counterpartyClientID, merk
 			}
 			panic("ibcgov: the gno client " + counterpartyClientID + " is paired with " + cp + ", not " + clientID)
 		}
-		p = &ethParams{kind: KindClient}
+		p = &ethParams{kind: KindClient, names: []string{clientID}}
 	case 2:
 		p = ethRouteParams(KindClient, clientID, knownRouterClient)
 		if counterpartyClientID != "" {
@@ -1806,7 +1804,8 @@ func NewEthRouteReplacementRequest(cur realm, oldClientID, newClientID string, s
 		panic("ibcgov: " + refusal)
 	}
 	return ethRequestP(cur, "route replacement", "replace route "+oldClientID+" by "+newClientID+" (carried here by "+localClientID+"), suspect from Ethereum block "+u64s(suspectFrom),
-		&ethParams{kind: KindRouteReplace, params: abi.Encode(abi.String(oldClientID), abi.String(newClientID), abi.Uint64(suspectFrom)), from: oldClientID, to: newClientID, local: localClientID})
+		&ethParams{kind: KindRouteReplace, params: abi.Encode(abi.String(oldClientID), abi.String(newClientID), abi.Uint64(suspectFrom)),
+			names: []string{oldClientID, newClientID}, from: oldClientID, to: newClientID, local: localClientID})
 }
 
 // expectParams records an expected governance transition.
@@ -2037,6 +2036,10 @@ func NewExpectRecoveryRequest(cur realm, oldClientID, newClientID, localClientID
 	}
 	text := "expect the emergency recovery of " + oldClientID + " by " + newClientID + ", carried here by " + localClientID
 	return propose(cur, "expect recovery", text, func(cur realm, made, t int64) {
+		// Governance named both router clients: a settlement may name them
+		// from now on, whatever becomes of the expectation.
+		routerHistory.Set(oldClientID, true)
+		routerHistory.Set(newClientID, true)
 		// Fresh parameters for every recording: a Request governed twice
 		// makes two decisions, each owning its own place in the intent.
 		p := &expectParams{from: oldClientID, to: newClientID, local: localClientID}

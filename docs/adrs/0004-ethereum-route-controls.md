@@ -943,24 +943,30 @@ client of it, the epoch client's counterparty, which the binding and every
 epoch notice since established and which Ethereum keys the route by (a
 decision of the epoch before is abandoned by the switch, so no other id
 ever names the route); a settlement (kind 12) any router client of the
-route this chain has a record of: every one the governance epoch ran over
-or Ethereum may have passed on its way to one (`routerHistory`: at each
-switch, before the pruning, every router client of the expected graph on
-a path from the old epoch's router client to the new one, live
-transitions and tombstones alike, all of them governance named; the
-caller of `ApplyEpochNotice` names one path, and Ethereum's own may be
-another to the same client, since a notice proves the client it came
-from, not the path; kept apart from the transfer route's replacements
-here, which may skip one Ethereum retired: Ethereum moves A→B→C while the
-route here moves from A to C, and B's send records still need settling,
-z2g), and the counterparties of the route's current and replaced gno
-clients (Ethereum refuses one it has not retired, which this chain cannot
+route this chain has a record of: every one governance named
+(`routerHistory`, cumulative from the binding on: the epoch clients'
+counterparties at the binding and each switch, a dispatched kind 10's old
+and new clients, a recorded recovery expectation's, a dispatched kind 6
+op 1's; at most two ids per such decision and one per epoch, nothing
+permissionless adding to it), and the counterparties of the route's
+current and replaced gno clients. The history is kept apart from the
+transfer route's replacements here, which may skip one Ethereum retired
+(Ethereum moves A→B→C while the route here moves from A to C, and B's
+send records still need settling, z2g), and from the expected graph,
+which a switch prunes and whose paths a notice does not prove: the
+applier of `ApplyEpochNotice` names one path, Ethereum's own may be
+another to the same client, and an emergency recovery of Ethereum's own
+(no expectation here) may be among its steps, so a router client's
+settleability never depends on its transition to the notice's client
+being recorded (z2h: A→B dispatched, A→X→C expected, Ethereum recovers
+B→C on its own, C's notice applied along X, B settled). Ethereum refuses
+a settlement of a client it has not retired, which this chain cannot
 always tell: its own replacement and the notice of Ethereum's may lag
-either way; an id governance never approved stays out); a
+either way; an id governance never named stays out; a
 verifier migration (kind 6 op 2) any router client this realm pairs with
 a governed client, the route's and every successor an expected transition
-or tombstone names (a successor is migrated once its kind 10 is
-dispatched); a kind 6 op 1 the custom id the
+or tombstone names (a successor is migrated from the dispatch of the kind
+6 op 1 that added it); a kind 6 op 1 the custom id the
 gno client it tracks is paired with (the counterparty registered for it,
 immutable once set); a kind 10 or a recovery expectation an old client the
 epoch reaches, as before (`checkExpect`). A client of this chain named in
