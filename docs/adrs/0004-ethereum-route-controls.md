@@ -943,13 +943,18 @@ client of it, the epoch client's counterparty, which the binding and every
 epoch notice since established and which Ethereum keys the route by (a
 decision of the epoch before is abandoned by the switch, so no other id
 ever names the route); a settlement (kind 12) any router client of the
-route's lineage, the counterparty of its current gno client or of one a
-replacement retired (Ethereum refuses one it has not retired, which this
-chain cannot always tell: its own replacement and the notice of Ethereum's
-may lag either way); a verifier migration (kind 6 op 2) any router client
-this realm pairs with a governed client, the lineage, the epoch's and
-every successor an expected transition or tombstone names (a successor is
-migrated once its kind 10 is dispatched); a kind 6 op 1 the custom id the
+route this chain has a record of: every one the governance epoch ran over
+or a catch-up's path passed (`routerHistory`, recorded at each switch and
+kept apart from the transfer route's replacements here, which may skip
+one Ethereum retired: Ethereum moves A→B→C while the route here moves from
+A to C, and B's send records still need settling, z2g), and the
+counterparties of the route's current and replaced gno clients (Ethereum
+refuses one it has not retired, which this chain cannot always tell: its
+own replacement and the notice of Ethereum's may lag either way); a
+verifier migration (kind 6 op 2) any router client this realm pairs with
+a governed client, the route's and every successor an expected transition
+or tombstone names (a successor is migrated once its kind 10 is
+dispatched); a kind 6 op 1 the custom id the
 gno client it tracks is paired with (the counterparty registered for it,
 immutable once set); a kind 10 or a recovery expectation an old client the
 epoch reaches, as before (`checkExpect`). A client of this chain named in

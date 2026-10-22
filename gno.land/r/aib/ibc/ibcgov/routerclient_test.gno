@@ -32,7 +32,7 @@ func TestRouterClientPairing(cur realm, t *testing.T) {
 	if got := checkRouterClient("", noRouterClient); got != "" {
 		t.Errorf("no router client named: %q", got)
 	}
-	for _, scope := range []int{currentRouterClient, lineageRouterClient, knownRouterClient} {
+	for _, scope := range []int{currentRouterClient, routeRouterClient, knownRouterClient} {
 		if got := checkRouterClient("client-0", scope); got != "the governance channel is not bound" {
 			t.Errorf("scope %d unbound: %q", scope, got)
 		}

@@ -141,8 +141,8 @@ func main(cur realm) {
 
 	// The epoch moves to gnoland-2 over ethereum-2: a request built before
 	// the switch is spent when it is recorded after it, the route's router
-	// client is gnoland-2 from now on, and client-0, paired with the gno
-	// client the route still has here, is what a settlement names.
+	// client is gnoland-2 from now on, and a settlement names either router
+	// client the epoch ran over (Ethereum alone can tell which it retired).
 	stale := ibcgov.NewEthLimitsRequest(cross(cur), "client-0", a1, 1, 1, 1, 0, 0)
 	execute(cur, expect)
 	notice(cur, 2, "gnoland-2", local)
@@ -155,8 +155,8 @@ func main(cur realm) {
 		try(cur, "settle "+id, func() ibcgov.Request { return ibcgov.NewEthSettleRequest(cross(cur), id, "1:3:0") })
 	}
 
-	// The route's replacement here moves it onto ethereum-2: its lineage
-	// is then both router clients.
+	// The route's replacement here moves it onto ethereum-2: both router
+	// clients stay settleable.
 	execute(cur, govern(cur, ibcgov.NewReplaceRouteRequest(cross(cur), route, local, 0)))
 	for _, id := range []string{"client-0", "gnoland-2"} {
 		try(cur, "settle "+id+" after the replacement", func() ibcgov.Request { return ibcgov.NewEthSettleRequest(cross(cur), id, "1:3:0") })
@@ -219,6 +219,6 @@ func main(cur realm) {
 // settle client-0: dispatched as epoch 2 seq 1
 // limits gnoland-2: dispatched as epoch 2 seq 2
 // reopen gnoland-2: dispatched as epoch 2 seq 3
-// settle gnoland-2: ibcgov: gnoland-2 is not an Ethereum router client of the route, current or retired: client-0
-// settle client-0 after the replacement: dispatched as epoch 2 seq 4
-// settle gnoland-2 after the replacement: dispatched as epoch 2 seq 5
+// settle gnoland-2: dispatched as epoch 2 seq 4
+// settle client-0 after the replacement: dispatched as epoch 2 seq 5
+// settle gnoland-2 after the replacement: dispatched as epoch 2 seq 6

@@ -93,17 +93,20 @@ func main(cur realm) {
 	govern(cur, ibcgov.NewEthSettleRequest(cross(cur), long, eight))
 	println("eight items:", len(ibcgov.DispatchBody(1, 2)), "bytes")
 
-	// The recovery's order: replace, settle the retired client, and reopen
-	// once the epoch moved to the new client (a reopen before names a
-	// router client the route is not on).
+	// The recovery's order on the channel: the route replacement (kind 10)
+	// in the epoch it retires, then, once IBCAdmin's epoch notice moved the
+	// epoch to the new client, the retired client's settlement and the
+	// reopening, in the new epoch. A settlement dispatched before the switch
+	// is abandoned by it: Ethereum refuses to settle a client it has not
+	// retired, and the switch abandons epoch 1's pending decisions, never
+	// sent again. A reopen before names a router client the route is not
+	// on.
 	govern(cur, ibcgov.NewEthRouteReplacementRequest(cross(cur), "client-0", "gnoland-2", 1, local))
 	expect := ibcgov.LastDecision()
-	govern(cur, ibcgov.NewEthSettleRequest(cross(cur), "client-0", "1:3:0"))
+	_, _, kind, _, _ := ibcgov.ParseEnvelope(ibcgov.DispatchBody(1, 3))
+	println("seq 3 kind", kind)
+	govern(cur, ibcgov.NewEthSettleRequest(cross(cur), "client-0", "1:3:0")) // epoch 1 seq 4: abandoned below
 	println("reopen before the switch:", revive(func() { govern(cur, ibcgov.NewEthReopenRequest(cross(cur), "gnoland-2")) }))
-	for seq := uint64(3); seq <= 4; seq++ {
-		_, _, kind, _, _ := ibcgov.ParseEnvelope(ibcgov.DispatchBody(1, seq))
-		println("seq", seq, "kind", kind)
-	}
 	execute(cur, expect)
 	np := types.Payload{SourcePort: ibcgov.GovDestPort, DestinationPort: ibcgov.GovPort, Version: ibcgov.GovVersion, Encoding: ibcgov.GovEncoding, Value: ibcgov.EpochNotice(2, "gnoland-2")}
 	testing.SetRealm(testing.NewCodeRealm("gno.land/r/aib/ibc/core"))
@@ -111,8 +114,12 @@ func main(cur realm) {
 	app.OnRecvPacket(cross(cur), "gnoland-2", local, 1, np)
 	testing.SetRealm(testing.NewCodeRealm("gno.land/r/aib/main"))
 	println("epoch", ibcgov.Epoch(), "over", ibcgov.EpochClient())
-	govern(cur, ibcgov.NewEthReopenRequest(cross(cur), "gnoland-2"))
-	println("seq 2's kind and params match:", hex.EncodeToString(ibcgov.DispatchBody(2, 1))[26:] == vectors[2][26:])
+	println("the settlement of epoch 1:", revive(func() { ibcgov.Redispatch(cross(cur), 1, 4) }))
+	d, _ := ibcgov.Decision(govern(cur, ibcgov.NewEthSettleRequest(cross(cur), "client-0", "1:3:0")))
+	println("settle in the new epoch:", d.Note)
+	d, _ = ibcgov.Decision(govern(cur, ibcgov.NewEthReopenRequest(cross(cur), "gnoland-2")))
+	println("reopen in the new epoch:", d.Note)
+	println("seq 2's kind and params match:", hex.EncodeToString(ibcgov.DispatchBody(2, 2))[26:] == vectors[2][26:])
 
 	// A genuine refund paid in full settles with a zero payment (Codex round
 	// 3 #5).
@@ -122,8 +129,7 @@ func main(cur realm) {
 	// A packet the core would refuse to send spends its decision, binding no
 	// number (Codex round 2 #3).
 	govern(cur, ibcgov.NewCorePauseRequest(cross(cur)))
-	paused := govern(cur, ibcgov.NewEthReopenRequest(cross(cur), "gnoland-2"))
-	d, _ := ibcgov.Decision(paused)
+	d, _ = ibcgov.Decision(govern(cur, ibcgov.NewEthReopenRequest(cross(cur), "gnoland-2")))
 	println("while the core is paused:", d.State(), "-", d.Note, "| last seq", ibcgov.LastSeq(2))
 }
 
@@ -141,10 +147,12 @@ func main(cur realm) {
 // settle of no router client: ibcgov: not an Ethereum router client id: abc
 // reopen of no router client: ibcgov: not an Ethereum router client id: channel-1
 // eight items: 974 bytes
-// reopen before the switch: ibcgov: gnoland-2 is not the Ethereum router's current client of the route, client-0
 // seq 3 kind 10
-// seq 4 kind 12
+// reopen before the switch: ibcgov: gnoland-2 is not the Ethereum router's current client of the route, client-0
 // epoch 2 over ethereum-2
+// the settlement of epoch 1: ibcgov: epoch 1 is past: its decisions are never sent again
+// settle in the new epoch: dispatched as epoch 2 seq 1
+// reopen in the new epoch: dispatched as epoch 2 seq 2
 // seq 2's kind and params match: true
-// zero payment dispatched: 2
-// while the core is paused: spent - spent: the core is paused: no governance packet can be sent | last seq 2
+// zero payment dispatched: 3
+// while the core is paused: spent - spent: the core is paused: no governance packet can be sent | last seq 3
