@@ -122,22 +122,19 @@ func main(cur realm) {
 	try(cur, "add gnoland-2 tracking gnoland-2", add("gnoland-2", "gnoland-2"))
 
 	// A kind 10 and a recovery expectation name the old client in the
-	// router's ids; a verifier migration of the new one needs the kind 10
-	// dispatched, which pairs the new client with its local client here.
+	// router's ids; a verifier migration names a router client governance
+	// named before, the kind 6 op 1 that added gnoland-2 above included.
 	try(cur, "replace "+route, func() ibcgov.Request {
 		return ibcgov.NewEthRouteReplacementRequest(cross(cur), route, "gnoland-2", 1, local)
 	})
 	try(cur, "expect recovery from "+route, func() ibcgov.Request { return ibcgov.NewExpectRecoveryRequest(cross(cur), route, "gnoland-2", local) })
-	try(cur, "migrate gnoland-2 before its kind 10", func() ibcgov.Request {
+	try(cur, "migrate gnoland-2 after its kind 6 op 1", func() ibcgov.Request {
 		return ibcgov.NewEthClientRequest(cross(cur), 2, "gnoland-2", "", "6d61696e", a1, hash)
 	})
 	try(cur, "replace client-0", func() ibcgov.Request {
 		return ibcgov.NewEthRouteReplacementRequest(cross(cur), "client-0", "gnoland-2", 1, local)
 	})
 	expect := ibcgov.LastDecision()
-	try(cur, "migrate gnoland-2 after its kind 10", func() ibcgov.Request {
-		return ibcgov.NewEthClientRequest(cross(cur), 2, "gnoland-2", "", "6d61696e", a1, hash)
-	})
 
 	// The epoch moves to gnoland-2 over ethereum-2: a request built before
 	// the switch is spent when it is recorded after it, the route's router
@@ -209,9 +206,8 @@ func main(cur realm) {
 // add gnoland-2 tracking gnoland-2: ibcgov: the counterparty gnoland-2 is not a gno client
 // replace ethereum-1: ibcgov: router client ethereum-1 is not reachable from the governance epoch's client: Ethereum is past it; ethereum-1 is this chain's client, paired with client-0
 // expect recovery from ethereum-1: ibcgov: router client ethereum-1 is not reachable from the governance epoch's client: Ethereum is past it; ethereum-1 is this chain's client, paired with client-0
-// migrate gnoland-2 before its kind 10: ibcgov: gnoland-2 is not an Ethereum router client this realm pairs with a client of this chain: client-0
-// replace client-0: dispatched as epoch 1 seq 9
-// migrate gnoland-2 after its kind 10: dispatched as epoch 1 seq 10
+// migrate gnoland-2 after its kind 6 op 1: dispatched as epoch 1 seq 9
+// replace client-0: dispatched as epoch 1 seq 10
 // epoch 2 over ethereum-2 paired with gnoland-2
 // the limits request built before the switch: spent - spent: client-0 is not the Ethereum router's current client of the route, gnoland-2
 // limits client-0: ibcgov: client-0 is not the Ethereum router's current client of the route, gnoland-2
