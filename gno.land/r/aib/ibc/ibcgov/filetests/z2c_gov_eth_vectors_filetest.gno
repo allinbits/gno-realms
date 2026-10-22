@@ -143,7 +143,10 @@ func main(cur realm) {
 	govern(cur, ibcgov.NewEthRouteSettingsRequest(cross(cur), "client-0", 86400))    // seq 12, for the "spent" acknowledgement
 	govern(cur, ibcgov.NewEthRouteSettingsRequest(cross(cur), "client-0", 86400))    // seq 13, the buffered vector's bytes
 	govern(cur, ibcgov.NewEthSettleRequest(cross(cur), "client-0", "1:1:100,2:2:0")) // seq 14
-	govern(cur, ibcgov.NewEthReopenRequest(cross(cur), "gnoland-2"))                 // seq 15
+	// Seq 15: a kind 13 of the route's router client. The vector's reopens
+	// gnoland-2, the kind 10's new client, which this realm names only once
+	// the epoch moved there (checked at the end).
+	govern(cur, ibcgov.NewEthReopenRequest(cross(cur), "client-0"))                  // seq 15
 	govern(cur, ibcgov.NewEthSettleRequest(cross(cur), "client-0", "3:1:0"))         // seq 16: a refund paid in full
 	govern(cur, ibcgov.NewEthSettleRequest(cross(cur), "client-0", "7:5:100000000")) // seq 17: a forged receive
 
@@ -152,6 +155,8 @@ func main(cur realm) {
 		switch v.name {
 		case "conflict-at-seq-1", "spent-unknown-kind", "cancel-beyond-window":
 			println(v.name, ": not ours (another sender's bytes, an unknown kind, or seq", v.seq, ")")
+		case "kind13-reopen":
+			println(v.name, ": names gnoland-2, sent once the epoch moved there (checked at epoch 2 below)")
 		default:
 			println(v.name, ": envelope equal", ours == v.envelope)
 			if ours != v.envelope {
@@ -197,6 +202,16 @@ func main(cur realm) {
 		testing.SetRealm(testing.NewCodeRealm("gno.land/r/aib/main"))
 		println("notice", i+1, ": status", res.Status, "| ack equal:", hex.EncodeToString(res.Acknowledgement) == want, "| epoch", ibcgov.Epoch(), "over", ibcgov.EpochClient())
 	}
+
+	// The kind 13 vector, at epoch 2 over gnoland-2 now: its kind and params
+	// are the vector's past the epoch and seq of its fresh IBCAdmin.
+	govern(cur, ibcgov.NewEthReopenRequest(cross(cur), "gnoland-2"))
+	ours := hex.EncodeToString(ibcgov.DispatchBody(2, 1))
+	for _, v := range ethVectors {
+		if v.name == "kind13-reopen" {
+			println(v.name, ": kind and params equal", ours[26:] == v.envelope[26:])
+		}
+	}
 }
 
 // Output:
@@ -217,7 +232,7 @@ func main(cur realm) {
 // spent-unknown-kind : not ours (another sender's bytes, an unknown kind, or seq 12 )
 // cancel-beyond-window : not ours (another sender's bytes, an unknown kind, or seq 200 )
 // kind12-settle : envelope equal true
-// kind13-reopen : envelope equal true
+// kind13-reopen : names gnoland-2, sent once the epoch moved there (checked at epoch 2 below)
 // kind12-settle-zero : envelope equal true
 // kind12-settle-forged-receive : envelope equal true
 // kind2-unpause-route : ack parsed true true true status 1 redispatch false
@@ -263,3 +278,4 @@ func main(cur realm) {
 // notice parsed: true 2 gnoland-2
 // notice 1 : status (1 gno.land/p/aib/ibc/types/v0.PacketStatus) | ack equal: true | epoch 2 over ethereum-2
 // notice 2 : status (1 gno.land/p/aib/ibc/types/v0.PacketStatus) | ack equal: true | epoch 2 over ethereum-2
+// kind13-reopen : kind and params equal true

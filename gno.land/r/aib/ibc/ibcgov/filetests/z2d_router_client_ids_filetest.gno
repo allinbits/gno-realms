@@ -69,7 +69,7 @@ func main(cur realm) {
 	execute(cur, govern(cur, ibcgov.NewBindGovernanceRequest(cross(cur), client)))
 
 	govern(cur, ibcgov.NewEthRouteSettingsRequest(cross(cur), "gnoland", 86400))
-	govern(cur, ibcgov.NewEthClientRequest(cross(cur), 1, "gnoland.v2", client, "6d61696e", "0x1111111111111111111111111111111111111111", "abababababababababababababababababababababababababababababababab"))
+	govern(cur, ibcgov.NewEthClientRequest(cross(cur), 1, "gnoland.v2", local, "6d61696e", "0x1111111111111111111111111111111111111111", "abababababababababababababababababababababababababababababababab"))
 	govern(cur, ibcgov.NewEthRouteReplacementRequest(cross(cur), "gnoland", "gnoland.v2", 1, local))
 	println("dispatched:", ibcgov.LastSeq(1))
 	for _, id := range []string{"channel-1", "client-7", "abc", "gno/land"} {
@@ -80,11 +80,17 @@ func main(cur realm) {
 	println("settings client-01:", revive(func() { govern(cur, ibcgov.NewEthRouteSettingsRequest(cross(cur), "client-01", 1)) }))
 
 	// Valid router ids that Markdown would act on are shown as written on the
-	// governance page (Codex round 8 #6).
-	govern(cur, ibcgov.NewEthRouteSettingsRequest(cross(cur), "_eth_", 3600))
-	govern(cur, ibcgov.NewEthRouteSettingsRequest(cross(cur), "<bridge>", 3600))
+	// governance page (Codex round 8 #6): the custom ids kind 6 adds for the
+	// gno clients paired with them. A kind naming the route takes its router
+	// client only, whatever the grammar admits.
+	println("settings _eth_:", revive(func() { govern(cur, ibcgov.NewEthRouteSettingsRequest(cross(cur), "_eth_", 3600)) }))
+	for _, id := range []string{"_eth_", "<bridge>"} {
+		c := core.CreateClient(cross(cur), ethtesting.ClientState(), ethtesting.ConsensusState())
+		core.RegisterCounterparty(cross(cur), c, [][]byte{{}}, id)
+		govern(cur, ibcgov.NewEthClientRequest(cross(cur), 1, id, c, "6d61696e", "0x1111111111111111111111111111111111111111", "abababababababababababababababababababababababababababababababab"))
+	}
 	for _, l := range strings.Split(ibcgov.Render(""), "\n") {
-		if strings.Contains(l, "eth") && strings.Contains(l, "3600") || strings.Contains(l, "bridge") && strings.Contains(l, "3600") {
+		if strings.Contains(l, "client op 1") {
 			println(l)
 		}
 	}
@@ -109,6 +115,8 @@ func main(cur realm) {
 // add abc: ibcgov: a router client id added by governance is a custom id: 4 to 128 characters of a-z A-Z 0-9 . _ + - # [ ] < >, not starting with client- or channel-: abc
 // add gno/land: ibcgov: a router client id added by governance is a custom id: 4 to 128 characters of a-z A-Z 0-9 . _ + - # [ ] < >, not starting with client- or channel-: gno/land
 // settings client-01: ibcgov: not an Ethereum router client id: client-01
-// - #8 applied: ethereum kind 11 \(route settings\): quarantine of \<bridge\>: 3600 s (recorded 1235777492, applied 1235777492) — dispatched as epoch 1 seq 5
-// - #7 applied: ethereum kind 11 \(route settings\): quarantine of \_eth\_: 3600 s (recorded 1235777492, applied 1235777492) — dispatched as epoch 1 seq 4
+// settings _eth_: ibcgov: _eth_ is not the Ethereum router's current client of the route, gnoland
+// - #8 applied: ethereum kind 6 \(client\): client op 1 \<bridge\> counterparty ethereum\-4 prefix \[6d61696e\] light client 0x1111111111111111111111111111111111111111 code hash abababababababababababababababababababababababababababababababab (recorded 1235777492, applied 1235777492) — dispatched as epoch 1 seq 5
+// - #7 applied: ethereum kind 6 \(client\): client op 1 \_eth\_ counterparty ethereum\-3 prefix \[6d61696e\] light client 0x1111111111111111111111111111111111111111 code hash abababababababababababababababababababababababababababababababab (recorded 1235777492, applied 1235777492) — dispatched as epoch 1 seq 4
+// - #4 applied: ethereum kind 6 \(client\): client op 1 gnoland\.v2 counterparty ethereum\-2 prefix \[6d61696e\] light client 0x1111111111111111111111111111111111111111 code hash abababababababababababababababababababababababababababababababab (recorded 1235777492, applied 1235777492) — dispatched as epoch 1 seq 2
 // receive from gnoland: true

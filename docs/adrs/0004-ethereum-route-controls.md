@@ -919,6 +919,35 @@ payout is bounded by `lock - boundAdd(QueuedRefunds, ProvenOwed)`), the outstand
 headroom (`mint`), the claim's remainder, and the installment rules (the
 fee first and whole, then no slivers below `min(remainder, fee)`).
 
+A `clientId` on the wire is the Ethereum router's client id, never this
+chain's, which the router's grammar admits all the same: on a test network
+a kind 4 built for the gno client `ethereum-1` passed the grammar check,
+and Ethereum recorded and executed it under a route key nothing uses, the
+route left unconfigured until a transfer failed. This chain knows the
+pairing, the counterparty the core registered for each of its Ethereum
+clients, so every builder checks its id against it, when the request is
+built and again when the decision is recorded (an epoch switch in between
+moves the route's router client, and the stale decision is spent rather
+than dispatched; `ethParams.client`, `checkRouterClient`, z2f): a kind
+naming the route (2 object 1, 4, 5, 11, 13) takes the router's current
+client of it, the epoch client's counterparty, which the binding and every
+epoch notice since established and which Ethereum keys the route by (a
+decision of the epoch before is abandoned by the switch, so no other id
+ever names the route); a settlement (kind 12) any router client of the
+route's lineage, the counterparty of its current gno client or of one a
+replacement retired (Ethereum refuses one it has not retired, which this
+chain cannot always tell: its own replacement and the notice of Ethereum's
+may lag either way); a verifier migration (kind 6 op 2) any router client
+this realm pairs with a governed client, the lineage, the epoch's and
+every successor an expected transition or tombstone names (a successor is
+migrated once its kind 10 is dispatched); a kind 6 op 1 the custom id the
+gno client it tracks is paired with (the counterparty registered for it,
+immutable once set); a kind 10 or a recovery expectation an old client the
+epoch reaches, as before (`checkExpect`). A client of this chain named in
+any of these places is refused with the router client it is paired with,
+the id that was meant. ADR pr6375 §5.4 states the grammar; this is the
+pairing it leaves to the builders.
+
 The Ethereum-bound builders bound what they take, on the source side: a
 settlement (`NewEthSettleRequest`) names 1 to 8 items (`maxSettleItems`,
 what a 1024-byte envelope holds with a 64-byte client id; a longer client id

@@ -327,7 +327,15 @@ address; deploying it unchanged hands governance to a key nobody holds.
    denom enablement recorded before the check could be executed by anyone
    before the launch is proven. If one was recorded early, cancel it
    (`NewCancelRequest`) and record it again after the check. Ethereum activates its side by a governed kind 4
-   (`NewEthLimitsRequest`). Then enable each denom with
+   (`NewEthLimitsRequest`), which names the route by the **router's**
+   client id, `core.CounterpartyClientID(clientID)` (`client-0` at
+   launch), never by this chain's `clientID` (`ethereum-1`): the router's
+   grammar admits the latter, and Ethereum would record the limits under a
+   route key nothing uses. The builders of every kind naming the route
+   (2, 4, 5, 11, 13) refuse any id but the epoch client's counterparty, a
+   gno client id with the router client it is paired with, and the
+   decision is spent if the epoch moved between the request and its
+   recording (ADR 0004). Then enable each denom with
    `NewSetDenomRequest`. Before enabling a GRC20, review the token's code
    and admin powers. Each transfer must move exactly the stated amount (no
    fee, tax or rounding), its balance queries must be truthful, and no
@@ -636,8 +644,12 @@ by the governor with `ibcgov.Govern` (or, after the yield, a GovDAO proposal
 of the same request: §4), and executed by anyone with `ibcgov.Execute(id)`
 once due; `ibcgov.Decision(id)` shows its state and note. `R` is the route
 key, `OLD` its current gno.land client, `NEW` the replacement, `ROLD` and
-`RNEW` the router's client ids on Ethereum, `INC` the incident name (1 to 32
-characters of `a-z`, `0-9`, `-`).
+`RNEW` the router's client ids on Ethereum (`core.CounterpartyClientID(OLD)`
+and `core.CounterpartyClientID(NEW)`: the Ethereum-bound builders check
+the ids against that pairing and refuse a gno.land client id, naming the
+router client it is paired with; a kind 6 op 1 adding `RNEW` names `NEW`
+as its counterparty, so register it on gno.land first, step 4), `INC` the
+incident name (1 to 32 characters of `a-z`, `0-9`, `-`).
 
 1. **Contain.** Guardians and watch keys flag at once, from their seat keys:
 
