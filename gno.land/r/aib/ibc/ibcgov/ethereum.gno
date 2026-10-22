@@ -2036,10 +2036,6 @@ func NewExpectRecoveryRequest(cur realm, oldClientID, newClientID, localClientID
 	}
 	text := "expect the emergency recovery of " + oldClientID + " by " + newClientID + ", carried here by " + localClientID
 	return propose(cur, "expect recovery", text, func(cur realm, made, t int64) {
-		// Governance named both router clients: a settlement may name them
-		// from now on, whatever becomes of the expectation.
-		routerHistory.Set(oldClientID, true)
-		routerHistory.Set(newClientID, true)
 		// Fresh parameters for every recording: a Request governed twice
 		// makes two decisions, each owning its own place in the intent.
 		p := &expectParams{from: oldClientID, to: newClientID, local: localClientID}
@@ -2052,6 +2048,11 @@ func NewExpectRecoveryRequest(cur realm, oldClientID, newClientID, localClientID
 			spendAtRecording("expect recovery", text, p, made, t, refusal)
 			return
 		}
+		// Governance named both router clients, and the expectation is
+		// recorded: a settlement may name them from now on, whatever becomes
+		// of it. A request spent above adds nothing.
+		routerHistory.Set(oldClientID, true)
+		routerHistory.Set(newClientID, true)
 		d := decide(cur, "expect recovery", text, p, made, t, true)
 		p.owner = d.ID
 		p.gen = intend(oldClientID, newClientID, localClientID, d.ID)
