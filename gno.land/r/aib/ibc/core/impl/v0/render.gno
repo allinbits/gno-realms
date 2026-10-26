@@ -69,18 +69,26 @@ func (rd *Renderer) Register(router *mux.Router) {
 	router.HandleFunc("clients/{id}/unreceived_packets", rd.ClientUnreceivedPackets)
 }
 
+// homeListLimit caps the clients listed on the home page.
+const homeListLimit = 100
+
 func (rd *Renderer) Home(w *mux.ResponseWriter, r *mux.Request) {
 	var out strings.Builder
 	out.WriteString("# IBC core\n\n")
 	out.WriteString("IBC v2 core state and query endpoints.\n\n")
 	out.WriteString(RenderImplDisclosure())
-	ids := rd.store.ClientIDs()
-	out.WriteString(ufmt.Sprintf("## Clients (%d)\n\n", len(ids)))
-	if len(ids) > 0 {
+	// Clients are never removed and, while the relayer whitelist is empty,
+	// anyone may create one: list only the first homeListLimit, like every
+	// other listing here, so the page cannot be pushed past the query gas
+	// limit. The count stays exact.
+	clients := rd.store.Clients()
+	total := clients.Size()
+	out.WriteString(ufmt.Sprintf("## Clients (%d)\n\n", total))
+	if total > 0 {
 		out.WriteString("| Client | St. | Creator | Cpty | Height | Time | CS | Seq | Cmts | Rcpts | Acks |\n")
 		out.WriteString("|--------|-----|---------|------|--------|------|----|-----|------|-------|------|\n")
-		for _, id := range ids {
-			c := rd.store.Client(id)
+		clients.IterateByOffset(0, homeListLimit, func(id string, v any) bool {
+			c := v.(core.Client)
 			lc := c.LightClient()
 			var (
 				nConsStates int
@@ -108,6 +116,10 @@ func (rd *Renderer) Home(w *mux.ResponseWriter, r *mux.Request) {
 				c.PacketReceipts().Size(), id,
 				c.PacketAcknowledgements().Size(), id,
 			))
+			return false
+		})
+		if total > homeListLimit {
+			out.WriteString(ufmt.Sprintf("\nFirst %d of %d clients; see [`clients`](/r/aib/ibc/core:clients) (`?page`, `?limit`) for all of them.\n", homeListLimit, total))
 		}
 		out.WriteString("\n")
 	} else {
@@ -573,13 +585,16 @@ func RenderStrings(s []string) *json.Node {
 	return json.ArrayNode("", nodes)
 }
 
-// RenderNode writes n as JSON.
+// RenderNode writes n as JSON. gnoweb renders it as markdown, and values come
+// from client creators (chain ids, counterparty merkle prefixes) or the URL
+// (echoed in errors), so markdown in string values is escaped (see
+// jsonpage.MarkdownSafe); the JSON still decodes to the same values.
 func RenderNode(w *mux.ResponseWriter, n *json.Node) {
 	bz, err := json.Marshal(n)
 	if err != nil {
 		panic(err)
 	}
-	w.Write(string(bz))
+	w.Write(string(jsonpage.MarkdownSafe(bz)))
 }
 
 func NodeErrorClientNotFound(id string) *json.Node {

@@ -105,6 +105,16 @@ type MerkleRoot struct {
 	Hash []byte
 }
 
+// clone returns a copy of cs sharing no slice or pointer with it (see
+// cloneBytes).
+func (cs ClientState) clone() ClientState {
+	cs.ProofSpecs = cloneProofSpecs(cs.ProofSpecs)
+	if cs.UpgradePath != nil {
+		cs.UpgradePath = append([]string{}, cs.UpgradePath...)
+	}
+	return cs
+}
+
 func NewMerkleRoot(hash []byte) MerkleRoot {
 	return MerkleRoot{Hash: hash}
 }
@@ -174,6 +184,16 @@ func (cs ClientState) ValidateBasic() error {
 			return ufmt.Errorf("proof spec cannot be nil at index: %d", i)
 		}
 	}
+	// The specs come from whoever creates or upgrades the client and decide
+	// what a proof proves. SpecEquals, which routes verification, ignores
+	// fields such as InnerSpec.EmptyChild that the non-existence checks rely
+	// on: an EmptyChild matching a real inner node made a non-existence proof
+	// verify for a key that is in the tree, i.e. a timeout for a packet the
+	// counterparty received. Only the Cosmos SDK specs, IAVL then Tendermint,
+	// are accepted, compared field by field.
+	if !isSDKProofSpecs(cs.ProofSpecs) {
+		return ufmt.Errorf("proof specs must be the Cosmos SDK IAVL and Tendermint specs (ics23.GetSDKProofSpecs)")
+	}
 	// UpgradePath may be empty, but if it isn't, each key must be non-empty
 	for i, k := range cs.UpgradePath {
 		if strings.TrimSpace(k) == "" {
@@ -182,6 +202,21 @@ func (cs ClientState) ValidateBasic() error {
 	}
 
 	return nil
+}
+
+// isSDKProofSpecs reports whether specs equal ics23.GetSDKProofSpecs() (the
+// IAVL spec, then the Tendermint spec), every field included.
+func isSDKProofSpecs(specs []*ics23.ProofSpec) bool {
+	sdk := ics23.GetSDKProofSpecs()
+	if len(specs) != len(sdk) {
+		return false
+	}
+	for i := range specs {
+		if !specs[i].Equal(sdk[i]) {
+			return false
+		}
+	}
+	return true
 }
 
 // ValidateTrustLevel checks that trustLevel is within the allowed range [1/3,

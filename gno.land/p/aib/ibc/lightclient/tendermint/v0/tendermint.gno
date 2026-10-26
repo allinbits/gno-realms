@@ -36,7 +36,7 @@ var _ lightclient.Interface = (*TMLightClient)(nil)
 
 // Implements lightclient.Interface
 func (tm *TMLightClient) Initialize(clientState lightclient.ClientState, consensusState lightclient.ConsensusState) error {
-	cs := clientState.(ClientState)
+	cs := clientState.(ClientState).clone()
 	tm.ClientState = &cs
 	in := consensusState.(ConsensusState)
 	// Construct a fresh ConsensusState in our own (caller's) realm context
@@ -45,8 +45,8 @@ func (tm *TMLightClient) Initialize(clientState lightclient.ClientState, consens
 	// foreign-stamped fields panic with "readonly tainted object".
 	consState := ConsensusState{
 		Timestamp:          in.Timestamp,
-		Root:               in.Root,
-		NextValidatorsHash: in.NextValidatorsHash,
+		Root:               NewMerkleRoot(cloneBytes(in.Root.Hash)),
+		NextValidatorsHash: cloneBytes(in.NextValidatorsHash),
 		processedTime:      time.Now(),
 		processedHeight:    types.GetSelfHeight(),
 	}
@@ -78,8 +78,9 @@ func (tm *TMLightClient) CheckForMisbehaviour(clientMsg lightclient.ClientMessag
 		// UpdateClient.
 		// The placeholder stored at the upgraded height by
 		// VerifyUpgradeAndUpdateState is not a header, so it is treated as
-		// absent: the genuine header at that height must replace it, not be
-		// read as conflicting with it (which would freeze the client).
+		// absent, here and by the neighbour lookups below: the genuine header
+		// at that height must replace it, and headers around it must not be
+		// compared to its timestamp (either would freeze the client).
 		if existingConsState, found := tm.GetConsensusState(msg.GetHeight()); found && !existingConsState.isSentinel() {
 			// This header has already been submitted and the necessary state is
 			// already stored in client store, thus we can return early without
@@ -171,11 +172,13 @@ func (tm *TMLightClient) UpdateState(clientMsg lightclient.ClientMessage) []type
 	if msgHeight.GT(tm.ClientState.LatestHeight) {
 		tm.ClientState = cloneClientStateWithLatestHeight(tm.ClientState, msgHeight)
 	}
-	// Build and store new consensus state from clientMsg
+	// Build and store new consensus state from clientMsg. Its bytes are
+	// copied: the header was built by the caller, who could otherwise rewrite
+	// them, the client's trust root, after verification (see cloneBytes).
 	consState := &ConsensusState{
 		Timestamp:          msg.Header.Time,
-		Root:               NewMerkleRoot(msg.Header.AppHash),
-		NextValidatorsHash: msg.Header.NextValidatorsHash,
+		Root:               NewMerkleRoot(cloneBytes(msg.Header.AppHash)),
+		NextValidatorsHash: cloneBytes(msg.Header.NextValidatorsHash),
 		processedTime:      time.Now(),
 		processedHeight:    types.GetSelfHeight(),
 	}
@@ -326,7 +329,13 @@ func (tm *TMLightClient) RecoverClient(substitute lightclient.Interface) error {
 		ProofSpecs:      tm.ClientState.ProofSpecs,
 		UpgradePath:     tm.ClientState.UpgradePath,
 	}
-	tm.SetConsensusState(subLatest, subConsState)
+	tm.SetConsensusState(subLatest, &ConsensusState{
+		Timestamp:          subConsState.Timestamp,
+		Root:               NewMerkleRoot(cloneBytes(subConsState.Root.Hash)),
+		NextValidatorsHash: cloneBytes(subConsState.NextValidatorsHash),
+		processedTime:      subConsState.processedTime,
+		processedHeight:    subConsState.processedHeight,
+	})
 	return nil
 }
 
@@ -489,8 +498,8 @@ func (tm *TMLightClient) VerifyUpgradeAndUpdateState(newClient, newConsState,
 		MaxClockDrift:   tm.ClientState.MaxClockDrift,
 		FrozenHeight:    types.ZeroHeight(),
 		LatestHeight:    upgradedClientState.LatestHeight,
-		ProofSpecs:      upgradedClientState.ProofSpecs,
-		UpgradePath:     upgradedClientState.UpgradePath,
+		ProofSpecs:      cloneProofSpecs(upgradedClientState.ProofSpecs),
+		UpgradePath:     append([]string(nil), upgradedClientState.UpgradePath...),
 	}
 	if err := newClientState.ValidateBasic(); err != nil {
 		return ufmt.Errorf("upgraded client state failed basic validation: %v", err)
@@ -506,7 +515,7 @@ func (tm *TMLightClient) VerifyUpgradeAndUpdateState(newClient, newConsState,
 	newConsensusState := ConsensusState{
 		Timestamp:          upgradedConsensusState.Timestamp,
 		Root:               NewMerkleRoot([]byte(SentinelRoot)),
-		NextValidatorsHash: upgradedConsensusState.NextValidatorsHash,
+		NextValidatorsHash: cloneBytes(upgradedConsensusState.NextValidatorsHash),
 		processedTime:      time.Now(),
 		processedHeight:    types.GetSelfHeight(),
 	}
@@ -564,12 +573,17 @@ func (tm *TMLightClient) GetConsensusState(height types.Height) (*ConsensusState
 }
 
 // GetNextConsensusState returns the lowest consensus state that is larger than
-// the given height.
+// the given height. The placeholder an upgrade stores (SentinelRoot) is
+// skipped: it is not a header, and its timestamp, from the block that
+// scheduled the upgrade, is earlier than the headers below its height.
 func (tm *TMLightClient) GetNextConsensusState(height types.Height) (*ConsensusState, bool) {
 	var cs *ConsensusState
 	tm.ConsensusStateByHeight.Iterate(height.StringNatSort(), "", func(k string, v any) bool {
 		if k == height.StringNatSort() {
 			return false // ignore passed height
+		}
+		if v.(*ConsensusState).isSentinel() {
+			return false
 		}
 		cs = v.(*ConsensusState)
 		return true
@@ -578,12 +592,16 @@ func (tm *TMLightClient) GetNextConsensusState(height types.Height) (*ConsensusS
 }
 
 // GetPreviousConsensusState returns the highest consensus state that is lower
-// than the given height.
+// than the given height, skipping upgrade placeholders like
+// GetNextConsensusState.
 func (tm *TMLightClient) GetPreviousConsensusState(height types.Height) (*ConsensusState, bool) {
 	var cs *ConsensusState
 	tm.ConsensusStateByHeight.ReverseIterate("", height.StringNatSort(), func(k string, v any) bool {
 		if k == height.StringNatSort() {
 			return false // ignore passed height
+		}
+		if v.(*ConsensusState).isSentinel() {
+			return false
 		}
 		cs = v.(*ConsensusState)
 		return true
@@ -627,4 +645,28 @@ func (tm *TMLightClient) PruneExpiredConsensusStates(now time.Time) int {
 func (tm *TMLightClient) IsExpired(latestTimestamp, now time.Time) bool {
 	expirationTime := latestTimestamp.Add(tm.ClientState.TrustingPeriod)
 	return !expirationTime.After(now)
+}
+
+// cloneBytes returns a copy of b. Everything the client keeps from a value a
+// caller passed in (a client or consensus state, a header) must be copied:
+// slices and pointers keep the caller's realm as their owner, which may keep
+// writing to them after the call returns, and so rewrite the client's trust
+// root or proof specs after they were verified.
+func cloneBytes(b []byte) []byte {
+	if b == nil {
+		return nil
+	}
+	return append([]byte{}, b...)
+}
+
+// cloneProofSpecs returns a deep copy of specs (see cloneBytes).
+func cloneProofSpecs(specs []*ics23.ProofSpec) []*ics23.ProofSpec {
+	if specs == nil {
+		return nil
+	}
+	out := make([]*ics23.ProofSpec, len(specs))
+	for i, spec := range specs {
+		out[i] = spec.Clone()
+	}
+	return out
 }

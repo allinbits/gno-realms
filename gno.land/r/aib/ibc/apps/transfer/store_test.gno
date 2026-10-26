@@ -2,10 +2,12 @@ package transfer
 
 import (
 	"chain"
+	"strings"
 	"testing"
 
 	"gno.land/p/nt/bptree/v0"
 	"gno.land/p/nt/uassert/v0"
+	"gno.land/p/nt/ufmt/v0"
 	"gno.land/p/nt/urequire/v0"
 )
 
@@ -63,6 +65,8 @@ func TestIsGRC20Alias(t *testing.T) {
 func TestEscrowIsolationPerClient(t *testing.T) {
 	// Reset the escrow tree so the test is independent of ordering.
 	totalEscrow = bptree.NewBPTree32()
+	escrowByDenom = bptree.NewBPTree32()
+	escrowTotals = bptree.NewBPTree32()
 
 	// clientA escrows 100ugnot; clientB escrows nothing. The checks below
 	// prove the accounting was recorded and isolated per client.
@@ -90,6 +94,8 @@ func TestEscrowIsolationPerClient(t *testing.T) {
 
 func TestEscrowAccumulatesPerClientDenom(t *testing.T) {
 	totalEscrow = bptree.NewBPTree32()
+	escrowByDenom = bptree.NewBPTree32()
+	escrowTotals = bptree.NewBPTree32()
 
 	// Two sends over the same client accumulate.
 	addEscrowForClient("07-tendermint-1", chain.NewCoin("ugnot", 40))
@@ -111,6 +117,8 @@ func TestEscrowAccumulatesPerClientDenom(t *testing.T) {
 // the accounting intact.
 func TestCheckEscrowForClientDoesNotMutate(t *testing.T) {
 	totalEscrow = bptree.NewBPTree32()
+	escrowByDenom = bptree.NewBPTree32()
+	escrowTotals = bptree.NewBPTree32()
 	addEscrowForClient("07-tendermint-1", chain.NewCoin("ugnot", 100))
 
 	// A passing check must not change the balance.
@@ -133,6 +141,8 @@ func TestCheckEscrowForClientDoesNotMutate(t *testing.T) {
 // subtraction without re-checking.
 func TestDebitEscrowForClientMatchesCheck(t *testing.T) {
 	totalEscrow = bptree.NewBPTree32()
+	escrowByDenom = bptree.NewBPTree32()
+	escrowTotals = bptree.NewBPTree32()
 	addEscrowForClient("07-tendermint-1", chain.NewCoin("ugnot", 100))
 	coin := chain.NewCoin("ugnot", 40)
 
@@ -141,4 +151,44 @@ func TestDebitEscrowForClientMatchesCheck(t *testing.T) {
 
 	t1 := escrowForClient("07-tendermint-1")
 	uassert.Equal(t, int64(60), t1.Get("ugnot").(chain.Coin).Amount)
+}
+
+// The per-denom views must stay in step with the per-client accounting, which
+// they index: EscrowTotals sums every client, EscrowClients lists each one.
+func TestEscrowIndexByDenom(t *testing.T) {
+	totalEscrow = bptree.NewBPTree32()
+	escrowByDenom = bptree.NewBPTree32()
+	escrowTotals = bptree.NewBPTree32()
+
+	addEscrowForClient("07-tendermint-1", chain.NewCoin("ugnot", 100))
+	addEscrowForClient("07-tendermint-2", chain.NewCoin("ugnot", 50))
+	addEscrowForClient("07-tendermint-2", chain.NewCoin("uatom", 7))
+	addEscrowForClient("07-tendermint-1", chain.NewCoin("ugnot", 20))
+	debitEscrowForClient("07-tendermint-2", chain.NewCoin("ugnot", 50))
+
+	var s transferStore
+	totals := []string{}
+	s.EscrowTotals().Iterate("", "", func(denom string, v any) bool {
+		totals = append(totals, ufmt.Sprintf("%s=%d", denom, v.(chain.Coin).Amount))
+		return false
+	})
+	uassert.Equal(t, "uatom=7,ugnot=120", strings.Join(totals, ","))
+
+	clients := []string{}
+	s.EscrowClients("ugnot").Iterate("", "", func(clientID string, v any) bool {
+		clients = append(clients, ufmt.Sprintf("%s=%d", clientID, v.(chain.Coin).Amount))
+		return false
+	})
+	// A fully released client stays listed at 0, as in the per-client view.
+	uassert.Equal(t, "07-tendermint-1=120,07-tendermint-2=0", strings.Join(clients, ","))
+	uassert.Equal(t, 0, s.EscrowClients("uphoton").Size())
+
+	// The index matches the per-client accounting.
+	sums := map[string]int64{}
+	s.IterateEscrow(func(_ string, c chain.Coin) bool {
+		sums[c.Denom] += c.Amount
+		return false
+	})
+	uassert.Equal(t, int64(120), sums["ugnot"])
+	uassert.Equal(t, int64(7), sums["uatom"])
 }

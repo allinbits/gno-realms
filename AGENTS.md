@@ -126,6 +126,10 @@ A non-crossing helper called within the same realm takes `cur` directly (no `cro
 The `realm` value exposes ACL predicates used throughout the realms:
 `cur.Address()`, `cur.PkgPath()`, `cur.Previous()`, `cur.IsUserCall()`, `cur.IsCurrent()`. The guard `cur.Previous().IsUserCall()` (true only for a direct `maketx call` from an EOA) gates value-moving entry points like `Transfer`.
 
+### Copy what you keep from callers
+
+A slice, map or pointer passed in by another realm stays owned by that realm, which may keep writing to it after the call returns, even once it is stored in our state (a `MsgRun`'s objects are adopted by the realm that stores them; a deployed realm's are not). Anything kept from a caller must therefore be copied before it is stored: e.g. the light client copies header hashes, consensus-state bytes and proof specs (`cloneBytes`, `ProofSpec.Clone`), and core copies the counterparty merkle prefix and pending packets (`Packet.Clone`). Storing such a value as is let a caller rewrite a client's trusted root after verification. Strings and plain values need no copy.
+
 ### MsgRun vs MsgCall
 
 Most IBC functions require `MsgRun` (not `MsgCall`) because they take complex arguments (structs, slices of bytes). See `gno.land/r/aib/ibc/core/README.md` for examples.

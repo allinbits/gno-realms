@@ -236,7 +236,13 @@ func (c *client) LightClient() lightclient.Interface { return c.lightClient }
 func (c *client) SetCounterparty(_ int, rlm realm, clientID string, merklePrefix [][]byte) {
 	assertProxyRealm(0, rlm)
 	c.counterpartyClientID = clientID
-	c.counterpartyMerklePrefix = merklePrefix
+	// Copied: slices keep the caller's realm as their owner, which could
+	// otherwise rewrite the prefix proofs are checked against later.
+	prefix := make([][]byte, len(merklePrefix))
+	for i, p := range merklePrefix {
+		prefix[i] = append([]byte{}, p...)
+	}
+	c.counterpartyMerklePrefix = prefix
 }
 
 func (c *client) SetLightClient(_ int, rlm realm, convert func(lightclient.Interface) lightclient.Interface) {
@@ -386,7 +392,9 @@ func (c *client) SavePendingAsyncAck(_ int, rlm realm, packet types.Packet, appP
 		panic(ufmt.Sprintf("acknowledgement already written for sequence %d", sequence))
 	}
 	c.pendingAsyncAcksBySeq.Set(seqid.ID(sequence).Binary(), &pendingAsyncAck{
-		packet:     packet,
+		// Copied: the packet comes from the relayer's message, whose realm
+		// could otherwise rewrite its payloads before the acknowledgement.
+		packet:     packet.Clone(),
 		appPkgPath: appPkgPath,
 	})
 }

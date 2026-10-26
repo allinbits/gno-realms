@@ -145,3 +145,34 @@ func (p *InnerSpec) ProtoMarshal() []byte {
 	bz = proto.AppendVarint(bz, 6, uint64(int64(p.Hash)))
 	return bz
 }
+
+// Clone returns a deep copy of p: no slice or pointer of the copy is shared
+// with p. A spec received from another realm stays writable by that realm, so
+// a realm that keeps one, to verify proofs against later, must keep a copy.
+func (p *ProofSpec) Clone() *ProofSpec {
+	if p == nil {
+		return nil
+	}
+	return &ProofSpec{
+		LeafSpec:                   p.LeafSpec.Clone(),
+		InnerSpec:                  p.InnerSpec.Clone(),
+		MaxDepth:                   p.MaxDepth,
+		MinDepth:                   p.MinDepth,
+		PrehashKeyBeforeComparison: p.PrehashKeyBeforeComparison,
+	}
+}
+
+// Clone returns a deep copy of s (see ProofSpec.Clone).
+func (s *InnerSpec) Clone() *InnerSpec {
+	if s == nil {
+		return nil
+	}
+	return &InnerSpec{
+		ChildOrder:      append([]int32(nil), s.ChildOrder...),
+		ChildSize:       s.ChildSize,
+		MinPrefixLength: s.MinPrefixLength,
+		MaxPrefixLength: s.MaxPrefixLength,
+		EmptyChild:      append([]byte(nil), s.EmptyChild...),
+		Hash:            s.Hash,
+	}
+}
