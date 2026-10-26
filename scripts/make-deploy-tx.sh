@@ -10,6 +10,12 @@
 #   CREATOR=g1... ./scripts/make-deploy-tx.sh                 # another creator (address or local key name)
 #   KEEP_TESTS=1 ./scripts/make-deploy-tx.sh                  # keep filetests/ and *_test.gno
 #   ONLY=gno.land/r/aib/ibc/core/impl/v1 ./scripts/make-deploy-tx.sh   # a subset of packages.sh (comma-separated), e.g. one implementation
+#   RELAYERS=g1...,g1... ./scripts/make-deploy-tx.sh          # also write the ibcgov MsgRun adding these relayers
+#
+# RELAYERS (comma-separated addresses) also writes RELAYERS_OUT (default
+# ./add-relayers.gno): the MsgRun script by which the ibcgov governor records
+# one add-relayer decision per address (core.AddRelayer accepts ibcgov only;
+# see gno.land/r/aib/ibc/core/README.md, "Relayer whitelist").
 #
 # CREATOR is the account that submits and pays, by default MULTISIG_ADDR from
 # env.sh. It does not need to be in the local keybase or unlocked: gnokey only
@@ -47,9 +53,22 @@ MAX_DEPOSIT="${MAX_DEPOSIT:-100000000ugnot}" # per package
 MEMO="${MEMO:-}"
 OUT="${OUT:-deploy-tx.json}"
 KEEP_TESTS="${KEEP_TESTS:-0}"
+RELAYERS="${RELAYERS:-}"
+RELAYERS_OUT="${RELAYERS_OUT:-add-relayers.gno}"
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$REPO_ROOT"
+
+relayers=()
+if [[ -n "$RELAYERS" ]]; then
+  IFS=',' read -r -a relayers <<< "$RELAYERS"
+  for r in "${relayers[@]}"; do
+    if [[ ! "$r" =~ ^g1[a-z0-9]{38}$ ]]; then
+      echo "ERROR: RELAYERS: not a g1 address: '$r'" >&2
+      exit 1
+    fi
+  done
+fi
 
 # ---- optional subset --------------------------------------------------------
 # ONLY keeps the listed package paths, in packages.sh order; an upgrade deploys
@@ -143,6 +162,22 @@ if max_tx_bytes="$(curl -sf --max-time 10 "$REMOTE/consensus_params" 2>/dev/null
   echo "    fits MaxTxBytes=$max_tx_bytes"
 fi
 
+# ---- relayer whitelist ------------------------------------------------------
+# core.AddRelayer is a governed operation: the core accepts it from ibcgov only,
+# so the relayers are added by ibcgov decisions, recorded here by the governor
+# (Govern) before its yield. After the yield the same requests go through GovDAO
+# proposals instead (see the core README).
+if [[ "${#relayers[@]}" -gt 0 ]]; then
+  {
+    printf 'package main\n\nimport "gno.land/r/aib/ibc/ibcgov"\n\nfunc main(cur realm) {\n'
+    for r in "${relayers[@]}"; do
+      printf '\tibcgov.Govern(cross(cur), ibcgov.NewCoreAddRelayerRequest(cross(cur), "%s"))\n' "$r"
+    done
+    printf '}\n'
+  } > "$RELAYERS_OUT"
+  echo "==> $RELAYERS_OUT: ${#relayers[@]} add-relayer decision(s) for the ibcgov governor"
+fi
+
 # ---- next steps -------------------------------------------------------------
 creator_addr="$CREATOR"
 if [[ ! "$CREATOR" =~ ^g1[a-z0-9]{38}$ ]]; then
@@ -151,6 +186,15 @@ fi
 acct="$("${GNOKEY_CMD[@]}" query "auth/accounts/$creator_addr" -remote "$REMOTE" 2>/dev/null || true)"
 acct_num="$(grep -o '"account_number": *"[0-9]*"' <<<"$acct" | sed 's/[^0-9]//g' || true)"
 acct_seq="$(grep -o '"sequence": *"[0-9]*"' <<<"$acct" | sed 's/[^0-9]//g' || true)"
+
+if [[ "${#relayers[@]}" -gt 0 ]]; then
+  RELAYERS_FILE="$RELAYERS_OUT"
+  RELAYERS_HINT=" (written to $RELAYERS_OUT)"
+else
+  RELAYERS_FILE="add-relayers.gno"
+  RELAYERS_HINT=" (rerun with RELAYERS=g1...,g1... to write it), one Govern per relayer:
+       ibcgov.Govern(cross(cur), ibcgov.NewCoreAddRelayerRequest(cross(cur), \"<relayer-address>\"))"
+fi
 
 cat <<EOT
 
@@ -166,8 +210,15 @@ cat <<EOT
        gnokey broadcast -remote $REMOTE $OUT
   4. On an "inert" chain the packages park until the approvers enable them; poll with
        gnokey query vm/qpkgmeta_json -data <pkgpath> -remote $REMOTE   (status: inert -> live)
-  5. Once the core is live, the authority adds the relayers: until then the relayer whitelist is
-     empty and any address may create clients and relay (see gno.land/r/aib/ibc/core/README.md,
-     "Relayer whitelist"). One MsgCall per relayer, through the same multisig flow:
-       gnokey maketx call -pkgpath gno.land/r/aib/ibc/core -func AddRelayer -args <relayer-address> ...
+  5. Once core and ibcgov are live, governance adds the relayers: until the first add-relayer
+     decision executes the whitelist is empty and any address may create clients and relay (see
+     gno.land/r/aib/ibc/core/README.md, "Relayer whitelist"). core.AddRelayer accepts ibcgov only,
+     so a direct call panics. The ibcgov governor (LaunchGovernor, before its yield) records the
+     decisions with a MsgRun${RELAYERS_HINT}:
+       gnokey maketx run -gas-fee ... -gas-wanted ... -broadcast -chainid $CHAIN_ID -remote $REMOTE \\
+           <governor-key> ${RELAYERS_FILE}
+     After the yield (or with no LaunchGovernor) a GovDAO proposal of the same requests replaces it.
+     Each decision is queued for 7 days (production); then anyone applies it with its number
+     (gno.land/r/aib/ibc/ibcgov:decisions):
+       gnokey maketx call -pkgpath gno.land/r/aib/ibc/ibcgov -func Execute -args <decision> ... <any-key>
 EOT
