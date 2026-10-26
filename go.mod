@@ -3,8 +3,8 @@ module aibgno
 go 1.25.9
 
 replace (
-	github.com/gnolang/gno => github.com/gnolang/gno v0.0.0-20261026142844-303c0c10a0b2
-	github.com/gnolang/gno/contribs/gnodev => github.com/gnolang/gno/contribs/gnodev v0.0.0-20261026142844-303c0c10a0b2
+	github.com/gnolang/gno => github.com/gnolang/gno v0.0.0-20261021130809-2cf920efd5f8
+	github.com/gnolang/gno/contribs/gnodev => github.com/gnolang/gno/contribs/gnodev v0.0.0-20261021130809-2cf920efd5f8
 )
 
 tool (
@@ -66,6 +66,7 @@ require (
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.29.0 // indirect
 	github.com/gtank/merlin v0.1.1 // indirect
 	github.com/hashicorp/golang-lru/v2 v2.0.7 // indirect
+	github.com/holiman/uint256 v1.3.2 // indirect
 	github.com/ianlancetaylor/cgosymbolizer v0.0.0-20241129212102-9c50ad6b591e // indirect
 	github.com/klauspost/compress v1.18.0 // indirect
 	github.com/kr/pretty v0.3.1 // indirect
