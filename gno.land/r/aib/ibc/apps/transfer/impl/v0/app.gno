@@ -160,6 +160,7 @@ func (l *logic) OnRecvPacket(_ int, rlm realm, sourceClient, destinationClient s
 	var (
 		data       ics20.FungibleTokenPacketData
 		token      ics20.Token
+		amount     uint256
 		ackErr     error
 		ack        = types.NewResultAppAcknowledgement([]byte{byte(1)})
 		recvResult = types.RecvPacketResult{
@@ -213,6 +214,14 @@ func (l *logic) OnRecvPacket(_ int, rlm realm, sourceClient, destinationClient s
 		ack = types.NewErrorAppAcknowledgement(ackErr)
 		return types.RecvPacketResult{Status: types.PacketStatus_Failure}
 	}
+	// Parse the amount before any state change: an error acknowledgement
+	// does not revert what the callback already wrote, so a failure past
+	// this point would leave a denom or escrow change behind.
+	amount, ackErr = token.AmountUint256()
+	if ackErr != nil {
+		ack = types.NewErrorAppAcknowledgement(ackErr)
+		return types.RecvPacketResult{Status: types.PacketStatus_Failure}
+	}
 	// This is the prefix that would have been prefixed to the denomination
 	// on sender chain IF and only if the token originally came from the
 	// receiving chain.
@@ -225,12 +234,6 @@ func (l *logic) OnRecvPacket(_ int, rlm realm, sourceClient, destinationClient s
 
 		// remove prefix added by sender chain
 		token.Denom.Trace = token.Denom.Trace[1:]
-		var amount uint256
-		amount, ackErr = token.AmountUint256()
-		if ackErr != nil {
-			ack = types.NewErrorAppAcknowledgement(ackErr)
-			return types.RecvPacketResult{Status: types.PacketStatus_Failure}
-		}
 		denom := token.Denom.IBCDenom()
 
 		// The escrow being released was recorded under destinationClient when
@@ -265,12 +268,6 @@ func (l *logic) OnRecvPacket(_ int, rlm realm, sourceClient, destinationClient s
 		transfer.EmitDenom(0, rlm, token.Denom.HashHex(), string(token.Denom.MarshalJSON()))
 
 		// Mint voucher tokens to the receiver
-		var amount uint256
-		amount, ackErr = token.AmountUint256()
-		if ackErr != nil {
-			ack = types.NewErrorAppAcknowledgement(ackErr)
-			return types.RecvPacketResult{Status: types.PacketStatus_Failure}
-		}
 		// No configuration names the counterparty's decimals for a client
 		// the route controls do not cover: the voucher counts base units.
 		l.store.GetOrCreateVoucher(0, rlm, token.Denom.Base, voucherDenom, 0)

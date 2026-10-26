@@ -77,7 +77,7 @@ func (l *logic) home(w *mux.ResponseWriter, r *mux.Request) {
 // the route awaits its reopening (ADR pr6375 §7.12).
 func (l *logic) routeLinks(rd *implv0.Renderer, page string) string {
 	rdr := l.reader()
-	for _, d := range rd.DenomsByClientOrder() {
+	for _, d := range rd.DenomsByClientOrder(implv0.HomeListLimit) {
 		key := d.Trace[0].ClientId
 		current := rdr.Client(key)
 		if current == "" || current == key {

@@ -56,8 +56,8 @@ Nothing in this list can change after the first mainnet deploy.
 
 1. **Entry points** with their exact current signatures, forwarding to
    `mustImpl().X(0, cur, ...)`. Every public read helper (`ClientIDs`,
-   `ClientStatus`, `ClientLatestHeight`, `IsAppPending`, `IsAppPaused`,
-   `IsAuthorityMember`, `Paused`, `Render`) stays in the proxy.
+   `ClientIDsLimit`, `ClientStatus`, `ClientLatestHeight`, `IsAppPending`,
+   `IsAppPaused`, `IsAuthorityMember`, `Paused`, `Render`) stays in the proxy.
 2. **Gates run in the proxy before delegating**: `ensureAuthorizedRelayer`
    (client operations and packet relaying), `ensureNotPaused` (packet path),
    and the authority assertion for administrative operations. A buggy

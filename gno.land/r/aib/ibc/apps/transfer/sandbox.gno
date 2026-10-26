@@ -38,6 +38,8 @@ func (sandboxStore) CheckEscrow(clientID, denom string, amount uint256) error {
 }
 func (sandboxStore) IterateEscrow(fn func(clientID, denom string, amount uint256) bool) {}
 func (sandboxStore) Escrowed(clientID, denom string) uint256                            { return 0 }
+func (sandboxStore) EscrowTotals() bptree.ITree                                         { return emptyTree() }
+func (sandboxStore) EscrowClients(denom string) bptree.ITree                            { return emptyTree() }
 
 func (sandboxStore) EscrowGRC20(_ int, rlm realm, clientID, denomKey string, from address, amount uint256) error {
 	refuseSandbox()
