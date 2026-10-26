@@ -100,10 +100,10 @@ github.com/fsnotify/fsnotify v1.9.0 h1:2Ml+OJNzbYCTzsxtv8vKSFD9PbJjmhYF14k/jKC7S
 github.com/fsnotify/fsnotify v1.9.0/go.mod h1:8jBTzvmWwFyi3Pb8djgCCO5IBqzKJ/Jwo8TRcHyHii0=
 github.com/getsentry/sentry-go v0.35.0 h1:+FJNlnjJsZMG3g0/rmmP7GiKjQoUF5EXfEtBwtPtkzY=
 github.com/getsentry/sentry-go v0.35.0/go.mod h1:C55omcY9ChRQIUcVcGcs+Zdy4ZpQGvNJ7JYHIoSWOtE=
-github.com/gnolang/gno v0.0.0-20261021130809-2cf920efd5f8 h1:sKltYwIP3UU+ndTbhYPzdVJjkRBax7ZJspAqnq5vE6s=
-github.com/gnolang/gno v0.0.0-20261021130809-2cf920efd5f8/go.mod h1:C/fL0XXp1aKeSYA8tuQCGnEjMWoq1st7dYMmvzRoj8I=
-github.com/gnolang/gno/contribs/gnodev v0.0.0-20261021130809-2cf920efd5f8 h1:k/xPIPnnsrOH9vQoRMovrj/QEI6Wu9eZGnhFfkqyi/o=
-github.com/gnolang/gno/contribs/gnodev v0.0.0-20261021130809-2cf920efd5f8/go.mod h1:yDLhBL+G6EWbubh1d+kyDvrgit9ERVhDXv4JatKySCk=
+github.com/gnolang/gno v0.0.0-20261026162543-053c6c2a7771 h1:sCjWBEudeG4rZZSkB9lN0Ld5R1patwL+JS9rLRKM8Ss=
+github.com/gnolang/gno v0.0.0-20261026162543-053c6c2a7771/go.mod h1:C/fL0XXp1aKeSYA8tuQCGnEjMWoq1st7dYMmvzRoj8I=
+github.com/gnolang/gno/contribs/gnodev v0.0.0-20261026162543-053c6c2a7771 h1:Wq2O8us8LYK5tEJ9D6oSN5KO4pXj6evTWN8YT6fwPEg=
+github.com/gnolang/gno/contribs/gnodev v0.0.0-20261026162543-053c6c2a7771/go.mod h1:yDLhBL+G6EWbubh1d+kyDvrgit9ERVhDXv4JatKySCk=
 github.com/go-errors/errors v1.4.2 h1:J6MZopCL4uSllY1OfXM374weqZFFItUbrImctkmUxIA=
 github.com/go-errors/errors v1.4.2/go.mod h1:sIVyrIiJhuEF+Pj9Ebtd6P/rEYROXFi3BopGUQ5a5Og=
 github.com/go-logfmt/logfmt v0.6.0 h1:wGYYu3uicYdqXVgoYbvnkrPVXkuLM1p1ifugDMEdRi4=
