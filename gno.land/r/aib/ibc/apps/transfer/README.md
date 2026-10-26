@@ -429,6 +429,12 @@ counterparty's decimal metadata is not carried over, and balances are the
 unscaled base-unit amounts the packets carried. For the full denom and richer metadata
 (trace hops, total supply), query the render endpoint `voucher/ibc/{HASH}`.
 
+Base denominations are the counterparty's and are accepted as received, like
+ibc-go does. gnoweb renders every page as markdown, JSON included, so the
+render routes escape them: the Home table escapes its cells, and the JSON
+routes write markdown characters in string values as `\u` escapes
+(`jsonpage.MarkdownSafe`), which decode to the same strings.
+
 ### Trading
 
 1. A user receives voucher tokens via an IBC `RecvPacket`.

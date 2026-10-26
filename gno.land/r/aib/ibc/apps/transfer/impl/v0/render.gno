@@ -61,6 +61,17 @@ func (rd *Renderer) Register(router *mux.Router) {
 	router.HandleFunc("voucher/ibc/{hash}/balance/{addr}", rd.VoucherBalance)
 }
 
+// homeListLimit caps every listing on the home page. Clients are never
+// removed and, while the core's relayer whitelist is empty, anyone may create
+// one, then mint vouchers or escrow through it: a listing of the whole set
+// could be pushed past the query gas limit. Counts stay exact; the paginated
+// JSON routes list everything.
+const homeListLimit = 100
+
+// HomeListLimit is homeListLimit, for implementations that rewrite the home
+// page (impl/v1 rewrites the send-back links of the listed vouchers).
+const HomeListLimit = homeListLimit
+
 func (rd *Renderer) Home(w *mux.ResponseWriter, r *mux.Request) {
 	var out strings.Builder
 	out.WriteString("# IBC transfer\n\n")
@@ -75,7 +86,7 @@ func (rd *Renderer) Home(w *mux.ResponseWriter, r *mux.Request) {
 	if denoms.Size() > 0 {
 		out.WriteString("| Denom | Base | Path | Supply | GRC20 | Actions |\n")
 		out.WriteString("|-------|------|------|--------|-------|---------|\n")
-		for _, d := range rd.DenomsByClientOrder() {
+		for _, d := range rd.DenomsByClientOrder(homeListLimit) {
 			ibcDenom := d.IBCDenom()
 			supply := ""
 			grc20link := ""
@@ -106,33 +117,33 @@ func (rd *Renderer) Home(w *mux.ResponseWriter, r *mux.Request) {
 				NewVoucherSendLink(ibcDenom).URL(),
 				NewVoucherApproveLink(ibcDenom).URL(),
 			)
+			// The base denom comes from the counterparty's packet data and is
+			// only checked for slashes on receive, so it can carry markdown:
+			// escape it (and the path that embeds it) as a table cell.
 			out.WriteString(ufmt.Sprintf(
 				"| [`%s`](/r/aib/ibc/apps/transfer:denoms/%s) | %s | %s | %s | %s | %s |\n",
 				ShortDenom(ibcDenom), ibcDenom, jsonmd.Cell(d.Base), jsonmd.Cell(d.Path()), supply, grc20link, actions,
 			))
 		}
+		if denoms.Size() > homeListLimit {
+			out.WriteString(ufmt.Sprintf("\nFirst %d of %d vouchers; see [`vouchers`](/r/aib/ibc/apps/transfer:vouchers) (`?page`, `?limit`) for all of them.\n", homeListLimit, denoms.Size()))
+		}
 		out.WriteString("\n")
 	} else {
 		out.WriteString("No vouchers yet.\n\n")
 	}
-	escrowsPerDenom := rd.TotalEscrowsPerDenom()
-	out.WriteString(ufmt.Sprintf("## Escrow (%d)\n\n", len(escrowsPerDenom)))
-	if len(escrowsPerDenom) > 0 {
+	escrowTotals := rd.store.EscrowTotals()
+	out.WriteString(ufmt.Sprintf("## Escrow (%d)\n\n", escrowTotals.Size()))
+	if escrowTotals.Size() > 0 {
 		out.WriteString("| Denom | Amount |\n")
 		out.WriteString("|-------|--------|\n")
-		// Iterate in the stable order the escrow accounting exposes (by
-		// client), emitting each denom the first time it is seen, so the
-		// table matches the underlying storage order rather than map
-		// iteration order.
-		seen := map[string]bool{}
-		rd.store.IterateEscrow(func(_ string, c chain.Coin) bool {
-			if seen[c.Denom] {
-				return false
-			}
-			seen[c.Denom] = true
-			out.WriteString(ufmt.Sprintf("| %s | %d |\n", escrowDenomCell(c.Denom), escrowsPerDenom[c.Denom]))
+		escrowTotals.IterateByOffset(0, homeListLimit, func(denom string, v any) bool {
+			out.WriteString(ufmt.Sprintf("| %s | %d |\n", escrowDenomCell(denom), v.(chain.Coin).Amount))
 			return false
 		})
+		if escrowTotals.Size() > homeListLimit {
+			out.WriteString(ufmt.Sprintf("\nFirst %d of %d escrowed denoms.\n", homeListLimit, escrowTotals.Size()))
+		}
 		out.WriteString("\n")
 	} else {
 		out.WriteString("No escrow yet.\n\n")
@@ -203,17 +214,18 @@ func (rd *Renderer) Denom(w *mux.ResponseWriter, r *mux.Request) {
 func (rd *Renderer) TotalEscrowForDenom(w *mux.ResponseWriter, r *mux.Request) {
 	denom := r.GetVar("denom")
 	// List the per-client amounts so the client/escrow binding is visible, not
-	// just the aggregate. The total is kept at the top level for quick checks.
+	// just the aggregate. The total is kept at the top level for quick checks;
+	// the client list is capped (see homeListLimit).
 	clients := []*json.Node{}
 	var total int64
-	rd.store.IterateEscrow(func(clientID string, c chain.Coin) bool {
-		if c.Denom == denom {
-			total += c.Amount
-			clients = append(clients, json.ObjectNode("", map[string]*json.Node{
-				"client": json.StringNode("", clientID),
-				"amount": json.NumberNode("", float64(c.Amount)),
-			}))
-		}
+	if v := rd.store.EscrowTotals().Get(denom); v != nil {
+		total = v.(chain.Coin).Amount
+	}
+	rd.store.EscrowClients(denom).IterateByOffset(0, homeListLimit, func(clientID string, v any) bool {
+		clients = append(clients, json.ObjectNode("", map[string]*json.Node{
+			"client": json.StringNode("", clientID),
+			"amount": json.NumberNode("", float64(v.(chain.Coin).Amount)),
+		}))
 		return false
 	})
 	RenderNode(w, json.ObjectNode("", map[string]*json.Node{
@@ -221,17 +233,6 @@ func (rd *Renderer) TotalEscrowForDenom(w *mux.ResponseWriter, r *mux.Request) {
 		"amount":  json.NumberNode("", float64(total)),
 		"clients": json.ArrayNode("", clients),
 	}))
-}
-
-// TotalEscrowsPerDenom returns one entry per denom that has any escrow
-// across all clients, with the summed amount.
-func (rd *Renderer) TotalEscrowsPerDenom() map[string]int64 {
-	out := map[string]int64{}
-	rd.store.IterateEscrow(func(_ string, c chain.Coin) bool {
-		out[c.Denom] += c.Amount
-		return false
-	})
-	return out
 }
 
 func (rd *Renderer) Vouchers(w *mux.ResponseWriter, r *mux.Request) {
@@ -278,19 +279,20 @@ func (rd *Renderer) VoucherBalance(w *mux.ResponseWriter, r *mux.Request) {
 	}))
 }
 
-// DenomsByClientOrder returns the stored voucher denoms ordered to match the
-// "Pick the client" listing (core.ClientIDs() order): each voucher is grouped
-// under its source client (Trace[0].ClientId), following the same client order
-// as the client list, so the vouchers table lines up with it. Within a client,
-// the underlying b+tree order is preserved. Denoms whose source client is not
-// (or no longer) registered are appended last, in b+tree order, so nothing is
-// dropped. Every stored denom is a minted voucher with a non-empty trace, so
-// Trace[0] is always safe to read.
-func (rd *Renderer) DenomsByClientOrder() []ics20.Denom {
+// DenomsByClientOrder returns the first limit stored voucher denoms (in b+tree
+// order) ordered to match the "Pick the client" listing (core.ClientIDsLimit
+// order): each voucher is grouped under its source client (Trace[0].ClientId),
+// following the same client order as the client list, so the vouchers table
+// lines up with it. Within a client, the underlying b+tree order is preserved.
+// Denoms whose source client is not in that listing (not or no longer
+// registered, or beyond its cap) are appended last, in b+tree order, so none
+// of the limit denoms is dropped. Every stored denom is a minted voucher with
+// a non-empty trace, so Trace[0] is always safe to read.
+func (rd *Renderer) DenomsByClientOrder(limit int) []ics20.Denom {
 	denoms := rd.store.Denoms()
 	byClient := make(map[string][]ics20.Denom)
-	all := make([]ics20.Denom, 0, denoms.Size())
-	denoms.IterateByOffset(0, denoms.Size(), func(_ string, v any) bool {
+	all := make([]ics20.Denom, 0, limit)
+	denoms.IterateByOffset(0, limit, func(_ string, v any) bool {
 		d := v.(ics20.Denom)
 		all = append(all, d)
 		client := d.Trace[0].ClientId
@@ -300,7 +302,8 @@ func (rd *Renderer) DenomsByClientOrder() []ics20.Denom {
 
 	out := make([]ics20.Denom, 0, len(all))
 	emitted := make(map[string]bool) // source clients already emitted
-	for _, client := range core.ClientIDs() {
+	clientIDs, _ := core.ClientIDsLimit(homeListLimit)
+	for _, client := range clientIDs {
 		if ds, ok := byClient[client]; ok {
 			out = append(out, ds...)
 			emitted[client] = true
@@ -321,8 +324,8 @@ func RenderTransferLinks() string {
 	var out strings.Builder
 	out.WriteString("## Transfer\n\n")
 
-	clientIDs := core.ClientIDs()
-	if len(clientIDs) == 0 {
+	clientIDs, total := core.ClientIDsLimit(homeListLimit)
+	if total == 0 {
 		out.WriteString("No IBC client registered yet — create one in [`/r/aib/ibc/core`](/r/aib/ibc/core) before transferring.\n\n")
 		return out.String()
 	}
@@ -350,6 +353,9 @@ func RenderTransferLinks() string {
 				clientID, status, height, clientID,
 			))
 		}
+	}
+	if total > len(clientIDs) {
+		out.WriteString(ufmt.Sprintf("\nFirst %d of %d clients; see [`clients`](/r/aib/ibc/core:clients) (`?page`, `?limit`) for all of them.\n", len(clientIDs), total))
 	}
 
 	out.WriteString("\n")

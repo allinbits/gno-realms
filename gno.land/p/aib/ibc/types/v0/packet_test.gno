@@ -298,3 +298,16 @@ func TestPacketClientIDsAreTheBase(t *testing.T) {
 		t.Fatalf("the router grammar belongs to ValidateBasicRouter only")
 	}
 }
+
+func TestPacketClone(t *testing.T) {
+	packet := types.NewPacket(1, "07-tendermint-0", "07-tendermint-1", 1234,
+		types.NewPayload("transfer", "transfer", "ics20-1", "application/x-protobuf", []byte("value")))
+	clone := packet.Clone()
+	urequire.Equal(t, hex.EncodeToString(types.CommitPacket(packet)), hex.EncodeToString(types.CommitPacket(clone)))
+
+	// Nothing is shared: changing the original leaves the clone as it was.
+	packet.Payloads[0].Value[0] = 'X'
+	packet.Payloads[0].SourcePort = "other"
+	urequire.Equal(t, "value", string(clone.Payloads[0].Value))
+	urequire.Equal(t, "transfer", clone.Payloads[0].SourcePort)
+}

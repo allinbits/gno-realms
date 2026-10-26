@@ -47,6 +47,13 @@ type Store interface {
 	// Escrowed is the amount of denom accounted to clientID (a client id, or
 	// the route key of a controlled route), 0 if none.
 	Escrowed(clientID, denom string) int64
+	// EscrowTotals is a read-only view of the amount escrowed per denom
+	// across all clients (denom:chain.Coin), and EscrowClients one of the
+	// amount escrowed per client for denom (clientID:chain.Coin). Unlike
+	// IterateEscrow they can be paged, so listings stay bounded however many
+	// clients escrow.
+	EscrowTotals() bptree.ITree
+	EscrowClients(denom string) bptree.ITree
 
 	// EscrowGRC20 moves c from `from` to this realm (TransferFrom, so the
 	// owner must have approved this realm) and records it under clientID.
@@ -103,8 +110,12 @@ type PendingSend struct {
 }
 
 var (
-	denoms        *bptree.BPTree // ibcDenom:ics20.Denom
-	totalEscrow   *bptree.BPTree // clientID:*bptree.BPTree(denom:chain.Coin)
+	denoms      *bptree.BPTree // ibcDenom:ics20.Denom
+	totalEscrow *bptree.BPTree // clientID:*bptree.BPTree(denom:chain.Coin)
+	// escrowByDenom and escrowTotals index totalEscrow by denom (see
+	// indexEscrow), for the paged listings of EscrowTotals and EscrowClients.
+	escrowByDenom *bptree.BPTree // denom:*bptree.BPTree(clientID:chain.Coin)
+	escrowTotals  *bptree.BPTree // denom:chain.Coin
 	voucherTokens *bptree.BPTree // ibcDenom:*voucher
 
 	// nextVoucherID allocates a unique grc20 token id for each voucher, and
@@ -142,6 +153,8 @@ type voucher struct {
 func init() {
 	denoms = bptree.NewBPTree32()
 	totalEscrow = bptree.NewBPTree32()
+	escrowByDenom = bptree.NewBPTree32()
+	escrowTotals = bptree.NewBPTree32()
 	voucherTokens = bptree.NewBPTree32()
 }
 
@@ -223,6 +236,15 @@ func (transferStore) ExtView(key string) any {
 		return nil
 	}
 	return v.(ReadOnlyer).ReadOnly()
+}
+
+func (transferStore) EscrowTotals() bptree.ITree { return readOnlyTree{t: escrowTotals} }
+
+func (transferStore) EscrowClients(denom string) bptree.ITree {
+	if v := escrowByDenom.Get(denom); v != nil {
+		return readOnlyTree{t: v.(*bptree.BPTree)}
+	}
+	return readOnlyTree{t: bptree.NewBPTree32()}
 }
 
 func (transferStore) EscrowGRC20(_ int, rlm realm, clientID, denomKey string, from address, c chain.Coin) error {
@@ -408,10 +430,12 @@ func getEscrowForClient(clientID string) *bptree.BPTree {
 // back through the same client.
 func addEscrowForClient(clientID string, c chain.Coin) {
 	t := escrowForClient(clientID)
+	balance := c
 	if x := t.Get(c.Denom); x != nil {
-		c = x.(chain.Coin).Add(c)
+		balance = x.(chain.Coin).Add(c)
 	}
-	t.Set(c.Denom, c)
+	t.Set(c.Denom, balance)
+	indexEscrow(clientID, balance, c.Amount)
 }
 
 // checkEscrowForClient verifies clientID locked enough of c.Denom, without
@@ -439,7 +463,28 @@ func debitEscrowForClient(clientID string, c chain.Coin) {
 	t := escrowForClient(clientID)
 	x := t.Get(c.Denom)
 	have := x.(chain.Coin)
-	t.Set(c.Denom, chain.NewCoin(c.Denom, have.Amount-c.Amount))
+	balance := chain.NewCoin(c.Denom, have.Amount-c.Amount)
+	t.Set(c.Denom, balance)
+	indexEscrow(clientID, balance, -c.Amount)
+}
+
+// indexEscrow mirrors clientID's new balance of a denom into escrowByDenom,
+// and adds delta to the denom's total in escrowTotals. Every change to the
+// per-client accounting goes through it.
+func indexEscrow(clientID string, balance chain.Coin, delta int64) {
+	var byClient *bptree.BPTree
+	if v := escrowByDenom.Get(balance.Denom); v != nil {
+		byClient = v.(*bptree.BPTree)
+	} else {
+		byClient = bptree.NewBPTree32()
+		escrowByDenom.Set(balance.Denom, byClient)
+	}
+	byClient.Set(clientID, balance)
+	total := delta
+	if v := escrowTotals.Get(balance.Denom); v != nil {
+		total += v.(chain.Coin).Amount
+	}
+	escrowTotals.Set(balance.Denom, chain.NewCoin(balance.Denom, total))
 }
 
 // unescrowGRC20 returns escrowed GRC20 tokens to receiver. The check runs

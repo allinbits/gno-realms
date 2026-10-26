@@ -35,6 +35,8 @@ func (sandboxStore) CheckEscrow(clientID string, c chain.Coin) error {
 }
 func (sandboxStore) IterateEscrow(fn func(clientID string, c chain.Coin) bool) {}
 func (sandboxStore) Escrowed(clientID, denom string) int64                     { return 0 }
+func (sandboxStore) EscrowTotals() bptree.ITree                                { return emptyTree() }
+func (sandboxStore) EscrowClients(denom string) bptree.ITree                   { return emptyTree() }
 
 func (sandboxStore) EscrowGRC20(_ int, rlm realm, clientID, denomKey string, from address, c chain.Coin) error {
 	refuseSandbox()
