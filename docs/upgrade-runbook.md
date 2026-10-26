@@ -375,7 +375,9 @@ address; deploying it unchanged hands governance to a key nobody holds.
    records it as a decision of its own, applied after 7 days (anyone
    executes it; a hold defers it); for an emergency recovery, record
    `NewExpectRecoveryRequest(oldRouterClient, newRouterClient, localClient)`
-   (7 days, deferred by a hold) before relaying its notice. A notice more
+   (7 days, deferred by a hold) before relaying its notice (only while
+   `IBCAdmin.recoveryDisabled()` is false: after a kind 14 no recovery can
+   open, and such an expectation only holds a place in the graph). A notice more
    than one epoch on is recorded as proven when relayed; then call
    `ApplyEpochNotice(epoch, localClient, "router1/local1,...,routerK/localK")`
    with its path of expected transitions from the current epoch client
@@ -486,7 +488,7 @@ address; deploying it unchanged hands governance to a key nobody holds.
    A forged switch costs nothing when it names the epoch and client a kind
    10 Ethereum already holds will establish (its genuine notice is then a
    duplicate). Otherwise the only repair is Ethereum's emergency recovery
-   (if enabled): record its expectation from the router counterparty of
+   (enabled at launch, gone for good once a kind 14 disabled it): record its expectation from the router counterparty of
    gno's current epoch client (`ibcgov.EpochClient()`), over a fresh healthy
    local client, so its notice switches from there; its epoch must be above
    gno's, so a gno pushed ahead needs as many recoveries as pass it, each
@@ -602,7 +604,7 @@ address; deploying it unchanged hands governance to a key nobody holds.
       from Ethereum's `recordedTime`, not from its dispatch here.
    3. Execute it on Ethereum once its delay has passed.
       - While an emergency recovery is open, the hand-over is refused
-        `Suspended`, as are kinds 3 and 6 to 10. The guardians first cancel the
+        `Suspended`, as are kinds 3, 6 to 10 and 14. The guardians first cancel the
         recovery with `cancelRecovery`, reaching its cancellation
         threshold. That path is IBCAdmin's own and works with a broken
         executor.
@@ -632,6 +634,48 @@ address; deploying it unchanged hands governance to a key nobody holds.
         `NewEthSeatsRequest` (kind 3);
       - wait out any hold still standing.
    6. Record new decisions for any cancelled or spent action still wanted.
+
+**Disabling Ethereum's emergency recovery (kind 14).** IBCAdmin launches
+with the emergency recovery enabled (ADR pr6375 §7.12: 30-day delay, 3 of
+4 guardians to open and to cancel, eligible after 30 days of silence or a
+14-day hold, or with the governance client frozen or expired). Disabling it
+is permanent: nothing re-enables it, not a hand-over, not an upgrade, and a
+new deployment is the only way back. After it, a lost governance channel
+(the epoch client frozen or expired, a forged epoch switch) has no repair
+but a decision Ethereum already holds, and the route's escrow can be
+stranded for good (ADR pr6375 R2, R10, R15).
+
+Criteria, all of them (ADR pr6375 §13), before proposing it:
+- the guardians' custody of the recovery is no longer wanted: they can no
+  longer replace the route on their own once it is disabled;
+- the governance client on Ethereum and the local Ethereum client here have
+  run healthy (relayed, monitored, never frozen or expired) for a sustained
+  period, with their alerting in place;
+- a kind 6 client, or a kind 10 to it, is ready to be recorded early in any
+  incident, since nothing else will restore the channel once it is lost;
+- no recovery proposal is open or gathering approvals on IBCAdmin
+  (`recovery()`): an open one suspends the disable until the guardians
+  cancel it.
+
+The process:
+1. Check `IBCAdmin.recoveryDisabled()` is false and `recovery()` shows no
+   open proposal.
+2. Record `NewEthDisableRecoveryRequest(clientID)`, `clientID` the route's
+   current router client (`core.CounterpartyClientID(ibcgov.EpochClient())`);
+   a stale one is refused here. Decided by the governor before the yield,
+   by GovDAO after it; dispatched at once.
+3. Relay it; IBCAdmin records it (status 1). A status 5 is a refusal:
+   `client` (the epoch moved: record it again over the new client) or
+   `disabled` (already off).
+4. After 7 days, anyone calls `IBCAdmin.execute(seq)`. Flags and holds
+   defer it like any 7-day decision; an open recovery suspends it
+   (`Suspended`) until the guardians cancel it, and a recovery that
+   executes instead abandons it with its epoch (record it again in the new
+   one).
+5. Confirm `recoveryDisabled()` is true and the `EmergencyRecoveryDisabled`
+   event; approvals left on IBCAdmin are cleared. A recovery expectation
+   recorded here is now useless: remove an active one
+   (`NewRemoveExpectationRequest`) to free its place.
 
 ## 8. Incident drill: replacing a route's client
 

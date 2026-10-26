@@ -331,7 +331,8 @@ governor cannot end a hold by vacating the flagging seats.
   `NewReopenRouteRequest`,
   `NewBindGovernanceRequest`), the epoch notice codec (`EpochNotice`,
   `ParseEpochNotice`) and Ethereum-bound builders `NewEth*Request`
-  for kinds 1–13 (`NewEthSettleRequest`, `NewEthReopenRequest`); reads `Flagged`, `PayoutsEpoch`, `NamedSuspect`, `Held`,
+  for kinds 1–14 (`NewEthSettleRequest`, `NewEthReopenRequest`,
+  `NewEthDisableRecoveryRequest`); reads `Flagged`, `PayoutsEpoch`, `NamedSuspect`, `Held`,
   `HoldSince`, `Seat`, `SeatOf`, `Flags`, `RouteIdentity`, `Epoch`, `EpochClient`, `LastSeq`,
   `DispatchBody`, `DispatchState`, `DispatchTransport`, `Decision`,
   `LastDecision`, `Governor`, `Yielded`, `Render` (`""`, `decisions`,
@@ -724,6 +725,31 @@ checked byte for byte against gno-eth-ibc's
 included; `z2e` adds viem vectors and the builders' bounds). Kind 10 carries
 `suspectFrom` (an Ethereum block); z2c checks it, and the zero-amount kind 12,
 against gno-eth-ibc 6f94541's vectors.
+
+**Disabling Ethereum's emergency recovery (kind 14).** IBCAdmin launches
+with its emergency recovery (ADR pr6375 §7.12) enabled, and only a governed
+decision of this realm disables it, for good:
+`NewEthDisableRecoveryRequest(clientID)`, decided like every Ethereum-bound
+kind (the governor before the yield, GovDAO after it) and dispatched at
+once. Its params are `abi.encode(string clientId)`, the route's current
+router client (`currentRouterClient`, as kinds 2, 4, 5, 11 and 13 name it,
+checked when the request is built and again when it is recorded), which
+IBCAdmin requires to be its epoch's client. Ethereum applies it after its
+standard 7 days, deferred by its flags and holds, and never while a
+recovery is open there: the decision waits, and the guardians' cancellation
+lets it apply, while an executed recovery's epoch switch abandons it with
+the rest of the old epoch, so governance sends it again over the new
+client. A second disable is spent there (`disabled`). Guardians have no way
+to disable it, and nothing re-enables it (IBCAdmin keeps the bit in its own
+storage and refuses every executor frame that clears it). This realm keeps
+no record of the dispatch or its outcome: Ethereum is authoritative
+(`IBCAdmin.recoveryDisabled()`), the dispatch's acknowledgement says only
+that it was recorded there, and a recovery expectation recorded afterwards
+(`NewExpectRecoveryRequest`) costs only its place in the graph, since no
+recovery notice can follow. Operators check `recoveryDisabled()` before
+recording one. z2j checks the builder's refusals and its envelope against
+gno-eth-ibc's `kind14-disable-recovery` vector (kind and params; the
+header's seq differs).
 
 ### ADR pr6375 rule → code
 
@@ -1326,8 +1352,9 @@ does not list before it.
   needs a Frozen or Expired subject. Only Ethereum-bound decisions are lost
   meanwhile: gno-side governance (core, transfer, routes) does not depend
   on the epoch. What exists, and nothing more:
-  - after a forged switch, Ethereum's emergency recovery (if enabled on
-    IBCAdmin) to a fresh router client heals it: governance records the
+  - after a forged switch, Ethereum's emergency recovery (enabled on
+    IBCAdmin at launch, until a kind 14 disables it for good) to a fresh
+    router client heals it: governance records the
     recovery's expectation from the router counterparty of gno's current
     epoch client, wherever the forged switch left it, over a fresh healthy
     local client, and the recovery's notice switches from there. Its epoch
@@ -1352,7 +1379,10 @@ does not list before it.
     member. IBCAdmin is immutable too. When Ethereum
     cannot reach the adopted epoch and client, by a decision it already
     holds or by its emergency recovery, Ethereum-bound governance is lost
-    for good.
+    for good. Once a kind 14 has disabled the recovery, that repair is gone
+    too: a forged switch, or a governance client frozen or expired with no
+    repair Ethereum already holds, then loses Ethereum-bound governance
+    permanently.
 - **Pre-recovery consensus states of a Tendermint client** stay usable, as in
   ibc-go: only the Ethereum light client marks them untrusted, and only
   Ethereum clients prove outcomes for settlement. The trust generation is
