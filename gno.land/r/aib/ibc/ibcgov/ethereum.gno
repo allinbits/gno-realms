@@ -138,6 +138,7 @@ const (
 	KindRouteSettings   = uint8(11)
 	KindSettle          = uint8(12)
 	KindReopen          = uint8(13)
+	KindDisableRecovery = uint8(14)
 	maxSettleItems      = 8          // what a 1024-byte envelope holds with a 64-byte client id
 	maxCancelRanges     = 14         // what a 1024-byte envelope holds: 78 + 64 bytes a range
 	adminRoleID         = uint64(0)  // AccessManager's ADMIN_ROLE: never granted or revoked by kind 8
@@ -2137,6 +2138,31 @@ func NewEthReopenRequest(cur realm, clientID string) Request {
 	p := ethRouteParams(KindReopen, clientID, currentRouterClient)
 	p.params = abi.Encode(abi.String(clientID))
 	return ethRequestP(cur, "reopen", "reopen the route of "+clientID, p)
+}
+
+// NewEthDisableRecoveryRequest (kind 14) disables Ethereum's emergency
+// recovery (ADR pr6375 §7.12) for good: IBCAdmin launches with it enabled,
+// and this decision is the only way to turn it off; nothing turns it on
+// again. clientID names the route's current router client
+// (currentRouterClient), the client the decision travels over, which
+// IBCAdmin checks against its epoch's. IBCAdmin applies it after 7 days,
+// deferred by its flags and holds, and never while a recovery is open there:
+// it waits for the guardians' cancellation, and an executed recovery's epoch
+// switch abandons it, to be sent again in the new epoch. A second disable is
+// spent there. This realm keeps no record of it: Ethereum is authoritative
+// (IBCAdmin.recoveryDisabled()), and a recovery expectation recorded
+// afterwards (NewExpectRecoveryRequest) only waits for a notice that never
+// comes.
+//
+// After it, a lost governance channel (the epoch client frozen or expired,
+// a forged epoch switch, governance unable to reach Ethereum) has no repair
+// but a decision Ethereum already holds: decide it only once the channel's
+// clients are trusted to stay healthy without that backstop (ADR pr6375
+// §13).
+func NewEthDisableRecoveryRequest(cur realm, clientID string) Request {
+	p := ethRouteParams(KindDisableRecovery, clientID, currentRouterClient)
+	p.params = abi.Encode(abi.String(clientID))
+	return ethRequestP(cur, "disable recovery", "disable Ethereum's emergency recovery for good (IBCAdmin, over "+clientID+")", p)
 }
 
 // isGnoWireDenom is the grammar of a gno.land denom as the transfer app puts
