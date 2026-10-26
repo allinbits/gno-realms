@@ -372,24 +372,76 @@ Emitted events: `app_paused` and `app_unpaused`, with a `port` attribute.
 
 Client operations (`CreateClient`, `UpdateClient`, `UpgradeClient`) and packet
 relaying (`RecvPacket`, `Acknowledgement`, `Timeout`) are restricted to the
-relayers in a whitelist, checked against the transaction signer. The authority
-manages it with `AddRelayer(addr)` / `RemoveRelayer(addr)` (GovDAO
-constructors `NewAddRelayerProposalRequest` / `NewRemoveRelayerProposalRequest`),
-and `/r/aib/ibc/core:admin` lists it. `SendPacket` is not restricted: users
-send through their applications.
+relayers in a whitelist, checked against the transaction signer. Relaying for
+an Ethereum client is the exception: its updates, receives, acknowledgements
+and timeouts are open to anyone, whatever the whitelist holds (ADR pr6375
+R17); `CreateClient` and `UpgradeClient` stay restricted for every client.
+`/r/aib/ibc/core:admin` lists the whitelist. `SendPacket` is not restricted:
+users send through their applications.
 
-**While the whitelist is empty, any address may do all of the above.** That
-is the state right after deployment. Then anyone can create clients,
-including clients of a chain they run, and relay packets from them: clients
-are never removed, and packets from such a client mint vouchers only that
-client's counterparty backs. **Right after deploying,
-the authority adds the relayers** that will serve the realm, one `MsgCall`
-per relayer:
+`AddRelayer(addr)` and `RemoveRelayer(addr)` are governed operations (see
+[Authority](#authority)): the core accepts them from
+`gno.land/r/aib/ibc/ibcgov` only, so an authority member or the deployer
+calling them directly panics (`add_relayer: only gno.land/r/aib/ibc/ibcgov
+decides this, not <caller>`) and leaves the whitelist as it was. They are made with the ibcgov builders
+`ibcgov.NewCoreAddRelayerRequest(cur, addr)` and
+`ibcgov.NewCoreRemoveRelayerRequest(cur, addr)`. Before the governor yields,
+the governor records the decision with `MsgRun` (the request is a struct, so
+`MsgCall` cannot build it), one `Govern` per relayer:
+
+```gno
+package main
+
+import "gno.land/r/aib/ibc/ibcgov"
+
+func main(cur realm) {
+	ibcgov.Govern(cross(cur), ibcgov.NewCoreAddRelayerRequest(cross(cur), "<relayer-address>"))
+}
+```
 
 ```sh
-gnokey maketx call -pkgpath gno.land/r/aib/ibc/core -func AddRelayer \
-    -args <relayer-address> ... <authority-member>
+gnokey maketx run ... <governor-key> add-relayer.gno
 ```
+
+After the yield (or from the first block when ibcgov was deployed with no
+`LaunchGovernor`), a GovDAO member proposes the same request instead, members
+vote and anyone executes the proposal, which records the decision:
+
+```gno
+package main
+
+import (
+	"gno.land/r/aib/ibc/ibcgov"
+	"gno.land/r/gov/dao"
+)
+
+func main(cur realm) {
+	pid := dao.MustCreateProposal(cross(cur), ibcgov.NewCoreAddRelayerRequest(cross(cur), "<relayer-address>").Proposal())
+	println("proposal", int64(pid))
+}
+```
+
+Adding a relayer is a loosening decision: it is queued for 7 days in
+production (`decisions.Delay`, shortened on a devnet build by
+`decisions.Factor`), can be cancelled meanwhile and deferred by a guardian
+hold. Once due, anyone applies it with the decision number the ledger
+assigned (`gno.land/r/aib/ibc/ibcgov:decisions`):
+
+```sh
+gnokey maketx call -pkgpath gno.land/r/aib/ibc/ibcgov -func Execute -args <decision> ... <any-key>
+```
+
+**While the whitelist is empty, any address may do all of the above.** That
+is the state right after deployment, and it lasts at least until the first
+add-relayer decision executes, so no less than the 7-day delay after the
+governor (or GovDAO) records it. During that bootstrap interval anyone can
+create clients, including clients of a chain they run, and relay packets
+from them: clients are never removed, and packets from such a client mint
+vouchers only that client's counterparty backs. Record the add-relayer
+decisions right after deploying, so the interval is no longer than the
+delay. Removing the last
+listed relayer reopens the same state, which is why that removal also waits
+7 days.
 
 ## Authority
 
