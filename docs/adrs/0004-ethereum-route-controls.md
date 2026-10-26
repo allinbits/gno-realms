@@ -740,11 +740,16 @@ recovery is open there: the decision waits, and the guardians' cancellation
 lets it apply, while an executed recovery's epoch switch abandons it with
 the rest of the old epoch, so governance sends it again over the new
 client. A second disable is spent there (`disabled`). Guardians have no way
-to disable it, and nothing re-enables it (IBCAdmin keeps the bit in its own
-storage and refuses every executor frame that clears it). This realm keeps
-no record of the dispatch or its outcome: Ethereum is authoritative
-(`IBCAdmin.recoveryDisabled()`), the dispatch's acknowledgement says only
-that it was recorded there, and a recovery expectation recorded afterwards
+to disable it, and nothing re-enables it: the authority is a latch in
+`IBCAdminNative`'s own storage, set only by a direct call from IBCAdmin and
+never reset, which no executor code (running in IBCAdmin's storage) can
+write; governance-installed code can still do anything with IBCAdmin's
+authority, but the guardians' recovery entry points stay closed for good.
+This realm records the dispatch and its acknowledgement status like any
+Ethereum-bound decision (`DispatchState`), but keeps no authoritative
+disabled flag and never learns whether the decision executed: Ethereum is
+authoritative (`IBCAdmin.recoveryDisabled()`), the acknowledgement says
+only that it was recorded there, and a recovery expectation recorded afterwards
 (`NewExpectRecoveryRequest`) costs only its place in the graph, since no
 recovery notice can follow. Operators check `recoveryDisabled()` before
 recording one. z2j checks the builder's refusals and its envelope against

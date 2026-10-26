@@ -2143,10 +2143,11 @@ func NewEthReopenRequest(cur realm, clientID string) Request {
 // deferred by its flags and holds, and never while a recovery is open there:
 // it waits for the guardians' cancellation, and an executed recovery's epoch
 // switch abandons it, to be sent again in the new epoch. A second disable is
-// spent there. This realm keeps no record of it: Ethereum is authoritative
-// (IBCAdmin.recoveryDisabled()), and a recovery expectation recorded
-// afterwards (NewExpectRecoveryRequest) only waits for a notice that never
-// comes.
+// spent there. This realm records its dispatch and acknowledgement status
+// (DispatchState) like any Ethereum-bound decision, but keeps no
+// authoritative disabled flag: Ethereum is (IBCAdmin.recoveryDisabled()),
+// and a recovery expectation recorded afterwards (NewExpectRecoveryRequest)
+// only waits for a notice that never comes.
 //
 // After it, a lost governance channel (the epoch client frozen or expired,
 // a forged epoch switch, governance unable to reach Ethereum) has no repair
