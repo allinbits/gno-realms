@@ -12,7 +12,7 @@ import (
 // package: these tests check the client against it.
 
 // syntheticClient is a client at the synthetic trusted state, its clock a
-// slot after the synthetic signature slot.
+// slot after the latest synthetic signature slot (161).
 func syntheticClient(t *testing.T) *EthLightClient {
 	cs := syntheticClientState()
 	urequire.NoError(t, cs.ValidateBasic())
@@ -20,7 +20,7 @@ func syntheticClient(t *testing.T) *EthLightClient {
 	urequire.NoError(t, cons.ValidateBasic())
 	c := NewEthLightClient()
 	urequire.NoError(t, c.Initialize(cs, cons))
-	setNow(cs.GenesisTime + 146*cs.SecondsPerSlot)
+	setNow(cs.GenesisTime + 162*cs.SecondsPerSlot)
 	return c
 }
 
@@ -41,35 +41,54 @@ func applySynthetic(t *testing.T, hdr *Header) {
 	urequire.True(t, ok)
 	urequire.True(t, bytes.Equal(root, cons.StateRoot), "the finalized block's state root")
 	urequire.Equal(t, ts, cons.Timestamp)
+	urequire.Equal(t, syntheticClientState().GenesisTime+136*2, ts) // the finalized Fulu payload's own slot time
 	urequire.Equal(t, number, c.ClientState.LatestExecutionBlockNumber)
 	next := syntheticNextCommittee()
 	urequire.True(t, cons.NextSyncCommittee != nil && cons.NextSyncCommittee.equal(next), "the revealed next committee")
 	urequire.True(t, cons.CurrentSyncCommittee.equal(syntheticConsensusState().CurrentSyncCommittee))
 }
 
-// An update attested in Gloas (gindices 735 and 2946, execution block hash at
-// 2856) and signed under the Gloas domain (signature slot 145, domain at 144),
-// whose finalized header is still Fulu, with its payload header at gindex 25.
+// A canonical Gloas update: attested at slot 160 (gindices 735 and 2946,
+// execution block hash at 2856) and signed under the Gloas domain (signature
+// slot 161, domain at 160), whose finalized header is still Fulu, upgraded to
+// the block-hash form (gindex 812, an 11-node normalized branch) with its full
+// RLP execution header, from which the client takes the execution data.
 func TestSyntheticGloasTransition(t *testing.T) {
 	c := syntheticClient(t)
-	hdr := syntheticTransition()
-	urequire.True(t, c.ClientState.isGloas(hdr.ConsensusUpdate.AttestedHeader.Beacon.Slot))
-	urequire.False(t, c.ClientState.isGloas(hdr.ConsensusUpdate.FinalizedHeader.Beacon.Slot))
+	hdr := syntheticGloasTransition()
+	u := hdr.ConsensusUpdate
+	urequire.True(t, c.ClientState.isGloas(u.AttestedHeader.Beacon.Slot))
+	urequire.False(t, c.ClientState.isGloas(u.FinalizedHeader.Beacon.Slot))
+	urequire.True(t, u.FinalizedHeader.hashForm())
+	urequire.Equal(t, 11, len(u.FinalizedHeader.ExecutionBranch))
+	applySynthetic(t, hdr)
+
+	bad := syntheticGloasTransition()
+	bad.ConsensusUpdate.FinalizedExecutionHeader = flip(bad.ConsensusUpdate.FinalizedExecutionHeader, 100)
+	urequire.ErrorContains(t, syntheticClient(t).VerifyClientMessage(bad), "finalized execution header does not match the execution block hash")
+}
+
+// A client-compatibility case outside the spec: the Gloas update with its
+// Fulu finalized header left in the payload form (gindex 25), which a Gloas
+// LightClientHeader cannot hold but this client accepts, verifying each
+// header's execution against its own slot's fork.
+func TestSyntheticMixedFormTransition(t *testing.T) {
+	hdr := syntheticMixedFormTransition()
+	urequire.False(t, hdr.ConsensusUpdate.FinalizedHeader.hashForm())
 	applySynthetic(t, hdr)
 }
 
-// The same transition with the finalized Fulu header in Gloas' block-hash
-// form (gindex 812, an 11-node normalized branch): the client takes the
-// execution data from the full RLP execution header, which must hash to it.
-func TestSyntheticHashFormFinalized(t *testing.T) {
-	hdr := syntheticHashFormTransition()
-	urequire.True(t, hdr.ConsensusUpdate.FinalizedHeader.hashForm())
-	urequire.Equal(t, 11, len(hdr.ConsensusUpdate.FinalizedHeader.ExecutionBranch))
+// A Fulu update: attested at slot 152 (gindices 169 and 87) and signed under
+// the Fulu domain, both headers with their execution payload header at gindex
+// 25.
+func TestSyntheticFuluUpdate(t *testing.T) {
+	c := syntheticClient(t)
+	hdr := syntheticFuluUpdate()
+	u := hdr.ConsensusUpdate
+	urequire.False(t, c.ClientState.isGloas(u.AttestedHeader.Beacon.Slot))
+	urequire.False(t, c.ClientState.isGloas(u.SignatureSlot-1))
+	urequire.False(t, u.AttestedHeader.hashForm() || u.FinalizedHeader.hashForm())
 	applySynthetic(t, hdr)
-
-	bad := syntheticHashFormTransition()
-	bad.ConsensusUpdate.FinalizedExecutionHeader = flip(bad.ConsensusUpdate.FinalizedExecutionHeader, 100)
-	urequire.ErrorContains(t, syntheticClient(t).VerifyClientMessage(bad), "finalized execution header does not match the execution block hash")
 }
 
 // A fully valid conflicting-finality pair: verified, checked, it freezes the
