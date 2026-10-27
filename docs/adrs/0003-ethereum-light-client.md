@@ -268,6 +268,18 @@ unchanged.
 - Tests replay the four recorded devnet runs of the eureka client (11 updates,
   6 storage proofs), a live Sepolia snapshot on Gloas, and tamper cases. A
   Solidity payload decodes and re-encodes byte for byte.
+- Cases no recorded chain gives come from synthetic, spec-exact data
+  (`zz_synthetic_test.gno`, written by `cmd/gen-eth-synthetic`): a sync
+  committee of 32 BLS keys derived from a fixed seed signs, with blst,
+  updates whose SSZ roots, domains and signing roots the generator computes
+  from the consensus specs, with sparse Merkle trees for the branches, never
+  from the client's own code. They cover an update attested and signed in
+  Gloas whose finalized header is still Fulu, in either execution form (the
+  block-hash form with a full RLP execution header), a valid
+  conflicting-finality misbehaviour through to Frozen, and non-signers
+  reordered, proven at another index or missing, and a share signed outside
+  the committee. `go test -C cmd/gen-eth-synthetic` checks that the
+  committed file is what the generator writes.
 - The client expires when the current slot passes its latest trusted slot by
   more than `TrustingPeriods` (8) sync committee periods' worth of slots:
   current slot > `LatestSlot` + 8 * `EpochsPerSyncCommitteePeriod` *
