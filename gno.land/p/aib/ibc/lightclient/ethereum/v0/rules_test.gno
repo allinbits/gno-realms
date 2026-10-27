@@ -55,7 +55,7 @@ func TestUpdateRules(t *testing.T) {
 		{"signature slot not after the attested slot", nil, func(h *Header) {
 			h.ConsensusUpdate.SignatureSlot = h.ConsensusUpdate.AttestedHeader.Beacon.Slot
 		}, "slots must satisfy signature > attested >= finalized"},
-		{"finalized slot at genesis", func(cs *ClientState) { cs.GenesisSlot = 128 }, nil, "finalized slot is the genesis slot"},
+		{"finalized slot at genesis", func(cs *ClientState) { cs.GenesisSlot, cs.ForkParameters.GenesisSlot = 128, 128 }, nil, "finalized slot is the genesis slot"},
 		{"bit vector longer than the committee", nil, func(h *Header) {
 			h.ConsensusUpdate.SyncAggregate.SyncCommitteeBits = append(append([]byte{}, h.ConsensusUpdate.SyncAggregate.SyncCommitteeBits...), 0)
 		}, "sync committee bits cover 40 members, committee has 32"},
@@ -193,6 +193,7 @@ func TestProofRevisionNumber(t *testing.T) {
 func TestSlotClock(t *testing.T) {
 	cs := fixtureErc20().clientState
 	cs.GenesisSlot = 1000
+	cs.ForkParameters.GenesisSlot = cs.GenesisSlot
 	_, ok := cs.slotAtTimestamp(cs.GenesisTime - 1)
 	urequire.False(t, ok, "no slot before genesis")
 	s, ok := cs.slotAtTimestamp(cs.GenesisTime + 10*cs.SecondsPerSlot + 1)
@@ -200,6 +201,7 @@ func TestSlotClock(t *testing.T) {
 	urequire.Equal(t, uint64(1010), s)
 
 	cs.GenesisSlot = maxUint64 - 5
+	cs.ForkParameters.GenesisSlot = cs.GenesisSlot
 	_, ok = cs.slotAtTimestamp(cs.GenesisTime + 10*cs.SecondsPerSlot)
 	urequire.False(t, ok, "a slot past 2^64 is no slot")
 
@@ -223,6 +225,7 @@ func TestExpiryArithmetic(t *testing.T) {
 	f := fixtureErc20()
 	cs = f.clientState
 	cs.GenesisSlot = maxUint64 - 200
+	cs.ForkParameters.GenesisSlot = cs.GenesisSlot
 	cs.LatestSlot = maxUint64 - 100
 	cons := f.consensusState
 	cons.Slot = cs.LatestSlot
@@ -244,6 +247,7 @@ func TestExpiryArithmetic(t *testing.T) {
 
 	cs = f.clientState
 	cs.GenesisSlot = 500
+	cs.ForkParameters.GenesisSlot = cs.GenesisSlot
 	cs.LatestSlot = 600
 	cons.Slot = 600
 	c = NewEthLightClient()
