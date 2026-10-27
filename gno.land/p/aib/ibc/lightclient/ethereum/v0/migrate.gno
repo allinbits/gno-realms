@@ -11,18 +11,19 @@ import (
 // MigrateForkParameters replaces the fork schedule of a live client in place,
 // keeping its client state otherwise, its consensus states and (in the IBC
 // core) its client id and packet state: the migration R16 of ADR pr6375 needs
-// before an Ethereum fork that this package version already verifies (its
+// for an Ethereum fork that this package version already verifies (its
 // containers and generalized indices are known here, only the activation
 // epoch was not). A fork whose containers change needs a new package version
 // and a conversion through the core's Client.SetLightClient instead.
 //
-// The new schedule may only change forks that are not active yet: every fork
-// whose epoch is at or before the current epoch (the later of the latest
-// trusted slot's and the block time's) must be unchanged, version and epoch,
-// and every changed fork must activate after the current epoch. The genesis
-// fork version and slot never change, the schedule passes ValidateBasic's
-// checks (epochs in order, a version for every scheduled fork), and it must
-// differ from the current one. The client must be Active.
+// The new schedule must keep every fork the client verified signed updates
+// under (keepsVerifiedForks, the rule a recovery and a verifier replacement
+// follow too), pass ValidateBasic's checks (epochs in order, a version for
+// every scheduled fork, Electra at or before the latest slot), keep the
+// genesis fork version and slot, and differ from the current one. The client
+// must be Active. A fork that activated after the last epoch the client
+// verified may still be scheduled: a migration that lands after the fork,
+// while the client stalls before it, repairs it without waiting for expiry.
 //
 // Call it on the stored client (the core's verifier): it writes the new state
 // under the receiver's storage realm.
@@ -51,58 +52,47 @@ func (c *EthLightClient) CheckForkParameters(fp ForkParameters) error {
 	if fp.GenesisForkVersion != old.GenesisForkVersion || fp.GenesisSlot != old.GenesisSlot {
 		return errors.New("the genesis fork version and slot cannot change")
 	}
-	current := cs.LatestSlot
-	if s, err := c.currentSlot(); err == nil && s > current {
-		current = s
+	if err := fp.validate(); err != nil {
+		return err
 	}
-	epoch := cs.epochAtSlot(current)
-	olds, news := old.forks(), fp.forks()
-	for i := range olds {
-		o, n := olds[i], news[i]
-		if o.Epoch <= epoch {
-			if n != o {
-				return ufmt.Errorf("fork %s is active since epoch %d and cannot change", forkNames[i], o.Epoch)
-			}
-			continue
-		}
-		if n != o && n.Epoch <= epoch {
-			return ufmt.Errorf("fork %s cannot activate at epoch %d, at or before the current epoch %d", forkNames[i], n.Epoch, epoch)
-		}
-		if i > 0 && n.Epoch < news[i-1].Epoch {
-			return ufmt.Errorf("fork %s at epoch %d precedes fork %s at epoch %d", forkNames[i], n.Epoch, forkNames[i-1], news[i-1].Epoch)
-		}
+	next := *cs
+	next.ForkParameters = fp
+	if err := next.verifySupportedFork(next.LatestSlot); err != nil {
+		return err
 	}
-	// The checks a created client's schedule meets: a fork scheduled without
-	// a version would pass the loop, then give every update after it the
-	// zero signing domain.
-	return fp.validate()
+	if !c.keepsVerifiedForks(fp) {
+		return ufmt.Errorf("the schedule changes a fork the client verified updates under (epochs %d to %d)",
+			cs.epochAtSlot(c.verifiedFrom), cs.epochAtSlot(c.verifiedTo))
+	}
+	return nil
 }
 
-var forkNames = []string{"altair", "bellatrix", "capella", "deneb", "electra", "fulu", "gloas"}
-
 // CheckSuccessor is why next cannot take over from the verifier r views in a
-// verifier replacement, or nil: next's fork schedule must pass
-// ValidateBasic's checks and keep every fork active at the retired
-// verifier's latest slot, as a recovery must (see sameActiveForks). A
-// conversion is code of a later core implementation: nothing else holds its
-// result to the checks a created or recovered client meets.
+// verifier replacement, or nil. A conversion is code of a later core
+// implementation: nothing else holds its result to the checks a created or
+// recovered client meets, so they are made here. next must track the same
+// chain and router (sameChainAndRouter, which RouteIdentity summarizes),
+// carry the retired verifier's record of what it verified, and have a valid
+// fork schedule keeping every fork the retired verifier verified updates
+// under (keepsVerifiedForks), as a recovery must.
 func (r *Retired) CheckSuccessor(next *EthLightClient) error {
 	old, cs := r.c.ClientState, next.ClientState
+	if !sameChainAndRouter(old, cs) {
+		return errors.New("the successor tracks a different chain or router")
+	}
+	if next.verified != r.c.verified || next.verifiedFrom != r.c.verifiedFrom || next.verifiedTo != r.c.verifiedTo {
+		return errors.New("the successor does not carry what the retired verifier verified")
+	}
 	if err := cs.ForkParameters.validate(); err != nil {
 		return err
 	}
 	if err := cs.verifySupportedFork(cs.LatestSlot); err != nil {
 		return err
 	}
-	if !sameActiveForks(old.ForkParameters, cs.ForkParameters, old.epochAtSlot(old.LatestSlot)) {
-		return errors.New("the successor changes a fork active at the retired verifier's latest slot")
+	if !r.c.keepsVerifiedForks(cs.ForkParameters) {
+		return errors.New("the successor changes a fork the retired verifier verified updates under")
 	}
 	return nil
-}
-
-// forks lists the forks in activation order.
-func (p ForkParameters) forks() []Fork {
-	return []Fork{p.Altair, p.Bellatrix, p.Capella, p.Deneb, p.Electra, p.Fulu, p.Gloas}
 }
 
 // EncodeForkParameters writes p in the wire format: Blob(genesis fork
