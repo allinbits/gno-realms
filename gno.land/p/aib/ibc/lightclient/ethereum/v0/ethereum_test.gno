@@ -1,6 +1,7 @@
 package ethereum
 
 import (
+	"bytes"
 	"testing"
 
 	"gno.land/p/aib/ibc/host/v0"
@@ -151,7 +152,7 @@ func TestUpdateRejectsShiftedSSZFields(t *testing.T) {
 	before := ex.HashTreeRoot()
 	ex.ReceiptsRoot = append(append([]byte{}, ex.StateRoot...), ex.ReceiptsRoot...)
 	ex.StateRoot = []byte{}
-	urequire.True(t, bytesEqual(before, ex.HashTreeRoot()), "the shift should keep the SSZ root")
+	urequire.True(t, bytes.Equal(before, ex.HashTreeRoot()), "the shift should keep the SSZ root")
 	u.FinalizedHeader.Execution = ex
 	shifted.ConsensusUpdate = u
 	urequire.ErrorContains(t, c.VerifyClientMessage(&shifted), "state root must be 32 bytes")
@@ -181,9 +182,9 @@ func TestStateDoesNotAliasInput(t *testing.T) {
 	cs.IBCContractAddress[0] ^= 1
 	stored, ok := c.GetConsensusState(heightAtSlot(cons.Slot))
 	urequire.True(t, ok)
-	urequire.False(t, bytesEqual(stored.StateRoot, cons.StateRoot), "stored state root aliases the input")
-	urequire.False(t, bytesEqual(stored.CurrentSyncCommittee.PubkeysHash, cons.CurrentSyncCommittee.PubkeysHash), "stored committee aliases the input")
-	urequire.False(t, bytesEqual(c.ClientState.IBCContractAddress, cs.IBCContractAddress), "client state aliases the input")
+	urequire.False(t, bytes.Equal(stored.StateRoot, cons.StateRoot), "stored state root aliases the input")
+	urequire.False(t, bytes.Equal(stored.CurrentSyncCommittee.PubkeysHash, cons.CurrentSyncCommittee.PubkeysHash), "stored committee aliases the input")
+	urequire.False(t, bytes.Equal(c.ClientState.IBCContractAddress, cs.IBCContractAddress), "client state aliases the input")
 
 	c2, hdr := firstUpdate(t, f)
 	c2.UpdateState(hdr)
@@ -206,9 +207,9 @@ func TestStateDoesNotAliasInput(t *testing.T) {
 		u.NextSyncCommittee.AggregatePubkey[0] ^= 1
 	}
 	after, _ := c2.GetConsensusState(heightAtSlot(finalized))
-	urequire.True(t, bytesEqual(root, after.StateRoot), "trusted state root changed with the update's input")
+	urequire.True(t, bytes.Equal(root, after.StateRoot), "trusted state root changed with the update's input")
 	if next != nil {
-		urequire.True(t, bytesEqual(next, after.NextSyncCommittee.AggregatePubkey), "trusted next committee changed with the update's input")
+		urequire.True(t, bytes.Equal(next, after.NextSyncCommittee.AggregatePubkey), "trusted next committee changed with the update's input")
 	}
 }
 
@@ -319,10 +320,230 @@ func TestCrossingWithoutNextCommittee(t *testing.T) {
 	cons, ok := c.GetConsensusState(heightAtSlot(finalized))
 	urequire.True(t, ok)
 	urequire.True(t, cons.NextSyncCommittee == nil, "the next committee should be unknown after crossing without it")
-	urequire.True(t, bytesEqual(f.consensusState.NextSyncCommittee.PubkeysHash, cons.CurrentSyncCommittee.PubkeysHash), "the old next committee should now be current")
+	urequire.True(t, bytes.Equal(f.consensusState.NextSyncCommittee.PubkeysHash, cons.CurrentSyncCommittee.PubkeysHash), "the old next committee should now be current")
 
 	next := steps[1]
 	u = next.ConsensusUpdate
 	setNow(cs.GenesisTime + (u.SignatureSlot-cs.GenesisSlot+1)*cs.SecondsPerSlot)
-	urequire.Error(t, c.VerifyClientMessage(next), "an update signed by an unknown committee must be refused")
+	urequire.ErrorContains(t, c.VerifyClientMessage(next), "next sync committee is not known")
+}
+
+// updates returns the client updates of f, in order.
+func updates(f fixture) []*Header {
+	var out []*Header
+	for _, s := range f.steps {
+		if s.update != nil {
+			out = append(out, s.update)
+		}
+	}
+	return out
+}
+
+// verifyAt verifies hdr on c a slot after its signature slot.
+func verifyAt(c *EthLightClient, hdr *Header) error {
+	cs := c.ClientState
+	setNow(cs.GenesisTime + (hdr.ConsensusUpdate.SignatureSlot-cs.GenesisSlot+1)*cs.SecondsPerSlot)
+	return c.VerifyClientMessage(hdr)
+}
+
+// The signing committee follows from the signature period: a relayer's
+// ActiveIsNext that disagrees with it changes nothing, in either direction.
+func TestActiveIsNextIgnored(t *testing.T) {
+	f := fixtureNative()
+	steps := updates(f)
+	cs := f.clientState
+	crossing, within := *steps[0], *steps[1]
+	urequire.True(t, cs.periodAtSlot(crossing.ConsensusUpdate.SignatureSlot) == cs.periodAtSlot(crossing.TrustedSlot)+1 && crossing.ActiveIsNext,
+		"the first update should be signed by the next committee")
+	urequire.True(t, cs.periodAtSlot(within.ConsensusUpdate.SignatureSlot) == cs.periodAtSlot(within.TrustedSlot) && !within.ActiveIsNext,
+		"the second update should be signed by the current committee")
+
+	c := NewEthLightClient()
+	urequire.NoError(t, c.Initialize(f.clientState, f.consensusState))
+	crossing.ActiveIsNext = false
+	urequire.NoError(t, verifyAt(c, &crossing))
+	c.UpdateState(&crossing)
+
+	within.ActiveIsNext = true
+	urequire.NoError(t, verifyAt(c, &within))
+}
+
+// signedFrom returns a client whose latest trusted state is at slot, in the
+// period of the ERC20 fixture's first update and signed by its committee,
+// with next as its next committee, and that update. Its periods are
+// epochsPerPeriod epochs long: the signature does not depend on them.
+func signedFrom(t *testing.T, slot, epochsPerPeriod uint64, next *SummarizedSyncCommittee) (*EthLightClient, *Header) {
+	f := fixtureErc20()
+	hdr := *updates(f)[0]
+	hdr.TrustedSlot = slot
+	cs := f.clientState
+	cs.LatestSlot = slot
+	cs.EpochsPerSyncCommitteePeriod = epochsPerPeriod
+	cons := ConsensusState{
+		Slot:                 slot,
+		StateRoot:            f.consensusState.StateRoot,
+		Timestamp:            f.consensusState.Timestamp,
+		CurrentSyncCommittee: *f.consensusState.NextSyncCommittee, // the committee that signs hdr
+		NextSyncCommittee:    next,
+	}
+	c := NewEthLightClient()
+	urequire.NoError(t, c.Initialize(cs, cons))
+	return c, &hdr
+}
+
+// An update signed in the stored period whose next committee differs from the
+// one the trusted state knows is refused, as validate_light_client_update
+// refuses it, whatever ActiveIsNext says.
+func TestSamePeriodNextCommitteeMustMatch(t *testing.T) {
+	_, hdr := signedFrom(t, 140, 8, nil)
+	u := hdr.ConsensusUpdate
+	cs := fixtureErc20().clientState
+	urequire.True(t, cs.periodAtSlot(140) == cs.periodAtSlot(u.AttestedHeader.Beacon.Slot) &&
+		cs.periodAtSlot(140) == cs.periodAtSlot(u.SignatureSlot), "slot 140 should be in the update's period")
+
+	other := cloneSummary(*u.NextSyncCommittee)
+	other.PubkeysHash[0] ^= 1
+	for _, flag := range []bool{false, true} {
+		c, hdr := signedFrom(t, 140, 8, &other)
+		hdr.ActiveIsNext = flag
+		urequire.ErrorContains(t, verifyAt(c, hdr), "next sync committee does not match")
+	}
+
+	// The same update against the committee it carries passes validation; it
+	// does not advance finality and the next committee is known, so it is
+	// refused only for that.
+	same := cloneSummary(*u.NextSyncCommittee)
+	c, hdr := signedFrom(t, 140, 8, &same)
+	hdr.ActiveIsNext = false
+	urequire.ErrorContains(t, verifyAt(c, hdr), "is not after trusted slot")
+}
+
+// An update that does not advance finality only reveals a next committee if
+// its finalized header is in the attested header's period, as in the spec's
+// update_has_finalized_next_sync_committee: before that header, the period's
+// next committee is not final.
+func TestNextCommitteeOnlyNeedsFinalizedPeriod(t *testing.T) {
+	// 8-epoch periods: the finalized (128), trusted (140) and attested (144)
+	// slots share a period, and the update records the next committee.
+	c, hdr := signedFrom(t, 140, 8, nil)
+	urequire.NoError(t, verifyAt(c, hdr))
+	c.UpdateState(hdr)
+	cons, _ := c.GetConsensusState(heightAtSlot(140))
+	urequire.True(t, cons.NextSyncCommittee != nil, "the next committee should be recorded")
+
+	// 17-epoch periods (136 slots): the finalized slot 128 is in the period
+	// before the others.
+	c, hdr = signedFrom(t, 140, 17, nil)
+	cs := c.ClientState
+	u := hdr.ConsensusUpdate
+	urequire.True(t, cs.periodAtSlot(u.FinalizedHeader.Beacon.Slot)+1 == cs.periodAtSlot(u.AttestedHeader.Beacon.Slot) &&
+		cs.periodAtSlot(u.AttestedHeader.Beacon.Slot) == cs.periodAtSlot(140), "the finalized header should be one period behind")
+	urequire.ErrorContains(t, verifyAt(c, hdr), "is not after trusted slot")
+}
+
+// rlpHeader is a minimal RLP execution block header with the given state root,
+// block number 1 and timestamp 1.
+func rlpHeader(stateRoot []byte) []byte {
+	payload := []byte{0x80, 0x80, 0x80, 0xa0}
+	payload = append(payload, stateRoot...)
+	payload = append(payload, 0x80, 0x80, 0x80, 0x80, 0x01, 0x80, 0x80, 0x01)
+	return append([]byte{0xc0 + byte(len(payload))}, payload...)
+}
+
+// From Gloas on, a header finalizing a stored slot is misbehaviour only if its
+// execution header is the one the beacon header commits to: verifyHeader
+// does not check that hash for an update that does not advance finality.
+func TestMisbehaviourChecksExecutionHash(t *testing.T) {
+	f := fixtureErc20()
+	cs := f.clientState
+	cs.ForkParameters.Gloas = Fork{Version: [4]byte{0x80, 0, 0, 0x38}, Epoch: 1}
+	c := NewEthLightClient()
+	urequire.NoError(t, c.Initialize(cs, f.consensusState))
+	urequire.True(t, c.ClientState.isGloas(cs.LatestSlot))
+
+	root := flip(f.consensusState.StateRoot, 0)
+	hdr := &Header{TrustedSlot: cs.LatestSlot}
+	hdr.ConsensusUpdate.FinalizedHeader.Beacon.Slot = cs.LatestSlot
+	hdr.ConsensusUpdate.FinalizedExecutionHeader = rlpHeader(root)
+	hdr.ConsensusUpdate.FinalizedHeader.ExecutionBlockHash = make([]byte, hashSize)
+	urequire.False(t, c.CheckForMisbehaviour(hdr), "an execution header off its committed hash is not evidence")
+
+	hdr.ConsensusUpdate.FinalizedHeader.ExecutionBlockHash = keccak(rlpHeader(root))
+	urequire.True(t, c.CheckForMisbehaviour(hdr), "a committed execution header with another state root is evidence")
+}
+
+// The fork schedule decides the signing domain, the Merkle layout and the
+// supported range, so ValidateBasic refuses one no update could pass.
+func TestClientStateValidatesForks(t *testing.T) {
+	urequire.NoError(t, fixtureErc20().clientState.ValidateBasic())
+	cases := []struct {
+		name   string
+		mutate func(cs *ClientState)
+		err    string
+	}{
+		{"zero gloas after a later fork", func(cs *ClientState) { cs.ForkParameters.Gloas = Fork{} }, "gloas fork epoch 0 precedes the previous fork's 1"},
+		// Every fork at epoch 0, as on a devnet starting at Fulu: only the
+		// missing version shows the zero Gloas.
+		{"zero gloas", func(cs *ClientState) {
+			cs.ForkParameters.Fulu.Epoch = 0
+			cs.ForkParameters.Gloas = Fork{}
+		}, "gloas fork is scheduled at epoch 0 without a version"},
+		{"out of order", func(cs *ClientState) { cs.ForkParameters.Deneb.Epoch = 5 }, "electra fork epoch 0 precedes the previous fork's 5"},
+		{"electra unscheduled", func(cs *ClientState) {
+			cs.ForkParameters.Electra.Epoch = FarFutureEpoch
+			cs.ForkParameters.Fulu.Epoch = FarFutureEpoch
+		}, "electra fork must be scheduled"},
+		{"latest slot before electra", func(cs *ClientState) {
+			cs.ForkParameters.Electra.Epoch = 20
+			cs.ForkParameters.Fulu.Epoch = 20
+		}, "is before Electra"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			cs := fixtureErc20().clientState
+			tc.mutate(&cs)
+			urequire.ErrorContains(t, cs.ValidateBasic(), tc.err)
+		})
+	}
+}
+
+// A recovery keeps every fork active at the subject's latest slot and may take
+// later ones from the substitute, which the subject then follows.
+func TestRecoverClientForks(t *testing.T) {
+	gloas := Fork{Version: [4]byte{0x80, 0, 0, 0x38}, Epoch: 12}
+	cases := []struct {
+		name   string
+		mutate func(p *ForkParameters)
+		err    string
+	}{
+		// Epoch 12 is after the subject's latest slot (epoch 9) and before the
+		// substitute's (epoch 16): a subject stalled before a fork it did not
+		// know, recovered from a substitute past it.
+		{"gloas scheduled", func(p *ForkParameters) { p.Gloas = gloas }, ""},
+		{"gloas scheduled before the subject's latest slot", func(p *ForkParameters) { p.Gloas = Fork{Version: gloas.Version, Epoch: 5} }, "different chain or router"},
+		{"active fork rewritten", func(p *ForkParameters) { p.Fulu.Version[0]++ }, "different chain or router"},
+		{"genesis fork rewritten", func(p *ForkParameters) { p.GenesisForkVersion[0]++ }, "different chain or router"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			f := fixtureErc20()
+			subject := NewEthLightClient()
+			urequire.NoError(t, subject.Initialize(f.clientState, f.consensusState))
+			sub, hdr := firstUpdate(t, f)
+			sub.UpdateState(hdr)
+			cs := *sub.ClientState
+			tc.mutate(&cs.ForkParameters)
+			sub.ClientState = &cs
+
+			err := subject.RecoverClient(sub)
+			if tc.err != "" {
+				urequire.ErrorContains(t, err, tc.err)
+				urequire.True(t, subject.ClientState.ForkParameters == f.clientState.ForkParameters, "a refused recovery changes nothing")
+				return
+			}
+			urequire.NoError(t, err)
+			urequire.Equal(t, cs.LatestSlot, subject.ClientState.LatestSlot)
+			urequire.True(t, subject.ClientState.ForkParameters == cs.ForkParameters, "the subject takes the substitute's schedule")
+		})
+	}
 }

@@ -13,6 +13,7 @@
 package ethereum
 
 import (
+	"bytes"
 	"errors"
 	"time"
 
@@ -130,20 +131,13 @@ func (c *EthLightClient) currentSlot() (uint64, error) {
 	return slot, nil
 }
 
-// trustedState returns the consensus state at slot and the summary of its
-// current sync committee, or of its next one if isNext.
-func (c *EthLightClient) trustedState(slot uint64, isNext bool) (*ConsensusState, SummarizedSyncCommittee, error) {
+// trustedState returns the consensus state at slot.
+func (c *EthLightClient) trustedState(slot uint64) (*ConsensusState, error) {
 	cons, ok := c.GetConsensusState(heightAtSlot(slot))
 	if !ok {
-		return nil, SummarizedSyncCommittee{}, ufmt.Errorf("no consensus state at trusted slot %d", slot)
+		return nil, ufmt.Errorf("no consensus state at trusted slot %d", slot)
 	}
-	if !isNext {
-		return cons, cons.CurrentSyncCommittee, nil
-	}
-	if cons.NextSyncCommittee == nil {
-		return nil, SummarizedSyncCommittee{}, errors.New("next sync committee is not known")
-	}
-	return cons, *cons.NextSyncCommittee, nil
+	return cons, nil
 }
 
 // verifyHeader implements verify_header.
@@ -157,7 +151,7 @@ func (c *EthLightClient) verifyHeader(h *Header) error {
 	if err := c.checkLatestAnchor(h.TrustedSlot); err != nil {
 		return err
 	}
-	trusted, active, err := c.trustedState(h.TrustedSlot, h.ActiveIsNext)
+	trusted, err := c.trustedState(h.TrustedSlot)
 	if err != nil {
 		return err
 	}
@@ -166,7 +160,7 @@ func (c *EthLightClient) verifyHeader(h *Header) error {
 		return err
 	}
 	u := h.ConsensusUpdate
-	if err := c.validateUpdate(trusted, active, h.ActiveIsNext, u, current); err != nil {
+	if err := c.validateUpdate(trusted, u, current); err != nil {
 		return err
 	}
 	// Only a 2/3 supermajority may move the client.
@@ -177,8 +171,10 @@ func (c *EthLightClient) verifyHeader(h *Header) error {
 		// As in the sync protocol's apply_light_client_update, an update that
 		// does not advance finality is still useful when it reveals the next
 		// sync committee: without it a client bootstrapped late in a period
-		// could never cross into the next one. validateUpdate checked it is
-		// such an update.
+		// could never cross into the next one. Only when that committee is
+		// final: isNextCommitteeOnly requires the finalized header in the
+		// attested header's period, which validateUpdate, like the spec's
+		// validate_light_client_update, does not.
 		if !isNextCommitteeOnly(cs, trusted, u) {
 			return ufmt.Errorf("finalized slot %d is not after trusted slot %d", u.FinalizedHeader.Beacon.Slot, trusted.Slot)
 		}
@@ -188,13 +184,11 @@ func (c *EthLightClient) verifyHeader(h *Header) error {
 	// it, as a finality update does at every rotation: as in the sync
 	// protocol's apply_light_client_update, the new state then does not know
 	// its next committee until a later update reveals it.
-	_, err = c.finalizedExecution(u)
-	return err
+	return c.verifyFinalizedExecution(u)
 }
 
-// validateUpdate implements validate_light_client_update, active being the
-// summary of the signing committee.
-func (c *EthLightClient) validateUpdate(trusted *ConsensusState, active SummarizedSyncCommittee, committeeIsNext bool, u LightClientUpdate, currentSlot uint64) error {
+// validateUpdate implements validate_light_client_update.
+func (c *EthLightClient) validateUpdate(trusted *ConsensusState, u LightClientUpdate, currentSlot uint64) error {
 	cs := c.ClientState
 	if u.SyncAggregate.participants() < cs.MinSyncCommitteeParticipants {
 		return ufmt.Errorf("insufficient sync committee participants: %d", u.SyncAggregate.participants())
@@ -216,19 +210,22 @@ func (c *EthLightClient) validateUpdate(trusted *ConsensusState, active Summariz
 
 	storedPeriod := cs.periodAtSlot(trusted.Slot)
 	signaturePeriod := cs.periodAtSlot(u.SignatureSlot)
-	// The full next committee is only available when the relayer passed it
-	// as the active one; see TrustedConsensusState in the Rust client.
-	nextKnown := committeeIsNext
-	if nextKnown {
-		if signaturePeriod != storedPeriod && signaturePeriod != storedPeriod+1 {
-			return ufmt.Errorf("signature period %d is not the stored period %d or the next", signaturePeriod, storedPeriod)
-		}
-	} else if signaturePeriod != storedPeriod {
-		return ufmt.Errorf("signature period %d is not the stored period %d", signaturePeriod, storedPeriod)
+	// The trusted state keeps the next committee's summary, so it answers
+	// whether the next committee is known, as the spec's store does. The
+	// relayer's Header.ActiveIsNext is not consulted.
+	nextKnown := trusted.NextSyncCommittee != nil
+	switch {
+	case signaturePeriod == storedPeriod:
+	case signaturePeriod == storedPeriod+1 && !nextKnown:
+		return ufmt.Errorf("update signed in period %d, after the stored period, but the next sync committee is not known", signaturePeriod)
+	case signaturePeriod != storedPeriod+1:
+		return ufmt.Errorf("signature period %d is not the stored period %d or the next", signaturePeriod, storedPeriod)
 	}
 
 	attestedPeriod := cs.periodAtSlot(attestedSlot)
 	isNextCommitteeUpdate := u.NextSyncCommittee != nil
+	// The spec's update_has_next_sync_committee, which unlike
+	// isNextCommitteeOnly puts no condition on the finalized header's period.
 	hasNextCommittee := !nextKnown && isNextCommitteeUpdate && attestedPeriod == storedPeriod
 	if !(attestedSlot > trusted.Slot || hasNextCommittee) {
 		return errors.New("irrelevant update")
@@ -255,13 +252,12 @@ func (c *EthLightClient) validateUpdate(trusted *ConsensusState, active Summariz
 		}
 	}
 
-	// The signing committee: the current one within the stored period, the
-	// next one across it.
-	if signaturePeriod == storedPeriod && committeeIsNext {
-		return errors.New("update signed in the stored period needs the current sync committee")
-	}
-	if signaturePeriod != storedPeriod && !committeeIsNext {
-		return errors.New("update signed in the next period needs the next sync committee")
+	// The signing committee follows from the signature period: the current
+	// one within the stored period, the next one, known as checked above,
+	// across it.
+	active := trusted.CurrentSyncCommittee
+	if signaturePeriod != storedPeriod {
+		active = *trusted.NextSyncCommittee
 	}
 	excluded, err := c.nonSignerKeys(active, u)
 	if err != nil {
@@ -358,16 +354,31 @@ type executionData struct {
 	blockNumber uint64
 }
 
+// verifyFinalizedExecution checks, from Gloas on, that the update's RLP
+// execution header is the one whose hash its finalized beacon header commits
+// to. Before Gloas the execution payload header is proven by the header's
+// execution branch.
+func (c *EthLightClient) verifyFinalizedExecution(u LightClientUpdate) error {
+	h := u.FinalizedHeader
+	if !c.ClientState.isGloas(h.Beacon.Slot) {
+		return nil
+	}
+	if !bytes.Equal(keccak(u.FinalizedExecutionHeader), h.ExecutionBlockHash) {
+		return errors.New("finalized execution header does not match the execution block hash")
+	}
+	return nil
+}
+
 // finalizedExecution returns the execution data of the update's finalized
-// header: its execution payload header before Gloas, the execution block
-// header whose hash the beacon block commits to from Gloas on.
+// header: its execution payload header before Gloas, the decoded execution
+// block header from Gloas on. It does not check that header's hash: call it
+// only on an update whose header verifyFinalizedExecution accepted. Once the
+// hash matches, the bytes are the header the signed beacon chain committed
+// to, so they are decoded once, where the data is used.
 func (c *EthLightClient) finalizedExecution(u LightClientUpdate) (executionData, error) {
 	h := u.FinalizedHeader
 	if !c.ClientState.isGloas(h.Beacon.Slot) {
 		return executionData{h.Execution.StateRoot, h.Execution.Timestamp, h.Execution.BlockNumber}, nil
-	}
-	if !bytesEqual(keccak(u.FinalizedExecutionHeader), h.ExecutionBlockHash) {
-		return executionData{}, errors.New("finalized execution header does not match the execution block hash")
 	}
 	return decodeExecutionHeader(u.FinalizedExecutionHeader)
 }
@@ -385,14 +396,14 @@ func (c *EthLightClient) verifyMisbehaviour(m *Misbehaviour) error {
 	if err := c.checkLatestAnchor(m.TrustedSlot); err != nil {
 		return err
 	}
-	trusted, active, err := c.trustedState(m.TrustedSlot, m.ActiveIsNext)
+	trusted, err := c.trustedState(m.TrustedSlot)
 	if err != nil {
 		return err
 	}
 	if m.Update1.FinalizedHeader.Beacon.Slot != m.Update2.FinalizedHeader.Beacon.Slot {
 		return errors.New("misbehaviour updates finalize different slots")
 	}
-	if bytesEqual(m.Update1.FinalizedHeader.Beacon.HashTreeRoot(), m.Update2.FinalizedHeader.Beacon.HashTreeRoot()) {
+	if bytes.Equal(m.Update1.FinalizedHeader.Beacon.HashTreeRoot(), m.Update2.FinalizedHeader.Beacon.HashTreeRoot()) {
 		return errors.New("misbehaviour updates finalize the same beacon header")
 	}
 	// Evidence needs the same 2/3 supermajority as an update moving the client,
@@ -404,10 +415,10 @@ func (c *EthLightClient) verifyMisbehaviour(m *Misbehaviour) error {
 	if err != nil {
 		return err
 	}
-	if err := c.validateUpdate(trusted, active, m.ActiveIsNext, m.Update1, current); err != nil {
+	if err := c.validateUpdate(trusted, m.Update1, current); err != nil {
 		return ufmt.Errorf("update 1: %v", err)
 	}
-	if err := c.validateUpdate(trusted, active, m.ActiveIsNext, m.Update2, current); err != nil {
+	if err := c.validateUpdate(trusted, m.Update2, current); err != nil {
 		return ufmt.Errorf("update 2: %v", err)
 	}
 	return nil
@@ -425,8 +436,15 @@ func (c *EthLightClient) CheckForMisbehaviour(clientMsg lightclient.ClientMessag
 		if !ok {
 			return false
 		}
+		// A stored slot means the update does not advance finality, and
+		// verifyHeader then returns before checking the execution header's
+		// hash: check it here, or any bytes decoding to another state root
+		// would freeze the client.
+		if c.verifyFinalizedExecution(u) != nil {
+			return false
+		}
 		exec, err := c.finalizedExecution(u)
-		return err == nil && !bytesEqual(existing.StateRoot, exec.stateRoot)
+		return err == nil && !bytes.Equal(existing.StateRoot, exec.stateRoot)
 	}
 	return false
 }
@@ -440,9 +458,15 @@ func (c *EthLightClient) UpdateStateOnMisbehaviour(lightclient.ClientMessage) {
 
 // isNextCommitteeOnly reports whether u only reveals the next sync committee
 // of the trusted state's period, which the trusted state does not know yet.
+// As in the sync protocol's update_has_finalized_next_sync_committee, the
+// update's finalized header must be in the attested header's period: a
+// period's next committee is set at its first slot, so it is final only once
+// a header of that period is.
 func isNextCommitteeOnly(cs *ClientState, trusted *ConsensusState, u LightClientUpdate) bool {
+	attestedPeriod := cs.periodAtSlot(u.AttestedHeader.Beacon.Slot)
 	return trusted.NextSyncCommittee == nil && u.NextSyncCommittee != nil &&
-		cs.periodAtSlot(u.AttestedHeader.Beacon.Slot) == cs.periodAtSlot(trusted.Slot)
+		attestedPeriod == cs.periodAtSlot(trusted.Slot) &&
+		cs.periodAtSlot(u.FinalizedHeader.Beacon.Slot) == attestedPeriod
 }
 
 // Implements lightclient.Interface: update_consensus_state.
@@ -478,7 +502,9 @@ func (c *EthLightClient) UpdateState(clientMsg lightclient.ClientMessage) []type
 	}
 	if trusted.NextSyncCommittee != nil {
 		if finalizedPeriod == storePeriod+1 {
-			next.CurrentSyncCommittee = *trusted.NextSyncCommittee
+			// next is a deep copy of trusted already: taking its committee
+			// shares no slice with the stored state.
+			next.CurrentSyncCommittee = *next.NextSyncCommittee
 			next.NextSyncCommittee = updateNext
 		}
 	} else {
@@ -527,7 +553,7 @@ func (c *EthLightClient) VerifyMembershipProof(height types.Height, proof any, p
 	if err != nil {
 		return err
 	}
-	if !bytesEqual(stored, value) {
+	if !bytes.Equal(stored, value) {
 		return errors.New("stored commitment differs from the expected value")
 	}
 	return nil
@@ -539,7 +565,7 @@ func (c *EthLightClient) VerifyNonMembershipProof(height types.Height, proof any
 	if err != nil {
 		return err
 	}
-	if !bytesEqual(stored, make([]byte, hashSize)) {
+	if !bytes.Equal(stored, make([]byte, hashSize)) {
 		return errors.New("a commitment is stored at the path")
 	}
 	return nil
@@ -663,19 +689,22 @@ func (c *EthLightClient) TimestampAtHeight(height types.Height) (uint64, error) 
 
 // Implements lightclient.Interface. The substitute must track the same chain
 // and router; its latest consensus state is copied and the subject unfrozen.
+// It may schedule forks the subject does not know yet (see sameActiveForks),
+// and the subject takes its fork schedule.
 func (c *EthLightClient) RecoverClient(substitute lightclient.Interface) error {
 	sub, ok := substitute.(*EthLightClient)
 	if !ok {
 		return ufmt.Errorf("substitute must be an ethereum client, got %T", substitute)
 	}
 	a, b := c.ClientState, sub.ClientState
-	if a.ChainID != b.ChainID || !bytesEqual(a.GenesisValidatorsRoot, b.GenesisValidatorsRoot) ||
-		a.ForkParameters != b.ForkParameters || a.SyncCommitteeSize != b.SyncCommitteeSize ||
+	if a.ChainID != b.ChainID || !bytes.Equal(a.GenesisValidatorsRoot, b.GenesisValidatorsRoot) ||
+		!sameActiveForks(a.ForkParameters, b.ForkParameters, a.epochAtSlot(a.LatestSlot)) ||
+		a.SyncCommitteeSize != b.SyncCommitteeSize ||
 		a.GenesisTime != b.GenesisTime || a.GenesisSlot != b.GenesisSlot ||
 		a.SecondsPerSlot != b.SecondsPerSlot || a.SlotsPerEpoch != b.SlotsPerEpoch ||
 		a.EpochsPerSyncCommitteePeriod != b.EpochsPerSyncCommitteePeriod ||
-		!bytesEqual(a.IBCContractAddress, b.IBCContractAddress) ||
-		!bytesEqual(a.IBCCommitmentSlot, b.IBCCommitmentSlot) {
+		!bytes.Equal(a.IBCContractAddress, b.IBCContractAddress) ||
+		!bytes.Equal(a.IBCCommitmentSlot, b.IBCCommitmentSlot) {
 		return errors.New("substitute client tracks a different chain or router")
 	}
 	if b.LatestSlot <= a.LatestSlot {
@@ -691,9 +720,42 @@ func (c *EthLightClient) RecoverClient(substitute lightclient.Interface) error {
 	updated.LatestSlot = b.LatestSlot
 	updated.LatestExecutionBlockNumber = b.LatestExecutionBlockNumber
 	updated.MinSyncCommitteeParticipants = b.MinSyncCommitteeParticipants
+	updated.ForkParameters = b.ForkParameters
 	updated.IsFrozen = false
 	c.ClientState = &updated
 	return nil
+}
+
+// sameActiveForks reports whether b schedules the forks active at epoch
+// exactly as a does; forks after it may differ, so a recovery can schedule a
+// fork the chain announced after the subject was created, or move one it
+// postponed. Recovery is governed, so scheduling a fork is a governance act.
+//
+// RecoverClient passes the epoch of the subject's latest slot, not the
+// substitute's. The consensus states the subject keeps, and still proves
+// packets against, were verified under its schedule up to that epoch, so
+// those forks must stay. Later forks only decide how the subject goes on from
+// the state it copies, which the substitute verified under b's schedule
+// (checked by ValidateBasic when it was created), so the subject takes that
+// schedule with it. Comparing at the substitute's latest slot would refuse
+// the recovery this exists for: a subject stalled before a fork it did not
+// know, recovered from a substitute already past it.
+//
+// ForkParameters has no slot after Gloas, and a fork that moves the
+// light-client containers (new generalized indices, as Gloas did) needs new
+// verification code too: such a fork still needs a new client package.
+func sameActiveForks(a, b ForkParameters, epoch uint64) bool {
+	if a.GenesisForkVersion != b.GenesisForkVersion || a.GenesisSlot != b.GenesisSlot {
+		return false
+	}
+	pairs := [][2]Fork{{a.Altair, b.Altair}, {a.Bellatrix, b.Bellatrix}, {a.Capella, b.Capella},
+		{a.Deneb, b.Deneb}, {a.Electra, b.Electra}, {a.Fulu, b.Fulu}, {a.Gloas, b.Gloas}}
+	for _, p := range pairs {
+		if (p[0].Epoch <= epoch || p[1].Epoch <= epoch) && p[0] != p[1] {
+			return false
+		}
+	}
+	return true
 }
 
 // Implements lightclient.Interface. Ethereum has no IBC upgrade path; replace

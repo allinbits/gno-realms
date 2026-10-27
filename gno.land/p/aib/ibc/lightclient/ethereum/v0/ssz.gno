@@ -1,6 +1,7 @@
 package ethereum
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/binary"
 )
@@ -182,7 +183,7 @@ func isValidMerkleBranch(leaf []byte, branch [][]byte, gindex uint64, root []byt
 		return false
 	}
 	for _, extra := range branch[:len(branch)-depth] {
-		if !bytesEqual(extra, zeroHashes[0]) {
+		if !bytes.Equal(extra, zeroHashes[0]) {
 			return false
 		}
 	}
@@ -199,17 +200,5 @@ func isValidMerkleBranch(leaf []byte, branch [][]byte, gindex uint64, root []byt
 			value = hash2(value, branch[i])
 		}
 	}
-	return bytesEqual(value, root)
-}
-
-func bytesEqual(a, b []byte) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for i := range a {
-		if a[i] != b[i] {
-			return false
-		}
-	}
-	return true
+	return bytes.Equal(value, root)
 }
