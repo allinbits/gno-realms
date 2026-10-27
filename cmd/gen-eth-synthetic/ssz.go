@@ -113,11 +113,11 @@ type payloadHeader struct {
 func (p payloadHeader) tree() *node {
 	baseFee := make([]byte, chunk) // uint256 little-endian
 	binary.LittleEndian.PutUint64(baseFee, p.BaseFeePerGas)
-	extra := mixInLength(merkleize(pack(p.ExtraData), 1), uint64(len(p.ExtraData))) // ByteList[32]: one chunk
+	extra := mixInLength(merkleize(pack(p.ExtraData), (presetMaxExtraDataBytes+chunk-1)/chunk), uint64(len(p.ExtraData))) // ByteList[MAX_EXTRA_DATA_BYTES]
 	var fields []*node
 	for _, f := range [][]byte{
 		p.ParentHash, padRight(p.FeeRecipient), p.StateRoot, p.ReceiptsRoot,
-		merkleize(pack(p.LogsBloom), 8), p.PrevRandao,
+		merkleize(pack(p.LogsBloom), presetBytesPerLogsBloom/chunk), p.PrevRandao,
 		uint64Leaf(p.BlockNumber), uint64Leaf(p.GasLimit), uint64Leaf(p.GasUsed), uint64Leaf(p.Timestamp),
 		extra, baseFee, p.BlockHash, p.TransactionsRoot, p.WithdrawalsRoot,
 		uint64Leaf(p.BlobGasUsed), uint64Leaf(p.ExcessBlobGas),
