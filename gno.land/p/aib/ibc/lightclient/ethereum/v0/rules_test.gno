@@ -389,3 +389,21 @@ func TestMembershipPathLength(t *testing.T) {
 	two := types.MerklePath{KeyPath: [][]byte{{1}, {2}}}
 	urequire.ErrorContains(t, c.VerifyNonMembershipProof(height, MembershipProof{}, two), "path must have exactly one element, got 2")
 }
+
+// Explicit misbehaviour: both updates are validated against the trusted state.
+// A genuinely valid conflicting pair would need two 2/3-signed updates
+// finalizing different headers at one slot, which the recorded data cannot
+// give; so each case here pairs the fixture's valid update with a copy whose
+// finalized header differs at the same slot, failing its finality proof, and
+// the refusal names the update that failed.
+func TestMisbehaviourValidatesBothUpdates(t *testing.T) {
+	c, hdr := firstUpdate(t, fixtureErc20())
+	valid := hdr.ConsensusUpdate
+	forged := valid
+	forged.FinalizedHeader.Beacon.StateRoot = flip(forged.FinalizedHeader.Beacon.StateRoot, 0)
+
+	m := &Misbehaviour{TrustedSlot: hdr.TrustedSlot, Update1: valid, Update2: forged}
+	urequire.ErrorContains(t, c.VerifyClientMessage(m), "update 2: invalid finality branch")
+	m = &Misbehaviour{TrustedSlot: hdr.TrustedSlot, Update1: forged, Update2: valid}
+	urequire.ErrorContains(t, c.VerifyClientMessage(m), "update 1: invalid finality branch")
+}

@@ -716,19 +716,24 @@ func (c *EthLightClient) TimestampAtHeight(height types.Height) (uint64, error) 
 // be ahead; its latest consensus state is copied, the subject unfrozen, and
 // the subject adopts its fork schedule, whatever the subject's was.
 //
-// No fork comparison binds the substitute to the subject's schedule. Every
-// schedule change goes through a governed path (creation, recovery, and on
-// later core implementations a fork migration or a verifier conversion), and
-// governance already has full power over a client through recovery from a
-// substitute it created from a trusted bootstrap, so a comparison adds no
-// safety against governance. A wrong schedule cannot make false data verify
-// either: every state move still needs a 2/3 sync committee signature over
-// the chain's real domain and Merkle proofs into signed roots. At worst a
-// wrong schedule stops the client from verifying, which another governed
-// action repairs. Each comparison rule tried made some stalled or wrongly
-// configured client unrepairable, since what the client "verified under" is
-// partly untrusted input (the signature slot) and partly the wrong schedule
-// being repaired.
+// No fork comparison binds the substitute to the subject's schedule. Once a
+// client exists, its schedule changes only on governed paths (this recovery,
+// and on later core implementations a fork migration or a verifier
+// conversion), and governance already has full power over a client through
+// recovery from a substitute it created from a trusted bootstrap, so a
+// comparison adds no safety against governance. A new client's schedule, like
+// the rest of its initial state, is trusted from its creator (a whitelisted
+// relayer, or anyone while the whitelist is empty), as any IBC client's
+// creation is. A wrong schedule cannot make a relayed update verify false
+// data: the update still needs a 2/3 sync committee signature over the chain's
+// real domain and Merkle proofs into signed roots, and under the wrong layout
+// each generalized index of the other fork lands on a value no relayer
+// chooses (ADR 0003). A governed recovery, unlike a relayed update, adopts its
+// substitute's state as trusted. At worst a wrong schedule stops the client
+// from verifying, which another governed action repairs. Each comparison rule
+// tried made some stalled or wrongly configured client unrepairable, since
+// what the client "verified under" is partly untrusted input (the signature
+// slot) and partly the wrong schedule being repaired.
 //
 // ForkParameters has no slot after Gloas, and a fork that moves the
 // light-client containers (new generalized indices, as Gloas did) needs new
@@ -765,13 +770,14 @@ func (c *EthLightClient) RecoverClient(substitute lightclient.Interface) error {
 }
 
 // sameChainAndRouter reports whether a and b track the same chain, with the
-// same slot clock, committee size and genesis fork version, and the same
-// router: every client state field but the fork schedule (the genesis fork
-// version excepted), the latest slot and block number, the minimum
+// same slot clock, committee size and genesis fork, and the same router:
+// every client state field but the fork schedule (its genesis fork version
+// and slot excepted), the latest slot and block number, the minimum
 // participation and the frozen flag.
 func sameChainAndRouter(a, b *ClientState) bool {
 	return a.ChainID == b.ChainID && bytes.Equal(a.GenesisValidatorsRoot, b.GenesisValidatorsRoot) &&
 		a.ForkParameters.GenesisForkVersion == b.ForkParameters.GenesisForkVersion &&
+		a.ForkParameters.GenesisSlot == b.ForkParameters.GenesisSlot &&
 		a.SyncCommitteeSize == b.SyncCommitteeSize &&
 		a.GenesisTime == b.GenesisTime && a.GenesisSlot == b.GenesisSlot &&
 		a.SecondsPerSlot == b.SecondsPerSlot && a.SlotsPerEpoch == b.SlotsPerEpoch &&

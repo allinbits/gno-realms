@@ -175,11 +175,15 @@ func TestStateDoesNotAliasInput(t *testing.T) {
 	cons.CurrentSyncCommittee.PubkeysHash = append([]byte{}, cons.CurrentSyncCommittee.PubkeysHash...)
 	cs := f.clientState
 	cs.IBCContractAddress = append([]byte{}, cs.IBCContractAddress...)
+	cs.GenesisValidatorsRoot = append([]byte{}, cs.GenesisValidatorsRoot...)
+	gvr := append([]byte{}, cs.GenesisValidatorsRoot...)
 	c := NewEthLightClient()
 	urequire.NoError(t, c.Initialize(cs, cons))
 	cons.StateRoot[0] ^= 1
 	cons.CurrentSyncCommittee.PubkeysHash[0] ^= 1
 	cs.IBCContractAddress[0] ^= 1
+	cs.GenesisValidatorsRoot[0] ^= 1
+	urequire.True(t, bytes.Equal(gvr, c.ClientState.GenesisValidatorsRoot), "genesis validators root aliases the input")
 	stored, ok := c.GetConsensusState(heightAtSlot(cons.Slot))
 	urequire.True(t, ok)
 	urequire.False(t, bytes.Equal(stored.StateRoot, cons.StateRoot), "stored state root aliases the input")
@@ -598,6 +602,60 @@ func TestRecoverThenUpdate(t *testing.T) {
 	urequire.Equal(t, uint64(100), subject.ClientState.ForkParameters.Gloas.Epoch)
 }
 
+// A next-committee-only update records a copy of the committee it reveals:
+// changing the caller's input afterwards changes nothing trusted.
+func TestNextCommitteeOnlyDoesNotAliasInput(t *testing.T) {
+	c, hdr := signedFrom(t, 140, 8, nil)
+	urequire.NoError(t, verifyAt(c, hdr))
+	u := hdr.ConsensusUpdate
+	next := cloneSummary(*u.NextSyncCommittee)
+	u.NextSyncCommittee = &next
+	hdr.ConsensusUpdate = u
+	c.UpdateState(hdr)
+	want := append([]byte{}, next.AggregatePubkey...)
+	next.AggregatePubkey[0] ^= 1
+	next.PubkeysHash[0] ^= 1
+	cons, _ := c.GetConsensusState(heightAtSlot(140))
+	urequire.True(t, bytes.Equal(want, cons.NextSyncCommittee.AggregatePubkey), "the recorded next committee aliases the update")
+}
+
+// A recovery unfreezes the subject and takes the substitute's latest slot,
+// block number, minimum participation and schedule, and a deep copy of its
+// latest consensus state.
+func TestRecoverClientWrites(t *testing.T) {
+	f := fixtureErc20()
+	subject := applied(t, f, 1)
+	subject.UpdateStateOnMisbehaviour(nil)
+	urequire.Equal(t, "Frozen", string(subject.Status()))
+	sub := applied(t, f, 2)
+	cs := *sub.ClientState
+	cs.MinSyncCommitteeParticipants = 20
+	cs.ForkParameters.Gloas = Fork{Version: [4]byte{0x80, 0, 0, 0x38}, Epoch: 100}
+	sub.ClientState = &cs
+
+	urequire.NoError(t, subject.RecoverClient(sub))
+	got := subject.ClientState
+	urequire.Equal(t, "Active", string(subject.Status()))
+	urequire.False(t, got.IsFrozen)
+	urequire.Equal(t, cs.LatestSlot, got.LatestSlot)
+	urequire.Equal(t, cs.LatestExecutionBlockNumber, got.LatestExecutionBlockNumber)
+	urequire.Equal(t, uint64(20), got.MinSyncCommitteeParticipants)
+	urequire.True(t, got.ForkParameters == cs.ForkParameters, "the substitute's schedule")
+
+	mine, _ := subject.GetConsensusState(heightAtSlot(cs.LatestSlot))
+	theirs, _ := sub.GetConsensusState(heightAtSlot(cs.LatestSlot))
+	urequire.True(t, mine != theirs, "a copy, not the substitute's state")
+	root := append([]byte{}, mine.StateRoot...)
+	agg := append([]byte{}, mine.CurrentSyncCommittee.AggregatePubkey...)
+	theirs.StateRoot[0] ^= 1
+	theirs.CurrentSyncCommittee.AggregatePubkey[0] ^= 1
+	if theirs.NextSyncCommittee != nil {
+		theirs.NextSyncCommittee.PubkeysHash[0] ^= 1
+	}
+	urequire.True(t, bytes.Equal(root, mine.StateRoot), "the copied root aliases the substitute's")
+	urequire.True(t, bytes.Equal(agg, mine.CurrentSyncCommittee.AggregatePubkey), "the copied committee aliases the substitute's")
+}
+
 // The substitute must be ahead of the subject and track the same chain and
 // router.
 func TestRecoverClientRefusals(t *testing.T) {
@@ -619,6 +677,7 @@ func TestRecoverClientRefusals(t *testing.T) {
 		func(cs *ClientState) { cs.SecondsPerSlot++ },
 		func(cs *ClientState) { cs.EpochsPerSyncCommitteePeriod++ },
 		func(cs *ClientState) { cs.ForkParameters.GenesisForkVersion[0]++ },
+		func(cs *ClientState) { cs.ForkParameters.GenesisSlot++ },
 	} {
 		sub := applied(t, f, 3)
 		cs := *sub.ClientState
