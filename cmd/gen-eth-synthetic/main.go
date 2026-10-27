@@ -1,7 +1,7 @@
-// Command gen-eth-synthetic writes synthetic, spec-exact Ethereum
-// light-client test data for gno.land/p/aib/ibc/lightclient/ethereum: the
-// cases recorded chains cannot give, signed by a sync committee whose BLS keys
-// it derives from a fixed seed.
+// Command gen-eth-synthetic writes synthetic Ethereum light-client test
+// data for gno.land/p/aib/ibc/lightclient/ethereum, built from the specs as
+// described below: the cases recorded chains cannot give, signed by a sync
+// committee whose BLS keys it derives from a fixed seed.
 //
 // Canonical, as the gloas light-client sync protocol has them:
 //   - a Gloas update (attested and signed in Gloas) whose finalized header is
@@ -23,11 +23,35 @@
 // rules and the execution block header layout, not from the gno client: SSZ
 // roots, domains and signing roots are computed here, and signatures come
 // from blst, while the client verifies with a native that wraps gnark-crypto.
-// The beacon states and bodies are built as their containers: every basic
-// field (slots, epochs, versions, padding), active-fields word, zero padding
-// and progressive terminator on a proof path has its prescribed value. Only
-// the roots of fields nothing here depends on (lists, signatures, unrelated
-// containers) are arbitrary chunks derived from the seed.
+// The attested beacon states and bodies, and every block's execution payload,
+// are built as their containers (Gloas' as progressive containers). Set to
+// the value a spec rule gives them:
+//   - every basic field (slots, epochs, fork versions, uint64 counters,
+//     padding), active-fields word, zero padding and progressive terminator;
+//   - the state's finalized checkpoint, sync committees, fork and
+//     latest_block_header (the block's header with a zero state root);
+//   - Gloas: the bid's parent_block_root (the block's parent) and slot, the
+//     state's latest_execution_payload_bid (the body's bid) and
+//     latest_block_hash (the bid's parent_block_hash), empty deposits;
+//   - Fulu: the state's latest_execution_payload_header (the payload);
+//   - every operation list, blob commitment list and execution request list
+//     empty, in both forks, and the execution payloads empty blocks: no
+//     transactions, withdrawals, receipts, blob gas or requests, so their
+//     SSZ and RLP roots are the empty ones, the bloom is zero and no gas is
+//     used; each payload's timestamp is its slot's time, and its RLP
+//     parent_beacon_block_root its beacon block's parent (EIP-4788).
+//
+// Arbitrary, derived from the seed, are the fields whose rules tie them only
+// to history this does not model: the beacon headers' parent roots and the
+// finalized header's state root; randao reveals and mixes and the payloads'
+// prev_randao; eth1 data and votes; sync aggregates; block and state root
+// vectors, historical roots and summaries; validators, balances,
+// participation, inactivity scores, slashings and pending queues; the
+// proposer lookahead; Gloas' builders, builder payments and withdrawals,
+// payload availability, expected withdrawals, PTC window, the bid's
+// block_hash, prev_randao, execution_requests_root and signature; the
+// payloads' parent hash, state root, coinbase and extra data; and the
+// justified checkpoints' roots.
 //
 // Regenerate from the repository root with
 //
@@ -64,8 +88,6 @@ func main() {
 	}
 }
 
-// The chain: 2 s slots, 8-slot epochs, 8-epoch (64-slot) periods; every fork
-// to Electra at genesis, Fulu at epoch 1, Gloas at epoch 18 (slot 144).
 // The chain: 2 s slots, 8-slot epochs, 8-epoch (64-slot) periods; every fork
 // to Electra at genesis, Fulu at epoch 1, Gloas at epoch 20 (slot 160). Every
 // update finalizes the checkpoint of epoch 17, at least two epochs before its
@@ -221,17 +243,19 @@ type execBlock struct {
 }
 
 func newExecBlock(tag string, number, slot uint64, parentBeaconRoot []byte) execBlock {
-	bloom := make([]byte, 256)
-	bloom[7] = 1
+	// An empty block: no transactions, withdrawals, blobs or requests, so
+	// every root committing to them is the empty one, the bloom is zero and
+	// no gas is used.
+	emptyTrie := mustHex("56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421") // keccak(rlp(""))
 	eh := executionHeader{
 		ParentHash:   h32(tag, "parent"),
 		OmmersHash:   mustHex("1dcc4de8dec75d7aab85b567b6ccd41ad312451b948a7413f0a142fd40d49347"), // keccak(rlp([]))
 		Coinbase:     h32(tag, "coinbase")[:20],
 		StateRoot:    h32(tag, "state root"),
-		TxRoot:       h32(tag, "transactions"),
-		ReceiptsRoot: h32(tag, "receipts"),
-		Bloom:        bloom,
-		Number:       number, GasLimit: 30_000_000, GasUsed: 1_234_567,
+		TxRoot:       emptyTrie,
+		ReceiptsRoot: emptyTrie,
+		Bloom:        make([]byte, 256),
+		Number:       number, GasLimit: 30_000_000, GasUsed: 0,
 		// process_execution_payload: the payload's timestamp is its own
 		// slot's time.
 		Time:            genesisTime + slot*secondsPerSlot,
@@ -239,12 +263,13 @@ func newExecBlock(tag string, number, slot uint64, parentBeaconRoot []byte) exec
 		MixDigest:       h32(tag, "prev randao"),
 		Nonce:           make([]byte, 8),
 		BaseFee:         7,
-		WithdrawalsRoot: h32(tag, "withdrawals"),
-		BlobGasUsed:     131072,
+		WithdrawalsRoot: emptyTrie,
+		BlobGasUsed:     0,
 		ExcessBlobGas:   0,
 		// EIP-4788: the parent beacon block's root.
 		ParentBeaconRoot: parentBeaconRoot,
-		RequestsHash:     h32(tag, "requests"),
+		// EIP-7685: SHA256 over no request digests.
+		RequestsHash: sha(),
 	}
 	b := execBlock{header: eh, rlp: eh.rlp()}
 	b.hash = keccak(b.rlp)
@@ -253,7 +278,8 @@ func newExecBlock(tag string, number, slot uint64, parentBeaconRoot []byte) exec
 		ReceiptsRoot: eh.ReceiptsRoot, LogsBloom: eh.Bloom, PrevRandao: eh.MixDigest,
 		BlockNumber: eh.Number, GasLimit: eh.GasLimit, GasUsed: eh.GasUsed, Timestamp: eh.Time,
 		ExtraData: eh.Extra, BaseFeePerGas: eh.BaseFee, BlockHash: b.hash,
-		TransactionsRoot: h32(tag, "transactions ssz root"), WithdrawalsRoot: h32(tag, "withdrawals ssz root"),
+		// Empty List[Transaction, 2^20] and List[Withdrawal, 16].
+		TransactionsRoot: emptyList(20).root, WithdrawalsRoot: emptyList(4).root,
 		BlobGasUsed: eh.BlobGasUsed, ExcessBlobGas: eh.ExcessBlobGas,
 	}
 	return b
@@ -296,40 +322,57 @@ func checkpoint(epoch uint64, root []byte) *node { return container(u64(epoch), 
 
 // fuluBody is a Fulu (Electra) BeaconBlockBody holding payload.
 func fuluBody(tag string, payload payloadHeader) *node {
+	// Empty operation lists (limits 16, 1, 8, 16, 16, 16 and 4096: chunk
+	// depths 4, 0, 3, 4, 4, 4 and 12), no blob commitments (the payload uses
+	// no blob gas) and empty execution requests (the payload's requests_hash
+	// is the empty one): List[DepositRequest, 8192], List[WithdrawalRequest,
+	// 16], List[ConsolidationRequest, 2].
 	return container(
 		arb(tag, "randao_reveal"), arb(tag, "eth1_data"), arb(tag, "graffiti"),
-		arb(tag, "proposer_slashings"), arb(tag, "attester_slashings"), arb(tag, "attestations"),
-		arb(tag, "deposits"), arb(tag, "voluntary_exits"), arb(tag, "sync_aggregate"),
+		emptyList(4), emptyList(0), emptyList(3),
+		emptyList(4), emptyList(4), arb(tag, "sync_aggregate"),
 		payload.tree(), // execution_payload: field 9, gindex 25
-		arb(tag, "bls_to_execution_changes"), arb(tag, "blob_kzg_commitments"), arb(tag, "execution_requests"),
+		emptyList(4), emptyList(12), container(emptyList(13), emptyList(4), emptyList(1)),
 	)
 }
 
 // gloasBody is a Gloas BeaconBlockBody (a ProgressiveContainer) whose
 // signed bid commits to parentBlockHash at slot.
-func gloasBody(tag string, slot, parentBlockHash []byte) *node {
+// It returns the body and its bid, which the state records.
+func gloasBody(tag string, slot, parentBlockHash, parentBlockRoot []byte) (*node, *node) {
+	// process_execution_payload_bid: parent_block_root is the block's parent.
 	bid := progressiveContainer( // ExecutionPayloadBid
-		leaf(parentBlockHash), arb(tag, "parent_block_root"), arb(tag, "block_hash"), arb(tag, "prev_randao"),
+		leaf(parentBlockHash), leaf(parentBlockRoot), arb(tag, "block_hash"), arb(tag, "prev_randao"),
 		leaf(padRight(h32(tag, "fee_recipient")[:20])), u64(30_000_000), u64(4), leaf(slot),
-		u64(1_000_000_000), u64(0), arb(tag, "blob_kzg_commitments"), arb(tag, "execution_requests_root"),
+		u64(1_000_000_000), u64(0), emptyProgressiveList(), arb(tag, "execution_requests_root"),
 	)
 	signed := container(bid, arb(tag, "bid signature"))
-	return progressiveContainer(
+	// Empty operation lists, deposits included (Gloas requires them empty),
+	// and empty parent execution requests: every list a ProgressiveList.
+	empty := emptyProgressiveList
+	body := progressiveContainer(
 		arb(tag, "randao_reveal"), arb(tag, "eth1_data"), arb(tag, "graffiti"),
-		arb(tag, "proposer_slashings"), arb(tag, "attester_slashings"), arb(tag, "attestations"),
-		arb(tag, "deposits"), arb(tag, "voluntary_exits"), arb(tag, "sync_aggregate"),
-		arb(tag, "bls_to_execution_changes"),
+		empty(), empty(), empty(),
+		empty(), empty(), arb(tag, "sync_aggregate"),
+		empty(),
 		signed, // signed_execution_payload_bid: field 10, its parent_block_hash at gindex 2856
-		arb(tag, "payload_attestations"), arb(tag, "parent_execution_requests"),
+		empty(), progressiveContainer(empty(), empty(), empty(), empty(), empty()),
 	)
+	return body, bid
+}
+
+// latestBlockHeader is state.latest_block_header after process_block_header:
+// the block's header with a zero state root.
+func latestBlockHeader(slot, proposer uint64, parentRoot, bodyRoot []byte) *node {
+	return container(u64(slot), u64(proposer), leaf(parentRoot), leaf(zero()), leaf(bodyRoot))
 }
 
 // fuluState is a Fulu BeaconState at slot finalizing finalizedRoot, with the
 // given sync committees.
-func fuluState(tag string, slot uint64, finalizedRoot []byte, current committee, next *node, latestPayload []byte) *node {
+func fuluState(tag string, slot uint64, latestHeader *node, finalizedRoot []byte, current committee, next *node, latestPayload []byte) *node {
 	return container(
 		u64(genesisTime), leaf(gvr), u64(slot), forkContainer(slot/slotsPerEpoch),
-		arb(tag, "latest_block_header"), arb(tag, "block_roots"), arb(tag, "state_roots"), arb(tag, "historical_roots"),
+		latestHeader, arb(tag, "block_roots"), arb(tag, "state_roots"), arb(tag, "historical_roots"),
 		arb(tag, "eth1_data"), arb(tag, "eth1_data_votes"), u64(0), arb(tag, "validators"), arb(tag, "balances"),
 		arb(tag, "randao_mixes"), arb(tag, "slashings"), arb(tag, "previous_epoch_participation"),
 		arb(tag, "current_epoch_participation"), leaf(padRight([]byte{0x0f})),
@@ -344,10 +387,10 @@ func fuluState(tag string, slot uint64, finalizedRoot []byte, current committee,
 }
 
 // gloasState is a Gloas BeaconState (a ProgressiveContainer) at slot.
-func gloasState(tag string, slot uint64, finalizedRoot []byte, current committee, next *node, latestBlockHash []byte) *node {
+func gloasState(tag string, slot uint64, latestHeader *node, finalizedRoot []byte, current committee, next *node, latestBlockHash []byte, bid *node) *node {
 	return progressiveContainer(
 		u64(genesisTime), leaf(gvr), u64(slot), forkContainer(slot/slotsPerEpoch),
-		arb(tag, "latest_block_header"), arb(tag, "block_roots"), arb(tag, "state_roots"), arb(tag, "historical_roots"),
+		latestHeader, arb(tag, "block_roots"), arb(tag, "state_roots"), arb(tag, "historical_roots"),
 		arb(tag, "eth1_data"), arb(tag, "eth1_data_votes"), u64(0), arb(tag, "validators"), arb(tag, "balances"),
 		arb(tag, "randao_mixes"), arb(tag, "slashings"), arb(tag, "previous_epoch_participation"),
 		arb(tag, "current_epoch_participation"), leaf(padRight([]byte{0x0f})),
@@ -358,7 +401,7 @@ func gloasState(tag string, slot uint64, finalizedRoot []byte, current committee
 		leaf(latestBlockHash), u64(0), u64(0), arb(tag, "historical_summaries"), u64(0), u64(0), u64(0), u64(0), u64(0), u64(0),
 		arb(tag, "pending_deposits"), arb(tag, "pending_partial_withdrawals"), arb(tag, "pending_consolidations"),
 		arb(tag, "proposer_lookahead"), arb(tag, "builders"), u64(0), arb(tag, "execution_payload_availability"),
-		arb(tag, "builder_pending_payments"), arb(tag, "builder_pending_withdrawals"), arb(tag, "latest_execution_payload_bid"),
+		arb(tag, "builder_pending_payments"), arb(tag, "builder_pending_withdrawals"), bid, // process_execution_payload_bid records the block's bid
 		arb(tag, "payload_expected_withdrawals"), arb(tag, "ptc_window"),
 	)
 }
@@ -404,7 +447,8 @@ type updateSpec struct {
 	finalized          lcHeader
 	finalizedExecution []byte
 	signers            committee
-	next               *committee
+	stateNext          committee  // the attested state's next committee
+	next               *committee // the next committee the update carries
 	nonSigners         []int
 	keys               map[int]*blst.SecretKey
 }
@@ -418,27 +462,30 @@ func build(spec updateSpec) update {
 	if spec.gloas {
 		attestedSlot, sigSlot = gloasAttested, gloasSignature
 	}
-	nextLeaf := arb(tag, "next_sync_committee")
-	if spec.next != nil {
-		nextLeaf = leaf(spec.next.root())
-	}
+	// The state's next committee is the next period's whether or not the
+	// update carries it.
+	nextLeaf := leaf(spec.stateNext.root())
+	parentRoot := h32(tag, "attested parent")
 	finalizedRoot := spec.finalized.beacon.root()
 	var state, body *node
 	var attested lcHeader
 	finIdx, nextIdx := uint64(finalizedRootElectra), uint64(nextSyncCommitteeElectra)
 	if spec.gloas {
 		parentHash := h32(tag, "attested parent block hash")
-		state = gloasState(tag+" attested state", attestedSlot, finalizedRoot, spec.signers, nextLeaf, parentHash)
-		body = gloasBody(tag+" attested body", uint64Leaf(attestedSlot), parentHash)
+		var bid *node
+		body, bid = gloasBody(tag+" attested body", uint64Leaf(attestedSlot), parentHash, parentRoot)
+		state = gloasState(tag+" attested state", attestedSlot, latestBlockHeader(attestedSlot, 3, parentRoot, body.root),
+			finalizedRoot, spec.signers, nextLeaf, parentHash, bid)
 		attested = lcHeader{blockHash: parentHash, branch: body.branch(executionBlockHashGloas)}
 		if !bytes.Equal(body.at(executionBlockHashGloas).root, parentHash) {
 			panic("the Gloas body does not hold the bid's parent block hash at 2856")
 		}
 		finIdx, nextIdx = finalizedRootGloas, nextSyncCommitteeGloas
 	} else {
-		block := newExecBlock(tag+" attested block", 1016, attestedSlot, h32(tag, "attested parent"))
-		state = fuluState(tag+" attested state", attestedSlot, finalizedRoot, spec.signers, nextLeaf, block.payload.root())
+		block := newExecBlock(tag+" attested block", 1016, attestedSlot, parentRoot)
 		body = fuluBody(tag+" attested body", block.payload)
+		state = fuluState(tag+" attested state", attestedSlot, latestBlockHeader(attestedSlot, 3, parentRoot, body.root),
+			finalizedRoot, spec.signers, nextLeaf, block.payload.root())
 		p := block.payload
 		attested = lcHeader{payload: &p, branch: body.branch(executionPayloadIndex)}
 	}
@@ -446,7 +493,7 @@ func build(spec updateSpec) update {
 		panic("the state does not hold the finalized root and the next committee at their gindices")
 	}
 	attested.beacon = beaconHeader{Slot: attestedSlot, ProposerIndex: 3,
-		ParentRoot: h32(tag, "attested parent"), StateRoot: state.root, BodyRoot: body.root}
+		ParentRoot: parentRoot, StateRoot: state.root, BodyRoot: body.root}
 
 	ns := map[int]bool{}
 	for _, i := range spec.nonSigners {
@@ -554,20 +601,20 @@ func generate() ([]byte, error) {
 	conflictingBlock := newExecBlock("conflicting block", 1000, finalizedSlot, conflictingParent)
 	conflicting := finalizedHeader("conflicting", 6, conflictingBlock, conflictingParent, true)
 
-	transition := build(updateSpec{tag: "gloas", gloas: true, finalized: hashForm, finalizedExecution: block.rlp, signers: current, next: &next})
-	mixed := build(updateSpec{tag: "mixed form", gloas: true, finalized: payloadForm, signers: current, next: &next})
-	fulu := build(updateSpec{tag: "fulu", finalized: payloadForm, signers: current, next: &next})
-	misbehaviour1 := build(updateSpec{tag: "misbehaviour 1", gloas: true, finalized: hashForm, finalizedExecution: block.rlp, signers: current})
-	misbehaviour2 := build(updateSpec{tag: "misbehaviour 2", gloas: true, finalized: conflicting, finalizedExecution: conflictingBlock.rlp, signers: current})
+	transition := build(updateSpec{tag: "gloas", gloas: true, finalized: hashForm, finalizedExecution: block.rlp, signers: current, stateNext: next, next: &next})
+	mixed := build(updateSpec{tag: "mixed form", gloas: true, finalized: payloadForm, signers: current, stateNext: next, next: &next})
+	fulu := build(updateSpec{tag: "fulu", finalized: payloadForm, signers: current, stateNext: next, next: &next})
+	misbehaviour1 := build(updateSpec{tag: "misbehaviour 1", gloas: true, finalized: hashForm, finalizedExecution: block.rlp, signers: current, stateNext: next})
+	misbehaviour2 := build(updateSpec{tag: "misbehaviour 2", gloas: true, finalized: conflicting, finalizedExecution: conflictingBlock.rlp, signers: current, stateNext: next})
 	nonSigners := []int{3, 10, 27}
-	several := updateSpec{tag: "non-signers", gloas: true, finalized: hashForm, finalizedExecution: block.rlp, signers: current, nonSigners: nonSigners}
+	several := updateSpec{tag: "non-signers", gloas: true, finalized: hashForm, finalizedExecution: block.rlp, signers: current, stateNext: next, nonSigners: nonSigners}
 	withNonSigners := build(several)
 	several.keys = map[int]*blst.SecretKey{14: outsider()}
 	wrongKey := build(several)
 
 	var w writer
 	w.f("// Code generated by cmd/gen-eth-synthetic. DO NOT EDIT.\n\n")
-	w.f("// Synthetic, spec-exact light-client data signed by a sync committee whose\n")
+	w.f("// Synthetic light-client data, built from the specs, signed by a sync committee whose\n")
 	w.f("// keys derive from a fixed seed: the cases recorded chains cannot give. See\n")
 	w.f("// cmd/gen-eth-synthetic for how each is built.\n\npackage ethereum\n\n")
 

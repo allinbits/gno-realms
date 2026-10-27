@@ -53,7 +53,7 @@ cmd/                          # Go CLI tools
   gen-block-signatures/       # Generate Tendermint block signatures for test headers
   gen-proof/                  # Generate IBC proof structures
   gen-eth-fixtures/           # Convert eureka Ethereum light-client fixtures to Gno test data
-  gen-eth-synthetic/          # Synthetic, spec-exact Ethereum light-client test data (blst, fixed seed)
+  gen-eth-synthetic/          # Synthetic Ethereum light-client test data built from the specs (blst, fixed seed)
 gno.land/
   p/aib/                      # Packages (stateless libraries)
     ibc/app/v0/               # IBCApp interface definition
