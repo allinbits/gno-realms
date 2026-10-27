@@ -348,8 +348,7 @@ func NewCoreRemoveMemberRequest(cur realm, addr string) Request {
 // 7 days (ADR pr6375 R16, §6.12): for migration "ethereum-fork-schedule",
 // paramsHex is the hex of ethereum.EncodeForkParameters of the new schedule,
 // which the decision's text spells out fork by fork; it should land before
-// the fork epoch, and may land after it as long as the client verified no
-// update under the epochs it changes (ethereum.CheckForkParameters); for
+// the fork epoch, and may land after it (ethereum.CheckForkParameters); for
 // "ethereum-verifier" (see NewReplaceVerifierRequest),
 // paramsHex is the hex of the target verifier version.
 func NewMigrateClientRequest(cur realm, clientID, migration, paramsHex string) Request {

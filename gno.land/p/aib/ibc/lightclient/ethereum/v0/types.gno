@@ -178,14 +178,20 @@ func (cs ClientState) periodAtSlot(slot uint64) uint64 {
 // slotAtTimestamp returns the slot at unix time t, and false before genesis
 // or when the slot does not fit in a uint64.
 func (cs ClientState) slotAtTimestamp(t uint64) (uint64, bool) {
-	if t < cs.GenesisTime {
-		return 0, false
-	}
-	elapsed := (t - cs.GenesisTime) / cs.SecondsPerSlot
-	if elapsed > maxUint64-cs.GenesisSlot {
+	elapsed, ok := cs.elapsedSlots(t)
+	if !ok || elapsed > maxUint64-cs.GenesisSlot {
 		return 0, false
 	}
 	return elapsed + cs.GenesisSlot, true
+}
+
+// elapsedSlots is how many slots have passed since genesis at unix time t,
+// and false before genesis. Unlike the slot itself it cannot wrap.
+func (cs ClientState) elapsedSlots(t uint64) (uint64, bool) {
+	if t < cs.GenesisTime {
+		return 0, false
+	}
+	return (t - cs.GenesisTime) / cs.SecondsPerSlot, true
 }
 
 // trustWindow is how many slots past its latest trusted slot the client

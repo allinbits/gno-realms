@@ -55,8 +55,8 @@ func migratedFrom(t *testing.T, slot uint64) *EthLightClient {
 	return c
 }
 
-// A migration keeps every fork the client verified updates under (epochs 16
-// to 18 here) and passes a created client's checks.
+// A migration's schedule must pass a created client's checks and keep the
+// genesis fork; nothing else binds it to the current one.
 func TestMigrateForkParametersRefusals(t *testing.T) {
 	c := migratedFrom(t, 200) // the clock at epoch 25
 	old := c.ClientState.ForkParameters
@@ -68,10 +68,8 @@ func TestMigrateForkParametersRefusals(t *testing.T) {
 		{"unchanged", func(p *ForkParameters) {}, "unchanged"},
 		{"genesis version", func(p *ForkParameters) { p.GenesisForkVersion[0]++ }, "genesis"},
 		{"genesis slot", func(p *ForkParameters) { p.GenesisSlot++ }, "genesis"},
-		{"verified fork epoch", func(p *ForkParameters) { p.Fulu.Epoch = 17 }, "a fork the client verified updates under (epochs 16 to 18)"},
-		{"verified fork version", func(p *ForkParameters) { p.Fulu.Version[3]++ }, "a fork the client verified updates under"},
-		{"fork inside the verified range", func(p *ForkParameters) { p.Gloas = Fork{Version: [4]byte{9}, Epoch: 17} }, "a fork the client verified updates under"},
 		{"fork without a version", func(p *ForkParameters) { p.Gloas = Fork{Epoch: 30} }, "gloas fork is scheduled at epoch 30 without a version"},
+		{"forks out of order", func(p *ForkParameters) { p.Deneb.Epoch = 5 }, "electra fork epoch 0 precedes the previous fork's 5"},
 		{"electra after the latest slot", func(p *ForkParameters) {
 			p.Electra.Epoch = 20
 			p.Fulu.Epoch = 20
@@ -88,22 +86,17 @@ func TestMigrateForkParametersRefusals(t *testing.T) {
 	}
 }
 
-// Forks the client verified nothing under may change: one that activated
-// after its last verified epoch, even before the block time (a migration
-// that lands after the fork it schedules), and one superseded before its
-// first. A client that applied no update may take any valid schedule.
-func TestMigrateForkParametersOutsideVerifiedRange(t *testing.T) {
+// Any valid schedule may replace the current one, active forks included: a
+// fork activated before the block time (a migration that lands after the fork
+// it schedules), and one under which the client already verified updates.
+func TestMigrateForkParametersAnyValidSchedule(t *testing.T) {
 	c := migratedFrom(t, 200)
 	fp := c.ClientState.ForkParameters
 	fp.Gloas = Fork{Version: [4]byte{9}, Epoch: 20} // before the clock's epoch 25
 	urequire.NoError(t, c.MigrateForkParameters(fp))
-	fp.Electra.Version[0]++ // superseded by Fulu at epoch 1
+	fp.Fulu.Version[0]++ // active since epoch 1, under which the update was verified
 	urequire.NoError(t, c.MigrateForkParameters(fp))
-
-	fresh := migrateClient(t, 70)
-	fp = fresh.ClientState.ForkParameters
-	fp.Fulu.Version[0]++ // active since epoch 1, before the bootstrap at epoch 8
-	urequire.NoError(t, fresh.MigrateForkParameters(fp))
+	urequire.True(t, c.ClientState.ForkParameters == fp)
 }
 
 // Future forks can be moved, but only in activation order.
@@ -151,29 +144,29 @@ func TestForkParametersWire(t *testing.T) {
 }
 
 // A verifier replacement's result is held to the checks of a created or
-// recovered client: the same chain and router, the retired verifier's record
-// of what it verified, and a valid schedule keeping every fork it verified
-// updates under (epochs 16 to 18 here), other forks free.
+// recovered client: the same chain and router, and a valid fork schedule. As
+// for a recovery, no fork comparison binds it to the retired verifier's.
 func TestCheckSuccessor(t *testing.T) {
 	cases := []struct {
 		name   string
-		mutate func(next *EthLightClient, cs *ClientState)
+		mutate func(cs *ClientState)
 		err    string
 	}{
-		{"unchanged", func(*EthLightClient, *ClientState) {}, ""},
-		{"later fork scheduled", func(_ *EthLightClient, cs *ClientState) {
+		{"unchanged", func(*ClientState) {}, ""},
+		{"later fork scheduled", func(cs *ClientState) {
 			cs.ForkParameters.Gloas = Fork{Version: [4]byte{0x80, 0, 0, 0x38}, Epoch: 20}
 		}, ""},
-		{"later fork without a version", func(_ *EthLightClient, cs *ClientState) { cs.ForkParameters.Gloas = Fork{Epoch: 20} }, "gloas fork is scheduled at epoch 20 without a version"},
-		{"verified fork rewritten", func(_ *EthLightClient, cs *ClientState) { cs.ForkParameters.Fulu.Version[0]++ }, "changes a fork the retired verifier verified updates under"},
-		{"fork scheduled inside the verified range", func(_ *EthLightClient, cs *ClientState) {
-			cs.ForkParameters.Gloas = Fork{Version: [4]byte{0x80, 0, 0, 0x38}, Epoch: 17}
-		}, "changes a fork the retired verifier verified updates under"},
-		{"router rewritten", func(_ *EthLightClient, cs *ClientState) { cs.IBCContractAddress = flip(cs.IBCContractAddress, 0) }, "different chain or router"},
-		{"commitment slot rewritten", func(_ *EthLightClient, cs *ClientState) { cs.IBCCommitmentSlot = flip(cs.IBCCommitmentSlot, 0) }, "different chain or router"},
-		{"chain id rewritten", func(_ *EthLightClient, cs *ClientState) { cs.ChainID++ }, "different chain or router"},
-		{"slots per epoch rewritten", func(_ *EthLightClient, cs *ClientState) { cs.SlotsPerEpoch *= 2 }, "different chain or router"},
-		{"verified range dropped", func(next *EthLightClient, _ *ClientState) { next.verified = false }, "does not carry what the retired verifier verified"},
+		{"active fork rewritten", func(cs *ClientState) { cs.ForkParameters.Fulu.Version[0]++ }, ""},
+		{"fork without a version", func(cs *ClientState) { cs.ForkParameters.Gloas = Fork{Epoch: 20} }, "gloas fork is scheduled at epoch 20 without a version"},
+		{"electra after the latest slot", func(cs *ClientState) {
+			cs.ForkParameters.Electra.Epoch = 40
+			cs.ForkParameters.Fulu.Epoch = 40
+		}, "is before Electra"},
+		{"router rewritten", func(cs *ClientState) { cs.IBCContractAddress = flip(cs.IBCContractAddress, 0) }, "different chain or router"},
+		{"commitment slot rewritten", func(cs *ClientState) { cs.IBCCommitmentSlot = flip(cs.IBCCommitmentSlot, 0) }, "different chain or router"},
+		{"chain id rewritten", func(cs *ClientState) { cs.ChainID++ }, "different chain or router"},
+		{"slots per epoch rewritten", func(cs *ClientState) { cs.SlotsPerEpoch *= 2 }, "different chain or router"},
+		{"genesis fork version rewritten", func(cs *ClientState) { cs.ForkParameters.GenesisForkVersion[0]++ }, "different chain or router"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -181,7 +174,7 @@ func TestCheckSuccessor(t *testing.T) {
 			r := Retire(c)
 			next := NewFrom(r)
 			cs := *next.ClientState
-			tc.mutate(next, &cs)
+			tc.mutate(&cs)
 			next.ClientState = &cs
 			err := r.CheckSuccessor(next)
 			if tc.err == "" {

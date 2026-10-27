@@ -16,14 +16,14 @@ import (
 // epoch was not). A fork whose containers change needs a new package version
 // and a conversion through the core's Client.SetLightClient instead.
 //
-// The new schedule must keep every fork the client verified signed updates
-// under (keepsVerifiedForks, the rule a recovery and a verifier replacement
-// follow too), pass ValidateBasic's checks (epochs in order, a version for
-// every scheduled fork, Electra at or before the latest slot), keep the
-// genesis fork version and slot, and differ from the current one. The client
-// must be Active. A fork that activated after the last epoch the client
-// verified may still be scheduled: a migration that lands after the fork,
-// while the client stalls before it, repairs it without waiting for expiry.
+// The new schedule must pass ValidateBasic's checks (epochs in order, a
+// version for every scheduled fork, Electra at or before the latest slot),
+// keep the genesis fork version and slot, and differ from the current one;
+// the client must be Active. Nothing else binds it to the current schedule,
+// for the reasons RecoverClient gives: the migration is governed, and a
+// wrong schedule can stop verification but not make false data verify. So a
+// migration may schedule a fork before or after its activation, repairing a
+// client stalled before it without waiting for expiry.
 //
 // Call it on the stored client (the core's verifier): it writes the new state
 // under the receiver's storage realm.
@@ -57,42 +57,25 @@ func (c *EthLightClient) CheckForkParameters(fp ForkParameters) error {
 	}
 	next := *cs
 	next.ForkParameters = fp
-	if err := next.verifySupportedFork(next.LatestSlot); err != nil {
-		return err
-	}
-	if !c.keepsVerifiedForks(fp) {
-		return ufmt.Errorf("the schedule changes a fork the client verified updates under (epochs %d to %d)",
-			cs.epochAtSlot(c.verifiedFrom), cs.epochAtSlot(c.verifiedTo))
-	}
-	return nil
+	return next.verifySupportedFork(next.LatestSlot)
 }
 
 // CheckSuccessor is why next cannot take over from the verifier r views in a
 // verifier replacement, or nil. A conversion is code of a later core
 // implementation: nothing else holds its result to the checks a created or
 // recovered client meets, so they are made here. next must track the same
-// chain and router (sameChainAndRouter, which RouteIdentity summarizes),
-// carry the retired verifier's record of what it verified, and have a valid
-// fork schedule keeping every fork the retired verifier verified updates
-// under (keepsVerifiedForks), as a recovery must.
+// chain and router (sameChainAndRouter, which RouteIdentity summarizes) and
+// have a valid fork schedule. As for a recovery, no fork comparison binds it
+// to the retired verifier's schedule.
 func (r *Retired) CheckSuccessor(next *EthLightClient) error {
 	old, cs := r.c.ClientState, next.ClientState
 	if !sameChainAndRouter(old, cs) {
 		return errors.New("the successor tracks a different chain or router")
 	}
-	if next.verified != r.c.verified || next.verifiedFrom != r.c.verifiedFrom || next.verifiedTo != r.c.verifiedTo {
-		return errors.New("the successor does not carry what the retired verifier verified")
-	}
 	if err := cs.ForkParameters.validate(); err != nil {
 		return err
 	}
-	if err := cs.verifySupportedFork(cs.LatestSlot); err != nil {
-		return err
-	}
-	if !r.c.keepsVerifiedForks(cs.ForkParameters) {
-		return errors.New("the successor changes a fork the retired verifier verified updates under")
-	}
-	return nil
+	return cs.verifySupportedFork(cs.LatestSlot)
 }
 
 // EncodeForkParameters writes p in the wire format: Blob(genesis fork

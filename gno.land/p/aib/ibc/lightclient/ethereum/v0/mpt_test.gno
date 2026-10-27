@@ -111,10 +111,13 @@ func TestStorageValueMinimal(t *testing.T) {
 
 // Non-canonical RLP and hex-prefix encodings are refused.
 func TestNonCanonicalEncodings(t *testing.T) {
+	// A length with a leading zero, its whole declared 64-byte payload
+	// present: only the leading-zero rule refuses it.
+	_, err := rlpDecode(append([]byte{0xb9, 0x00, 0x40}, make([]byte, 64)...))
+	urequire.Error(t, err, "leading zero in a length")
 	for _, b := range [][]byte{
 		{0x81, 0x05},             // a single byte below 0x80 in a string
 		{0xb8, 0x01, 0x41},       // a long form for a short string
-		{0xb9, 0x00, 0x40},       // a length with a leading zero
 		{0x82, 0x01},             // shorter than its length
 		{0x01, 0x02},             // trailing bytes
 		{0xf8, 0x02, 0x01, 0x02}, // a long form for a short list
@@ -127,7 +130,30 @@ func TestNonCanonicalEncodings(t *testing.T) {
 		_, _, err := decodeCompactPath(b)
 		urequire.Error(t, err, "hex prefix")
 	}
-	path, leaf, err := decodeCompactPath([]byte{0x31})
+	var path []byte
+	var leaf bool
+	path, leaf, err = decodeCompactPath([]byte{0x31})
 	urequire.NoError(t, err)
 	urequire.True(t, leaf && len(path) == 1 && path[0] == 1, "an odd leaf path")
+}
+
+// An account must be the 4-field [nonce, balance, storageRoot, codeHash]
+// list with a 32-byte storage root.
+func TestAccountShape(t *testing.T) {
+	addr := []byte("router address")
+	for _, account := range [][]byte{
+		rlpL(rlpStr([]byte{1}), rlpStr([]byte{2}), rlpStr(make([]byte, 32))),                                 // 3 fields
+		rlpL(rlpStr([]byte{1}), rlpStr([]byte{2}), rlpStr(make([]byte, 31)), rlpStr(make([]byte, 32))),       // short root
+		rlpL(rlpStr([]byte{1}), rlpStr([]byte{2}), rlpL(rlpStr(make([]byte, 30))), rlpStr(make([]byte, 32))), // a list root
+		rlpStr([]byte("not a list")),
+	} {
+		leaf := rlpL(rlpStr(compact(toNibbles(keccak(addr)), true)), rlpStr(account))
+		_, err := accountStorageRoot(keccak(leaf), addr, [][]byte{leaf})
+		urequire.Error(t, err, "account shape")
+	}
+	good := rlpL(rlpStr([]byte{1}), rlpStr([]byte{2}), rlpStr(keccak([]byte("root"))), rlpStr(make([]byte, 32)))
+	leaf := rlpL(rlpStr(compact(toNibbles(keccak(addr)), true)), rlpStr(good))
+	root, err := accountStorageRoot(keccak(leaf), addr, [][]byte{leaf})
+	urequire.NoError(t, err)
+	urequire.True(t, bytes.Equal(root, keccak([]byte("root"))))
 }

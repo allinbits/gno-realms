@@ -155,19 +155,24 @@ fresh client migration).
 The tendermint rules above do not apply to `ethereum` clients; see ADR 0003.
 
 - The substitute must track the same chain and router: chain id, genesis
-  validators root and time, genesis slot, slot timing, sync committee size,
-  router address and commitments slot. Its latest slot must be ahead of the
-  subject's.
-- Its fork schedule must be valid and keep every fork the subject verified
-  signed updates under (the version, the Gloas layout and Electra support at
-  every epoch an applied update read). Other forks may differ, and the
-  subject adopts the substitute's schedule and minimum participation, so a
-  recovery can schedule a fork announced after the client was created or
-  repair a schedule a client never verified anything under.
-- Only a Frozen or Expired subject is recovered. With this core
-  implementation, a client facing a fork its schedule lacks stays Active
-  until it expires (8 sync committee periods after its latest slot, about
-  9.1 days on mainnet), and only then is recovered. A client that merely fell
+  validators root and time, genesis slot and genesis fork version, slot
+  timing, sync committee size, router address and commitments slot. Its
+  latest slot must be ahead of the subject's.
+- Its client state must be valid (`ValidateBasic`), its fork schedule
+  included, and the subject adopts that schedule and its minimum
+  participation. No fork comparison binds the substitute to the subject's
+  schedule: a recovery can schedule a fork announced after the client was
+  created, or repair a schedule that stopped the client from verifying. A
+  wrong schedule cannot make false data verify (every state move needs a 2/3
+  sync committee signature over the chain's real domain), and governance
+  chooses the substitute, so it vets its schedule; see ADR 0003.
+- Only a Frozen or Expired subject is recovered. An Active client facing a
+  fork its schedule lacks is not waited out: with core `impl/v1`, it is
+  migrated in place by a governed fork-schedule migration
+  (`ibcgov.NewMigrateClientRequest(cur, clientID, "ethereum-fork-schedule",
+  ...)`), before or after the fork activates (core README). Only with
+  `impl/v0` alone would such a client have to expire first (8 sync
+  committee periods after its latest slot, about 9.1 days on mainnet). A client that merely fell
   behind needs no recovery: until it expires, a relayer catches it up by
   replaying each missed period's update.
 
