@@ -147,7 +147,9 @@ of solidity-ibc-eureka (client type `ethereum`):
     need a zero aggregate key, which cannot verify;
   - 25 and 812 in a Gloas body fall under its active-fields leaf;
   - Gloas' 735, 2946 and 2856 in Electra or Fulu containers fall on uint64
-    leaves, length mix-ins or the empty deposits list.
+    leaves, length mix-ins, or, in a body, the deposits list (empty since the
+    EIP-6110 transition; otherwise a deposit hash node, which still needs a
+    preimage).
 
   A governed recovery, unlike a relayed update, adopts its substitute's
   state as trusted. At worst a wrong schedule stops the client from

@@ -162,9 +162,12 @@ The tendermint rules above do not apply to `ethereum` clients; see ADR 0003.
   participation. No fork comparison binds the substitute to the subject's
   schedule: a recovery can schedule a fork announced after the client was
   created, or repair a schedule that stopped the client from verifying. A
-  wrong schedule cannot make false data verify (every state move needs a 2/3
-  sync committee signature over the chain's real domain), and governance
-  chooses the substitute, so it vets its schedule; see ADR 0003.
+  wrong schedule cannot make a relayed update verify false data (every
+  relayed update needs a 2/3 sync committee signature over the chain's real
+  domain). A recovery, unlike a relayed update, adopts the substitute's state
+  as trusted: its creator's bootstrap is not proven, so governance must
+  authenticate the substitute's state and vet its schedule before recovering
+  from it; see ADR 0003.
 - Only a Frozen or Expired subject is recovered. With this core
   implementation (`impl/v0`), a known limit: a client facing a fork its
   schedule lacks stays Active until it expires (8 sync committee periods
