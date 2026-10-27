@@ -267,7 +267,7 @@ read through its `Ethereum()` state, so it may be the v0 verifier or a
 verifier version that wraps it (as after a verifier replacement), and so may
 the subject; a verifier type without that state needs recovery support of
 its own. The substitute must track the same chain and router: the same chain id, genesis validators root,
-genesis time and slot, genesis fork version, sync committee size, seconds per slot,
+genesis time and slot, genesis fork version and fork genesis slot, sync committee size, seconds per slot,
 slots per epoch, epochs per sync committee period, router (IBC contract)
 address and commitment slot; its latest slot must be strictly ahead of the
 subject's, with a consensus state there. Its client state must pass
