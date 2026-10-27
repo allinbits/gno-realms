@@ -46,7 +46,16 @@ RUN sed -i 's/^\tFactor = int64(1)$/\tFactor = int64(60480)/' /aibgno/gno.land/p
     grep -q 'Factor = int64(60480)' /aibgno/gno.land/p/aib/decisions/v0/decisions.gno && \
     grep -q 'g1z437dpuh5s4p64vtq09dulg6jzxpr2hd4q8r5x' /aibgno/gno.land/r/aib/ibc/ibcgov/ibcgov.gno
 ENV GNOROOT=/src/gno
-RUN cd /aibgno && \
+# gnodev answers RPC before every package it serves is queryable, so the
+# download is retried; gnodev's log is printed if it never succeeds.
+RUN download_deps() { \
+        for attempt in 1 2 3 4 5 6 7 8 9 10; do \
+            gno mod download -remote-overrides gno.land=http://127.0.0.1:26657 && return 0; \
+            echo "gno mod download failed (attempt $attempt), retrying"; sleep 3; \
+        done; \
+        echo "gnodev log:"; cat /tmp/gnodev.log; return 1; \
+    }; \
+    cd /aibgno && \
     gnodev -empty-blocks \
         -paths "gno.land/p/nt/uassert/v0,gno.land/p/nt/urequire/v0,gno.land/p/nt/testutils/v0,gno.land/r/aib/ibc/core,gno.land/r/aib/ibc/apps/transfer,gno.land/r/aib/ibc/ibcgov,gno.land/r/aib/ibc/apps/testing/grc20test" > /tmp/gnodev.log 2>&1 & \
     gnodev_pid=$!; \
@@ -56,9 +65,9 @@ RUN cd /aibgno && \
     done && \
     gno clean -modcache=true && \
     cd /aibgno/gno.land/r/aib/ibc/apps/transfer && \
-    gno mod download -remote-overrides gno.land=http://127.0.0.1:26657 && \
+    download_deps && \
     cd /aibgno/gno.land/r/aib/ibc/ibcgov && \
-    gno mod download -remote-overrides gno.land=http://127.0.0.1:26657
+    download_deps
 
 # Runtime stage
 FROM alpine:3.21
