@@ -32,14 +32,6 @@ import (
 type EthLightClient struct {
 	ClientState            *ClientState
 	ConsensusStateByHeight *bptree.BPTree // height:*ConsensusState
-
-	// verified is whether the client has applied a signed update, and
-	// verifiedFrom and verifiedTo bound the slots whose forks those updates
-	// were verified under (see keepsVerifiedForks). The initial consensus
-	// state is trusted as given: a client that applied no update verified
-	// nothing under its fork schedule.
-	verified                 bool
-	verifiedFrom, verifiedTo uint64
 }
 
 var (
@@ -514,7 +506,6 @@ func (c *EthLightClient) UpdateState(clientMsg lightclient.ClientMessage) []type
 		s := cloneSummary(*u.NextSyncCommittee)
 		next.NextSyncCommittee = &s
 		c.setConsensusState(&next)
-		c.recordVerified(u)
 		return []types.Height{heightAtSlot(trusted.Slot)}
 	}
 	storePeriod := cs.periodAtSlot(trusted.Slot)
@@ -548,7 +539,6 @@ func (c *EthLightClient) UpdateState(clientMsg lightclient.ClientMessage) []type
 	next.StateRoot = cloneBytes(exec.stateRoot)
 	next.Timestamp = exec.timestamp
 	c.setConsensusState(&next)
-	c.recordVerified(u)
 
 	if finalizedSlot > cs.LatestSlot {
 		updated := *cs
@@ -661,13 +651,19 @@ func hasSupermajority(u LightClientUpdate) bool {
 // not period numbers, so the window is the same wherever in a period the
 // latest trusted slot falls.
 func (c *EthLightClient) expired() bool {
-	current, err := c.currentSlot()
-	if err != nil {
-		return false
-	}
 	cs := c.ClientState
-	// Elapsed slots by subtraction: LatestSlot plus the window could wrap.
-	return current > cs.LatestSlot && current-cs.LatestSlot > cs.trustWindow()
+	elapsed, ok := cs.elapsedSlots(now())
+	if !ok {
+		return false // before genesis no window has started
+	}
+	// The latest slot's age, computed from slots since genesis so that
+	// nothing wraps: an absolute current slot can pass 2^64 (slotAtTimestamp
+	// then reports none), and LatestSlot plus the window can too.
+	since := uint64(0)
+	if cs.LatestSlot > cs.GenesisSlot {
+		since = cs.LatestSlot - cs.GenesisSlot
+	}
+	return elapsed > since && elapsed-since > cs.trustWindow()
 }
 
 // checkLatestAnchor requires a client message to build on the latest trusted
@@ -716,9 +712,27 @@ func (c *EthLightClient) TimestampAtHeight(height types.Height) (uint64, error) 
 }
 
 // Implements lightclient.Interface. The substitute must track the same chain
-// and router; its latest consensus state is copied and the subject unfrozen.
-// It may schedule forks differently wherever the subject verified nothing
-// (see keepsVerifiedForks), and the subject takes its fork schedule.
+// and router (sameChainAndRouter), be a valid client, schedule included, and
+// be ahead; its latest consensus state is copied, the subject unfrozen, and
+// the subject adopts its fork schedule, whatever the subject's was.
+//
+// No fork comparison binds the substitute to the subject's schedule. Every
+// schedule change goes through a governed path (creation, recovery, and on
+// later core implementations a fork migration or a verifier conversion), and
+// governance already has full power over a client through recovery from a
+// substitute it created from a trusted bootstrap, so a comparison adds no
+// safety against governance. A wrong schedule cannot make false data verify
+// either: every state move still needs a 2/3 sync committee signature over
+// the chain's real domain and Merkle proofs into signed roots. At worst a
+// wrong schedule stops the client from verifying, which another governed
+// action repairs. Each comparison rule tried made some stalled or wrongly
+// configured client unrepairable, since what the client "verified under" is
+// partly untrusted input (the signature slot) and partly the wrong schedule
+// being repaired.
+//
+// ForkParameters has no slot after Gloas, and a fork that moves the
+// light-client containers (new generalized indices, as Gloas did) needs new
+// verification code too: such a fork still needs a new client package.
 func (c *EthLightClient) RecoverClient(substitute lightclient.Interface) error {
 	sub, ok := substitute.(*EthLightClient)
 	if !ok {
@@ -728,11 +742,8 @@ func (c *EthLightClient) RecoverClient(substitute lightclient.Interface) error {
 	if !sameChainAndRouter(a, b) {
 		return errors.New("substitute client tracks a different chain or router")
 	}
-	if err := b.ForkParameters.validate(); err != nil {
-		return ufmt.Errorf("substitute fork schedule: %v", err)
-	}
-	if !c.keepsVerifiedForks(b.ForkParameters) {
-		return errors.New("substitute changes a fork the subject verified updates under")
+	if err := b.ValidateBasic(); err != nil {
+		return ufmt.Errorf("substitute client state: %v", err)
 	}
 	if b.LatestSlot <= a.LatestSlot {
 		return errors.New("substitute must be ahead of the subject")
@@ -750,99 +761,23 @@ func (c *EthLightClient) RecoverClient(substitute lightclient.Interface) error {
 	updated.ForkParameters = b.ForkParameters
 	updated.IsFrozen = false
 	c.ClientState = &updated
-	// The subject keeps its own consensus states and now holds one the
-	// substitute verified: both ranges are verified under the new schedule.
-	c.mergeVerified(sub)
 	return nil
 }
 
 // sameChainAndRouter reports whether a and b track the same chain, with the
-// same slot clock and committee size, and the same router: every client state
-// field but the fork schedule, the latest slot and block number, the
-// minimum participation and the frozen flag.
+// same slot clock, committee size and genesis fork version, and the same
+// router: every client state field but the fork schedule (the genesis fork
+// version excepted), the latest slot and block number, the minimum
+// participation and the frozen flag.
 func sameChainAndRouter(a, b *ClientState) bool {
 	return a.ChainID == b.ChainID && bytes.Equal(a.GenesisValidatorsRoot, b.GenesisValidatorsRoot) &&
+		a.ForkParameters.GenesisForkVersion == b.ForkParameters.GenesisForkVersion &&
 		a.SyncCommitteeSize == b.SyncCommitteeSize &&
 		a.GenesisTime == b.GenesisTime && a.GenesisSlot == b.GenesisSlot &&
 		a.SecondsPerSlot == b.SecondsPerSlot && a.SlotsPerEpoch == b.SlotsPerEpoch &&
 		a.EpochsPerSyncCommitteePeriod == b.EpochsPerSyncCommitteePeriod &&
 		bytes.Equal(a.IBCContractAddress, b.IBCContractAddress) &&
 		bytes.Equal(a.IBCCommitmentSlot, b.IBCCommitmentSlot)
-}
-
-// recordVerified extends the range of slots whose forks the client verified
-// a signed update under with u's: its finalized slot (the lowest it reads)
-// to its signature slot minus one (the slot its signing domain comes from).
-func (c *EthLightClient) recordVerified(u LightClientUpdate) {
-	c.extendVerified(u.FinalizedHeader.Beacon.Slot, u.SignatureSlot-1)
-}
-
-func (c *EthLightClient) extendVerified(from, to uint64) {
-	if !c.verified || from < c.verifiedFrom {
-		c.verifiedFrom = from
-	}
-	if !c.verified || to > c.verifiedTo {
-		c.verifiedTo = to
-	}
-	c.verified = true
-}
-
-func (c *EthLightClient) mergeVerified(o *EthLightClient) {
-	if o.verified {
-		c.extendVerified(o.verifiedFrom, o.verifiedTo)
-	}
-}
-
-// keepsVerifiedForks reports whether fp schedules every fork c verified a
-// signed update under as c's own schedule does: the same fork version, the
-// same Merkle layout (Gloas or not) and the same supported range (Electra or
-// later) at every epoch from c's lowest verified slot to its highest. Forks
-// outside that range may differ, so governance can schedule a fork the chain
-// announced after the client was created, move one it postponed, or repair a
-// schedule the client never verified anything under.
-//
-// The range, not the latest slot, is what counts. The client's initial
-// consensus state is trusted as given, not verified: a client created with a
-// wrong schedule for a fork already active at its creation accepts no
-// update, and since it verified nothing it may take any valid schedule. And
-// a fork active at the latest slot but superseded before the first verified
-// slot, whose version no update read, may differ too. Within the range the
-// stored consensus states were verified under c's schedule: a substitute,
-// successor or migration that changed it there would say they were verified
-// under the wrong one.
-//
-// ForkParameters has no slot after Gloas, and a fork that moves the
-// light-client containers (new generalized indices, as Gloas did) needs new
-// verification code too: such a fork still needs a new client package.
-func (c *EthLightClient) keepsVerifiedForks(fp ForkParameters) bool {
-	if !c.verified {
-		return true
-	}
-	cs := c.ClientState
-	return sameForksOver(cs.ForkParameters, fp, cs.epochAtSlot(c.verifiedFrom), cs.epochAtSlot(c.verifiedTo))
-}
-
-// sameForksOver reports whether a and b give every epoch from from to to the
-// same fork version, layout and support. Each is constant between fork
-// epochs, so comparing at from and at every fork epoch of either schedule in
-// (from, to] covers the range.
-func sameForksOver(a, b ForkParameters, from, to uint64) bool {
-	same := func(e uint64) bool {
-		return a.forkVersion(e) == b.forkVersion(e) &&
-			(e >= a.Gloas.Epoch) == (e >= b.Gloas.Epoch) &&
-			(e >= a.Electra.Epoch) == (e >= b.Electra.Epoch)
-	}
-	if !same(from) {
-		return false
-	}
-	for _, p := range []ForkParameters{a, b} {
-		for _, f := range p.forks() {
-			if f.Epoch > from && f.Epoch <= to && !same(f.Epoch) {
-				return false
-			}
-		}
-	}
-	return true
 }
 
 // Implements lightclient.Interface. Ethereum has no IBC upgrade path; replace

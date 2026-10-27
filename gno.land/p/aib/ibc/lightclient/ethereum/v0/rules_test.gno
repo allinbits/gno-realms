@@ -1,6 +1,7 @@
 package ethereum
 
 import (
+	"bytes"
 	"testing"
 
 	"gno.land/p/aib/ibc/host/v0"
@@ -232,6 +233,14 @@ func TestExpiryArithmetic(t *testing.T) {
 	// latest slot.
 	setNow(cs.GenesisTime + 100*cs.SecondsPerSlot)
 	urequire.Equal(t, "Active", string(c.Status()))
+	// Past 2^64 the current slot overflows; the latest slot's age does not:
+	// 512 slots old it is still Active, 513 it is Expired.
+	setNow(cs.GenesisTime + (100+window)*cs.SecondsPerSlot)
+	_, ok := cs.slotAtTimestamp(now())
+	urequire.False(t, ok, "the current slot is past 2^64")
+	urequire.Equal(t, "Active", string(c.Status()))
+	setNow(cs.GenesisTime + (100+window+1)*cs.SecondsPerSlot)
+	urequire.Equal(t, "Expired", string(c.Status()))
 
 	cs = f.clientState
 	cs.GenesisSlot = 500
@@ -244,4 +253,139 @@ func TestExpiryArithmetic(t *testing.T) {
 	urequire.Equal(t, "Active", string(c.Status()))
 	setNow(at(600 + window + 1))
 	urequire.Equal(t, "Expired", string(c.Status()))
+}
+
+// Malformed update shapes are refused by the size checks, before any hashing
+// or signature verification: each error is the size check's own.
+func TestUpdateShapes(t *testing.T) {
+	short := func(b []byte) []byte { return append([]byte{}, b[:len(b)-1]...) }
+	cases := []struct {
+		name   string
+		mutate func(u *LightClientUpdate)
+		err    string
+	}{
+		{"next committee without its branch", func(u *LightClientUpdate) { u.NextSyncCommitteeBranch = nil }, "next sync committee and its branch must be set together"},
+		{"branch without the next committee", func(u *LightClientUpdate) { u.NextSyncCommittee = nil }, "next sync committee and its branch must be set together"},
+		{"short pubkeys hash", func(u *LightClientUpdate) {
+			s := cloneSummary(*u.NextSyncCommittee)
+			s.PubkeysHash = short(s.PubkeysHash)
+			u.NextSyncCommittee = &s
+		}, "next sync committee: pubkeys hash must be 32 bytes"},
+		{"short aggregate pubkey", func(u *LightClientUpdate) {
+			s := cloneSummary(*u.NextSyncCommittee)
+			s.AggregatePubkey = short(s.AggregatePubkey)
+			u.NextSyncCommittee = &s
+		}, "next sync committee: aggregate pubkey must be 48 bytes"},
+		{"95-byte signature", func(u *LightClientUpdate) {
+			u.SyncAggregate.SyncCommitteeSignature = short(u.SyncAggregate.SyncCommitteeSignature)
+		}, "sync committee signature must be 96 bytes"},
+		{"47-byte non-signer key", func(u *LightClientUpdate) {
+			u.NonSigners = []NonSigner{{Pubkey: make([]byte, 47)}}
+		}, "non-signer 0: pubkey is not 48 bytes"},
+		{"short non-signer branch node", func(u *LightClientUpdate) {
+			u.NonSigners = []NonSigner{{Pubkey: make([]byte, 48), Branch: [][]byte{make([]byte, 31)}}}
+		}, "non-signer 0 branch: node 0 is 31 bytes, not 32"},
+		{"short finality branch node", func(u *LightClientUpdate) {
+			b := append([][]byte{}, u.FinalityBranch...)
+			b[2] = short(b[2])
+			u.FinalityBranch = b
+		}, "finality branch: node 2 is 31 bytes, not 32"},
+		{"short next committee branch node", func(u *LightClientUpdate) {
+			b := append([][]byte{}, u.NextSyncCommitteeBranch...)
+			b[1] = short(b[1])
+			u.NextSyncCommitteeBranch = b
+		}, "next sync committee branch: node 1 is 31 bytes, not 32"},
+		{"short execution branch node", func(u *LightClientUpdate) {
+			b := append([][]byte{}, u.AttestedHeader.ExecutionBranch...)
+			b[0] = short(b[0])
+			u.AttestedHeader.ExecutionBranch = b
+		}, "attested header: execution branch: node 0 is 31 bytes, not 32"},
+		{"short beacon parent root", func(u *LightClientUpdate) {
+			u.AttestedHeader.Beacon.ParentRoot = short(u.AttestedHeader.Beacon.ParentRoot)
+		}, "attested header: beacon header roots must be 32 bytes"},
+		{"long beacon body root", func(u *LightClientUpdate) {
+			u.FinalizedHeader.Beacon.BodyRoot = append(append([]byte{}, u.FinalizedHeader.Beacon.BodyRoot...), 0)
+		}, "finalized header: beacon header roots must be 32 bytes"},
+		{"short fee recipient", func(u *LightClientUpdate) {
+			u.AttestedHeader.Execution.FeeRecipient = short(u.AttestedHeader.Execution.FeeRecipient)
+		}, "execution header fee recipient must be 20 bytes, got 19"},
+		{"short logs bloom", func(u *LightClientUpdate) {
+			u.FinalizedHeader.Execution.LogsBloom = short(u.FinalizedHeader.Execution.LogsBloom)
+		}, "execution header logs bloom must be 256 bytes, got 255"},
+		{"long extra data", func(u *LightClientUpdate) {
+			u.AttestedHeader.Execution.ExtraData = make([]byte, 33)
+		}, "execution header extra data exceeds 32 bytes"},
+		{"long base fee", func(u *LightClientUpdate) {
+			u.AttestedHeader.Execution.BaseFeePerGas = make([]byte, 33)
+		}, "execution header base fee exceeds 32 bytes"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			c, hdr := erc20First(t, nil)
+			tc.mutate(&hdr.ConsensusUpdate)
+			urequire.ErrorContains(t, verifyAt(c, hdr), tc.err)
+		})
+	}
+}
+
+// An update that neither advances past the trusted slot nor reveals an
+// unknown next committee is irrelevant. The client trusts slot 150 in the
+// update's period, knowing its next committee; the update attests 144.
+func TestIrrelevantUpdate(t *testing.T) {
+	next := cloneSummary(*updates(fixtureErc20())[0].ConsensusUpdate.NextSyncCommittee)
+	c, hdr := signedFrom(t, 150, 8, &next)
+	urequire.ErrorContains(t, verifyAt(c, hdr), "irrelevant update")
+}
+
+// The attested header must not precede the finalized one.
+func TestAttestedNotBeforeFinalized(t *testing.T) {
+	c, hdr := erc20First(t, nil)
+	u := &hdr.ConsensusUpdate
+	u.SignatureSlot = 151
+	u.FinalizedHeader.Beacon.Slot = 150 // after the attested slot 144
+	urequire.ErrorContains(t, verifyAt(c, hdr), "slots must satisfy signature > attested >= finalized")
+}
+
+// A finalized header in the hash form gives the execution data of its RLP
+// header, whatever its slot: here an Electra-era (pre-Gloas) slot.
+func TestHashFormFinalizedExecution(t *testing.T) {
+	c, hdr := erc20First(t, nil)
+	urequire.False(t, c.ClientState.isGloas(hdr.ConsensusUpdate.FinalizedHeader.Beacon.Slot))
+	root := keccak([]byte("execution state root"))
+	rlp := rlpHeader(root)
+	u := hdr.ConsensusUpdate
+	u.FinalizedHeader = LightClientHeader{Beacon: u.FinalizedHeader.Beacon, ExecutionBlockHash: keccak(rlp)}
+	u.FinalizedExecutionHeader = rlp
+	urequire.NoError(t, c.verifyFinalizedExecution(u))
+	exec, err := c.finalizedExecution(u)
+	urequire.NoError(t, err)
+	urequire.True(t, bytes.Equal(root, exec.stateRoot), "the RLP header's state root")
+	urequire.Equal(t, uint64(1), exec.timestamp)
+	urequire.Equal(t, uint64(1), exec.blockNumber)
+}
+
+// An update stores its finalized execution payload's timestamp and block
+// number.
+func TestUpdateStoresExecutionMetadata(t *testing.T) {
+	c, hdr := firstUpdate(t, fixtureErc20())
+	c.UpdateState(hdr)
+	ex := hdr.ConsensusUpdate.FinalizedHeader.Execution
+	slot := hdr.ConsensusUpdate.FinalizedHeader.Beacon.Slot
+	ts, err := c.TimestampAtHeight(heightAtSlot(slot))
+	urequire.NoError(t, err)
+	urequire.Equal(t, ex.Timestamp, ts)
+	urequire.Equal(t, ex.BlockNumber, c.ClientState.LatestExecutionBlockNumber)
+	cons, _ := c.GetConsensusState(heightAtSlot(slot))
+	urequire.True(t, bytes.Equal(ex.StateRoot, cons.StateRoot))
+}
+
+// A membership path must have exactly one element: none is refused, not a
+// panic.
+func TestMembershipPathLength(t *testing.T) {
+	c, hdr := firstUpdate(t, fixtureErc20())
+	c.UpdateState(hdr)
+	height := c.LatestHeight()
+	urequire.ErrorContains(t, c.VerifyNonMembershipProof(height, MembershipProof{}, types.MerklePath{}), "path must have exactly one element, got 0")
+	two := types.MerklePath{KeyPath: [][]byte{{1}, {2}}}
+	urequire.ErrorContains(t, c.VerifyNonMembershipProof(height, MembershipProof{}, two), "path must have exactly one element, got 2")
 }

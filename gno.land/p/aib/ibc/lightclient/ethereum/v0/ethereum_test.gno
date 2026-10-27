@@ -526,11 +526,10 @@ func withForks(c *EthLightClient, mutate func(p *ForkParameters)) *ClientState {
 	return &cs
 }
 
-// A recovery keeps every fork the subject verified updates under and may take
-// others from the substitute, which the subject then follows. The subject
-// applied the ERC20 fixture's first update: finalized slot 128 (epoch 16),
-// signature slot 145 (epoch 18), so it verified epochs 16 to 18; the
-// substitute applied two, to slot 192 (epoch 24).
+// A recovery adopts the substitute's fork schedule, whatever the subject's
+// was, as long as it is valid: no fork comparison binds the two (see
+// RecoverClient). The subject applied the ERC20 fixture's first update; the
+// substitute two.
 func TestRecoverClientForks(t *testing.T) {
 	gloas := Fork{Version: [4]byte{0x80, 0, 0, 0x38}, Epoch: 20}
 	cases := []struct {
@@ -538,16 +537,12 @@ func TestRecoverClientForks(t *testing.T) {
 		mutate func(p *ForkParameters)
 		err    string
 	}{
-		// Epoch 20 is after every epoch the subject verified and before the
-		// substitute's latest slot: a subject stalled before a fork it did
-		// not know, recovered from a substitute past it.
-		{"gloas scheduled after the verified range", func(p *ForkParameters) { p.Gloas = gloas }, ""},
-		// Electra is superseded by Fulu at epoch 1: no update the subject
-		// verified read its version.
-		{"superseded fork rewritten", func(p *ForkParameters) { p.Electra.Version[0]++ }, ""},
-		{"gloas scheduled inside the verified range", func(p *ForkParameters) { p.Gloas = Fork{Version: gloas.Version, Epoch: 17} }, "a fork the subject verified updates under"},
-		{"verified fork rewritten", func(p *ForkParameters) { p.Fulu.Version[0]++ }, "a fork the subject verified updates under"},
-		{"invalid schedule", func(p *ForkParameters) { p.Gloas = Fork{Epoch: 30} }, "without a version"},
+		{"gloas scheduled", func(p *ForkParameters) { p.Gloas = gloas }, ""},
+		{"gloas scheduled where the subject verified updates", func(p *ForkParameters) { p.Gloas = Fork{Version: gloas.Version, Epoch: 17} }, ""},
+		{"active fork rewritten", func(p *ForkParameters) { p.Fulu.Version[0]++ }, ""},
+		{"fork without a version", func(p *ForkParameters) { p.Gloas = Fork{Epoch: 30} }, "without a version"},
+		{"forks out of order", func(p *ForkParameters) { p.Deneb.Epoch = 5 }, "precedes the previous fork's"},
+		{"genesis fork version", func(p *ForkParameters) { p.GenesisForkVersion[0]++ }, "different chain or router"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -571,9 +566,9 @@ func TestRecoverClientForks(t *testing.T) {
 	}
 }
 
-// A client that applied no update verified nothing under its schedule: one
-// created with a wrong schedule for a fork already active, which accepts no
-// update, is recovered in place from a substitute with the right one.
+// A client created with a wrong schedule for a fork already active, which
+// accepts no update, is recovered in place from a substitute with the right
+// one, and then verifies updates.
 func TestRecoverNeverUpdatedClient(t *testing.T) {
 	f := fixtureErc20()
 	cs := f.clientState
@@ -582,14 +577,9 @@ func TestRecoverNeverUpdatedClient(t *testing.T) {
 	urequire.NoError(t, subject.Initialize(cs, f.consensusState))
 	urequire.ErrorContains(t, verifyAt(subject, updates(f)[0]), "invalid sync committee signature")
 
-	sub := applied(t, f, 1)
-	urequire.NoError(t, subject.RecoverClient(sub))
+	urequire.NoError(t, subject.RecoverClient(applied(t, f, 1)))
 	urequire.True(t, subject.ClientState.ForkParameters == f.clientState.ForkParameters)
-	// The recovered subject now verified what the substitute did: a rewrite
-	// of that fork is refused from then on.
-	again := applied(t, f, 2)
-	again.ClientState = withForks(again, func(p *ForkParameters) { p.Fulu.Version[0]++ })
-	urequire.ErrorContains(t, subject.RecoverClient(again), "a fork the subject verified updates under")
+	urequire.NoError(t, verifyAt(subject, updates(f)[1]))
 }
 
 // A recovered subject verifies later updates under the schedule it adopted.
@@ -625,6 +615,10 @@ func TestRecoverClientRefusals(t *testing.T) {
 		func(cs *ClientState) { cs.SlotsPerEpoch++ },
 		func(cs *ClientState) { cs.SyncCommitteeSize *= 2 },
 		func(cs *ClientState) { cs.GenesisTime++ },
+		func(cs *ClientState) { cs.GenesisSlot++ },
+		func(cs *ClientState) { cs.SecondsPerSlot++ },
+		func(cs *ClientState) { cs.EpochsPerSyncCommitteePeriod++ },
+		func(cs *ClientState) { cs.ForkParameters.GenesisForkVersion[0]++ },
 	} {
 		sub := applied(t, f, 3)
 		cs := *sub.ClientState
