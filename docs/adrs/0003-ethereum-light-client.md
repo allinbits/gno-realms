@@ -109,7 +109,9 @@ of solidity-ibc-eureka (client type `ethereum`):
   client for good only if no update finalizing a header after its latest
   slot is signed within the stored period, or the next one when the next
   committee is known: an update signed later has no committee the client
-  trusts, and older ones finalize nothing new. A halt shorter than that
+  trusts, and older ones finalize nothing new. With the next committee
+  unknown, a next-committee-only update can still reveal it during the halt
+  and so extend the window by a period. A halt shorter than that
   window, even longer than a period, is crossed by the first update after it.
   Otherwise the client expires and governance recovers it.
 - Misbehaviour is conflicting finality: two updates, both valid against the
@@ -156,25 +158,41 @@ of solidity-ibc-eureka (client type `ethereum`):
   zero `Fork{}` reads as active from genesis), Electra unscheduled, or a
   latest slot before Electra.
 - `RecoverClient` requires the substitute to track the same chain and
-  router (chain id, genesis validators root, genesis fork version, slot
-  clock, committee size, router address and commitments slot), to pass
+  router (chain id, genesis validators root, genesis fork version and slot,
+  slot clock, committee size, router address and commitments slot), to pass
   `ValidateBasic`, its fork schedule included, and to be ahead; the subject
   adopts the substitute's schedule. No fork comparison binds the two
   schedules, and none binds a fork-schedule migration or a verifier
   replacement's result either: both must pass the creation checks
   (`CheckForkParameters`, `Retired.CheckSuccessor`, ADR 0004 R16), keep the
-  genesis fork, and, for a replacement, the chain and router. Every schedule change goes through a governed path (creation,
-  recovery, and on later core implementations a fork migration or a verifier
-  conversion), and governance already has full power over a client through
-  recovery from a substitute it created from a trusted bootstrap, so a
-  comparison adds no safety against governance. A wrong schedule cannot make
-  false data verify: every state move still needs a 2/3 sync committee
-  signature over the chain's real domain, with Merkle proofs into signed
-  roots. At worst it stops the client from verifying, which another governed
-  action repairs. Each comparison rule tried made some stalled or wrongly
-  configured client unrepairable: what an update was "verified under" rests
-  partly on its signature slot, which the spec marks untrusted and anyone can
-  relabel within a period, and partly on the very schedule being repaired.
+  genesis fork, and, for a replacement, the chain and router. Once a client
+  exists, its schedule changes only on governed paths (recovery, and on later core implementations a fork migration or a
+  verifier conversion), and governance already has full power over a client
+  through recovery from a substitute it created from a trusted bootstrap,
+  so a comparison adds no safety against governance. A new client's
+  schedule, like the rest of its initial state, is trusted from its creator:
+  a whitelisted relayer, or anyone while the whitelist is empty. A wrong
+  schedule cannot make a relayed update verify false data. The update still
+  needs a 2/3 sync committee signature over the chain's real domain, with
+  Merkle proofs into signed roots. And a wrong Merkle layout (the Gloas flag
+  on the wrong side of the fork) puts each generalized index of the other
+  fork on a value no relayer chooses:
+  - Electra's 169 in a Gloas state lands on `fork.current_version`; its 87
+    falls under `latest_block_header`, and a committee matching there would
+    need a zero aggregate key, which cannot verify;
+  - 25 and 812 in a Gloas body fall under its active-fields leaf;
+  - Gloas' 735, 2946 and 2856 in Electra or Fulu containers fall on uint64
+    leaves, length mix-ins or the empty deposits list.
+
+  A governed recovery, unlike a relayed update, adopts its substitute's
+  state as trusted. At worst a wrong schedule stops the client from
+  verifying, which another governed action repairs. Each comparison rule
+  tried made some stalled or wrongly configured client unrepairable: what an
+  update was "verified under" rests partly on its signature slot, which the
+  spec marks untrusted and anyone can relabel within a period, and partly on
+  the very schedule being repaired. A fork that changes container layouts
+  needs the index analysis above redone, one more reason it needs a new
+  client package.
   This only covers forks the package knows: `ForkParameters` has no slot
   after Gloas, and a fork that moves the light-client containers needs a new
   client package.
