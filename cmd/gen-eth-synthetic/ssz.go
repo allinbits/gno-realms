@@ -7,6 +7,7 @@ package main
 import (
 	"crypto/sha256"
 	"encoding/binary"
+	"fmt"
 )
 
 const chunk = 32
@@ -107,18 +108,26 @@ type payloadHeader struct {
 	ExcessBlobGas    uint64
 }
 
-func (p payloadHeader) root() []byte {
+// tree is hash_tree_root(ExecutionPayloadHeader) as a tree over its 17
+// field roots. It is also the root of the ExecutionPayload it summarizes.
+func (p payloadHeader) tree() *node {
 	baseFee := make([]byte, chunk) // uint256 little-endian
 	binary.LittleEndian.PutUint64(baseFee, p.BaseFeePerGas)
-	extra := mixInLength(merkleize(pack(p.ExtraData), 1), uint64(len(p.ExtraData))) // 32 bytes: one chunk limit
-	return merkleize([][]byte{
+	extra := mixInLength(merkleize(pack(p.ExtraData), 1), uint64(len(p.ExtraData))) // ByteList[32]: one chunk
+	var fields []*node
+	for _, f := range [][]byte{
 		p.ParentHash, padRight(p.FeeRecipient), p.StateRoot, p.ReceiptsRoot,
 		merkleize(pack(p.LogsBloom), 8), p.PrevRandao,
 		uint64Leaf(p.BlockNumber), uint64Leaf(p.GasLimit), uint64Leaf(p.GasUsed), uint64Leaf(p.Timestamp),
 		extra, baseFee, p.BlockHash, p.TransactionsRoot, p.WithdrawalsRoot,
 		uint64Leaf(p.BlobGasUsed), uint64Leaf(p.ExcessBlobGas),
-	}, 17)
+	} {
+		fields = append(fields, leaf(f))
+	}
+	return container(fields...)
 }
+
+func (p payloadHeader) root() []byte { return p.tree().root }
 
 // pubkeyRoot is hash_tree_root(BLSPubkey): a Bytes48, two chunks.
 func pubkeyRoot(pk []byte) []byte { return merkleize(pack(pk), 2) }
@@ -166,52 +175,103 @@ func computeSigningRoot(objectRoot, domain []byte) []byte {
 	return merkleize([][]byte{objectRoot, domain}, 2)
 }
 
-// sparseTree is a Merkle tree known only along the paths to its leaves:
-// every other node is an arbitrary filler chunk, so any set of leaves at
-// generalized indices that are not ancestors of one another gets a
-// consistent root and branches.
-type sparseTree struct {
-	leaves map[uint64][]byte
-	filler func(gindex uint64) []byte
+// node is a Merkle tree node. A node built from its children keeps them, so
+// a branch can be read through it; an opaque node (a leaf, or the root of an
+// unconstrained field such as a list or a signature) has none.
+type node struct {
+	root        []byte
+	left, right *node
 }
 
-func newSparseTree(seed string) *sparseTree {
-	return &sparseTree{leaves: map[uint64][]byte{}, filler: func(g uint64) []byte {
-		return sha([]byte(seed), uint64Leaf(g))
-	}}
-}
+func leaf(b []byte) *node { return &node{root: b} }
 
-func (t *sparseTree) set(gindex uint64, leaf []byte) { t.leaves[gindex] = leaf }
+func pair(l, r *node) *node { return &node{root: sha(l.root, r.root), left: l, right: r} }
 
-// onPath reports whether g is a leaf or an ancestor of one.
-func (t *sparseTree) onPath(g uint64) bool {
-	for l := range t.leaves {
-		for x := l; x >= 1; x >>= 1 {
-			if x == g {
-				return true
-			}
+// tree is merkleize over field roots, as a tree: padded with zero chunks to
+// the next power of two of limit.
+func tree(chunks []*node, limit int) *node {
+	width := 1
+	for width < limit {
+		width *= 2
+	}
+	layer := make([]*node, width)
+	for i := range layer {
+		if i < len(chunks) {
+			layer[i] = chunks[i]
+		} else {
+			layer[i] = leaf(zero())
 		}
 	}
-	return false
+	for len(layer) > 1 {
+		next := make([]*node, len(layer)/2)
+		for i := range next {
+			next[i] = pair(layer[2*i], layer[2*i+1])
+		}
+		layer = next
+	}
+	return layer[0]
 }
 
-func (t *sparseTree) node(g uint64) []byte {
-	if l, ok := t.leaves[g]; ok {
-		return l
+// progressiveTree is merkleize_progressive (EIP-7916, ssz-specs trees.py) as a
+// tree: a right-leaning spine whose level n holds 4^(n-1) chunks, closed by a
+// zero node.
+func progressiveTree(chunks []*node, numLeaves int) *node {
+	if len(chunks) == 0 {
+		return leaf(zero())
 	}
-	if !t.onPath(g) {
-		return t.filler(g)
+	n := numLeaves
+	if n > len(chunks) {
+		n = len(chunks)
 	}
-	return sha(t.node(2*g), t.node(2*g+1))
+	return pair(tree(chunks[:n], numLeaves), progressiveTree(chunks[n:], numLeaves*4))
 }
 
-func (t *sparseTree) root() []byte { return t.node(1) }
+// container is hash_tree_root of a Container, as a tree.
+func container(fields ...*node) *node { return tree(fields, len(fields)) }
 
-// branch is the bottom-up Merkle branch of the leaf at gindex.
-func (t *sparseTree) branch(gindex uint64) [][]byte {
+// activeFieldsWord is the active-fields word of a progressive container
+// whose n fields are all active: one bit per field, lowest bit first
+// (ssz-specs mixins.py active_fields_word).
+func activeFieldsWord(n int) []byte {
+	out := make([]byte, chunk)
+	for i := 0; i < n; i++ {
+		out[i/8] |= 1 << uint(i%8)
+	}
+	return out
+}
+
+// progressiveContainer is hash_tree_root of a ProgressiveContainer with
+// every field active (EIP-7495): the progressive root of its fields mixed
+// with its active-fields word.
+func progressiveContainer(fields ...*node) *node {
+	return pair(progressiveTree(fields, 1), leaf(activeFieldsWord(len(fields))))
+}
+
+// at returns the node at gindex, which must be reachable through built nodes.
+func (n *node) at(gindex uint64) *node {
+	depth := 0
+	for g := gindex; g > 1; g >>= 1 {
+		depth++
+	}
+	cur := n
+	for d := depth - 1; d >= 0; d-- {
+		if cur.left == nil {
+			panic(fmt.Sprintf("gindex %d goes through an opaque node", gindex))
+		}
+		if (gindex>>uint(d))&1 == 1 {
+			cur = cur.right
+		} else {
+			cur = cur.left
+		}
+	}
+	return cur
+}
+
+// branch is the bottom-up Merkle branch of the node at gindex.
+func (n *node) branch(gindex uint64) [][]byte {
 	var out [][]byte
 	for g := gindex; g > 1; g >>= 1 {
-		out = append(out, t.node(g^1))
+		out = append(out, n.at(g^1).root)
 	}
 	return out
 }
