@@ -267,7 +267,7 @@ read through its `Ethereum()` state, so it may be the v0 verifier or a
 verifier version that wraps it (as after a verifier replacement), and so may
 the subject; a verifier type without that state needs recovery support of
 its own. The substitute must track the same chain and router: the same chain id, genesis validators root,
-genesis time and slot, genesis fork version and fork genesis slot, sync committee size, seconds per slot,
+genesis time and slot, genesis fork version, sync committee size, seconds per slot,
 slots per epoch, epochs per sync committee period, router (IBC contract)
 address and commitment slot; its latest slot must be strictly ahead of the
 subject's, with a consensus state there. Its client state must pass
@@ -572,9 +572,10 @@ verifier without them is refused when the decision is checked, and the
 decision is spent. The new schedule is checked
 (`ethereum.CheckForkParameters`, through `CheckMigrateClient`) when the
 decision executes, before anything changes: the client must be Active, the schedule must differ from the current
-one, the genesis fork version and slot never change, the schedule passes the
+one, the genesis fork version never changes, the schedule passes the
 checks of a created client's (epochs in order, a version for every scheduled
-fork, Electra at or before the latest slot). Nothing else binds it to the
+fork, Electra at or before the latest slot, the fork parameters' genesis slot
+the client's genesis slot). Nothing else binds it to the
 current schedule (ADR 0003), so a migration landing after the fork it
 schedules repairs a client stalled before it without waiting for expiry. A fork whose containers
 change needs a new verifier version, installed by `ethereum-verifier`.

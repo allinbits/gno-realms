@@ -67,7 +67,7 @@ func TestMigrateForkParametersRefusals(t *testing.T) {
 	}{
 		{"unchanged", func(p *ForkParameters) {}, "unchanged"},
 		{"genesis version", func(p *ForkParameters) { p.GenesisForkVersion[0]++ }, "genesis"},
-		{"genesis slot", func(p *ForkParameters) { p.GenesisSlot++ }, "genesis"},
+		{"genesis slot", func(p *ForkParameters) { p.GenesisSlot++ }, "fork parameters genesis slot 1 differs from genesis slot 0"},
 		{"fork without a version", func(p *ForkParameters) { p.Gloas = Fork{Epoch: 30} }, "gloas fork is scheduled at epoch 30 without a version"},
 		{"forks out of order", func(p *ForkParameters) { p.Deneb.Epoch = 5 }, "electra fork epoch 0 precedes the previous fork's 5"},
 		{"electra after the latest slot", func(p *ForkParameters) {
@@ -167,6 +167,7 @@ func TestCheckSuccessor(t *testing.T) {
 		{"chain id rewritten", func(cs *ClientState) { cs.ChainID++ }, "different chain or router"},
 		{"slots per epoch rewritten", func(cs *ClientState) { cs.SlotsPerEpoch *= 2 }, "different chain or router"},
 		{"genesis fork version rewritten", func(cs *ClientState) { cs.ForkParameters.GenesisForkVersion[0]++ }, "different chain or router"},
+		{"fork genesis slot rewritten", func(cs *ClientState) { cs.ForkParameters.GenesisSlot++ }, "fork parameters genesis slot 1 differs from genesis slot 0"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

@@ -3,21 +3,31 @@
 // cases recorded chains cannot give, signed by a sync committee whose BLS keys
 // it derives from a fixed seed.
 //
-//   - an update attested in Gloas whose finalized header is still Fulu, signed
-//     under the Gloas domain;
-//   - the same with the finalized header in Gloas' block-hash form (gindex
-//     812) and its full RLP execution header;
-//   - two valid updates finalizing different headers at one slot
+// Canonical, as the gloas light-client sync protocol has them:
+//   - a Gloas update (attested and signed in Gloas) whose finalized header is
+//     still Fulu, upgraded to the block-hash form (gindex 812) with its full
+//     RLP execution header, as upgrade_lc_header_to_gloas gives it;
+//   - two such updates finalizing different headers at one slot
 //     (conflicting-finality misbehaviour);
-//   - an update with several non-signers, and a signature by a key outside
-//     the committee.
+//   - such an update with several non-signers, and a signature with a share
+//     by a key outside the committee;
+//   - a Fulu update (attested, finalized and signed in Fulu), both headers
+//     with their execution payload header (gindex 25).
 //
-// It is written from the consensus specs (ssz, phase0/altair beacon-chain,
-// the altair to gloas light-client sync protocols) and the execution block
-// header layout, not from the gno client: SSZ roots, domains and signing
-// roots are computed here, and signatures come from blst, while the native
-// the client verifies with wraps gnark-crypto. Branches whose siblings only
-// need to be consistent come from sparse trees with arbitrary filler nodes.
+// And one client-compatibility case, outside the spec: the Gloas update with
+// its Fulu finalized header left in the payload form, which a Gloas
+// LightClientHeader cannot hold but this client accepts.
+//
+// It is written from the consensus specs (ssz, phase0 to gloas beacon-chain,
+// the light-client sync protocols), the ssz-specs progressive merkleization
+// rules and the execution block header layout, not from the gno client: SSZ
+// roots, domains and signing roots are computed here, and signatures come
+// from blst, while the client verifies with a native that wraps gnark-crypto.
+// The beacon states and bodies are built as their containers: every basic
+// field (slots, epochs, versions, padding), active-fields word, zero padding
+// and progressive terminator on a proof path has its prescribed value. Only
+// the roots of fields nothing here depends on (lists, signatures, unrelated
+// containers) are arbitrary chunks derived from the seed.
 //
 // Regenerate from the repository root with
 //
@@ -56,23 +66,34 @@ func main() {
 
 // The chain: 2 s slots, 8-slot epochs, 8-epoch (64-slot) periods; every fork
 // to Electra at genesis, Fulu at epoch 1, Gloas at epoch 18 (slot 144).
+// The chain: 2 s slots, 8-slot epochs, 8-epoch (64-slot) periods; every fork
+// to Electra at genesis, Fulu at epoch 1, Gloas at epoch 20 (slot 160). Every
+// update finalizes the checkpoint of epoch 17, at least two epochs before its
+// attested head, as a finalizing chain does.
 const (
-	seed            = "gno-realms synthetic ethereum light-client fixtures v1"
+	seed            = "gno-realms synthetic ethereum light-client fixtures v2"
 	committeeSize   = 32
 	minParticipants = 11
 	genesisTime     = 1700000000
 	secondsPerSlot  = 2
 	slotsPerEpoch   = 8
 	epochsPerPeriod = 8
-	gloasEpoch      = 18
+	fuluEpoch       = 1
+	gloasEpoch      = 20
 	trustedSlot     = 128 // period 2
-	finalizedSlot   = 136 // epoch 17: Fulu
-	attestedSlot    = 144 // epoch 18: Gloas
-	signatureSlot   = 145 // signature_slot - 1 = 144: the Gloas domain
+	finalizedSlot   = 136 // the first slot of epoch 17: Fulu
+	finalizedEpoch  = finalizedSlot / slotsPerEpoch
+	gloasAttested   = 160 // epoch 20: Gloas
+	gloasSignature  = 161 // signature_slot - 1 = 160: the Gloas domain
+	fuluAttested    = 152 // epoch 19: Fulu
+	fuluSignature   = 153 // signature_slot - 1 = 152: the Fulu domain
 	router          = "1d95d544586eacb63b6154e9e45122b32ded11aa"
 	commitmentSlot  = "1260944489272988d9df285149b5aa1b0f48f2136d6f416159f840a3e0747600"
 
-	// Generalized indices (electra and gloas light-client sync protocols).
+	// Generalized indices (electra and gloas light-client sync protocols);
+	// the trees below land the leaves there, which build() checks.
+	finalizedRootElectra      = 169
+	nextSyncCommitteeElectra  = 87
 	finalizedRootGloas        = 735
 	nextSyncCommitteeGloas    = 2946
 	executionBlockHashGloas   = 2856
@@ -99,7 +120,7 @@ var (
 	genesisVersion = v(0x10)
 	forks          = []fork{
 		{"Altair", v(0x20), 0}, {"Bellatrix", v(0x30), 0}, {"Capella", v(0x40), 0},
-		{"Deneb", v(0x50), 0}, {"Electra", v(0x60), 0}, {"Fulu", v(0x70), 1},
+		{"Deneb", v(0x50), 0}, {"Electra", v(0x60), 0}, {"Fulu", v(0x70), fuluEpoch},
 		{"Gloas", v(0x80), gloasEpoch},
 	}
 )
@@ -199,7 +220,7 @@ type execBlock struct {
 	payload payloadHeader
 }
 
-func newExecBlock(tag string, number, time uint64) execBlock {
+func newExecBlock(tag string, number, slot uint64, parentBeaconRoot []byte) execBlock {
 	bloom := make([]byte, 256)
 	bloom[7] = 1
 	eh := executionHeader{
@@ -210,15 +231,19 @@ func newExecBlock(tag string, number, time uint64) execBlock {
 		TxRoot:       h32(tag, "transactions"),
 		ReceiptsRoot: h32(tag, "receipts"),
 		Bloom:        bloom,
-		Number:       number, GasLimit: 30_000_000, GasUsed: 1_234_567, Time: time,
-		Extra:            []byte("synthetic"),
-		MixDigest:        h32(tag, "prev randao"),
-		Nonce:            make([]byte, 8),
-		BaseFee:          7,
-		WithdrawalsRoot:  h32(tag, "withdrawals"),
-		BlobGasUsed:      131072,
-		ExcessBlobGas:    0,
-		ParentBeaconRoot: h32(tag, "parent beacon root"),
+		Number:       number, GasLimit: 30_000_000, GasUsed: 1_234_567,
+		// process_execution_payload: the payload's timestamp is its own
+		// slot's time.
+		Time:            genesisTime + slot*secondsPerSlot,
+		Extra:           []byte("synthetic"),
+		MixDigest:       h32(tag, "prev randao"),
+		Nonce:           make([]byte, 8),
+		BaseFee:         7,
+		WithdrawalsRoot: h32(tag, "withdrawals"),
+		BlobGasUsed:     131072,
+		ExcessBlobGas:   0,
+		// EIP-4788: the parent beacon block's root.
+		ParentBeaconRoot: parentBeaconRoot,
 		RequestsHash:     h32(tag, "requests"),
 	}
 	b := execBlock{header: eh, rlp: eh.rlp()}
@@ -242,24 +267,122 @@ type lcHeader struct {
 	branch    [][]byte
 }
 
-// finalizedHeader builds the Fulu finalized header for block, in the
-// payload form (gindex 25) or Gloas' block-hash form (gindex 812, its branch
-// normalized to Gloas' 11 nodes), and its beacon body.
-func finalizedHeader(tag string, proposer uint64, block execBlock, hashForm bool) lcHeader {
-	body := newSparseTree(tag + " finalized body")
-	h := lcHeader{}
+// arb is the root of a field nothing here depends on: a list, a signature or
+// an unrelated container, any chunk of which is a possible root.
+func arb(tag, field string) *node { return leaf(h32(tag, field)) }
+
+func u64(x uint64) *node { return leaf(uint64Leaf(x)) }
+
+// forkContainer is hash_tree_root(Fork) at epoch.
+func forkContainer(epoch uint64) *node {
+	cur := computeForkVersion(epoch)
+	prev, since := genesisVersion, uint64(0)
+	for i := len(forks) - 1; i >= 0; i-- {
+		if epoch >= forks[i].epoch {
+			since = forks[i].epoch
+			for j := i - 1; j >= 0; j-- {
+				if forks[j].epoch < since {
+					prev = forks[j].version
+					break
+				}
+			}
+			break
+		}
+	}
+	return container(leaf(padRight(prev[:])), leaf(padRight(cur[:])), u64(since))
+}
+
+func checkpoint(epoch uint64, root []byte) *node { return container(u64(epoch), leaf(root)) }
+
+// fuluBody is a Fulu (Electra) BeaconBlockBody holding payload.
+func fuluBody(tag string, payload payloadHeader) *node {
+	return container(
+		arb(tag, "randao_reveal"), arb(tag, "eth1_data"), arb(tag, "graffiti"),
+		arb(tag, "proposer_slashings"), arb(tag, "attester_slashings"), arb(tag, "attestations"),
+		arb(tag, "deposits"), arb(tag, "voluntary_exits"), arb(tag, "sync_aggregate"),
+		payload.tree(), // execution_payload: field 9, gindex 25
+		arb(tag, "bls_to_execution_changes"), arb(tag, "blob_kzg_commitments"), arb(tag, "execution_requests"),
+	)
+}
+
+// gloasBody is a Gloas BeaconBlockBody (a ProgressiveContainer) whose
+// signed bid commits to parentBlockHash at slot.
+func gloasBody(tag string, slot, parentBlockHash []byte) *node {
+	bid := progressiveContainer( // ExecutionPayloadBid
+		leaf(parentBlockHash), arb(tag, "parent_block_root"), arb(tag, "block_hash"), arb(tag, "prev_randao"),
+		leaf(padRight(h32(tag, "fee_recipient")[:20])), u64(30_000_000), u64(4), leaf(slot),
+		u64(1_000_000_000), u64(0), arb(tag, "blob_kzg_commitments"), arb(tag, "execution_requests_root"),
+	)
+	signed := container(bid, arb(tag, "bid signature"))
+	return progressiveContainer(
+		arb(tag, "randao_reveal"), arb(tag, "eth1_data"), arb(tag, "graffiti"),
+		arb(tag, "proposer_slashings"), arb(tag, "attester_slashings"), arb(tag, "attestations"),
+		arb(tag, "deposits"), arb(tag, "voluntary_exits"), arb(tag, "sync_aggregate"),
+		arb(tag, "bls_to_execution_changes"),
+		signed, // signed_execution_payload_bid: field 10, its parent_block_hash at gindex 2856
+		arb(tag, "payload_attestations"), arb(tag, "parent_execution_requests"),
+	)
+}
+
+// fuluState is a Fulu BeaconState at slot finalizing finalizedRoot, with the
+// given sync committees.
+func fuluState(tag string, slot uint64, finalizedRoot []byte, current committee, next *node, latestPayload []byte) *node {
+	return container(
+		u64(genesisTime), leaf(gvr), u64(slot), forkContainer(slot/slotsPerEpoch),
+		arb(tag, "latest_block_header"), arb(tag, "block_roots"), arb(tag, "state_roots"), arb(tag, "historical_roots"),
+		arb(tag, "eth1_data"), arb(tag, "eth1_data_votes"), u64(0), arb(tag, "validators"), arb(tag, "balances"),
+		arb(tag, "randao_mixes"), arb(tag, "slashings"), arb(tag, "previous_epoch_participation"),
+		arb(tag, "current_epoch_participation"), leaf(padRight([]byte{0x0f})),
+		checkpoint(finalizedEpoch+1, h32(tag, "previous justified")), checkpoint(finalizedEpoch+1, h32(tag, "current justified")),
+		checkpoint(finalizedEpoch, finalizedRoot), // finalized_checkpoint: field 20, its root at gindex 169
+		arb(tag, "inactivity_scores"), leaf(current.root()),
+		next, // next_sync_committee: field 23, gindex 87
+		leaf(latestPayload), u64(0), u64(0), arb(tag, "historical_summaries"), u64(0), u64(0), u64(0), u64(0), u64(0), u64(0),
+		arb(tag, "pending_deposits"), arb(tag, "pending_partial_withdrawals"), arb(tag, "pending_consolidations"),
+		arb(tag, "proposer_lookahead"),
+	)
+}
+
+// gloasState is a Gloas BeaconState (a ProgressiveContainer) at slot.
+func gloasState(tag string, slot uint64, finalizedRoot []byte, current committee, next *node, latestBlockHash []byte) *node {
+	return progressiveContainer(
+		u64(genesisTime), leaf(gvr), u64(slot), forkContainer(slot/slotsPerEpoch),
+		arb(tag, "latest_block_header"), arb(tag, "block_roots"), arb(tag, "state_roots"), arb(tag, "historical_roots"),
+		arb(tag, "eth1_data"), arb(tag, "eth1_data_votes"), u64(0), arb(tag, "validators"), arb(tag, "balances"),
+		arb(tag, "randao_mixes"), arb(tag, "slashings"), arb(tag, "previous_epoch_participation"),
+		arb(tag, "current_epoch_participation"), leaf(padRight([]byte{0x0f})),
+		checkpoint(finalizedEpoch+1, h32(tag, "previous justified")), checkpoint(finalizedEpoch+1, h32(tag, "current justified")),
+		checkpoint(finalizedEpoch, finalizedRoot), // finalized_checkpoint: field 20, its root at gindex 735
+		arb(tag, "inactivity_scores"), leaf(current.root()),
+		next, // next_sync_committee: field 23, gindex 2946
+		leaf(latestBlockHash), u64(0), u64(0), arb(tag, "historical_summaries"), u64(0), u64(0), u64(0), u64(0), u64(0), u64(0),
+		arb(tag, "pending_deposits"), arb(tag, "pending_partial_withdrawals"), arb(tag, "pending_consolidations"),
+		arb(tag, "proposer_lookahead"), arb(tag, "builders"), u64(0), arb(tag, "execution_payload_availability"),
+		arb(tag, "builder_pending_payments"), arb(tag, "builder_pending_withdrawals"), arb(tag, "latest_execution_payload_bid"),
+		arb(tag, "payload_expected_withdrawals"), arb(tag, "ptc_window"),
+	)
+}
+
+// finalizedHeader is the Fulu finalized header of block, at the first slot
+// of the finalized epoch: in Gloas' block-hash form (gindex 812, its branch
+// the payload's own proof extended by the body's and normalized to Gloas' 11
+// nodes, as upgrade_lc_header_to_gloas builds it), or in the payload form
+// (gindex 25).
+func finalizedHeader(tag string, proposer uint64, block execBlock, parentRoot []byte, hashForm bool) lcHeader {
+	body := fuluBody(tag+" finalized body", block.payload)
+	h := lcHeader{beacon: beaconHeader{Slot: finalizedSlot, ProposerIndex: proposer,
+		ParentRoot: parentRoot, StateRoot: h32(tag, "finalized state"), BodyRoot: body.root}}
+	if !bytes.Equal(body.at(executionPayloadIndex).root, block.payload.root()) || !bytes.Equal(body.at(executionBlockHashDeneb).root, block.hash) {
+		panic("the Fulu body does not hold the payload at gindex 25 and its block hash at 812")
+	}
 	if hashForm {
-		body.set(executionBlockHashDeneb, block.hash)
 		h.blockHash = block.hash
 		h.branch = normalize(body.branch(executionBlockHashDeneb), executionBranchDepthGloas)
 	} else {
-		body.set(executionPayloadIndex, block.payload.root())
 		p := block.payload
 		h.payload = &p
 		h.branch = body.branch(executionPayloadIndex)
 	}
-	h.beacon = beaconHeader{Slot: finalizedSlot, ProposerIndex: proposer,
-		ParentRoot: h32(tag, "finalized parent"), StateRoot: h32(tag, "finalized state"), BodyRoot: body.root()}
 	return h
 }
 
@@ -269,47 +392,77 @@ type update struct {
 	nextBranch          [][]byte
 	finalityBranch      [][]byte
 	bits, sig           []byte
+	signatureSlot       uint64
 	finalizedExecution  []byte
 	nonSigners          []int
 	signers             committee
 }
 
-// buildUpdate builds an update attested at attestedSlot (Gloas) over
-// finalized, signed at signatureSlot by signers, with an optional next
-// committee.
-func buildUpdate(tag string, finalized lcHeader, finalizedExecution []byte, signers committee, next *committee, nonSigners []int, keys map[int]*blst.SecretKey) update {
-	state := newSparseTree(tag + " attested state")
-	state.set(finalizedRootGloas, finalized.beacon.root())
-	if next != nil {
-		state.set(nextSyncCommitteeGloas, next.root())
+type updateSpec struct {
+	tag                string
+	gloas              bool // attested and signed in Gloas, or in Fulu
+	finalized          lcHeader
+	finalizedExecution []byte
+	signers            committee
+	next               *committee
+	nonSigners         []int
+	keys               map[int]*blst.SecretKey
+}
+
+// build builds the update spec describes: the attested beacon state and
+// body as their containers, the finality and next-committee branches read
+// from the state, and the committee's signature over the attested header.
+func build(spec updateSpec) update {
+	tag := spec.tag
+	attestedSlot, sigSlot := uint64(fuluAttested), uint64(fuluSignature)
+	if spec.gloas {
+		attestedSlot, sigSlot = gloasAttested, gloasSignature
 	}
-	body := newSparseTree(tag + " attested body")
-	attestedHash := h32(tag, "attested parent block hash")
-	body.set(executionBlockHashGloas, attestedHash)
-	attested := lcHeader{
-		beacon: beaconHeader{Slot: attestedSlot, ProposerIndex: 3,
-			ParentRoot: h32(tag, "attested parent"), StateRoot: state.root(), BodyRoot: body.root()},
-		blockHash: attestedHash,
-		branch:    body.branch(executionBlockHashGloas),
+	nextLeaf := arb(tag, "next_sync_committee")
+	if spec.next != nil {
+		nextLeaf = leaf(spec.next.root())
 	}
+	finalizedRoot := spec.finalized.beacon.root()
+	var state, body *node
+	var attested lcHeader
+	finIdx, nextIdx := uint64(finalizedRootElectra), uint64(nextSyncCommitteeElectra)
+	if spec.gloas {
+		parentHash := h32(tag, "attested parent block hash")
+		state = gloasState(tag+" attested state", attestedSlot, finalizedRoot, spec.signers, nextLeaf, parentHash)
+		body = gloasBody(tag+" attested body", uint64Leaf(attestedSlot), parentHash)
+		attested = lcHeader{blockHash: parentHash, branch: body.branch(executionBlockHashGloas)}
+		if !bytes.Equal(body.at(executionBlockHashGloas).root, parentHash) {
+			panic("the Gloas body does not hold the bid's parent block hash at 2856")
+		}
+		finIdx, nextIdx = finalizedRootGloas, nextSyncCommitteeGloas
+	} else {
+		block := newExecBlock(tag+" attested block", 1016, attestedSlot, h32(tag, "attested parent"))
+		state = fuluState(tag+" attested state", attestedSlot, finalizedRoot, spec.signers, nextLeaf, block.payload.root())
+		body = fuluBody(tag+" attested body", block.payload)
+		p := block.payload
+		attested = lcHeader{payload: &p, branch: body.branch(executionPayloadIndex)}
+	}
+	if !bytes.Equal(state.at(finIdx).root, finalizedRoot) || !bytes.Equal(state.at(nextIdx).root, nextLeaf.root) {
+		panic("the state does not hold the finalized root and the next committee at their gindices")
+	}
+	attested.beacon = beaconHeader{Slot: attestedSlot, ProposerIndex: 3,
+		ParentRoot: h32(tag, "attested parent"), StateRoot: state.root, BodyRoot: body.root}
+
 	ns := map[int]bool{}
-	for _, i := range nonSigners {
+	for _, i := range spec.nonSigners {
 		ns[i] = true
 	}
-	version := computeForkVersion((signatureSlot - 1) / slotsPerEpoch)
-	if version != v(0x80) {
-		panic("the signature slot must use the Gloas domain")
-	}
+	version := computeForkVersion((sigSlot - 1) / slotsPerEpoch)
 	domain := computeDomain(domainSyncCommittee, version, gvr)
 	msg := computeSigningRoot(attested.beacon.root(), domain)
 	u := update{
-		attested: attested, finalized: finalized, next: next,
-		finalityBranch: state.branch(finalizedRootGloas),
-		bits:           bits(ns), sig: signers.sign(msg, ns, keys),
-		finalizedExecution: finalizedExecution, nonSigners: nonSigners, signers: signers,
+		attested: attested, finalized: spec.finalized, next: spec.next,
+		finalityBranch: state.branch(finIdx),
+		bits:           bits(ns), sig: spec.signers.sign(msg, ns, spec.keys), signatureSlot: sigSlot,
+		finalizedExecution: spec.finalizedExecution, nonSigners: spec.nonSigners, signers: spec.signers,
 	}
-	if next != nil {
-		u.nextBranch = state.branch(nextSyncCommitteeGloas)
+	if spec.next != nil {
+		u.nextBranch = state.branch(nextIdx)
 	}
 	return u
 }
@@ -371,7 +524,7 @@ func (w *writer) update(u update) {
 	w.lcHeader(u.finalized)
 	w.f(",\nFinalityBranch: %s,\n", blobs(u.finalityBranch))
 	w.f("SyncAggregate: SyncAggregate{SyncCommitteeBits: %s, SyncCommitteeSignature: %s},\n", hx(u.bits), hx(u.sig))
-	w.f("SignatureSlot: %d,\n", signatureSlot)
+	w.f("SignatureSlot: %d,\n", u.signatureSlot)
 	if u.finalizedExecution != nil {
 		w.f("FinalizedExecutionHeader: %s,\n", hx(u.finalizedExecution))
 	}
@@ -393,18 +546,24 @@ func (w *writer) header(name, doc string, u update) {
 
 func generate() ([]byte, error) {
 	current, next := newCommittee("period 2"), newCommittee("period 3")
-	block := newExecBlock("finalized block", 1000, genesisTime+finalizedSlot*secondsPerSlot-secondsPerSlot)
-	payloadForm := finalizedHeader("transition", 5, block, false)
-	hashForm := finalizedHeader("transition", 5, block, true)
+	parent := h32("finalized parent")
+	block := newExecBlock("finalized block", 1000, finalizedSlot, parent)
+	hashForm := finalizedHeader("finalized", 5, block, parent, true)
+	payloadForm := finalizedHeader("finalized", 5, block, parent, false)
+	conflictingParent := h32("conflicting parent")
+	conflictingBlock := newExecBlock("conflicting block", 1000, finalizedSlot, conflictingParent)
+	conflicting := finalizedHeader("conflicting", 6, conflictingBlock, conflictingParent, true)
 
-	transition := buildUpdate("transition", payloadForm, nil, current, &next, nil, nil)
-	hashTransition := buildUpdate("hash form", hashForm, block.rlp, current, &next, nil, nil)
-	conflicting := finalizedHeader("conflicting", 6, newExecBlock("conflicting block", 1000, block.header.Time), false)
-	misbehaviour1 := buildUpdate("misbehaviour 1", payloadForm, nil, current, nil, nil, nil)
-	misbehaviour2 := buildUpdate("misbehaviour 2", conflicting, nil, current, nil, nil, nil)
+	transition := build(updateSpec{tag: "gloas", gloas: true, finalized: hashForm, finalizedExecution: block.rlp, signers: current, next: &next})
+	mixed := build(updateSpec{tag: "mixed form", gloas: true, finalized: payloadForm, signers: current, next: &next})
+	fulu := build(updateSpec{tag: "fulu", finalized: payloadForm, signers: current, next: &next})
+	misbehaviour1 := build(updateSpec{tag: "misbehaviour 1", gloas: true, finalized: hashForm, finalizedExecution: block.rlp, signers: current})
+	misbehaviour2 := build(updateSpec{tag: "misbehaviour 2", gloas: true, finalized: conflicting, finalizedExecution: conflictingBlock.rlp, signers: current})
 	nonSigners := []int{3, 10, 27}
-	several := buildUpdate("non-signers", payloadForm, nil, current, nil, nonSigners, nil)
-	wrongKey := buildUpdate("non-signers", payloadForm, nil, current, nil, nonSigners, map[int]*blst.SecretKey{14: outsider()})
+	several := updateSpec{tag: "non-signers", gloas: true, finalized: hashForm, finalizedExecution: block.rlp, signers: current, nonSigners: nonSigners}
+	withNonSigners := build(several)
+	several.keys = map[int]*blst.SecretKey{14: outsider()}
+	wrongKey := build(several)
 
 	var w writer
 	w.f("// Code generated by cmd/gen-eth-synthetic. DO NOT EDIT.\n\n")
@@ -412,7 +571,7 @@ func generate() ([]byte, error) {
 	w.f("// keys derive from a fixed seed: the cases recorded chains cannot give. See\n")
 	w.f("// cmd/gen-eth-synthetic for how each is built.\n\npackage ethereum\n\n")
 
-	w.f("// syntheticClientState is the synthetic chain: 2 s slots, 8-slot epochs,\n// 64-slot periods, Fulu at epoch 1 and Gloas at epoch %d (slot %d).\n", gloasEpoch, gloasEpoch*slotsPerEpoch)
+	w.f("// syntheticClientState is the synthetic chain: 2 s slots, 8-slot epochs,\n// 64-slot periods, Fulu at epoch %d and Gloas at epoch %d (slot %d).\n", fuluEpoch, gloasEpoch, gloasEpoch*slotsPerEpoch)
 	w.f("func syntheticClientState() ClientState {\nreturn ClientState{\nChainID: 7777, GenesisValidatorsRoot: %s, MinSyncCommitteeParticipants: %d, SyncCommitteeSize: %d, GenesisTime: %d, GenesisSlot: 0,\n",
 		hx(gvr), minParticipants, committeeSize, genesisTime)
 	w.f("ForkParameters: ForkParameters{GenesisForkVersion: [4]byte{0x%02x, 0, 0, 0x99}", genesisVersion[0])
@@ -428,17 +587,18 @@ func generate() ([]byte, error) {
 
 	w.f("\n// syntheticNextCommittee is the committee the transition updates reveal.\nfunc syntheticNextCommittee() SummarizedSyncCommittee {\nreturn SummarizedSyncCommittee{PubkeysHash: %s, AggregatePubkey: %s}\n}\n",
 		hx(pubkeysRoot(next.pks)), hx(next.aggregate))
-	w.f("\n// syntheticFinalizedExecution is the finalized execution block: its state\n// root, timestamp and number.\nfunc syntheticFinalizedExecution() ([]byte, uint64, uint64) {\nreturn %s, %d, %d\n}\n",
+	w.f("\n// syntheticFinalizedExecution is the finalized execution block: its state\n// root, timestamp (its slot's time) and number.\nfunc syntheticFinalizedExecution() ([]byte, uint64, uint64) {\nreturn %s, %d, %d\n}\n",
 		hx(block.header.StateRoot), block.header.Time, block.header.Number)
 
-	w.header("syntheticTransition", "syntheticTransition is attested at slot 144 (Gloas: gindices 735, 2946 and 2856) and\n// signed at 145 under the Gloas domain, finalizing slot 136 (Fulu) with its\n// payload header at gindex 25, and reveals the next committee.", transition)
-	w.header("syntheticHashFormTransition", "syntheticHashFormTransition is syntheticTransition with the finalized\n// header in Gloas' block-hash form (gindex 812, an 11-node normalized branch)\n// and its RLP execution header.", hashTransition)
-	w.f("\n// syntheticMisbehaviour is two valid updates finalizing different beacon\n// headers at slot 136, each signed by the whole committee.\nfunc syntheticMisbehaviour() *Misbehaviour {\nreturn &Misbehaviour{TrustedSlot: %d, Update1: ", trustedSlot)
+	w.header("syntheticGloasTransition", "syntheticGloasTransition is a canonical Gloas update: attested at slot 160\n// (gindices 735, 2946 and 2856) and signed at 161 under the Gloas domain,\n// finalizing slot 136, a Fulu header upgraded to the block-hash form\n// (gindex 812, an 11-node normalized branch), with its RLP execution header.\n// It reveals the next committee.", transition)
+	w.header("syntheticMixedFormTransition", "syntheticMixedFormTransition is a client-compatibility case outside the\n// spec: syntheticGloasTransition with its Fulu finalized header left in the\n// payload form (gindex 25), which a Gloas LightClientHeader cannot hold.", mixed)
+	w.header("syntheticFuluUpdate", "syntheticFuluUpdate is a Fulu update: attested at slot 152 (gindices 169\n// and 87) and signed at 153 under the Fulu domain, both headers with their\n// execution payload header (gindex 25). It reveals the next committee.", fulu)
+	w.f("\n// syntheticMisbehaviour is two canonical Gloas updates finalizing different\n// Fulu headers at slot 136, each signed by the whole committee.\nfunc syntheticMisbehaviour() *Misbehaviour {\nreturn &Misbehaviour{TrustedSlot: %d, Update1: ", trustedSlot)
 	w.update(misbehaviour1)
 	w.f(", Update2: ")
 	w.update(misbehaviour2)
 	w.f("}\n}\n")
-	w.header("syntheticNonSigners", "syntheticNonSigners is signed by every member but 3, 10 and 27, listed\n// with their branches in committee order.", several)
+	w.header("syntheticNonSigners", "syntheticNonSigners is a canonical Gloas update signed by every member but\n// 3, 10 and 27, listed with their branches in committee order.", withNonSigners)
 	w.f("\n// syntheticOutsiderSignature is syntheticNonSigners' signature with\n// member 14's share made by a key outside the committee.\nfunc syntheticOutsiderSignature() []byte {\nreturn %s\n}\n", hx(wrongKey.sig))
 
 	return format.Source(w.Bytes())

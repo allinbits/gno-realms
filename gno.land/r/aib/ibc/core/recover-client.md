@@ -155,9 +155,10 @@ fresh client migration).
 The tendermint rules above do not apply to `ethereum` clients; see ADR 0003.
 
 - The substitute must track the same chain and router: chain id, genesis
-  validators root and time, genesis slot, genesis fork version and fork
-  genesis slot, slot timing, sync committee size, router address and
-  commitments slot. Its latest slot must be ahead of the subject's.
+  validators root and time, genesis slot, genesis fork version, slot timing,
+  sync committee size, router address and commitments slot. Its latest slot
+  must be ahead of the subject's. (Its fork parameters' genesis slot equals
+  its genesis slot, as `ValidateBasic` requires of every client.)
 - Its client state must be valid (`ValidateBasic`), its fork schedule
   included, and the subject adopts that schedule and its minimum
   participation. No fork comparison binds the substitute to the subject's

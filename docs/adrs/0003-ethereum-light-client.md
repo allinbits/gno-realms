@@ -155,11 +155,14 @@ of solidity-ibc-eureka (client type `ethereum`):
 - The fork schedule picks the signing domain, the generalized indices and
   the supported range, so `ClientState.ValidateBasic` refuses one no update
   could pass: fork epochs out of order, a scheduled fork without a version (a
-  zero `Fork{}` reads as active from genesis), Electra unscheduled, or a
-  latest slot before Electra.
+  zero `Fork{}` reads as active from genesis), Electra unscheduled, a
+  latest slot before Electra, or a `ForkParameters.GenesisSlot` other than
+  the client state's `GenesisSlot`. That field duplicates the client
+  state's, which the client computes with; it is kept, required equal, for
+  parity with eureka's fork parameters and the wire formats that carry it.
 - `RecoverClient` requires the substitute to track the same chain and
-  router (chain id, genesis validators root, genesis fork version and slot,
-  slot clock, committee size, router address and commitments slot), to pass
+  router (chain id, genesis validators root, genesis fork version, genesis
+  slot, slot clock, committee size, router address and commitments slot), to pass
   `ValidateBasic`, its fork schedule included, and to be ahead; the subject
   adopts the substitute's schedule. No fork comparison binds the two
   schedules, and none binds a fork-schedule migration or a verifier
@@ -270,16 +273,27 @@ unchanged.
   Solidity payload decodes and re-encodes byte for byte.
 - Cases no recorded chain gives come from synthetic, spec-exact data
   (`zz_synthetic_test.gno`, written by `cmd/gen-eth-synthetic`): a sync
-  committee of 32 BLS keys derived from a fixed seed signs, with blst,
-  updates whose SSZ roots, domains and signing roots the generator computes
-  from the consensus specs, with sparse Merkle trees for the branches, never
-  from the client's own code. They cover an update attested and signed in
-  Gloas whose finalized header is still Fulu, in either execution form (the
-  block-hash form with a full RLP execution header), a valid
-  conflicting-finality misbehaviour through to Frozen, and non-signers
-  reordered, proven at another index or missing, and a share signed outside
-  the committee. `go test -C cmd/gen-eth-synthetic` checks that the
-  committed file is what the generator writes.
+  committee of 32 BLS keys derived from a fixed seed signs, with blst, while
+  the client verifies with gnark-crypto. The generator computes SSZ roots,
+  domains and signing roots from the consensus specs, never from the
+  client's code, and builds the attested beacon states and bodies as their
+  containers (Gloas' as progressive containers): every basic field, version,
+  padding, active-fields word and progressive terminator on a proof path has
+  its prescribed value, and only the roots of fields nothing depends on are
+  arbitrary. Execution payloads carry their own slot's timestamp and their
+  RLP headers the finalized block's parent root (EIP-4788), and each update
+  finalizes a checkpoint at least two epochs behind its attested head.
+  Canonical, as the specs have them: a Gloas update whose finalized header
+  is still Fulu, upgraded to the block-hash form (gindex 812) with its full
+  RLP execution header; a Fulu update with both headers in the payload form;
+  a valid conflicting-finality misbehaviour of two Gloas updates, through to
+  Frozen; and a Gloas update with non-signers, refused when they are
+  reordered, proven at another index or missing, or when a share is signed
+  outside the committee. One client-compatibility case is outside the spec:
+  the Gloas update with its Fulu finalized header left in the payload form,
+  which a Gloas `LightClientHeader` cannot hold but this client accepts.
+  `go test -C cmd/gen-eth-synthetic` checks that the committed file is what
+  the generator writes.
 - The client expires when the current slot passes its latest trusted slot by
   more than `TrustingPeriods` (8) sync committee periods' worth of slots:
   current slot > `LatestSlot` + 8 * `EpochsPerSyncCommitteePeriod` *

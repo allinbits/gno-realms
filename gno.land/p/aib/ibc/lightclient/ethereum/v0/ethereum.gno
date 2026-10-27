@@ -974,12 +974,12 @@ func (c *EthLightClient) CheckRecovery(substitute lightclient.Interface) error {
 // sameChainAndRouter reports whether a and b track the same chain, with the
 // same slot clock, committee size and genesis fork, and the same router:
 // every client state field but the fork schedule (its genesis fork version
-// and slot excepted), the latest slot and block number, the minimum
-// participation and the frozen flag.
+// excepted; its genesis slot equals GenesisSlot, ValidateBasic checks), the
+// latest slot and block number, the minimum participation and the frozen
+// flag.
 func sameChainAndRouter(a, b *ClientState) bool {
 	return a.ChainID == b.ChainID && bytes.Equal(a.GenesisValidatorsRoot, b.GenesisValidatorsRoot) &&
 		a.ForkParameters.GenesisForkVersion == b.ForkParameters.GenesisForkVersion &&
-		a.ForkParameters.GenesisSlot == b.ForkParameters.GenesisSlot &&
 		a.SyncCommitteeSize == b.SyncCommitteeSize &&
 		a.GenesisTime == b.GenesisTime && a.GenesisSlot == b.GenesisSlot &&
 		a.SecondsPerSlot == b.SecondsPerSlot && a.SlotsPerEpoch == b.SlotsPerEpoch &&
