@@ -223,19 +223,24 @@ unchanged.
   committee of 32 BLS keys derived from a fixed seed signs, with blst, while
   the client verifies with gnark-crypto. The generator computes SSZ roots,
   domains and signing roots from the consensus specs, never from the
-  client's code, and builds the attested beacon states and bodies and the
-  execution payloads as their containers (Gloas' as progressive containers).
-  Basic fields, versions, padding, active-fields words, progressive
-  terminators and the values block and state transitions fix within one
-  block (the state's latest block header, the bid's parent block root and
-  the recorded bid, the latest payload header, empty operation and request
-  lists, empty payloads with their empty roots, payload timestamps at their
-  slot's time, and parent beacon roots per EIP-4788) are as the specs give
-  them. Fields whose rules tie them only to history the generator does not
-  model (parent roots, randao, registries, root vectors and similar; the
-  generator's header lists them) are arbitrary chunks from the seed. Each
-  update finalizes a checkpoint at least two epochs behind its attested
-  head.
+  client's code. The chain is a minimal-preset chain. The attested beacon
+  states and bodies and the execution payloads are built as their
+  containers (Gloas' as progressive containers), and every value fixed by
+  the block itself, by its fork upgrade (the Gloas block is the fork block)
+  or by the epoch transition before it follows the spec: basic fields,
+  versions, padding, active-fields words and progressive terminators; the
+  justification bits and checkpoints, picked by running the spec's
+  `weigh_justification_and_finalization` over the history; the latest
+  block header, the bid's parent root and the recorded bid; the Gloas
+  fields `upgrade_to_gloas` and the bid set (payload availability, builder
+  payments and withdrawals); empty operation and request lists; empty
+  payloads with their empty roots, timestamps at their slot's time and
+  parent beacon roots per EIP-4788. Fields that depend on earlier chain
+  history (registries, randao, root vectors, parent hashes and the like;
+  the generator's header lists each) are arbitrary chunks from the seed, so
+  the data is not a replayable chain; the light client reads none of them.
+  Each update finalizes a checkpoint at least two epochs behind its
+  attested head.
   Canonical, as the specs have them: a Gloas update whose finalized header
   is still Fulu, upgraded to the block-hash form (gindex 812) with its full
   RLP execution header; a Fulu update with both headers in the payload form;
