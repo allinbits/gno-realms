@@ -391,11 +391,10 @@ func TestMembershipPathLength(t *testing.T) {
 }
 
 // Explicit misbehaviour: both updates are validated against the trusted state.
-// A genuinely valid conflicting pair would need two 2/3-signed updates
-// finalizing different headers at one slot, which the recorded data cannot
-// give; so each case here pairs the fixture's valid update with a copy whose
-// finalized header differs at the same slot, failing its finality proof, and
-// the refusal names the update that failed.
+// Each case pairs a recorded valid update with a copy whose finalized header
+// differs at the same slot, failing its finality proof, and the refusal names
+// the update that failed. A genuinely valid pair, which recorded data cannot
+// give, is in TestSyntheticMisbehaviour.
 func TestMisbehaviourValidatesBothUpdates(t *testing.T) {
 	c, hdr := firstUpdate(t, fixtureErc20())
 	valid := hdr.ConsensusUpdate

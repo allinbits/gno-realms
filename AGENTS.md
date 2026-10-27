@@ -15,7 +15,7 @@ CI runs unit + e2e tests on every push (`.github/workflows/test.yml`).
 
 Under the hood:
 - `go tool gno test ./gno.land/...` runs all Gno tests (unit tests + filetests)
-- `go test -C ./cmd/gen-block-signatures` and `go test -C ./cmd/gen-proof` run Go tests
+- `go test -C ./cmd/gen-block-signatures`, `go test -C ./cmd/gen-proof` and `go test -C ./cmd/gen-eth-synthetic` run Go tests (the last checks that the synthetic Ethereum light-client data is current)
 
 **Important:** Always use `go tool gno test`, not a standalone `gno` binary. The pinned `gnolang/gno@master` commit is resolved via `go mod` replace directives, so `go tool gno` picks up the correct version automatically. A standalone `gno` may be a different (older) release and miss features the realms rely on.
 
@@ -52,6 +52,8 @@ go tool gno test -update-golden-tests ./gno.land/r/aib/ibc/apps/transfer/
 cmd/                          # Go CLI tools
   gen-block-signatures/       # Generate Tendermint block signatures for test headers
   gen-proof/                  # Generate IBC proof structures
+  gen-eth-fixtures/           # Convert eureka Ethereum light-client fixtures to Gno test data
+  gen-eth-synthetic/          # Synthetic, spec-exact Ethereum light-client test data (blst, fixed seed)
 gno.land/
   p/aib/                      # Packages (stateless libraries)
     ibc/app/v0/               # IBCApp interface definition
