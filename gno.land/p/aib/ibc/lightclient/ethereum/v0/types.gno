@@ -54,12 +54,12 @@ type ForkParameters struct {
 	// computes with; ValidateBasic requires the two equal. It is kept for
 	// parity with eureka's fork parameters and the wire formats that carry it.
 	GenesisSlot uint64
-	Altair             Fork
-	Bellatrix          Fork
-	Capella            Fork
-	Deneb              Fork
-	Electra            Fork
-	Fulu               Fork
+	Altair      Fork
+	Bellatrix   Fork
+	Capella     Fork
+	Deneb       Fork
+	Electra     Fork
+	Fulu        Fork
 	// Gloas is the ePBS fork. Set its epoch to FarFutureEpoch while it is
 	// not scheduled.
 	Gloas Fork
