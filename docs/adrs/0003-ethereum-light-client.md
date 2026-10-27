@@ -57,19 +57,54 @@ of solidity-ibc-eureka (client type `ethereum`):
   aggregate key minus the non-signers, which the update lists with Merkle
   branches to the pubkeys root. The committee commits to its aggregate key
   next to its keys, so this equals verifying over the signers' keys.
-- Finality, next sync committee and execution branches are checked with the
+- **Creation trusts its input.** `CreateClient` takes the client and
+  consensus states as given (core checks their shape with `ValidateBasic`):
+  there is no bootstrap proof, as for any IBC client's creation, so whoever
+  creates the client vouches for its committees and state root.
+- **One anchor.** Every header and every misbehaviour builds on the latest
+  trusted state: its `TrustedSlot` must equal `LatestSlot`
+  (`checkLatestAnchor`). Older consensus states stay usable for proofs but
+  never anchor an update, so a past committee cannot insert roots below the
+  latest slot or freeze the client.
+- **Finality only.** Every update that moves the client needs a 2/3
+  supermajority of the committee (participants * 3 >= `SyncCommitteeSize` *
+  2, 342 of 512), besides the configured `MinSyncCommitteeParticipants`, and a
+  finalized header. There is no optimistic header and no force update
+  (`process_light_client_store_force_update`): if Ethereum stops finalizing
+  for longer than a period, the client stalls and expires, and governance
+  recovers it.
+- The finality and next sync committee branches are checked with the
   generalized indices of the attested slot's fork: Electra/Fulu, or Gloas.
-- Before Gloas the execution state root comes from the execution payload
-  header. From Gloas on, the relayer supplies the RLP execution header, whose
-  keccak256 must equal the committed block hash.
-- Updates are validated as in the spec's `validate_light_client_update`.
-  Whether the next committee is known comes from the trusted state, which
-  keeps its summary, and the signing committee from the signature period: the
-  current one within the stored period, the stored next one in the period
-  after. A same-period update must carry the next committee the state already
-  knows, if any. The header's `ActiveIsNext` flag is ignored: it stays in
-  `Header`, `Misbehaviour` and the wire format only because the format is
-  positional and the relayers send it, and goes when they stop.
+  Each header's execution branch (the attested and the finalized one) is
+  checked with the indices of that header's own beacon slot, so an update
+  whose finalized header precedes Gloas and whose attested header follows it
+  verifies each against its own fork. Headers before Electra are refused.
+- An Electra or Fulu header may come in either form: with its execution
+  payload header (gindex 25), or in the form Gloas' `upgrade_lc_header_to_gloas`
+  gives it and a Gloas-era beacon API serves, only the payload's block hash
+  (gindex 812, its branch normalized to Gloas' 11 nodes). Relayers may send
+  either. A Gloas header has only the block-hash form, and a header carrying
+  both forms, or neither, is refused.
+- The execution state root, timestamp and block number come from the
+  finalized header's execution payload header, or, for a header in the
+  block-hash form, from the RLP execution header the relayer supplies, whose
+  keccak256 must equal that hash. Before Gloas the hash is the block's own
+  payload; from Gloas on it is the bid's `parent_block_hash`, so the client
+  tracks the parent execution block of the finalized beacon block. Relayers
+  choose proof heights, and a client's creator its bootstrap state root, by
+  the same rule.
+- Updates are validated as in the spec's `validate_light_client_update`:
+  `current >= signature > attested >= finalized`, a finalized slot other
+  than the genesis slot, and a signature slot in the stored period or the
+  next. Whether the next committee is known comes from the trusted state,
+  which keeps its summary, and the signing committee from the signature
+  period: the current one within the stored period, the stored next one in
+  the period after. An update that carries a next committee, attested in the
+  stored period, must carry the one the state already knows, if it knows
+  one; an update may carry none. The header's `ActiveIsNext` flag is
+  ignored: it stays in `Header`, `Misbehaviour` and the wire format only
+  because the format is positional and the relayers send it, and goes when
+  they stop.
 - An update that only reveals the next sync committee is accepted even when it
   does not advance finality, as in the spec's `apply_light_client_update`,
   provided its finalized header is in the attested header's period (the
@@ -84,18 +119,39 @@ of solidity-ibc-eureka (client type `ethereum`):
   could pass: fork epochs out of order, a scheduled fork without a version (a
   zero `Fork{}` reads as active from genesis), Electra unscheduled, or a
   latest slot before Electra.
-- `RecoverClient` keeps every fork active at the subject's latest slot and
-  takes later ones from the substitute: governance can schedule a fork the
-  chain announced after the client was created, or recover a client stalled
-  before one. Forks active at the substitute's latest slot are not required
-  to match, which would refuse exactly that recovery; the substitute verified
-  the state the subject copies under its own schedule. This only covers forks
+- `RecoverClient` keeps the forks the subject verified signed updates under
+  and takes the rest of the substitute's schedule: at every epoch from the
+  lowest slot an applied update read (its finalized slot) to the highest (its
+  signature slot minus one), the fork version, the Gloas layout and Electra
+  support must be the same in both schedules. Elsewhere they may differ:
+  governance can schedule a fork the chain announced after the client was
+  created, recover a client stalled before one, or repair a schedule the
+  client never verified anything under. The initial consensus state is
+  trusted, not verified, so a client created with a wrong schedule for a fork
+  already active at its creation, which accepts no update, may take any valid
+  schedule. Comparing at the substitute's latest slot instead would refuse
+  the stalled client's recovery; comparing every fork active at the subject's
+  latest slot would refuse the wrongly created one's. This only covers forks
   the package knows: `ForkParameters` has no slot after Gloas, and a fork that
   moves the light-client containers needs a new client package.
+- Core recovers only a Frozen or Expired client. On this branch alone, a
+  client facing a fork its schedule lacks keeps rejecting updates while it
+  stays Active, so a fork announced after creation means waiting for it to
+  expire (8 periods after its latest slot, about 9.1 days on mainnet) and
+  then recovering it; the route-controls branch (#84) adds a governed
+  fork-schedule migration for an Active client.
+- Misbehaviour is conflicting finality: two updates, both valid against the
+  latest trusted state and each signed by a 2/3 supermajority, that finalize
+  different beacon headers at the same slot. Different attested heads alone
+  are not evidence, since a reorg yields two. A verified header that would
+  store a different execution state root at a slot the client holds is
+  misbehaviour too. Either freezes the client.
 - Membership is proven with account and storage MPT proofs against the
   finalized execution state root, at the router's
   `commitments[keccak256(path)]` slot. Non-membership is a proof of the zero
-  value.
+  value. A membership path has exactly one element, the ICS24 key (the
+  router's merkle prefix is empty), and a proof height is revision 0 at a
+  stored finalized slot.
 
 **Transport.** Relayers send client messages and packets as `[]byte`
 `MsgCall` arguments to `r/aib/ibc/ethrelay`, in the positional wire format of
@@ -130,6 +186,8 @@ unchanged.
   Solidity payload decodes and re-encodes byte for byte.
 - The client expires `TrustingPeriods` (8) sync committee periods' worth of
   slots after its latest trusted slot, and then refuses updates and
-  misbehaviour until recovered. One that misses a whole sync committee period
-  cannot verify updates either (its committees no longer sign) and must be
-  recovered too.
+  misbehaviour until recovered. Until then a client that fell behind catches
+  up: the signature slot is bounded only from above, by the current slot, so
+  a relayer replays each missed period's update (the beacon API's
+  `light_client/updates`), one period at a time. `ValidateBasic` bounds the
+  slot parameters so that the window never wraps.
