@@ -5,9 +5,19 @@
 
 ## Context
 
-The goal is IBC v2 between gno.land and Ethereum (Sepolia first), with the
-solidity-ibc-eureka contracts (ICS26 router, ICS20 transfer) on Ethereum. On
-the gno side that needs a light client of Ethereum, and three constraints
+The goal is IBC v2 between gno.land and Ethereum (Sepolia first). The
+Ethereum side is [allinbits/gno-eth-ibc](https://github.com/allinbits/gno-eth-ibc).
+Its `main` deploys the ICS26 router and ICS20 transfer app of
+solidity-ibc-eureka v3.0.2 unchanged, with a Solidity light client of
+gno.land, the voucher token and a relayer. Its `feat/ibc-controls` branch,
+which goes with this repo's of the same name, adds a minimal fork of the ICS20
+app with route controls, the IBCAdmin app through which gno.land's governance
+runs them, and an emergency route recovery;
+[docs/controls.md](https://github.com/allinbits/gno-eth-ibc/blob/feat/ibc-controls/docs/controls.md)
+lists them and every change against eureka. The design of both sides is the
+gno ADR [`gno.land/adr/pr6375_ibc_ethereum.md`](https://github.com/gnolang/gno/blob/feat/secp256k1-validators-ibc/gno.land/adr/pr6375_ibc_ethereum.md).
+
+On the gno side that needs a light client of Ethereum, and three constraints
 shape it:
 
 1. **Proof format.** Ethereum state is proven with Merkle-Patricia account and
@@ -52,12 +62,36 @@ of solidity-ibc-eureka (client type `ethereum`):
 - Before Gloas the execution state root comes from the execution payload
   header. From Gloas on, the relayer supplies the RLP execution header, whose
   keccak256 must equal the committed block hash.
+- Updates are validated as in the spec's `validate_light_client_update`.
+  Whether the next committee is known comes from the trusted state, which
+  keeps its summary, and the signing committee from the signature period: the
+  current one within the stored period, the stored next one in the period
+  after. A same-period update must carry the next committee the state already
+  knows, if any. The header's `ActiveIsNext` flag is ignored: it stays in
+  `Header`, `Misbehaviour` and the wire format only because the format is
+  positional and the relayers send it, and goes when they stop.
 - An update that only reveals the next sync committee is accepted even when it
-  does not advance finality, as in the spec's `apply_light_client_update`.
+  does not advance finality, as in the spec's `apply_light_client_update`,
+  provided its finalized header is in the attested header's period (the
+  spec's `update_has_finalized_next_sync_committee`): a period's next
+  committee is final only once a header of that period is.
   Beacon nodes only serve bootstraps at recent checkpoints, so a client often
   starts late in a period, and the period's best update (the only one carrying
   the next committee) is usually older than that. Eureka's client rejects such
   updates; without them this client would get stuck at the period boundary.
+- The fork schedule picks the signing domain, the generalized indices and
+  the supported range, so `ClientState.ValidateBasic` refuses one no update
+  could pass: fork epochs out of order, a scheduled fork without a version (a
+  zero `Fork{}` reads as active from genesis), Electra unscheduled, or a
+  latest slot before Electra.
+- `RecoverClient` keeps every fork active at the subject's latest slot and
+  takes later ones from the substitute: governance can schedule a fork the
+  chain announced after the client was created, or recover a client stalled
+  before one. Forks active at the substitute's latest slot are not required
+  to match, which would refuse exactly that recovery; the substitute verified
+  the state the subject copies under its own schedule. This only covers forks
+  the package knows: `ForkParameters` has no slot after Gloas, and a fork that
+  moves the light-client containers needs a new client package.
 - Membership is proven with account and storage MPT proofs against the
   finalized execution state root, at the router's
   `commitments[keccak256(path)]` slot. Non-membership is a proof of the zero
@@ -94,5 +128,8 @@ unchanged.
 - Tests replay the four recorded devnet runs of the eureka client (11 updates,
   6 storage proofs), a live Sepolia snapshot on Gloas, and tamper cases. A
   Solidity payload decodes and re-encodes byte for byte.
-- The client does not expire on its own: one that misses a whole sync
-  committee period cannot verify updates and must be recovered.
+- The client expires `TrustingPeriods` (8) sync committee periods' worth of
+  slots after its latest trusted slot, and then refuses updates and
+  misbehaviour until recovered. One that misses a whole sync committee period
+  cannot verify updates either (its committees no longer sign) and must be
+  recovered too.
