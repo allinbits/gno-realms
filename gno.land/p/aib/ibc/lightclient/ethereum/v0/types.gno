@@ -50,7 +50,10 @@ type Fork struct {
 // ForkParameters are the forks of the tracked chain.
 type ForkParameters struct {
 	GenesisForkVersion [4]byte
-	GenesisSlot        uint64
+	// GenesisSlot duplicates ClientState.GenesisSlot, which the client
+	// computes with; ValidateBasic requires the two equal. It is kept for
+	// parity with eureka's fork parameters and the wire formats that carry it.
+	GenesisSlot uint64
 	Altair             Fork
 	Bellatrix          Fork
 	Capella            Fork
@@ -163,6 +166,9 @@ func (cs ClientState) ValidateBasic() error {
 	// The forks pick the signing domain (forkVersion), the Merkle layout
 	// (isGloas) and the supported range (verifySupportedFork): a client
 	// created with a wrong schedule would accept no update.
+	if cs.ForkParameters.GenesisSlot != cs.GenesisSlot {
+		return ufmt.Errorf("fork parameters genesis slot %d differs from genesis slot %d", cs.ForkParameters.GenesisSlot, cs.GenesisSlot)
+	}
 	if err := cs.ForkParameters.validate(); err != nil {
 		return err
 	}

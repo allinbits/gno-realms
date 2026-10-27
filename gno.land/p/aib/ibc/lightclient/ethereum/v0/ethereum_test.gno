@@ -497,6 +497,7 @@ func TestClientStateValidatesForks(t *testing.T) {
 			cs.ForkParameters.Electra.Epoch = FarFutureEpoch
 			cs.ForkParameters.Fulu.Epoch = FarFutureEpoch
 		}, "electra fork must be scheduled"},
+		{"fork genesis slot differs", func(cs *ClientState) { cs.ForkParameters.GenesisSlot = 5 }, "fork parameters genesis slot 5 differs from genesis slot 0"},
 		{"latest slot before electra", func(cs *ClientState) {
 			cs.ForkParameters.Electra.Epoch = 20
 			cs.ForkParameters.Fulu.Epoch = 20
@@ -546,6 +547,7 @@ func TestRecoverClientForks(t *testing.T) {
 		{"active fork rewritten", func(p *ForkParameters) { p.Fulu.Version[0]++ }, ""},
 		{"fork without a version", func(p *ForkParameters) { p.Gloas = Fork{Epoch: 30} }, "without a version"},
 		{"forks out of order", func(p *ForkParameters) { p.Deneb.Epoch = 5 }, "precedes the previous fork's"},
+		{"fork genesis slot", func(p *ForkParameters) { p.GenesisSlot++ }, "fork parameters genesis slot 1 differs from genesis slot 0"},
 		{"genesis fork version", func(p *ForkParameters) { p.GenesisForkVersion[0]++ }, "different chain or router"},
 	}
 	for _, tc := range cases {
@@ -677,7 +679,6 @@ func TestRecoverClientRefusals(t *testing.T) {
 		func(cs *ClientState) { cs.SecondsPerSlot++ },
 		func(cs *ClientState) { cs.EpochsPerSyncCommitteePeriod++ },
 		func(cs *ClientState) { cs.ForkParameters.GenesisForkVersion[0]++ },
-		func(cs *ClientState) { cs.ForkParameters.GenesisSlot++ },
 	} {
 		sub := applied(t, f, 3)
 		cs := *sub.ClientState
