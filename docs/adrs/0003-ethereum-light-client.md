@@ -70,9 +70,13 @@ of solidity-ibc-eureka (client type `ethereum`):
   supermajority of the committee (participants * 3 >= `SyncCommitteeSize` *
   2, 342 of 512), besides the configured `MinSyncCommitteeParticipants`, and a
   finalized header. There is no optimistic header and no force update
-  (`process_light_client_store_force_update`): if Ethereum stops finalizing
-  for longer than a period, the client stalls and expires, and governance
-  recovers it.
+  (`process_light_client_store_force_update`). A finality halt stalls the
+  client for good only if no update finalizing a header after its latest
+  slot is signed within the stored period, or the next one when the next
+  committee is known: an update signed later has no committee the client
+  trusts, and older ones finalize nothing new. A halt shorter than that
+  window, even longer than a period, is crossed by the first update after it.
+  Otherwise the client expires and governance recovers it.
 - The finality and next sync committee branches are checked with the
   generalized indices of the attested slot's fork: Electra/Fulu, or Gloas.
   Each header's execution branch (the attested and the finalized one) is
@@ -119,27 +123,34 @@ of solidity-ibc-eureka (client type `ethereum`):
   could pass: fork epochs out of order, a scheduled fork without a version (a
   zero `Fork{}` reads as active from genesis), Electra unscheduled, or a
   latest slot before Electra.
-- `RecoverClient` keeps the forks the subject verified signed updates under
-  and takes the rest of the substitute's schedule: at every epoch from the
-  lowest slot an applied update read (its finalized slot) to the highest (its
-  signature slot minus one), the fork version, the Gloas layout and Electra
-  support must be the same in both schedules. Elsewhere they may differ:
-  governance can schedule a fork the chain announced after the client was
-  created, recover a client stalled before one, or repair a schedule the
-  client never verified anything under. The initial consensus state is
-  trusted, not verified, so a client created with a wrong schedule for a fork
-  already active at its creation, which accepts no update, may take any valid
-  schedule. Comparing at the substitute's latest slot instead would refuse
-  the stalled client's recovery; comparing every fork active at the subject's
-  latest slot would refuse the wrongly created one's. This only covers forks
-  the package knows: `ForkParameters` has no slot after Gloas, and a fork that
-  moves the light-client containers needs a new client package.
-- Core recovers only a Frozen or Expired client. On this branch alone, a
-  client facing a fork its schedule lacks keeps rejecting updates while it
-  stays Active, so a fork announced after creation means waiting for it to
-  expire (8 periods after its latest slot, about 9.1 days on mainnet) and
-  then recovering it; the route-controls branch (#84) adds a governed
-  fork-schedule migration for an Active client.
+- `RecoverClient` requires the substitute to track the same chain and
+  router (chain id, genesis validators root, genesis fork version, slot
+  clock, committee size, router address and commitments slot), to pass
+  `ValidateBasic`, its fork schedule included, and to be ahead; the subject
+  adopts the substitute's schedule. No fork comparison binds the two
+  schedules. Every schedule change goes through a governed path (creation,
+  recovery, and on later core implementations a fork migration or a verifier
+  conversion), and governance already has full power over a client through
+  recovery from a substitute it created from a trusted bootstrap, so a
+  comparison adds no safety against governance. A wrong schedule cannot make
+  false data verify: every state move still needs a 2/3 sync committee
+  signature over the chain's real domain, with Merkle proofs into signed
+  roots. At worst it stops the client from verifying, which another governed
+  action repairs. Each comparison rule tried made some stalled or wrongly
+  configured client unrepairable: what an update was "verified under" rests
+  partly on its signature slot, which the spec marks untrusted and anyone can
+  relabel within a period, and partly on the very schedule being repaired.
+  This only covers forks the package knows: `ForkParameters` has no slot
+  after Gloas, and a fork that moves the light-client containers needs a new
+  client package.
+- Core recovers only a Frozen or Expired client. **A known limit of this
+  branch alone:** a client facing a fork its schedule lacks keeps rejecting
+  updates while it stays Active, so a fork announced after creation means
+  waiting for it to expire (8 periods after its latest slot, about 9.1 days
+  on mainnet) and then recovering it. This branch does not deploy alone: the
+  route-controls branch (#84), which the launch runs, adds the governed
+  fork-schedule migration (core `impl/v1`) that repairs an Active client and
+  removes the limit.
 - Misbehaviour is conflicting finality: two updates, both valid against the
   latest trusted state and each signed by a 2/3 supermajority, that finalize
   different beacon headers at the same slot. Different attested heads alone
