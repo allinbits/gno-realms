@@ -1,6 +1,7 @@
 package ethereum
 
 import (
+	"bytes"
 	"crypto/keccak256"
 	"encoding/hex"
 	"errors"
@@ -127,7 +128,7 @@ func decodeCompactPath(b []byte) (nibbles []byte, isLeaf bool, err error) {
 }
 
 func nibblesEqual(a, b []byte) bool {
-	return bytesEqual(a, b)
+	return bytes.Equal(a, b)
 }
 
 // verifyAccountStorageRoot returns the storage root of the account at
