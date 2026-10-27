@@ -150,6 +150,27 @@ Other parameters (`TrustLevel`, `UnbondingPeriod`, `MaxClockDrift`,
 check rejects the substitute. Changing those requires `UpgradeClient` (or a
 fresh client migration).
 
+## Ethereum clients
+
+The tendermint rules above do not apply to `ethereum` clients; see ADR 0003.
+
+- The substitute must track the same chain and router: chain id, genesis
+  validators root and time, genesis slot, slot timing, sync committee size,
+  router address and commitments slot. Its latest slot must be ahead of the
+  subject's.
+- Its fork schedule must be valid and keep every fork the subject verified
+  signed updates under (the version, the Gloas layout and Electra support at
+  every epoch an applied update read). Other forks may differ, and the
+  subject adopts the substitute's schedule and minimum participation, so a
+  recovery can schedule a fork announced after the client was created or
+  repair a schedule a client never verified anything under.
+- Only a Frozen or Expired subject is recovered. With this core
+  implementation, a client facing a fork its schedule lacks stays Active
+  until it expires (8 sync committee periods after its latest slot, about
+  9.1 days on mainnet), and only then is recovered. A client that merely fell
+  behind needs no recovery: until it expires, a relayer catches it up by
+  replaying each missed period's update.
+
 ## Caveats
 
 - The substitute's `LatestHeight` is not required to be greater than the

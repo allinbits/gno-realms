@@ -22,6 +22,11 @@ const (
 	finalizedRootGindexGloas      = 735
 	nextSyncCommitteeGindexGloas  = 2946
 	executionBlockHashGindexGloas = 2856
+
+	// executionBlockHashGindexDeneb is the payload's block_hash in a Deneb
+	// to Fulu body: the gindex of an Electra or Fulu header converted to
+	// Gloas' hash form.
+	executionBlockHashGindexDeneb = 812
 )
 
 // FarFutureEpoch marks a fork that is not scheduled.
@@ -80,6 +85,13 @@ func (p ForkParameters) validate() error {
 	return nil
 }
 
+var forkNames = []string{"altair", "bellatrix", "capella", "deneb", "electra", "fulu", "gloas"}
+
+// forks lists the forks in activation order.
+func (p ForkParameters) forks() []Fork {
+	return []Fork{p.Altair, p.Bellatrix, p.Capella, p.Deneb, p.Electra, p.Fulu, p.Gloas}
+}
+
 // forkVersion implements compute_fork_version.
 func (p ForkParameters) forkVersion(epoch uint64) [4]byte {
 	switch {
@@ -136,6 +148,9 @@ func (cs ClientState) ValidateBasic() error {
 		return ufmt.Errorf("invalid min sync committee participants %d", cs.MinSyncCommitteeParticipants)
 	case cs.SecondsPerSlot == 0 || cs.SlotsPerEpoch == 0 || cs.EpochsPerSyncCommitteePeriod == 0:
 		return errors.New("seconds per slot, slots per epoch and epochs per period must be positive")
+	case cs.EpochsPerSyncCommitteePeriod > maxUint64/cs.SlotsPerEpoch/TrustingPeriods:
+		// The trusting window, TrustingPeriods periods in slots, must not wrap.
+		return errors.New("slots per epoch and epochs per period overflow the trusting window")
 	case cs.LatestSlot < cs.GenesisSlot:
 		return errors.New("latest slot precedes genesis slot")
 	case cs.IsFrozen:
@@ -160,13 +175,27 @@ func (cs ClientState) periodAtSlot(slot uint64) uint64 {
 	return cs.epochAtSlot(slot) / cs.EpochsPerSyncCommitteePeriod
 }
 
-// slotAtTimestamp returns the slot at unix time t, and false before genesis.
+// slotAtTimestamp returns the slot at unix time t, and false before genesis
+// or when the slot does not fit in a uint64.
 func (cs ClientState) slotAtTimestamp(t uint64) (uint64, bool) {
 	if t < cs.GenesisTime {
 		return 0, false
 	}
-	return (t-cs.GenesisTime)/cs.SecondsPerSlot + cs.GenesisSlot, true
+	elapsed := (t - cs.GenesisTime) / cs.SecondsPerSlot
+	if elapsed > maxUint64-cs.GenesisSlot {
+		return 0, false
+	}
+	return elapsed + cs.GenesisSlot, true
 }
+
+// trustWindow is how many slots past its latest trusted slot the client
+// stays usable: TrustingPeriods sync committee periods. ValidateBasic bounds
+// the parameters so that it does not wrap.
+func (cs ClientState) trustWindow() uint64 {
+	return TrustingPeriods * cs.EpochsPerSyncCommitteePeriod * cs.SlotsPerEpoch
+}
+
+const maxUint64 = ^uint64(0)
 
 func (cs ClientState) isGloas(slot uint64) bool {
 	return cs.epochAtSlot(slot) >= cs.ForkParameters.Gloas.Epoch
@@ -328,13 +357,31 @@ type ExecutionPayloadHeader struct {
 
 // LightClientHeader is a beacon header with the execution data it commits to
 // and the branch proving it in the beacon block body. Before Gloas that is
-// the execution payload header (Execution); from Gloas on, it is only the
-// hash of the latest execution block (ExecutionBlockHash).
+// the execution payload header (Execution) or, in Gloas' converted form, only
+// its block hash (ExecutionBlockHash); from Gloas on, it is only the hash of
+// the latest execution block (ExecutionBlockHash).
 type LightClientHeader struct {
 	Beacon             BeaconBlockHeader
 	Execution          ExecutionPayloadHeader
 	ExecutionBlockHash []byte
 	ExecutionBranch    [][]byte
+}
+
+// hashForm reports whether h carries its execution as a block hash, the form
+// of every Gloas header and of an earlier one converted to Gloas.
+func (h LightClientHeader) hashForm() bool { return len(h.ExecutionBlockHash) > 0 }
+
+// isEmpty reports whether no field of h is set: a header in the hash form
+// carries no payload header.
+func (h ExecutionPayloadHeader) isEmpty() bool {
+	for _, b := range [][]byte{h.ParentHash, h.FeeRecipient, h.StateRoot, h.ReceiptsRoot, h.LogsBloom,
+		h.PrevRandao, h.ExtraData, h.BaseFeePerGas, h.BlockHash, h.TransactionsRoot, h.WithdrawalsRoot} {
+		if len(b) != 0 {
+			return false
+		}
+	}
+	return h.BlockNumber == 0 && h.GasLimit == 0 && h.GasUsed == 0 && h.Timestamp == 0 &&
+		h.BlobGasUsed == 0 && h.ExcessBlobGas == 0
 }
 
 // committeeRoot is the hash_tree_root of the SyncCommittee container the
@@ -385,8 +432,9 @@ type LightClientUpdate struct {
 	SyncAggregate           SyncAggregate
 	SignatureSlot           uint64
 	// FinalizedExecutionHeader is the RLP-encoded execution block header
-	// whose hash is FinalizedHeader.ExecutionBlockHash, from which a Gloas
-	// update takes the execution state root. Unused before Gloas.
+	// whose hash is FinalizedHeader.ExecutionBlockHash, from which an update
+	// whose finalized header is in the hash form takes the execution state
+	// root. Unused when that header carries its payload header.
 	FinalizedExecutionHeader []byte
 	// NonSigners are the members of the signing committee whose bit in
 	// SyncAggregate is unset, in committee order.

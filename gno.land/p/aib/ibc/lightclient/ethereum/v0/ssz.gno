@@ -118,12 +118,17 @@ const (
 // HashTreeRoot of the Deneb-and-later ExecutionPayloadHeader. Electra and
 // Fulu did not change this container.
 func (h ExecutionPayloadHeader) HashTreeRoot() []byte {
+	return merkleize(h.fieldRoots(), 17)
+}
+
+// fieldRoots are the hash_tree_roots of h's 17 fields, the leaves of its root.
+func (h ExecutionPayloadHeader) fieldRoots() [][]byte {
 	// base_fee_per_gas is a uint256: little-endian in its chunk.
 	baseFee := make([]byte, chunkSize)
 	for i := 0; i < len(h.BaseFeePerGas) && i < chunkSize; i++ {
 		baseFee[i] = h.BaseFeePerGas[len(h.BaseFeePerGas)-1-i]
 	}
-	return merkleize([][]byte{
+	return [][]byte{
 		h.ParentHash,
 		padChunk(h.FeeRecipient),
 		h.StateRoot,
@@ -141,7 +146,7 @@ func (h ExecutionPayloadHeader) HashTreeRoot() []byte {
 		h.WithdrawalsRoot,
 		uint64Chunk(h.BlobGasUsed),
 		uint64Chunk(h.ExcessBlobGas),
-	}, 17)
+	}
 }
 
 // pubkeyLeaf is the hash_tree_root of a 48-byte BLS public key, its leaf in

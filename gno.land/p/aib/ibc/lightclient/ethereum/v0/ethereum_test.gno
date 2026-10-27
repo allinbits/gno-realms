@@ -74,7 +74,7 @@ func TestUpdateRejectsTampering(t *testing.T) {
 				bits[i] = 0
 			}
 			bits[0] = 1
-		}, "insufficient sync committee participants"},
+		}, "not enough sync committee signatures"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -507,43 +507,66 @@ func TestClientStateValidatesForks(t *testing.T) {
 	}
 }
 
-// A recovery keeps every fork active at the subject's latest slot and may take
-// later ones from the substitute, which the subject then follows.
+// applied returns a client initialized from f that applied its first n
+// updates, each verified a slot after its signature slot.
+func applied(t *testing.T, f fixture, n int) *EthLightClient {
+	c := NewEthLightClient()
+	urequire.NoError(t, c.Initialize(f.clientState, f.consensusState))
+	for _, hdr := range updates(f)[:n] {
+		urequire.NoError(t, verifyAt(c, hdr))
+		c.UpdateState(hdr)
+	}
+	return c
+}
+
+// withForks returns a copy of c's client state with its fork schedule mutated.
+func withForks(c *EthLightClient, mutate func(p *ForkParameters)) *ClientState {
+	cs := *c.ClientState
+	mutate(&cs.ForkParameters)
+	return &cs
+}
+
+// A recovery keeps every fork the subject verified updates under and may take
+// others from the substitute, which the subject then follows. The subject
+// applied the ERC20 fixture's first update: finalized slot 128 (epoch 16),
+// signature slot 145 (epoch 18), so it verified epochs 16 to 18; the
+// substitute applied two, to slot 192 (epoch 24).
 func TestRecoverClientForks(t *testing.T) {
-	gloas := Fork{Version: [4]byte{0x80, 0, 0, 0x38}, Epoch: 12}
+	gloas := Fork{Version: [4]byte{0x80, 0, 0, 0x38}, Epoch: 20}
 	cases := []struct {
 		name   string
 		mutate func(p *ForkParameters)
 		err    string
 	}{
-		// Epoch 12 is after the subject's latest slot (epoch 9) and before the
-		// substitute's (epoch 16): a subject stalled before a fork it did not
-		// know, recovered from a substitute past it.
-		{"gloas scheduled", func(p *ForkParameters) { p.Gloas = gloas }, ""},
-		{"gloas scheduled before the subject's latest slot", func(p *ForkParameters) { p.Gloas = Fork{Version: gloas.Version, Epoch: 5} }, "different chain or router"},
-		{"active fork rewritten", func(p *ForkParameters) { p.Fulu.Version[0]++ }, "different chain or router"},
-		{"genesis fork rewritten", func(p *ForkParameters) { p.GenesisForkVersion[0]++ }, "different chain or router"},
+		// Epoch 20 is after every epoch the subject verified and before the
+		// substitute's latest slot: a subject stalled before a fork it did
+		// not know, recovered from a substitute past it.
+		{"gloas scheduled after the verified range", func(p *ForkParameters) { p.Gloas = gloas }, ""},
+		// Electra is superseded by Fulu at epoch 1: no update the subject
+		// verified read its version.
+		{"superseded fork rewritten", func(p *ForkParameters) { p.Electra.Version[0]++ }, ""},
+		{"gloas scheduled inside the verified range", func(p *ForkParameters) { p.Gloas = Fork{Version: gloas.Version, Epoch: 17} }, "a fork the subject verified updates under"},
+		{"verified fork rewritten", func(p *ForkParameters) { p.Fulu.Version[0]++ }, "a fork the subject verified updates under"},
+		{"invalid schedule", func(p *ForkParameters) { p.Gloas = Fork{Epoch: 30} }, "without a version"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			f := fixtureErc20()
-			subject := NewEthLightClient()
-			urequire.NoError(t, subject.Initialize(f.clientState, f.consensusState))
-			sub, hdr := firstUpdate(t, f)
-			sub.UpdateState(hdr)
-			cs := *sub.ClientState
-			tc.mutate(&cs.ForkParameters)
-			sub.ClientState = &cs
+			subject := applied(t, f, 1)
+			before := *subject.ClientState
+			sub := applied(t, f, 2)
+			sub.ClientState = withForks(sub, tc.mutate)
 
 			err := subject.RecoverClient(sub)
 			if tc.err != "" {
 				urequire.ErrorContains(t, err, tc.err)
-				urequire.True(t, subject.ClientState.ForkParameters == f.clientState.ForkParameters, "a refused recovery changes nothing")
+				urequire.True(t, subject.ClientState.ForkParameters == before.ForkParameters, "a refused recovery changes nothing")
+				urequire.Equal(t, before.LatestSlot, subject.ClientState.LatestSlot)
 				return
 			}
 			urequire.NoError(t, err)
-			urequire.Equal(t, cs.LatestSlot, subject.ClientState.LatestSlot)
-			urequire.True(t, subject.ClientState.ForkParameters == cs.ForkParameters, "the subject takes the substitute's schedule")
+			urequire.Equal(t, sub.ClientState.LatestSlot, subject.ClientState.LatestSlot)
+			urequire.True(t, subject.ClientState.ForkParameters == sub.ClientState.ForkParameters, "the subject takes the substitute's schedule")
 		})
 	}
 }
@@ -763,5 +786,68 @@ func TestNewFromAfterOverlayKeepsHistory(t *testing.T) {
 		if _, ok := v3.GetConsensusState(heightAtSlot(base.Slot)); !ok {
 			t.Fatalf("advance %v: a third replacement lost the first slot", advance)
 		}
+	}
+}
+
+// A client that applied no update verified nothing under its schedule: one
+// created with a wrong schedule for a fork already active, which accepts no
+// update, is recovered in place from a substitute with the right one.
+func TestRecoverNeverUpdatedClient(t *testing.T) {
+	f := fixtureErc20()
+	cs := f.clientState
+	cs.ForkParameters.Fulu.Version[0]++ // active since epoch 1, before the bootstrap at epoch 9
+	subject := NewEthLightClient()
+	urequire.NoError(t, subject.Initialize(cs, f.consensusState))
+	urequire.ErrorContains(t, verifyAt(subject, updates(f)[0]), "invalid sync committee signature")
+
+	sub := applied(t, f, 1)
+	urequire.NoError(t, subject.RecoverClient(sub))
+	urequire.True(t, subject.ClientState.ForkParameters == f.clientState.ForkParameters)
+	// The recovered subject now verified what the substitute did: a rewrite
+	// of that fork is refused from then on.
+	again := applied(t, f, 2)
+	again.ClientState = withForks(again, func(p *ForkParameters) { p.Fulu.Version[0]++ })
+	urequire.ErrorContains(t, subject.RecoverClient(again), "a fork the subject verified updates under")
+}
+
+// A recovered subject verifies later updates under the schedule it adopted.
+func TestRecoverThenUpdate(t *testing.T) {
+	f := fixtureErc20()
+	steps := updates(f)
+	subject := applied(t, f, 1)
+	sub := applied(t, f, 2)
+	sub.ClientState = withForks(sub, func(p *ForkParameters) {
+		p.Gloas = Fork{Version: [4]byte{0x80, 0, 0, 0x38}, Epoch: 100}
+	})
+	urequire.NoError(t, subject.RecoverClient(sub))
+	urequire.NoError(t, verifyAt(subject, steps[2]))
+	subject.UpdateState(steps[2])
+	urequire.Equal(t, steps[2].ConsensusUpdate.FinalizedHeader.Beacon.Slot, subject.ClientState.LatestSlot)
+	urequire.Equal(t, uint64(100), subject.ClientState.ForkParameters.Gloas.Epoch)
+}
+
+// The substitute must be ahead of the subject and track the same chain and
+// router.
+func TestRecoverClientRefusals(t *testing.T) {
+	f := fixtureErc20()
+	subject := applied(t, f, 2)
+	behind := applied(t, f, 1)
+	urequire.ErrorContains(t, subject.RecoverClient(behind), "substitute must be ahead of the subject")
+	urequire.ErrorContains(t, subject.RecoverClient(applied(t, f, 2)), "substitute must be ahead of the subject")
+
+	for _, mutate := range []func(cs *ClientState){
+		func(cs *ClientState) { cs.ChainID++ },
+		func(cs *ClientState) { cs.IBCContractAddress = flip(cs.IBCContractAddress, 0) },
+		func(cs *ClientState) { cs.IBCCommitmentSlot = flip(cs.IBCCommitmentSlot, 0) },
+		func(cs *ClientState) { cs.GenesisValidatorsRoot = flip(cs.GenesisValidatorsRoot, 0) },
+		func(cs *ClientState) { cs.SlotsPerEpoch++ },
+		func(cs *ClientState) { cs.SyncCommitteeSize *= 2 },
+		func(cs *ClientState) { cs.GenesisTime++ },
+	} {
+		sub := applied(t, f, 3)
+		cs := *sub.ClientState
+		mutate(&cs)
+		sub.ClientState = &cs
+		urequire.ErrorContains(t, subject.RecoverClient(sub), "different chain or router")
 	}
 }

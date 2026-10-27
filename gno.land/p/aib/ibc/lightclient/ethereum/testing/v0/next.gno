@@ -206,24 +206,25 @@ func ToFreezingVerifier(r *ethereum.Retired) lightclient.Interface {
 	return &FreezingVerifier{EthLightClient: ethereum.NewFrom(r)}
 }
 
-// ForkRewriteVersion names the result of ToForkRewriter, a conversion that
-// changes the version of a fork already active: the core refuses its result
+// RouterRewriteVersion names the result of ToRouterRewriter, a conversion
+// that points the verifier at another router: the core refuses its result
 // (ethereum.Retired.CheckSuccessor).
-const ForkRewriteVersion = "ethereum/testing-fork-rewrite"
+const RouterRewriteVersion = "ethereum/testing-router-rewrite"
 
-// ForkRewriter is the v0 verifier with its Fulu version changed.
-type ForkRewriter struct {
+// RouterRewriter is the v0 verifier with its router address changed.
+type RouterRewriter struct {
 	*ethereum.EthLightClient
 }
 
-// VerifierVersion is ForkRewriteVersion.
-func (*ForkRewriter) VerifierVersion() string { return ForkRewriteVersion }
+// VerifierVersion is RouterRewriteVersion.
+func (*RouterRewriter) VerifierVersion() string { return RouterRewriteVersion }
 
-// ToForkRewriter converts a v0 verifier, changing its active Fulu fork.
-func ToForkRewriter(r *ethereum.Retired) lightclient.Interface {
+// ToRouterRewriter converts a v0 verifier, changing its router address.
+func ToRouterRewriter(r *ethereum.Retired) lightclient.Interface {
 	v := ethereum.NewFrom(r)
 	cs := *v.ClientState
-	cs.ForkParameters.Fulu.Version[0] ^= 0xff
+	cs.IBCContractAddress = append([]byte{}, cs.IBCContractAddress...)
+	cs.IBCContractAddress[0] ^= 0xff
 	v.ClientState = &cs
-	return &ForkRewriter{EthLightClient: v}
+	return &RouterRewriter{EthLightClient: v}
 }

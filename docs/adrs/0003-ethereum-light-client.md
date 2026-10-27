@@ -57,6 +57,10 @@ of solidity-ibc-eureka (client type `ethereum`):
   aggregate key minus the non-signers, which the update lists with Merkle
   branches to the pubkeys root. The committee commits to its aggregate key
   next to its keys, so this equals verifying over the signers' keys.
+- **Creation trusts its input.** `CreateClient` takes the client and
+  consensus states as given (core checks their shape with `ValidateBasic`):
+  there is no bootstrap proof, as for any IBC client's creation, so whoever
+  creates the client vouches for its committees and state root.
 - Every header and every misbehaviour builds on the latest trusted state: its
   `TrustedSlot` must equal the client state's `LatestSlot`
   (`checkLatestAnchor`). Older stored consensus states stay usable for
@@ -86,7 +90,8 @@ of solidity-ibc-eureka (client type `ethereum`):
   known, for one signed in the following period; a signature period beyond
   the next is refused. An update's next committee is accepted only when its
   branch verifies, and, for an attested header in the stored period when the
-  trusted state knows its next committee, only when it equals that one. The
+  trusted state knows its next committee, only when it equals that one; an
+  update may carry no next committee at all. The
   header's `ActiveIsNext` flag is ignored: it stays in `Header`,
   `Misbehaviour` and the wire format only because the format is positional
   and the relayers send it, and goes when they stop.
@@ -98,7 +103,11 @@ of solidity-ibc-eureka (client type `ethereum`):
 - An update must carry at least the client state's
   `MinSyncCommitteeParticipants` signers (`validateUpdate`), and to move the
   client a 2/3 supermajority of the committee besides: participants * 3 >=
-  `SyncCommitteeSize` * 2, 342 of 512 (`hasSupermajority`).
+  `SyncCommitteeSize` * 2, 342 of 512 (`hasSupermajority`), and a
+  finalized header. There is no optimistic header and no force update
+  (`process_light_client_store_force_update`): if Ethereum stops finalizing
+  for longer than a period, the client stalls and expires, and governance
+  recovers it.
 - Misbehaviour is conflicting finality: two updates, both valid against the
   latest trusted state, that finalize different beacon headers at the same
   slot, each meeting the 2/3 supermajority an update needs, not only the
@@ -114,9 +123,20 @@ of solidity-ibc-eureka (client type `ethereum`):
   verifies each against its own fork. Headers before Electra are refused
   (`verifySupportedFork`): their indices differ from the ones this client
   uses.
-- Before Gloas the execution state root comes from the execution payload
-  header. From Gloas on, the relayer supplies the RLP execution header, whose
-  keccak256 must equal the committed block hash.
+- An Electra or Fulu header may come in either form: with its execution
+  payload header (gindex 25), or in the form Gloas' `upgrade_lc_header_to_gloas`
+  gives it and a Gloas-era beacon API serves, only the payload's block hash
+  (gindex 812, its branch normalized to Gloas' 11 nodes). Relayers may send
+  either. A Gloas header has only the block-hash form, and a header carrying
+  both forms, or neither, is refused.
+- The execution state root, timestamp and block number come from the
+  finalized header's execution payload header, or, for a header in the
+  block-hash form, from the RLP execution header the relayer supplies, whose
+  keccak256 must equal that hash. Before Gloas the hash is the block's own
+  payload; from Gloas on it is the bid's `parent_block_hash`, so the client
+  tracks the parent execution block of the finalized beacon block. Relayers
+  choose proof heights, and a client's creator its bootstrap state root, by
+  the same rule.
 - An update that only reveals the next sync committee is accepted even when it
   does not advance finality, as in the spec's `apply_light_client_update`,
   provided its finalized header is in the attested header's period (the
@@ -131,17 +151,30 @@ of solidity-ibc-eureka (client type `ethereum`):
   could pass: fork epochs out of order, a scheduled fork without a version (a
   zero `Fork{}` reads as active from genesis), Electra unscheduled, or a
   latest slot before Electra.
-- `RecoverClient` keeps every fork active at the subject's latest slot and
-  takes later ones from the substitute: governance can schedule a fork the
-  chain announced after the client was created, or recover a client stalled
-  before one. Forks active at the substitute's latest slot are not required
-  to match, which would refuse exactly that recovery; the substitute verified
-  the state the subject copies under its own schedule. A verifier
-  replacement's result is held to the same rule and to the creation checks
-  (`Retired.CheckSuccessor`, ADR 0004 R16), and a fork-schedule migration to
-  the creation checks too. This only covers forks
+- `RecoverClient` keeps the forks the subject verified signed updates under
+  and takes the rest of the substitute's schedule: at every epoch from the
+  lowest slot an applied update read (its finalized slot) to the highest (its
+  signature slot minus one), the fork version, the Gloas layout and Electra
+  support must be the same in both schedules. Elsewhere they may differ:
+  governance can schedule a fork the chain announced after the client was
+  created, recover a client stalled before one, or repair a schedule the
+  client never verified anything under. The initial consensus state is
+  trusted, not verified, so a client created with a wrong schedule for a fork
+  already active at its creation, which accepts no update, may take any valid
+  schedule. Comparing at the substitute's latest slot instead would refuse
+  the stalled client's recovery; comparing every fork active at the subject's
+  latest slot would refuse the wrongly created one's. A verifier
+  replacement's result and a fork-schedule migration are held to the same
+  rule and to the creation checks (`Retired.CheckSuccessor`,
+  `CheckForkParameters`, ADR 0004 R16). This only covers forks
   the package knows: `ForkParameters` has no slot after Gloas, and a fork that
   moves the light-client containers needs a new client package.
+- Core recovers only a Frozen or Expired client. An Active client facing a
+  fork its schedule lacks is repaired by the governed fork-schedule
+  migration (`ethereum-fork-schedule`, ADR 0004 R16), which may schedule the
+  fork before or after its activation as long as the client verified
+  nothing under the epochs it changes, so a missed deadline no longer means
+  waiting for expiry.
 - Membership is proven with account and storage MPT proofs against the
   finalized execution state root, at the router's
   `commitments[keccak256(path)]` slot. Non-membership is a proof of the zero
@@ -151,6 +184,8 @@ of solidity-ibc-eureka (client type `ethereum`):
   refused at a nonzero revision, at a slot after the client's `LatestSlot`,
   and at a slot with no trusted consensus state stored (not one the client
   was updated to, or one from before a recovery).
+  A membership path has exactly one element, the ICS24 key (the router's
+  merkle prefix is empty).
 
 **Transport.** Relayers send client messages and packets as `[]byte`
 `MsgCall` arguments to `r/aib/ibc/ethrelay`, in the positional wire format of
@@ -209,7 +244,8 @@ unchanged.
   more than `TrustingPeriods` (8) sync committee periods' worth of slots:
   current slot > `LatestSlot` + 8 * `EpochsPerSyncCommitteePeriod` *
   `SlotsPerEpoch` (`expired`). It counts slots, not period numbers, so the
-  window is the same wherever in a period the latest slot falls. Until then
+  window is the same wherever in a period the latest slot falls, and
+  `ValidateBasic` bounds the slot parameters so that it never wraps. Until then
   it can catch up through successive periods, each update signed in the
   stored period or the next one (with the next committee), which it learns
   period by period; once expired it accepts no update or misbehaviour and
@@ -226,5 +262,14 @@ unchanged.
   `core.ClientRouteIdentity`). A route records them at its enrolment, and a
   replacement client must name the same ones (ADR 0004, R18): a genuine
   client of another router or chain is refused. The fork schedule is not
-  part of it: a fork migration or a recovery may schedule later forks, and
-  the forks already active are held fixed by those paths instead.
+  part of it: a fork migration, a recovery or a verifier replacement may
+  change forks the client verified nothing under, and the forks it verified
+  updates under are held fixed by those paths instead. A route replacement
+  (R18) holds no fork rule between the old client and the new one: it is the
+  path for a compromised or defective client, whose schedule and record of
+  what it verified are what is in doubt, so tying the new client to them
+  would let a broken client block its own replacement. Governance vets the
+  new client's schedule (runbook step 0). A chain split after the old
+  client's latest epoch, both sides keeping the chain id and genesis
+  validators root, cannot be told apart by any parameter check on any path:
+  choosing the canonical side is governance's job.

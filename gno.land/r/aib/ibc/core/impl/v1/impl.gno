@@ -219,8 +219,9 @@ func (l *logic) checkConversion(clientID, to string) error {
 // implementation's conversion and installs the result. The conversion and
 // every check on its result (it names version to, keeps the live verifier's
 // status, Active or Expired, and its latest height and, for a verifier
-// exposing ethereum/v0 state, the slot from which it trusts consensus states
-// and every fork active at that height, its schedule valid)
+// exposing ethereum/v0 state, the slot from which it trusts consensus states,
+// the chain and router, what it verified, and every fork it verified updates
+// under, its schedule valid; and the route identity it reports)
 // run inside one recovered boundary in the core's realm: a
 // panic or a mismatch is a refusal, with nothing changed. Only then is the
 // new verifier installed.
@@ -235,7 +236,8 @@ func (l *logic) replaceVerifier(_ int, rlm realm, clientID, to string) error {
 		return ufmt.Errorf("client %s's verifier keeps no ethereum/v0 state to convert", clientID)
 	}
 	// The conversion sees the live verifier only through a read-only view.
-	cand, err := convertAndCheck(l.conversion(core.VerifierVersion(clientID), to), ethereum.Retire(es.Ethereum()), to, live.Status(), live.LatestHeight(), es.Ethereum().TrustedFromSlot)
+	identity, _ := core.ClientRouteIdentity(clientID)
+	cand, err := convertAndCheck(l.conversion(core.VerifierVersion(clientID), to), ethereum.Retire(es.Ethereum()), to, live.Status(), live.LatestHeight(), es.Ethereum().TrustedFromSlot, identity)
 	if err != nil {
 		return err
 	}
@@ -254,7 +256,7 @@ type ethState interface {
 // verifier and checks the result, any panic on the way returned as a
 // refusal: the view gives the conversion nothing to write with, so a
 // refused conversion leaves nothing half-written.
-func convertAndCheck(convert func(*ethereum.Retired) lightclient.Interface, view *ethereum.Retired, want string, status lightclient.Status, height types.Height, trustedFrom uint64) (cand lightclient.Interface, err error) {
+func convertAndCheck(convert func(*ethereum.Retired) lightclient.Interface, view *ethereum.Retired, want string, status lightclient.Status, height types.Height, trustedFrom uint64, identity string) (cand lightclient.Interface, err error) {
 	defer func() {
 		if r := recover(); r != nil {
 			cand, err = nil, ufmt.Errorf("the converted verifier failed its checks: %v", r)
@@ -282,11 +284,22 @@ func convertAndCheck(convert func(*ethereum.Retired) lightclient.Interface, view
 		if es.Ethereum().TrustedFromSlot != trustedFrom {
 			return nil, ufmt.Errorf("the converted verifier trusts consensus states from slot %d, not %d", es.Ethereum().TrustedFromSlot, trustedFrom)
 		}
-		// Its fork schedule is checked as a created client's is, and keeps
-		// every fork the live verifier has verified under.
+		// The same chain and router, what the live verifier verified, and a
+		// valid fork schedule keeping every fork it verified updates under.
 		if err := view.CheckSuccessor(es.Ethereum()); err != nil {
-			return nil, ufmt.Errorf("the converted verifier's fork schedule: %v", err)
+			return nil, ufmt.Errorf("the converted verifier: %v", err)
 		}
+	}
+	// The route identity the verifier reports, which routes compare (ibcgov
+	// checkIdentity): a wrapper could report another than its embedded
+	// state's. An opaque verifier that reports none is the governed
+	// conversion's own responsibility (R16).
+	got := ""
+	if v, ok := cand.(core.IdentifiedVerifier); ok {
+		got, _ = v.RouteIdentity()
+	}
+	if _, isEth := cand.(ethState); (isEth || got != "") && got != identity {
+		return nil, errors.New("the converted verifier authenticates another route identity")
 	}
 	return cand, nil
 }
