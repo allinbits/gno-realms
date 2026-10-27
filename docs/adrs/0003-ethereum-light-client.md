@@ -5,9 +5,19 @@
 
 ## Context
 
-The goal is IBC v2 between gno.land and Ethereum (Sepolia first), with the
-solidity-ibc-eureka contracts (ICS26 router, ICS20 transfer) on Ethereum. On
-the gno side that needs a light client of Ethereum, and three constraints
+The goal is IBC v2 between gno.land and Ethereum (Sepolia first). The
+Ethereum side is [allinbits/gno-eth-ibc](https://github.com/allinbits/gno-eth-ibc).
+Its `main` deploys the ICS26 router and ICS20 transfer app of
+solidity-ibc-eureka v3.0.2 unchanged, with a Solidity light client of
+gno.land, the voucher token and a relayer. Its `feat/ibc-controls` branch,
+which goes with this repo's of the same name, adds a minimal fork of the ICS20
+app with route controls, the IBCAdmin app through which gno.land's governance
+runs them, and an emergency route recovery;
+[docs/controls.md](https://github.com/allinbits/gno-eth-ibc/blob/feat/ibc-controls/docs/controls.md)
+lists them and every change against eureka. The design of both sides is the
+gno ADR [`gno.land/adr/pr6375_ibc_ethereum.md`](https://github.com/gnolang/gno/blob/feat/secp256k1-validators-ibc/gno.land/adr/pr6375_ibc_ethereum.md).
+
+On the gno side that needs a light client of Ethereum, and three constraints
 shape it:
 
 1. **Proof format.** Ethereum state is proven with Merkle-Patricia account and
@@ -68,13 +78,18 @@ of solidity-ibc-eureka (client type `ethereum`):
   slot, and `signatureSlot` is not after the current slot, which the client
   derives from gno.land's block time (genesis time, seconds per slot): a
   relayer must wait for gno.land's block time to reach a signature slot
-  before submitting it. The header names the signing committee
-  (`ActiveIsNext`): the trusted current committee for an update signed in the
-  stored period, the trusted next committee for one signed in the following
-  period; any other choice, or a signature period beyond the next, is
-  refused. An update's next committee is accepted only when its branch
-  verifies, and, for an attested header in the stored period signed by the
-  trusted next committee, only when it equals that committee.
+  before submitting it. Updates are validated as in the spec's
+  `validate_light_client_update`: whether the next committee is known comes
+  from the trusted state, which keeps its summary, and the signing committee
+  from the signature period: the trusted current committee for an update
+  signed in the stored period, the trusted next committee, which must be
+  known, for one signed in the following period; a signature period beyond
+  the next is refused. An update's next committee is accepted only when its
+  branch verifies, and, for an attested header in the stored period when the
+  trusted state knows its next committee, only when it equals that one. The
+  header's `ActiveIsNext` flag is ignored: it stays in `Header`,
+  `Misbehaviour` and the wire format only because the format is positional
+  and the relayers send it, and goes when they stop.
 - An update that crosses into the next period promotes the trusted next
   committee to current and takes the update's next committee, if it carries
   one, as the new next; an update without one leaves the next committee
@@ -103,11 +118,30 @@ of solidity-ibc-eureka (client type `ethereum`):
   header. From Gloas on, the relayer supplies the RLP execution header, whose
   keccak256 must equal the committed block hash.
 - An update that only reveals the next sync committee is accepted even when it
-  does not advance finality, as in the spec's `apply_light_client_update`.
+  does not advance finality, as in the spec's `apply_light_client_update`,
+  provided its finalized header is in the attested header's period (the
+  spec's `update_has_finalized_next_sync_committee`): a period's next
+  committee is final only once a header of that period is.
   Beacon nodes only serve bootstraps at recent checkpoints, so a client often
   starts late in a period, and the period's best update (the only one carrying
   the next committee) is usually older than that. Eureka's client rejects such
   updates; without them this client would get stuck at the period boundary.
+- The fork schedule picks the signing domain, the generalized indices and
+  the supported range, so `ClientState.ValidateBasic` refuses one no update
+  could pass: fork epochs out of order, a scheduled fork without a version (a
+  zero `Fork{}` reads as active from genesis), Electra unscheduled, or a
+  latest slot before Electra.
+- `RecoverClient` keeps every fork active at the subject's latest slot and
+  takes later ones from the substitute: governance can schedule a fork the
+  chain announced after the client was created, or recover a client stalled
+  before one. Forks active at the substitute's latest slot are not required
+  to match, which would refuse exactly that recovery; the substitute verified
+  the state the subject copies under its own schedule. A verifier
+  replacement's result is held to the same rule and to the creation checks
+  (`Retired.CheckSuccessor`, ADR 0004 R16), and a fork-schedule migration to
+  the creation checks too. This only covers forks
+  the package knows: `ForkParameters` has no slot after Gloas, and a fork that
+  moves the light-client containers needs a new client package.
 - Membership is proven with account and storage MPT proofs against the
   finalized execution state root, at the router's
   `commitments[keccak256(path)]` slot. Non-membership is a proof of the zero
@@ -191,4 +225,6 @@ unchanged.
   commitments slot (`EthLightClient.RouteIdentity`, read through
   `core.ClientRouteIdentity`). A route records them at its enrolment, and a
   replacement client must name the same ones (ADR 0004, R18): a genuine
-  client of another router or chain is refused.
+  client of another router or chain is refused. The fork schedule is not
+  part of it: a fork migration or a recovery may schedule later forks, and
+  the forks already active are held fixed by those paths instead.

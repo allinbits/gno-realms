@@ -20,8 +20,9 @@ import (
 // whose epoch is at or before the current epoch (the later of the latest
 // trusted slot's and the block time's) must be unchanged, version and epoch,
 // and every changed fork must activate after the current epoch. The genesis
-// fork version and slot never change, the fork epochs stay in order, and the
-// schedule must differ from the current one. The client must be Active.
+// fork version and slot never change, the schedule passes ValidateBasic's
+// checks (epochs in order, a version for every scheduled fork), and it must
+// differ from the current one. The client must be Active.
 //
 // Call it on the stored client (the core's verifier): it writes the new state
 // under the receiver's storage realm.
@@ -71,10 +72,33 @@ func (c *EthLightClient) CheckForkParameters(fp ForkParameters) error {
 			return ufmt.Errorf("fork %s at epoch %d precedes fork %s at epoch %d", forkNames[i], n.Epoch, forkNames[i-1], news[i-1].Epoch)
 		}
 	}
-	return nil
+	// The checks a created client's schedule meets: a fork scheduled without
+	// a version would pass the loop, then give every update after it the
+	// zero signing domain.
+	return fp.validate()
 }
 
 var forkNames = []string{"altair", "bellatrix", "capella", "deneb", "electra", "fulu", "gloas"}
+
+// CheckSuccessor is why next cannot take over from the verifier r views in a
+// verifier replacement, or nil: next's fork schedule must pass
+// ValidateBasic's checks and keep every fork active at the retired
+// verifier's latest slot, as a recovery must (see sameActiveForks). A
+// conversion is code of a later core implementation: nothing else holds its
+// result to the checks a created or recovered client meets.
+func (r *Retired) CheckSuccessor(next *EthLightClient) error {
+	old, cs := r.c.ClientState, next.ClientState
+	if err := cs.ForkParameters.validate(); err != nil {
+		return err
+	}
+	if err := cs.verifySupportedFork(cs.LatestSlot); err != nil {
+		return err
+	}
+	if !sameActiveForks(old.ForkParameters, cs.ForkParameters, old.epochAtSlot(old.LatestSlot)) {
+		return errors.New("the successor changes a fork active at the retired verifier's latest slot")
+	}
+	return nil
+}
 
 // forks lists the forks in activation order.
 func (p ForkParameters) forks() []Fork {

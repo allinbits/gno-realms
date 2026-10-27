@@ -1,6 +1,7 @@
 package ethereum
 
 import (
+	"bytes"
 	"errors"
 
 	"gno.land/p/nt/ufmt/v0"
@@ -54,6 +55,29 @@ type ForkParameters struct {
 	// Gloas is the ePBS fork. Set its epoch to FarFutureEpoch while it is
 	// not scheduled.
 	Gloas Fork
+}
+
+// validate checks that the forks are scheduled in order, that every scheduled
+// fork has a version, and that Electra, the first supported fork, is scheduled.
+// A fork left as a zero Fork{} would otherwise be active from genesis: the
+// version check catches it where ordering cannot, when every earlier fork is at
+// epoch 0. Every real fork version from Altair on is non-zero; only mainnet's
+// genesis version is 0x00000000, so GenesisForkVersion is not checked.
+func (p ForkParameters) validate() error {
+	prev := uint64(0)
+	for i, f := range p.forks() {
+		if f.Epoch < prev {
+			return ufmt.Errorf("%s fork epoch %d precedes the previous fork's %d", forkNames[i], f.Epoch, prev)
+		}
+		if f.Epoch != FarFutureEpoch && f.Version == ([4]byte{}) {
+			return ufmt.Errorf("%s fork is scheduled at epoch %d without a version", forkNames[i], f.Epoch)
+		}
+		prev = f.Epoch
+	}
+	if p.Electra.Epoch == FarFutureEpoch {
+		return errors.New("electra fork must be scheduled")
+	}
+	return nil
 }
 
 // forkVersion implements compute_fork_version.
@@ -121,7 +145,13 @@ func (cs ClientState) ValidateBasic() error {
 	case len(cs.IBCCommitmentSlot) != hashSize:
 		return errors.New("ibc commitment slot must be 32 bytes")
 	}
-	return nil
+	// The forks pick the signing domain (forkVersion), the Merkle layout
+	// (isGloas) and the supported range (verifySupportedFork): a client
+	// created with a wrong schedule would accept no update.
+	if err := cs.ForkParameters.validate(); err != nil {
+		return err
+	}
+	return cs.verifySupportedFork(cs.LatestSlot)
 }
 
 func (cs ClientState) epochAtSlot(slot uint64) uint64 { return slot / cs.SlotsPerEpoch }
@@ -173,7 +203,7 @@ type SummarizedSyncCommittee struct {
 }
 
 func (s SummarizedSyncCommittee) equal(o SummarizedSyncCommittee) bool {
-	return bytesEqual(s.PubkeysHash, o.PubkeysHash) && bytesEqual(s.AggregatePubkey, o.AggregatePubkey)
+	return bytes.Equal(s.PubkeysHash, o.PubkeysHash) && bytes.Equal(s.AggregatePubkey, o.AggregatePubkey)
 }
 
 // ConsensusState is the state trusted at a finalized beacon slot. StateRoot is
@@ -394,7 +424,12 @@ func (u LightClientUpdate) validateBasic() error {
 
 // Header is the client message that updates the client from the trusted
 // consensus state at TrustedSlot. The update is signed by that state's
-// current sync committee, or by its next one if ActiveIsNext.
+// current sync committee, or by its next one when signed in the period after
+// it, as the signature slot says.
+//
+// ActiveIsNext is ignored: the client derives the signing committee from the
+// signature period, as the sync protocol does. It is kept only because the
+// wire format is positional and the relayers send it; it goes when they stop.
 type Header struct {
 	ActiveIsNext    bool
 	ConsensusUpdate LightClientUpdate
@@ -407,8 +442,8 @@ func (h *Header) ValidateBasic() error {
 	return h.ConsensusUpdate.validateBasic()
 }
 
-// Misbehaviour is two valid updates attesting different execution state
-// roots at the same slot.
+// Misbehaviour is two valid updates finalizing different beacon headers at
+// the same slot. ActiveIsNext is ignored, as in Header.
 type Misbehaviour struct {
 	ActiveIsNext bool
 	Update1      LightClientUpdate
