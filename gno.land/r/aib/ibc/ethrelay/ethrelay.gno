@@ -23,10 +23,10 @@ package ethrelay
 import (
 	"errors"
 
+	"gno.land/p/aib/encoding/wire/v0"
 	"gno.land/p/aib/ibc/lightclient/ethereum/v0"
 	"gno.land/p/aib/ibc/lightclient/extproof/v0"
 	"gno.land/p/aib/ibc/types/v0"
-	"gno.land/p/aib/encoding/wire/v0"
 	"gno.land/r/aib/ibc/core"
 )
 
