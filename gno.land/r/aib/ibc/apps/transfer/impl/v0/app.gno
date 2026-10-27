@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 
+	"gno.land/p/aib/ibc/ics20/abi/v0"
 	"gno.land/p/aib/ibc/ics20/v0"
 	"gno.land/p/aib/ibc/types/v0"
 	"gno.land/p/nt/ufmt/v0"
@@ -32,8 +33,8 @@ func validatePayload(sourceClient, destinationClient string, payload types.Paylo
 	if payload.Version != transfer.V1 {
 		return ufmt.Errorf("invalid ICS20 version: expected %s, got %s", transfer.V1, payload.Version)
 	}
-	if payload.Encoding != transfer.EncodingProtobuf {
-		return ufmt.Errorf("invalid encoding: expected %s, got %s", transfer.EncodingProtobuf, payload.Encoding)
+	if payload.Encoding != transfer.EncodingProtobuf && payload.Encoding != abi.Encoding {
+		return ufmt.Errorf("invalid encoding: expected %s or %s, got %s", transfer.EncodingProtobuf, abi.Encoding, payload.Encoding)
 	}
 	return nil
 }
@@ -43,7 +44,7 @@ func (l *logic) OnSendPacket(_ int, rlm realm, sourceClient, destinationClient s
 		return err
 	}
 
-	data, token, err := unmarshalPayload(payload.Value)
+	data, token, err := unmarshalPayload(payload)
 	if err != nil {
 		return err
 	}
@@ -179,7 +180,7 @@ func (l *logic) OnRecvPacket(_ int, rlm realm, sourceClient, destinationClient s
 		transfer.EmitPacket(0, rlm, attrs...)
 	}()
 
-	data, token, ackErr = unmarshalPayload(payload.Value)
+	data, token, ackErr = unmarshalPayload(payload)
 	if ackErr != nil {
 		ack = types.NewErrorAppAcknowledgement(ackErr)
 		return types.RecvPacketResult{Status: types.PacketStatus_Failure}
@@ -303,7 +304,7 @@ func (l *logic) OnAcknowledgementPacket(_ int, rlm realm, sourceClient, destinat
 		}
 	}
 
-	data, token, err := unmarshalPayload(payload.Value)
+	data, token, err := unmarshalPayload(payload)
 	if err != nil {
 		return err
 	}
@@ -341,7 +342,7 @@ func (l *logic) OnAcknowledgementPacket(_ int, rlm realm, sourceClient, destinat
 // OnTimeoutPacket processes a transfer packet timeout by refunding the tokens
 // to the sender.
 func (l *logic) OnTimeoutPacket(_ int, rlm realm, sourceClient, destinationClient string, sequence uint64, payload types.Payload) error {
-	data, token, err := unmarshalPayload(payload.Value)
+	data, token, err := unmarshalPayload(payload)
 	if err != nil {
 		return err
 	}
@@ -383,9 +384,19 @@ func (l *logic) refundPacketToken(_ int, rlm realm, sourcePort, sourceClient, se
 	return nil
 }
 
-func unmarshalPayload(bz []byte) (ics20.FungibleTokenPacketData, ics20.Token, error) {
-	var data ics20.FungibleTokenPacketData
-	if err := data.ProtoUnmarshal(bz); err != nil {
+// unmarshalPayload decodes the packet data of payload in its encoding:
+// protobuf, or Solidity ABI from the Ethereum ICS20 application.
+func unmarshalPayload(payload types.Payload) (ics20.FungibleTokenPacketData, ics20.Token, error) {
+	var (
+		data ics20.FungibleTokenPacketData
+		err  error
+	)
+	if payload.Encoding == abi.Encoding {
+		data, err = abi.Unmarshal(payload.Value)
+	} else {
+		err = data.ProtoUnmarshal(payload.Value)
+	}
+	if err != nil {
 		return data, ics20.Token{}, ufmt.Errorf("decoding FungibleTokenPacketData: %v", err)
 	}
 	if err := data.ValidateBasic(); err != nil {

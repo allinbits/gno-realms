@@ -26,6 +26,7 @@ test:
 	@set -e; for pkg in $(GNO_TEST_PKGS); do go tool gno test ./$$pkg; done
 	go test -C ./cmd/gen-block-signatures
 	go test -C ./cmd/gen-proof
+	go test -C ./cmd/gen-eth-synthetic
 
 # Download gno module dependencies by starting a local gnodev from the fork.
 # This is needed because some dependencies (e.g. p/onbloc/*) are not available
