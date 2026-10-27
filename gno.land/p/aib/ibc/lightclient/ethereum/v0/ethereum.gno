@@ -33,6 +33,13 @@ type EthLightClient struct {
 	ClientState            *ClientState
 	ConsensusStateByHeight *bptree.BPTree // height:*ConsensusState
 
+	// verified is whether the client has applied a signed update, and
+	// verifiedFrom and verifiedTo bound the slots whose forks those updates
+	// were verified under (see keepsVerifiedForks). The initial consensus
+	// state is trusted as given: a client that applied no update verified
+	// nothing under its fork schedule.
+	verified                 bool
+	verifiedFrom, verifiedTo uint64
 }
 
 var (
@@ -126,7 +133,7 @@ func now() uint64 { return uint64(time.Now().Unix()) }
 func (c *EthLightClient) currentSlot() (uint64, error) {
 	slot, ok := c.ClientState.slotAtTimestamp(now())
 	if !ok {
-		return 0, errors.New("current time precedes the tracked chain's genesis")
+		return 0, errors.New("current time precedes the tracked chain's genesis, or its slot overflows")
 	}
 	return slot, nil
 }
@@ -160,12 +167,14 @@ func (c *EthLightClient) verifyHeader(h *Header) error {
 		return err
 	}
 	u := h.ConsensusUpdate
-	if err := c.validateUpdate(trusted, u, current); err != nil {
-		return err
-	}
-	// Only a 2/3 supermajority may move the client.
+	// Only a 2/3 supermajority may move the client; checked first, as for
+	// misbehaviour, so no signature is verified for an update that could not
+	// apply.
 	if !hasSupermajority(u) {
 		return errors.New("not enough sync committee signatures")
+	}
+	if err := c.validateUpdate(trusted, u, current); err != nil {
+		return err
 	}
 	if u.FinalizedHeader.Beacon.Slot <= trusted.Slot {
 		// As in the sync protocol's apply_light_client_update, an update that
@@ -316,6 +325,13 @@ func (c *EthLightClient) nonSignerKeys(active SummarizedSyncCommittee, u LightCl
 // validateLightClientHeader implements is_valid_light_client_header for
 // Electra and later: the execution payload header, or from Gloas on the
 // execution block hash, is in the beacon block body.
+//
+// An Electra or Fulu header may come in either form: with its execution
+// payload header (gindex 25), or, as Gloas' upgrade_lc_header_to_gloas
+// converts it and the beacon API serves it once Gloas is live, with only the
+// payload's block hash (gindex 812, EXECUTION_BLOCK_HASH_GINDEX_DENEB). A
+// Gloas header has only the hash form. A header carrying both, or neither, is
+// refused.
 func (c *EthLightClient) validateLightClientHeader(h LightClientHeader) error {
 	if err := c.ClientState.verifySupportedFork(h.Beacon.Slot); err != nil {
 		return err
@@ -329,12 +345,20 @@ func (c *EthLightClient) validateLightClientHeader(h LightClientHeader) error {
 	if err := validateBranch(h.ExecutionBranch); err != nil {
 		return ufmt.Errorf("execution branch: %v", err)
 	}
+	gloas := c.ClientState.isGloas(h.Beacon.Slot)
+	hashForm := h.hashForm()
+	if hashForm && !h.Execution.isEmpty() {
+		return errors.New("header carries both an execution payload header and an execution block hash")
+	}
 	leaf, gindex := []byte(nil), uint64(executionPayloadGindex)
-	if c.ClientState.isGloas(h.Beacon.Slot) {
+	if gloas || hashForm {
 		if len(h.ExecutionBlockHash) != hashSize {
 			return errors.New("execution block hash must be 32 bytes")
 		}
-		leaf, gindex = h.ExecutionBlockHash, executionBlockHashGindexGloas
+		leaf, gindex = h.ExecutionBlockHash, executionBlockHashGindexDeneb
+		if gloas {
+			gindex = executionBlockHashGindexGloas
+		}
 	} else {
 		if err := h.Execution.validateSizes(); err != nil {
 			return err
@@ -354,13 +378,13 @@ type executionData struct {
 	blockNumber uint64
 }
 
-// verifyFinalizedExecution checks, from Gloas on, that the update's RLP
-// execution header is the one whose hash its finalized beacon header commits
-// to. Before Gloas the execution payload header is proven by the header's
-// execution branch.
+// verifyFinalizedExecution checks, for a finalized header in the hash form
+// (every Gloas header, and an Electra or Fulu one converted to it), that the
+// update's RLP execution header is the one whose hash it commits to. A header
+// in the payload form is proven by its execution branch.
 func (c *EthLightClient) verifyFinalizedExecution(u LightClientUpdate) error {
 	h := u.FinalizedHeader
-	if !c.ClientState.isGloas(h.Beacon.Slot) {
+	if !h.hashForm() {
 		return nil
 	}
 	if !bytes.Equal(keccak(u.FinalizedExecutionHeader), h.ExecutionBlockHash) {
@@ -370,14 +394,16 @@ func (c *EthLightClient) verifyFinalizedExecution(u LightClientUpdate) error {
 }
 
 // finalizedExecution returns the execution data of the update's finalized
-// header: its execution payload header before Gloas, the decoded execution
-// block header from Gloas on. It does not check that header's hash: call it
+// header: its execution payload header in the payload form, the decoded RLP
+// execution block header in the hash form. Before Gloas that is the block's
+// own payload; from Gloas on, the hash is the bid's parent_block_hash, so the
+// data is the parent execution block's. It does not check that header's hash: call it
 // only on an update whose header verifyFinalizedExecution accepted. Once the
 // hash matches, the bytes are the header the signed beacon chain committed
 // to, so they are decoded once, where the data is used.
 func (c *EthLightClient) finalizedExecution(u LightClientUpdate) (executionData, error) {
 	h := u.FinalizedHeader
-	if !c.ClientState.isGloas(h.Beacon.Slot) {
+	if !h.hashForm() {
 		return executionData{h.Execution.StateRoot, h.Execution.Timestamp, h.Execution.BlockNumber}, nil
 	}
 	return decodeExecutionHeader(u.FinalizedExecutionHeader)
@@ -488,6 +514,7 @@ func (c *EthLightClient) UpdateState(clientMsg lightclient.ClientMessage) []type
 		s := cloneSummary(*u.NextSyncCommittee)
 		next.NextSyncCommittee = &s
 		c.setConsensusState(&next)
+		c.recordVerified(u)
 		return []types.Height{heightAtSlot(trusted.Slot)}
 	}
 	storePeriod := cs.periodAtSlot(trusted.Slot)
@@ -521,6 +548,7 @@ func (c *EthLightClient) UpdateState(clientMsg lightclient.ClientMessage) []type
 	next.StateRoot = cloneBytes(exec.stateRoot)
 	next.Timestamp = exec.timestamp
 	c.setConsensusState(&next)
+	c.recordVerified(u)
 
 	if finalizedSlot > cs.LatestSlot {
 		updated := *cs
@@ -638,8 +666,8 @@ func (c *EthLightClient) expired() bool {
 		return false
 	}
 	cs := c.ClientState
-	window := TrustingPeriods * cs.EpochsPerSyncCommitteePeriod * cs.SlotsPerEpoch
-	return current > cs.LatestSlot+window
+	// Elapsed slots by subtraction: LatestSlot plus the window could wrap.
+	return current > cs.LatestSlot && current-cs.LatestSlot > cs.trustWindow()
 }
 
 // checkLatestAnchor requires a client message to build on the latest trusted
@@ -689,23 +717,22 @@ func (c *EthLightClient) TimestampAtHeight(height types.Height) (uint64, error) 
 
 // Implements lightclient.Interface. The substitute must track the same chain
 // and router; its latest consensus state is copied and the subject unfrozen.
-// It may schedule forks the subject does not know yet (see sameActiveForks),
-// and the subject takes its fork schedule.
+// It may schedule forks differently wherever the subject verified nothing
+// (see keepsVerifiedForks), and the subject takes its fork schedule.
 func (c *EthLightClient) RecoverClient(substitute lightclient.Interface) error {
 	sub, ok := substitute.(*EthLightClient)
 	if !ok {
 		return ufmt.Errorf("substitute must be an ethereum client, got %T", substitute)
 	}
 	a, b := c.ClientState, sub.ClientState
-	if a.ChainID != b.ChainID || !bytes.Equal(a.GenesisValidatorsRoot, b.GenesisValidatorsRoot) ||
-		!sameActiveForks(a.ForkParameters, b.ForkParameters, a.epochAtSlot(a.LatestSlot)) ||
-		a.SyncCommitteeSize != b.SyncCommitteeSize ||
-		a.GenesisTime != b.GenesisTime || a.GenesisSlot != b.GenesisSlot ||
-		a.SecondsPerSlot != b.SecondsPerSlot || a.SlotsPerEpoch != b.SlotsPerEpoch ||
-		a.EpochsPerSyncCommitteePeriod != b.EpochsPerSyncCommitteePeriod ||
-		!bytes.Equal(a.IBCContractAddress, b.IBCContractAddress) ||
-		!bytes.Equal(a.IBCCommitmentSlot, b.IBCCommitmentSlot) {
+	if !sameChainAndRouter(a, b) {
 		return errors.New("substitute client tracks a different chain or router")
+	}
+	if err := b.ForkParameters.validate(); err != nil {
+		return ufmt.Errorf("substitute fork schedule: %v", err)
+	}
+	if !c.keepsVerifiedForks(b.ForkParameters) {
+		return errors.New("substitute changes a fork the subject verified updates under")
 	}
 	if b.LatestSlot <= a.LatestSlot {
 		return errors.New("substitute must be ahead of the subject")
@@ -723,36 +750,96 @@ func (c *EthLightClient) RecoverClient(substitute lightclient.Interface) error {
 	updated.ForkParameters = b.ForkParameters
 	updated.IsFrozen = false
 	c.ClientState = &updated
+	// The subject keeps its own consensus states and now holds one the
+	// substitute verified: both ranges are verified under the new schedule.
+	c.mergeVerified(sub)
 	return nil
 }
 
-// sameActiveForks reports whether b schedules the forks active at epoch
-// exactly as a does; forks after it may differ, so a recovery can schedule a
-// fork the chain announced after the subject was created, or move one it
-// postponed. Recovery is governed, so scheduling a fork is a governance act.
+// sameChainAndRouter reports whether a and b track the same chain, with the
+// same slot clock and committee size, and the same router: every client state
+// field but the fork schedule, the latest slot and block number, the
+// minimum participation and the frozen flag.
+func sameChainAndRouter(a, b *ClientState) bool {
+	return a.ChainID == b.ChainID && bytes.Equal(a.GenesisValidatorsRoot, b.GenesisValidatorsRoot) &&
+		a.SyncCommitteeSize == b.SyncCommitteeSize &&
+		a.GenesisTime == b.GenesisTime && a.GenesisSlot == b.GenesisSlot &&
+		a.SecondsPerSlot == b.SecondsPerSlot && a.SlotsPerEpoch == b.SlotsPerEpoch &&
+		a.EpochsPerSyncCommitteePeriod == b.EpochsPerSyncCommitteePeriod &&
+		bytes.Equal(a.IBCContractAddress, b.IBCContractAddress) &&
+		bytes.Equal(a.IBCCommitmentSlot, b.IBCCommitmentSlot)
+}
+
+// recordVerified extends the range of slots whose forks the client verified
+// a signed update under with u's: its finalized slot (the lowest it reads)
+// to its signature slot minus one (the slot its signing domain comes from).
+func (c *EthLightClient) recordVerified(u LightClientUpdate) {
+	c.extendVerified(u.FinalizedHeader.Beacon.Slot, u.SignatureSlot-1)
+}
+
+func (c *EthLightClient) extendVerified(from, to uint64) {
+	if !c.verified || from < c.verifiedFrom {
+		c.verifiedFrom = from
+	}
+	if !c.verified || to > c.verifiedTo {
+		c.verifiedTo = to
+	}
+	c.verified = true
+}
+
+func (c *EthLightClient) mergeVerified(o *EthLightClient) {
+	if o.verified {
+		c.extendVerified(o.verifiedFrom, o.verifiedTo)
+	}
+}
+
+// keepsVerifiedForks reports whether fp schedules every fork c verified a
+// signed update under as c's own schedule does: the same fork version, the
+// same Merkle layout (Gloas or not) and the same supported range (Electra or
+// later) at every epoch from c's lowest verified slot to its highest. Forks
+// outside that range may differ, so governance can schedule a fork the chain
+// announced after the client was created, move one it postponed, or repair a
+// schedule the client never verified anything under.
 //
-// RecoverClient passes the epoch of the subject's latest slot, not the
-// substitute's. The consensus states the subject keeps, and still proves
-// packets against, were verified under its schedule up to that epoch, so
-// those forks must stay. Later forks only decide how the subject goes on from
-// the state it copies, which the substitute verified under b's schedule
-// (checked by ValidateBasic when it was created), so the subject takes that
-// schedule with it. Comparing at the substitute's latest slot would refuse
-// the recovery this exists for: a subject stalled before a fork it did not
-// know, recovered from a substitute already past it.
+// The range, not the latest slot, is what counts. The client's initial
+// consensus state is trusted as given, not verified: a client created with a
+// wrong schedule for a fork already active at its creation accepts no
+// update, and since it verified nothing it may take any valid schedule. And
+// a fork active at the latest slot but superseded before the first verified
+// slot, whose version no update read, may differ too. Within the range the
+// stored consensus states were verified under c's schedule: a substitute,
+// successor or migration that changed it there would say they were verified
+// under the wrong one.
 //
 // ForkParameters has no slot after Gloas, and a fork that moves the
 // light-client containers (new generalized indices, as Gloas did) needs new
 // verification code too: such a fork still needs a new client package.
-func sameActiveForks(a, b ForkParameters, epoch uint64) bool {
-	if a.GenesisForkVersion != b.GenesisForkVersion || a.GenesisSlot != b.GenesisSlot {
+func (c *EthLightClient) keepsVerifiedForks(fp ForkParameters) bool {
+	if !c.verified {
+		return true
+	}
+	cs := c.ClientState
+	return sameForksOver(cs.ForkParameters, fp, cs.epochAtSlot(c.verifiedFrom), cs.epochAtSlot(c.verifiedTo))
+}
+
+// sameForksOver reports whether a and b give every epoch from from to to the
+// same fork version, layout and support. Each is constant between fork
+// epochs, so comparing at from and at every fork epoch of either schedule in
+// (from, to] covers the range.
+func sameForksOver(a, b ForkParameters, from, to uint64) bool {
+	same := func(e uint64) bool {
+		return a.forkVersion(e) == b.forkVersion(e) &&
+			(e >= a.Gloas.Epoch) == (e >= b.Gloas.Epoch) &&
+			(e >= a.Electra.Epoch) == (e >= b.Electra.Epoch)
+	}
+	if !same(from) {
 		return false
 	}
-	pairs := [][2]Fork{{a.Altair, b.Altair}, {a.Bellatrix, b.Bellatrix}, {a.Capella, b.Capella},
-		{a.Deneb, b.Deneb}, {a.Electra, b.Electra}, {a.Fulu, b.Fulu}, {a.Gloas, b.Gloas}}
-	for _, p := range pairs {
-		if (p[0].Epoch <= epoch || p[1].Epoch <= epoch) && p[0] != p[1] {
-			return false
+	for _, p := range []ForkParameters{a, b} {
+		for _, f := range p.forks() {
+			if f.Epoch > from && f.Epoch <= to && !same(f.Epoch) {
+				return false
+			}
 		}
 	}
 	return true
