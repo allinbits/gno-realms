@@ -105,9 +105,13 @@ of solidity-ibc-eureka (client type `ethereum`):
   client a 2/3 supermajority of the committee besides: participants * 3 >=
   `SyncCommitteeSize` * 2, 342 of 512 (`hasSupermajority`), and a
   finalized header. There is no optimistic header and no force update
-  (`process_light_client_store_force_update`): if Ethereum stops finalizing
-  for longer than a period, the client stalls and expires, and governance
-  recovers it.
+  (`process_light_client_store_force_update`). A finality halt stalls the
+  client for good only if no update finalizing a header after its latest
+  slot is signed within the stored period, or the next one when the next
+  committee is known: an update signed later has no committee the client
+  trusts, and older ones finalize nothing new. A halt shorter than that
+  window, even longer than a period, is crossed by the first update after it.
+  Otherwise the client expires and governance recovers it.
 - Misbehaviour is conflicting finality: two updates, both valid against the
   latest trusted state, that finalize different beacon headers at the same
   slot, each meeting the 2/3 supermajority an update needs, not only the
@@ -151,29 +155,33 @@ of solidity-ibc-eureka (client type `ethereum`):
   could pass: fork epochs out of order, a scheduled fork without a version (a
   zero `Fork{}` reads as active from genesis), Electra unscheduled, or a
   latest slot before Electra.
-- `RecoverClient` keeps the forks the subject verified signed updates under
-  and takes the rest of the substitute's schedule: at every epoch from the
-  lowest slot an applied update read (its finalized slot) to the highest (its
-  signature slot minus one), the fork version, the Gloas layout and Electra
-  support must be the same in both schedules. Elsewhere they may differ:
-  governance can schedule a fork the chain announced after the client was
-  created, recover a client stalled before one, or repair a schedule the
-  client never verified anything under. The initial consensus state is
-  trusted, not verified, so a client created with a wrong schedule for a fork
-  already active at its creation, which accepts no update, may take any valid
-  schedule. Comparing at the substitute's latest slot instead would refuse
-  the stalled client's recovery; comparing every fork active at the subject's
-  latest slot would refuse the wrongly created one's. A verifier
-  replacement's result and a fork-schedule migration are held to the same
-  rule and to the creation checks (`Retired.CheckSuccessor`,
-  `CheckForkParameters`, ADR 0004 R16). This only covers forks
-  the package knows: `ForkParameters` has no slot after Gloas, and a fork that
-  moves the light-client containers needs a new client package.
+- `RecoverClient` requires the substitute to track the same chain and
+  router (chain id, genesis validators root, genesis fork version, slot
+  clock, committee size, router address and commitments slot), to pass
+  `ValidateBasic`, its fork schedule included, and to be ahead; the subject
+  adopts the substitute's schedule. No fork comparison binds the two
+  schedules, and none binds a fork-schedule migration or a verifier
+  replacement's result either: both must pass the creation checks
+  (`CheckForkParameters`, `Retired.CheckSuccessor`, ADR 0004 R16), keep the
+  genesis fork, and, for a replacement, the chain and router. Every schedule change goes through a governed path (creation,
+  recovery, and on later core implementations a fork migration or a verifier
+  conversion), and governance already has full power over a client through
+  recovery from a substitute it created from a trusted bootstrap, so a
+  comparison adds no safety against governance. A wrong schedule cannot make
+  false data verify: every state move still needs a 2/3 sync committee
+  signature over the chain's real domain, with Merkle proofs into signed
+  roots. At worst it stops the client from verifying, which another governed
+  action repairs. Each comparison rule tried made some stalled or wrongly
+  configured client unrepairable: what an update was "verified under" rests
+  partly on its signature slot, which the spec marks untrusted and anyone can
+  relabel within a period, and partly on the very schedule being repaired.
+  This only covers forks the package knows: `ForkParameters` has no slot
+  after Gloas, and a fork that moves the light-client containers needs a new
+  client package.
 - Core recovers only a Frozen or Expired client. An Active client facing a
   fork its schedule lacks is repaired by the governed fork-schedule
   migration (`ethereum-fork-schedule`, ADR 0004 R16), which may schedule the
-  fork before or after its activation as long as the client verified
-  nothing under the epochs it changes, so a missed deadline no longer means
+  fork before or after its activation, so a missed deadline does not mean
   waiting for expiry.
 - Membership is proven with account and storage MPT proofs against the
   finalized execution state root, at the router's
@@ -263,12 +271,10 @@ unchanged.
   replacement client must name the same ones (ADR 0004, R18): a genuine
   client of another router or chain is refused. The fork schedule is not
   part of it: a fork migration, a recovery or a verifier replacement may
-  change forks the client verified nothing under, and the forks it verified
-  updates under are held fixed by those paths instead. A route replacement
-  (R18) holds no fork rule between the old client and the new one: it is the
-  path for a compromised or defective client, whose schedule and record of
-  what it verified are what is in doubt, so tying the new client to them
-  would let a broken client block its own replacement. Governance vets the
+  change it, governed, and no path compares the old schedule with the new
+  one (see `RecoverClient` above). A route replacement (R18) holds no fork
+  rule between the old client and the new one either; it is also the path
+  for a compromised or defective client, whose schedule is what is in doubt. Governance vets the
   new client's schedule (runbook step 0). A chain split after the old
   client's latest epoch, both sides keeping the chain id and genesis
   validators root, cannot be told apart by any parameter check on any path:

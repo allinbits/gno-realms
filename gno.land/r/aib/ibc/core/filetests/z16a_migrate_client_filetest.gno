@@ -61,8 +61,8 @@ func newEthereumClient(cur realm) string {
 // Ethereum client, keeping its id and consensus states. It needs an
 // implementation that migrates (impl/v1, installed by a governance decision)
 // and a decision of ibcgov; the new schedule must pass a created client's
-// checks (and keep the forks the client verified updates under: this one
-// applied none, see ethereum's TestMigrateForkParametersRefusals).
+// checks and keep the genesis fork (see ethereum's
+// TestMigrateForkParametersRefusals).
 func main(cur realm) {
 	id := newEthereumClient(cur)
 	cs := core.ClientStatus(id)

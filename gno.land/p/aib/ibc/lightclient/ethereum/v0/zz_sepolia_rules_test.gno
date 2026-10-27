@@ -104,3 +104,22 @@ func TestSepoliaConflictingRootFreezes(t *testing.T) {
 	c.UpdateStateOnMisbehaviour(hdr)
 	urequire.Equal(t, "Frozen", string(c.Status()))
 }
+
+// From Gloas on the client stores the parent execution block's data: the
+// block hash a Gloas beacon block commits to is its bid's parent_block_hash.
+// The live finality update finalizes beacon slot 11361279, whose parent
+// execution block is 11920568, timestamped before that slot began.
+func TestSepoliaStoresParentExecutionBlock(t *testing.T) {
+	c, hdr := sepoliaAt(t, 1)
+	urequire.NoError(t, c.VerifyClientMessage(hdr))
+	c.UpdateState(hdr)
+	cs := c.ClientState
+	slot := hdr.ConsensusUpdate.FinalizedHeader.Beacon.Slot
+	urequire.Equal(t, uint64(11361279), slot)
+	urequire.Equal(t, uint64(11920568), cs.LatestExecutionBlockNumber)
+	ts, err := c.TimestampAtHeight(types.NewHeight(0, slot))
+	urequire.NoError(t, err)
+	slotStart := cs.GenesisTime + (slot-cs.GenesisSlot)*cs.SecondsPerSlot
+	urequire.True(t, ts < slotStart, "the parent block precedes the finalized slot")
+	urequire.Equal(t, slotStart-12, ts) // the parent block is the previous slot's
+}

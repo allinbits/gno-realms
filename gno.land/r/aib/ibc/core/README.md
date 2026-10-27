@@ -267,15 +267,13 @@ read through its `Ethereum()` state, so it may be the v0 verifier or a
 verifier version that wraps it (as after a verifier replacement), and so may
 the subject; a verifier type without that state needs recovery support of
 its own. The substitute must track the same chain and router: the same chain id, genesis validators root,
-genesis time and slot, sync committee size, seconds per slot,
+genesis time and slot, genesis fork version, sync committee size, seconds per slot,
 slots per epoch, epochs per sync committee period, router (IBC contract)
 address and commitment slot; its latest slot must be strictly ahead of the
-subject's, with a consensus state there. Its fork schedule must be valid and
-keep every fork the subject verified signed updates under: the fork version,
-the Gloas layout and Electra support at every epoch from the lowest slot an
-applied update read to the highest. Other forks may differ: a recovery can
-schedule a fork the subject did not know, recover a client stalled before
-one, or repair the schedule of a client that never applied an update. `ethereum.RecoverClient` then copies
+subject's, with a consensus state there. Its client state must pass
+`ValidateBasic`, its fork schedule included; no fork comparison binds it to
+the subject's schedule (ADR 0003), so a recovery can schedule a fork the
+subject did not know or repair a wrong schedule. `ethereum.RecoverClient` then copies
 the substitute's latest consensus state into the subject, adopts its latest
 slot and execution block number, its minimum sync committee
 participation and its fork schedule, unfreezes the subject, and trusts nothing older: consensus
@@ -550,10 +548,8 @@ own, and is refused, the decision spent); the conversion and every check on its 
 version, keeps the live verifier's status, Active or Expired, its latest
 height and, when it exposes ethereum/v0 state, the slot it trusts consensus
 states from and `Retired.CheckSuccessor`'s checks: the same chain and router
-as the live verifier, its record of what the live verifier verified, and a
-valid fork schedule keeping every fork the live verifier verified updates
-under; and, for such a verifier or one that reports a route identity, the
-live verifier's route identity) run inside one recovered
+as the live verifier and a valid fork schedule; and, for such a verifier or
+one that reports a route identity, the live verifier's route identity) run inside one recovered
 boundary in the core's realm: a panic or a mismatch refuses the migration
 with nothing changed, and the decision is spent; otherwise the verifier is
 installed through `Client.SetLightClient`. The new verifier keeps the
@@ -578,11 +574,9 @@ decision is spent. The new schedule is checked
 decision executes, before anything changes: the client must be Active, the schedule must differ from the current
 one, the genesis fork version and slot never change, the schedule passes the
 checks of a created client's (epochs in order, a version for every scheduled
-fork, Electra at or before the latest slot), and it keeps every fork the
-client verified signed updates under, as a recovery must. A fork that
-activated after the last epoch the client verified may still be scheduled,
-so a migration landing after the fork it schedules repairs a client stalled
-before it without waiting for expiry. A fork whose containers
+fork, Electra at or before the latest slot). Nothing else binds it to the
+current schedule (ADR 0003), so a migration landing after the fork it
+schedules repairs a client stalled before it without waiting for expiry. A fork whose containers
 change needs a new verifier version, installed by `ethereum-verifier`.
 
 `RetireClient(clientID)` marks the client retired in the proxy, for a route
