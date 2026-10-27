@@ -16,14 +16,16 @@ import (
 // epoch was not). A fork whose containers change needs a new package version
 // and a conversion through the core's Client.SetLightClient instead.
 //
-// The new schedule must pass ValidateBasic's checks (epochs in order, a
-// version for every scheduled fork, Electra at or before the latest slot),
-// keep the genesis fork version and slot, and differ from the current one;
+// The client state with the new schedule must pass ValidateBasic (epochs in
+// order, a version for every scheduled fork, Electra at or before the latest
+// slot, the fork parameters' genesis slot the client's own), the genesis fork
+// version must stay, and the schedule must differ from the current one;
 // the client must be Active. Nothing else binds it to the current schedule,
 // for the reasons RecoverClient gives: the migration is governed, and a
-// wrong schedule can stop verification but not make false data verify. So a
-// migration may schedule a fork before or after its activation, repairing a
-// client stalled before it without waiting for expiry.
+// wrong schedule can stop verification but not make a relayed update verify
+// false data. So a migration may schedule a fork before or after its
+// activation, repairing a client stalled before it without waiting for
+// expiry.
 //
 // Call it on the stored client (the core's verifier): it writes the new state
 // under the receiver's storage realm.
@@ -49,15 +51,15 @@ func (c *EthLightClient) CheckForkParameters(fp ForkParameters) error {
 	if fp == old {
 		return errors.New("the fork schedule is unchanged")
 	}
-	if fp.GenesisForkVersion != old.GenesisForkVersion || fp.GenesisSlot != old.GenesisSlot {
-		return errors.New("the genesis fork version and slot cannot change")
+	if fp.GenesisForkVersion != old.GenesisForkVersion {
+		return errors.New("the genesis fork version cannot change")
 	}
-	if err := fp.validate(); err != nil {
-		return err
-	}
+	// A created client's checks on the new schedule: valid, Electra at or
+	// before the latest slot, and its genesis slot the client's own, which
+	// keeps it unchanged.
 	next := *cs
 	next.ForkParameters = fp
-	return next.verifySupportedFork(next.LatestSlot)
+	return next.ValidateBasic()
 }
 
 // CheckSuccessor is why next cannot take over from the verifier r views in a
@@ -72,10 +74,7 @@ func (r *Retired) CheckSuccessor(next *EthLightClient) error {
 	if !sameChainAndRouter(old, cs) {
 		return errors.New("the successor tracks a different chain or router")
 	}
-	if err := cs.ForkParameters.validate(); err != nil {
-		return err
-	}
-	return cs.verifySupportedFork(cs.LatestSlot)
+	return cs.ValidateBasic()
 }
 
 // EncodeForkParameters writes p in the wire format: Blob(genesis fork

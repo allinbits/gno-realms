@@ -50,6 +50,6 @@ func main(cur realm) {
 
 // Output:
 // updated: Active 0/128
-// genesis fork: the genesis fork version and slot cannot change
+// genesis fork: the genesis fork version cannot change
 // gloas at epoch 30: migrated
 // updated: Active 0/192

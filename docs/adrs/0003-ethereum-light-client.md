@@ -155,11 +155,14 @@ of solidity-ibc-eureka (client type `ethereum`):
 - The fork schedule picks the signing domain, the generalized indices and
   the supported range, so `ClientState.ValidateBasic` refuses one no update
   could pass: fork epochs out of order, a scheduled fork without a version (a
-  zero `Fork{}` reads as active from genesis), Electra unscheduled, or a
-  latest slot before Electra.
+  zero `Fork{}` reads as active from genesis), Electra unscheduled, a
+  latest slot before Electra, or a `ForkParameters.GenesisSlot` other than
+  the client state's `GenesisSlot`. That field duplicates the client
+  state's, which the client computes with; it is kept, required equal, for
+  parity with eureka's fork parameters and the wire formats that carry it.
 - `RecoverClient` requires the substitute to track the same chain and
-  router (chain id, genesis validators root, genesis fork version and slot,
-  slot clock, committee size, router address and commitments slot), to pass
+  router (chain id, genesis validators root, genesis fork version, genesis
+  slot, slot clock, committee size, router address and commitments slot), to pass
   `ValidateBasic`, its fork schedule included, and to be ahead; the subject
   adopts the substitute's schedule. No fork comparison binds the two
   schedules, and none binds a fork-schedule migration or a verifier
