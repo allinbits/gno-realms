@@ -893,7 +893,7 @@ func TestRecoverClientRefusals(t *testing.T) {
 		func(cs *ClientState) { cs.SlotsPerEpoch++ },
 		func(cs *ClientState) { cs.SyncCommitteeSize *= 2 },
 		func(cs *ClientState) { cs.GenesisTime++ },
-		func(cs *ClientState) { cs.GenesisSlot++ },
+		func(cs *ClientState) { cs.GenesisSlot++; cs.ForkParameters.GenesisSlot++ },
 		func(cs *ClientState) { cs.SecondsPerSlot++ },
 		func(cs *ClientState) { cs.EpochsPerSyncCommitteePeriod++ },
 		func(cs *ClientState) { cs.ForkParameters.GenesisForkVersion[0]++ },

@@ -247,6 +247,24 @@ func progressiveContainer(fields ...*node) *node {
 	return pair(progressiveTree(fields, 1), leaf(activeFieldsWord(len(fields))))
 }
 
+// zeroHash is the root of a tree of 2^depth zero chunks.
+func zeroHash(depth int) []byte {
+	h := zero()
+	for i := 0; i < depth; i++ {
+		h = sha(h, h)
+	}
+	return h
+}
+
+// emptyList is hash_tree_root of an empty List whose chunk limit is 2^depth:
+// merkleize over no chunks at that limit, mixed with length 0.
+func emptyList(depth int) *node { return leaf(mixInLength(zeroHash(depth), 0)) }
+
+// emptyProgressiveList is hash_tree_root of an empty ProgressiveList
+// (EIP-7916): merkleize_progressive of no chunks is the zero node, mixed with
+// length 0, so SHA256(zero32 || zero32) (ssz-specs layout.py, trees.py).
+func emptyProgressiveList() *node { return leaf(mixInLength(zero(), 0)) }
+
 // at returns the node at gindex, which must be reachable through built nodes.
 func (n *node) at(gindex uint64) *node {
 	depth := 0

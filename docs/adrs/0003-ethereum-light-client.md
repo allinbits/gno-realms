@@ -271,18 +271,24 @@ unchanged.
 - Tests replay the four recorded devnet runs of the eureka client (11 updates,
   6 storage proofs), a live Sepolia snapshot on Gloas, and tamper cases. A
   Solidity payload decodes and re-encodes byte for byte.
-- Cases no recorded chain gives come from synthetic, spec-exact data
+- Cases no recorded chain gives come from synthetic data built from the specs
   (`zz_synthetic_test.gno`, written by `cmd/gen-eth-synthetic`): a sync
   committee of 32 BLS keys derived from a fixed seed signs, with blst, while
   the client verifies with gnark-crypto. The generator computes SSZ roots,
   domains and signing roots from the consensus specs, never from the
-  client's code, and builds the attested beacon states and bodies as their
-  containers (Gloas' as progressive containers): every basic field, version,
-  padding, active-fields word and progressive terminator on a proof path has
-  its prescribed value, and only the roots of fields nothing depends on are
-  arbitrary. Execution payloads carry their own slot's timestamp and their
-  RLP headers the finalized block's parent root (EIP-4788), and each update
-  finalizes a checkpoint at least two epochs behind its attested head.
+  client's code, and builds the attested beacon states and bodies and the
+  execution payloads as their containers (Gloas' as progressive containers).
+  Basic fields, versions, padding, active-fields words, progressive
+  terminators and the values block and state transitions fix within one
+  block (the state's latest block header, the bid's parent block root and
+  the recorded bid, the latest payload header, empty operation and request
+  lists, empty payloads with their empty roots, payload timestamps at their
+  slot's time, and parent beacon roots per EIP-4788) are as the specs give
+  them. Fields whose rules tie them only to history the generator does not
+  model (parent roots, randao, registries, root vectors and similar; the
+  generator's header lists them) are arbitrary chunks from the seed. Each
+  update finalizes a checkpoint at least two epochs behind its attested
+  head.
   Canonical, as the specs have them: a Gloas update whose finalized header
   is still Fulu, upgraded to the block-hash form (gindex 812) with its full
   RLP execution header; a Fulu update with both headers in the payload form;
