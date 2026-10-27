@@ -172,7 +172,9 @@ const brokenImpl = "gno.land/r/aib/ibc/core/impl/v1broken"
 // the active core implementation's own: one returning a typed-nil verifier,
 // or a verifier whose status or latest height panics, is refused, the
 // decision spent, the live verifier, trust generation and payouts epoch
-// unchanged. A conversion only sees a read-only view of the live verifier
+// unchanged. So is one rewriting a fork the live verifier has verified under:
+// its result is held to the fork checks of a created or recovered client.
+// A conversion only sees a read-only view of the live verifier
 // (Codex docs round 8 #1): one that tries to write to it changes copies
 // only, and its panic leaves the live state as it was.
 func main(cur realm) {
@@ -182,9 +184,9 @@ func main(cur realm) {
 	testing.SetRealm(testing.NewCodeRealm(brokenImpl))
 	core.RegisterImpl(cross(cur), func(s core.Store) core.Logic {
 		return implv1.NewWithConversions(s, "v1-broken",
-			[]string{ethereum.Version, ethereum.Version, ethereum.Version, ethereum.Version},
-			[]string{ethtesting.NextVersion, ethtesting.PanicStatusVersion, ethtesting.PanicHeightVersion, ethtesting.TamperVersion},
-			[]func(*ethereum.Retired) lightclient.Interface{ethtesting.ToNilVerifier, ethtesting.ToPanicStatusVerifier, ethtesting.ToPanicHeightVerifier, ethtesting.ToTamperingVerifier})
+			[]string{ethereum.Version, ethereum.Version, ethereum.Version, ethereum.Version, ethereum.Version},
+			[]string{ethtesting.NextVersion, ethtesting.PanicStatusVersion, ethtesting.PanicHeightVersion, ethtesting.TamperVersion, ethtesting.ForkRewriteVersion},
+			[]func(*ethereum.Retired) lightclient.Interface{ethtesting.ToNilVerifier, ethtesting.ToPanicStatusVerifier, ethtesting.ToPanicHeightVerifier, ethtesting.ToTamperingVerifier, ethtesting.ToForkRewriter})
 	}, "v1-broken", []string{"v0", "v1"})
 	testing.SetRealm(testing.NewCodeRealm("gno.land/r/aib/main"))
 	execute(cur, govern(cur, ibcgov.NewCoreUpdateImplRequest(cross(cur), brokenImpl)))
@@ -194,6 +196,7 @@ func main(cur realm) {
 		{"panicking status", ethtesting.PanicStatusVersion},
 		{"panicking height", ethtesting.PanicHeightVersion},
 		{"tampering", ethtesting.TamperVersion},
+		{"active fork rewritten", ethtesting.ForkRewriteVersion},
 	} {
 		height := core.ClientLatestHeight(client)
 		gen := core.ClientTrustGeneration(client)
@@ -218,3 +221,5 @@ func main(cur realm) {
 //   live: ethereum/v0 Active | latest height unchanged: true | state unchanged: true | trust generation unchanged: true | payouts epoch unchanged: true | retry: ibcgov: decision 5 is spent, not pending
 // tampering: spent - spent: the converted verifier failed its checks: tampering conversion
 //   live: ethereum/v0 Active | latest height unchanged: true | state unchanged: true | trust generation unchanged: true | payouts epoch unchanged: true | retry: ibcgov: decision 6 is spent, not pending
+// active fork rewritten: spent - spent: the converted verifier's fork schedule: the successor changes a fork active at the retired verifier's latest slot
+//   live: ethereum/v0 Active | latest height unchanged: true | state unchanged: true | trust generation unchanged: true | payouts epoch unchanged: true | retry: ibcgov: decision 7 is spent, not pending

@@ -219,7 +219,8 @@ func (l *logic) checkConversion(clientID, to string) error {
 // implementation's conversion and installs the result. The conversion and
 // every check on its result (it names version to, keeps the live verifier's
 // status, Active or Expired, and its latest height and, for a verifier
-// exposing ethereum/v0 state, the slot from which it trusts consensus states)
+// exposing ethereum/v0 state, the slot from which it trusts consensus states
+// and every fork active at that height, its schedule valid)
 // run inside one recovered boundary in the core's realm: a
 // panic or a mismatch is a refusal, with nothing changed. Only then is the
 // new verifier installed.
@@ -277,8 +278,15 @@ func convertAndCheck(convert func(*ethereum.Retired) lightclient.Interface, view
 	if h := cand.LatestHeight(); !h.EQ(height) {
 		return nil, ufmt.Errorf("the converted verifier's latest height is %s, not %s", h, height)
 	}
-	if es, ok := cand.(ethState); ok && es.Ethereum().TrustedFromSlot != trustedFrom {
-		return nil, ufmt.Errorf("the converted verifier trusts consensus states from slot %d, not %d", es.Ethereum().TrustedFromSlot, trustedFrom)
+	if es, ok := cand.(ethState); ok {
+		if es.Ethereum().TrustedFromSlot != trustedFrom {
+			return nil, ufmt.Errorf("the converted verifier trusts consensus states from slot %d, not %d", es.Ethereum().TrustedFromSlot, trustedFrom)
+		}
+		// Its fork schedule is checked as a created client's is, and keeps
+		// every fork the live verifier has verified under.
+		if err := view.CheckSuccessor(es.Ethereum()); err != nil {
+			return nil, ufmt.Errorf("the converted verifier's fork schedule: %v", err)
+		}
 	}
 	return cand, nil
 }

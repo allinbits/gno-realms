@@ -267,13 +267,16 @@ read through its `Ethereum()` state, so it may be the v0 verifier or a
 verifier version that wraps it (as after a verifier replacement), and so may
 the subject; a verifier type without that state needs recovery support of
 its own. The substitute must track the same chain and router: the same chain id, genesis validators root,
-genesis time and slot, fork schedule, sync committee size, seconds per slot,
+genesis time and slot, genesis fork and every fork active at the subject's
+latest slot, sync committee size, seconds per slot,
 slots per epoch, epochs per sync committee period, router (IBC contract)
 address and commitment slot; its latest slot must be strictly ahead of the
-subject's, with a consensus state there. `ethereum.RecoverClient` then copies
+subject's, with a consensus state there. Forks after the subject's latest
+slot may differ: a recovery can schedule a fork the subject did not know, or
+recover a client stalled before one. `ethereum.RecoverClient` then copies
 the substitute's latest consensus state into the subject, adopts its latest
-slot and execution block number and its minimum sync committee
-participation, unfreezes the subject, and trusts nothing older: consensus
+slot and execution block number, its minimum sync committee
+participation and its fork schedule, unfreezes the subject, and trusts nothing older: consensus
 states below the copied one stop verifying proofs. The client's trust
 generation grows with the recovery.
 
@@ -570,7 +573,8 @@ decision executes, before anything changes: the client must be Active, the sched
 one, the genesis fork version and slot never change, every fork already
 active at the current epoch (the later of the latest trusted slot's and the
 block time's) keeps its version and epoch, every changed fork activates after
-the current epoch, and the fork epochs stay in order. A fork whose containers
+the current epoch, and the schedule passes the checks of a created client's
+(epochs in order, a version for every scheduled fork). A fork whose containers
 change needs a new verifier version, installed by `ethereum-verifier`.
 
 `RetireClient(clientID)` marks the client retired in the proxy, for a route

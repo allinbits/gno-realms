@@ -205,3 +205,25 @@ func (v *FreezingVerifier) Status() lightclient.Status {
 func ToFreezingVerifier(r *ethereum.Retired) lightclient.Interface {
 	return &FreezingVerifier{EthLightClient: ethereum.NewFrom(r)}
 }
+
+// ForkRewriteVersion names the result of ToForkRewriter, a conversion that
+// changes the version of a fork already active: the core refuses its result
+// (ethereum.Retired.CheckSuccessor).
+const ForkRewriteVersion = "ethereum/testing-fork-rewrite"
+
+// ForkRewriter is the v0 verifier with its Fulu version changed.
+type ForkRewriter struct {
+	*ethereum.EthLightClient
+}
+
+// VerifierVersion is ForkRewriteVersion.
+func (*ForkRewriter) VerifierVersion() string { return ForkRewriteVersion }
+
+// ToForkRewriter converts a v0 verifier, changing its active Fulu fork.
+func ToForkRewriter(r *ethereum.Retired) lightclient.Interface {
+	v := ethereum.NewFrom(r)
+	cs := *v.ClientState
+	cs.ForkParameters.Fulu.Version[0] ^= 0xff
+	v.ClientState = &cs
+	return &ForkRewriter{EthLightClient: v}
+}

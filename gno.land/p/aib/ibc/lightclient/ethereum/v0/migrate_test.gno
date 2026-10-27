@@ -57,6 +57,7 @@ func TestMigrateForkParametersRefusals(t *testing.T) {
 		{"active fork epoch", func(p *ForkParameters) { p.Fulu.Epoch = 2 }, "fork fulu is active"},
 		{"active fork version", func(p *ForkParameters) { p.Electra.Version[3]++ }, "fork electra is active"},
 		{"activation in the past", func(p *ForkParameters) { p.Gloas = Fork{Version: [4]byte{9}, Epoch: 8} }, "at or before the current epoch 8"},
+		{"fork without a version", func(p *ForkParameters) { p.Gloas = Fork{Epoch: 12} }, "gloas fork is scheduled at epoch 12 without a version"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -111,4 +112,37 @@ func TestForkParametersWire(t *testing.T) {
 	bad := append([]byte{3, 1, 2, 3}, bz[5:]...)
 	_, err = DecodeForkParameters(bad)
 	urequire.ErrorContains(t, err, "4 bytes")
+}
+
+// A verifier replacement's result is held to the fork checks of a created or
+// recovered client: a valid schedule keeping every fork active at the retired
+// verifier's latest slot (epoch 8 here), later forks free.
+func TestCheckSuccessor(t *testing.T) {
+	cases := []struct {
+		name   string
+		mutate func(p *ForkParameters)
+		err    string
+	}{
+		{"unchanged", func(p *ForkParameters) {}, ""},
+		{"later fork scheduled", func(p *ForkParameters) { p.Gloas = Fork{Version: [4]byte{0x80, 0, 0, 0x38}, Epoch: 12} }, ""},
+		{"later fork without a version", func(p *ForkParameters) { p.Gloas = Fork{Epoch: 12} }, "gloas fork is scheduled at epoch 12 without a version"},
+		{"active fork rewritten", func(p *ForkParameters) { p.Fulu.Version[0]++ }, "changes a fork active"},
+		{"fork scheduled before the latest slot", func(p *ForkParameters) { p.Gloas = Fork{Version: [4]byte{0x80, 0, 0, 0x38}, Epoch: 5} }, "changes a fork active"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			c := migrateClient(t, 70)
+			r := Retire(c)
+			next := NewFrom(r)
+			cs := *next.ClientState
+			tc.mutate(&cs.ForkParameters)
+			next.ClientState = &cs
+			err := r.CheckSuccessor(next)
+			if tc.err == "" {
+				urequire.NoError(t, err)
+				return
+			}
+			urequire.ErrorContains(t, err, tc.err)
+		})
+	}
 }
