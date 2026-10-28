@@ -127,6 +127,15 @@ func (mr MerkleRoot) Empty() bool {
 const (
 	// MaxChainIDLen is a maximum length of the chain ID.
 	MaxChainIDLen = 50
+	// MaxRootLen is the maximum length of a commitment root (a header's app
+	// hash): roots of the Cosmos SDK proof specs are SHA-256 hashes, and the
+	// upgrade placeholder (SentinelRoot) is shorter.
+	MaxRootLen = sha256.Size
+	// MaxUpgradePathKeys and MaxUpgradePathKeyLen bound the upgrade path,
+	// stored and rendered with the client; the Cosmos SDK one is
+	// ["upgrade", "upgradedIBCState"].
+	MaxUpgradePathKeys   = 4
+	MaxUpgradePathKeyLen = 64
 	// SentinelRoot is used as a stand-in root value for the consensus state set at the upgrade height
 	SentinelRoot = "sentinel_root"
 	// ClientStateTypeURL is the proto Any type URL counterparties use when
@@ -195,9 +204,15 @@ func (cs ClientState) ValidateBasic() error {
 		return ufmt.Errorf("proof specs must be the Cosmos SDK IAVL and Tendermint specs (ics23.GetSDKProofSpecs)")
 	}
 	// UpgradePath may be empty, but if it isn't, each key must be non-empty
+	if len(cs.UpgradePath) > MaxUpgradePathKeys {
+		return ufmt.Errorf("upgrade path has %d keys, max %d", len(cs.UpgradePath), MaxUpgradePathKeys)
+	}
 	for i, k := range cs.UpgradePath {
 		if strings.TrimSpace(k) == "" {
 			return ufmt.Errorf("key in upgrade path at index %d cannot be empty", i)
+		}
+		if len(k) > MaxUpgradePathKeyLen {
+			return ufmt.Errorf("key in upgrade path at index %d is %d bytes, max %d", i, len(k), MaxUpgradePathKeyLen)
 		}
 	}
 
@@ -240,6 +255,9 @@ func (ConsensusState) ClientType() string {
 func (cs ConsensusState) ValidateBasic() error {
 	if cs.Root.Empty() {
 		return errors.New("root cannot be empty")
+	}
+	if len(cs.Root.Hash) > MaxRootLen {
+		return ufmt.Errorf("root is %d bytes, max %d", len(cs.Root.Hash), MaxRootLen)
 	}
 	if err := validateHash(cs.NextValidatorsHash); err != nil {
 		return ufmt.Errorf("next validators hash is invalid: %v", err)

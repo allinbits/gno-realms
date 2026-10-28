@@ -21,6 +21,12 @@ const (
 // CONTRACT: provide non-nil renderer func or values from the bptree.BPTree must
 // implement JSONRenderer.
 func Render(t bptree.ITree, r *mux.Request, renderer func(string, any) *json.Node) *json.Node {
+	return RenderMax(t, r, renderer, maxLimit)
+}
+
+// RenderMax is Render with at most maxItems items per page, for items too
+// costly to render maxLimit of within a query's gas budget.
+func RenderMax(t bptree.ITree, r *mux.Request, renderer func(string, any) *json.Node, maxItems int) *json.Node {
 	var (
 		page  = 1
 		limit = defaultLimit
@@ -33,16 +39,16 @@ func Render(t bptree.ITree, r *mux.Request, renderer func(string, any) *json.Nod
 	if err == nil && l > 0 {
 		limit = l
 	}
-	return render(t, page, limit, renderer, false)
+	return render(t, page, limit, maxItems, renderer, false)
 }
 
-func render(t bptree.ITree, page, limit int, renderer func(string, any) *json.Node, reverse bool) *json.Node {
+func render(t bptree.ITree, page, limit, maxItems int, renderer func(string, any) *json.Node, reverse bool) *json.Node {
 	total := t.Size()
 	if limit == 0 || limit > total {
 		limit = total
 	}
-	if limit > maxLimit {
-		limit = maxLimit
+	if limit > maxItems {
+		limit = maxItems
 	}
 	var (
 		offset  = (page - 1) * limit

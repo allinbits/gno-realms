@@ -141,6 +141,16 @@ func TestClientStateValidateBasic(t *testing.T) {
 			clientState: tendermint.NewClientState(chainID, tendermint.DefaultTrustLevel, trustingPeriod, ubdPeriod, maxClockDrift, height, ics23.GetSDKProofSpecs(), invalidUpgradePath),
 			expErr:      "key in upgrade path at index 1 cannot be empty",
 		},
+		{
+			name:        "upgrade path has too many keys",
+			clientState: tendermint.NewClientState(chainID, tendermint.DefaultTrustLevel, trustingPeriod, ubdPeriod, maxClockDrift, height, ics23.GetSDKProofSpecs(), []string{"a", "b", "c", "d", "e"}),
+			expErr:      "upgrade path has 5 keys, max 4",
+		},
+		{
+			name:        "upgrade path key too long",
+			clientState: tendermint.NewClientState(chainID, tendermint.DefaultTrustLevel, trustingPeriod, ubdPeriod, maxClockDrift, height, ics23.GetSDKProofSpecs(), []string{"upgrade", strings.Repeat("k", 65)}),
+			expErr:      "key in upgrade path at index 1 is 65 bytes, max 64",
+		},
 	}
 
 	for _, tc := range testCases {
@@ -191,6 +201,24 @@ func TestConsensusStateValidateBasic(t *testing.T) {
 				NextValidatorsHash: valshash[:],
 			},
 			true,
+		},
+		{
+			"root is a SHA-256 hash",
+			&tendermint.ConsensusState{
+				Timestamp:          now,
+				Root:               tendermint.NewMerkleRoot(bytes.Repeat([]byte{2}, 32)),
+				NextValidatorsHash: valshash[:],
+			},
+			true,
+		},
+		{
+			"root is too long",
+			&tendermint.ConsensusState{
+				Timestamp:          now,
+				Root:               tendermint.NewMerkleRoot(bytes.Repeat([]byte{2}, 33)),
+				NextValidatorsHash: valshash[:],
+			},
+			false,
 		},
 		{
 			"root is nil",
