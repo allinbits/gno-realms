@@ -145,7 +145,7 @@ All endpoints return JSON and are accessible via gnoweb or `gnokey query vm/qren
 
 | Path                                | Description                                                                        |
 | ----------------------------------- | ---------------------------------------------------------------------------------- |
-| `denoms`                            | List all registered IBC denominations                                              |
+| `denoms`                            | List all registered IBC denominations (paginated, at most 20 per page)             |
 | `denoms/ibc/{hash}`                 | Details for a specific IBC denom (base, path, denom)                               |
 | `total_escrow/{denom}`              | Total escrowed amount for a native denom                                           |
 | `vouchers`                          | List all voucher tokens (paginated, includes `grc20reg_key`)                       |

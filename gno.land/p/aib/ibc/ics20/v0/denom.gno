@@ -66,9 +66,18 @@ func (d Denom) Path() string {
 		return d.Base
 	}
 
-	var sb strings.Builder
+	// Size the builder first: gno's append grows a slice to the exact length
+	// it needs, so writing hop by hop copied the path once per hop.
+	n := len(d.Base)
 	for _, t := range d.Trace {
-		sb.WriteString(t.String())
+		n += len(t.PortId) + len(t.ClientId) + 2
+	}
+	var sb strings.Builder
+	sb.Grow(n)
+	for _, t := range d.Trace {
+		sb.WriteString(t.PortId)
+		sb.WriteByte('/')
+		sb.WriteString(t.ClientId)
 		sb.WriteByte('/')
 	}
 	sb.WriteString(d.Base)
