@@ -60,8 +60,11 @@ func (l *logic) CreateClient(_ int, rlm realm, relayer address, clientState ligh
 // RegisterCounterparty registers the IBC v2 counterparty info for the given
 // clientID. It must be called by the same relayer that called CreateClient.
 func (l *logic) RegisterCounterparty(_ int, rlm realm, clientID string, counterpartyMerklePrefix [][]byte, counterpartyClientID string) {
-	if !types.IsValidClientID(counterpartyClientID) {
+	if err := host.ClientIdentifierValidator(counterpartyClientID); err != nil || !types.IsValidClientID(counterpartyClientID) {
 		panic("invalid counterparty client id")
+	}
+	if err := validateMerklePrefix(counterpartyMerklePrefix); err != nil {
+		panic(err)
 	}
 	c := l.mustClient(clientID)
 	caller := unsafe.OriginCaller()
@@ -72,6 +75,30 @@ func (l *logic) RegisterCounterparty(_ int, rlm realm, clientID string, counterp
 		panic("cannot register counterparty once it is already set")
 	}
 	c.SetCounterparty(0, rlm, counterpartyClientID, counterpartyMerklePrefix)
+}
+
+// Bounds of a counterparty merkle prefix. It is stored and rendered, and the
+// Cosmos SDK one, ["ibc", ""], is far within them.
+const (
+	maxMerklePrefixKeys   = 4
+	maxMerklePrefixKeyLen = 64
+)
+
+// validateMerklePrefix checks a counterparty merkle prefix is not empty, like
+// ibc-go, and within the bounds above.
+func validateMerklePrefix(prefix [][]byte) error {
+	if len(prefix) == 0 {
+		return ufmt.Errorf("counterparty merkle prefix cannot be empty")
+	}
+	if len(prefix) > maxMerklePrefixKeys {
+		return ufmt.Errorf("counterparty merkle prefix has %d keys, max %d", len(prefix), maxMerklePrefixKeys)
+	}
+	for i, k := range prefix {
+		if len(k) > maxMerklePrefixKeyLen {
+			return ufmt.Errorf("counterparty merkle prefix key %d is %d bytes, max %d", i, len(k), maxMerklePrefixKeyLen)
+		}
+	}
+	return nil
 }
 
 // UpdateClient updates the given light client with a new header, or submits a

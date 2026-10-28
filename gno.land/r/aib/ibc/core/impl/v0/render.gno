@@ -71,6 +71,11 @@ func (rd *Renderer) Register(router *mux.Router) {
 // homeListLimit caps the clients listed on the home page.
 const homeListLimit = 100
 
+// clientsPageLimit caps a page of the clients route: a client's document
+// costs about 31M gas to render, so 100 of them (jsonpage's cap) exceed the
+// 3e9 gas a query may use.
+const clientsPageLimit = 20
+
 func (rd *Renderer) Home(w *mux.ResponseWriter, r *mux.Request) {
 	var out strings.Builder
 	out.WriteString("# IBC core\n\n")
@@ -218,9 +223,9 @@ func (rd *Renderer) PendingApps(w *mux.ResponseWriter, r *mux.Request) {
 }
 
 func (rd *Renderer) Clients(w *mux.ResponseWriter, r *mux.Request) {
-	RenderNode(w, jsonpage.Render(rd.store.Clients(), r, func(_ string, v any) *json.Node {
+	RenderNode(w, jsonpage.RenderMax(rd.store.Clients(), r, func(_ string, v any) *json.Node {
 		return ClientJSON(v.(core.Client))
-	}))
+	}, clientsPageLimit))
 }
 
 func (rd *Renderer) Client(w *mux.ResponseWriter, r *mux.Request) {

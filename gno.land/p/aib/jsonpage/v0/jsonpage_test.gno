@@ -8,6 +8,7 @@ import (
 	"gno.land/p/nt/bptree/v0"
 	"gno.land/p/nt/mux/v0"
 	"gno.land/p/nt/uassert/v0"
+	"gno.land/p/nt/urequire/v0"
 	"gno.land/p/onbloc/json/v0"
 )
 
@@ -168,6 +169,31 @@ func TestRender(t *testing.T) {
 
 			n := Render(tt.tree, r, tt.renderer)
 
+			uassert.Equal(t, tt.expectedJSON, n.String())
+		})
+	}
+}
+
+func TestRenderMax(t *testing.T) {
+	tree := bptree.NewBPTree32()
+	for i := 0; i < 10; i++ {
+		tree.Set(strconv.Itoa(i), i)
+	}
+	intRenderer := func(k string, v any) *json.Node {
+		return json.NumberNode("", float64(v.(int)))
+	}
+	tests := []struct {
+		name, query, expectedJSON string
+	}{
+		{"default limit above the max", "", `{"items":[0,1,2,3],"page":1,"total":3}`},
+		{"limit above the max", "limit=100&page=2", `{"items":[4,5,6,7],"page":2,"total":3}`},
+		{"limit below the max", "limit=2&page=2", `{"items":[2,3],"page":2,"total":5}`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			v, err := url.ParseQuery(tt.query)
+			urequire.NoError(t, err)
+			n := RenderMax(tree, &mux.Request{Query: v}, intRenderer, 4)
 			uassert.Equal(t, tt.expectedJSON, n.String())
 		})
 	}

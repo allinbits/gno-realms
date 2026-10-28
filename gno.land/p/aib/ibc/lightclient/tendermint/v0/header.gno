@@ -201,7 +201,11 @@ func (h Header) ValidateBasic() error {
 	if err := validateHash(h.ConsensusHash); err != nil {
 		return ufmt.Errorf("wrong ConsensusHash: %v", err)
 	}
-	// NOTE: AppHash is arbitrary length
+	// AppHash is arbitrary length in CometBFT, but it becomes the client's
+	// commitment root, which the Cosmos SDK proof specs make a SHA-256 hash.
+	if len(h.AppHash) > MaxRootLen {
+		return ufmt.Errorf("AppHash is %d bytes, max %d", len(h.AppHash), MaxRootLen)
+	}
 	if err := validateHash(h.LastResultsHash); err != nil {
 		return ufmt.Errorf("wrong LastResultsHash: %v", err)
 	}
