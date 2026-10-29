@@ -147,6 +147,7 @@ func singleLeafProof(packet types.Packet) ([]ics23.CommitmentProof, []byte) {
 // First 100 of 101 vouchers; see [`vouchers`](/r/aib/ibc/apps/transfer:vouchers) (`?page`, `?limit`) for all of them.
 // ## Escrow (1)
 // ## JSON endpoints
+// ## Ethereum routes
 // ## Transfer rows: 100
 // ## Vouchers (101) rows: 100
 // ## Escrow (1) rows: 1

@@ -68,13 +68,23 @@ gno.land/
     encoding/v0/              # Uint64 big-endian encoding
     encoding/proto/v0/        # Protobuf varint/field encoding
     merkle/v0/                # RFC-6962 Merkle tree
-    authority/v0/             # Member authority (multisig + GovDAO) gating admin operations
+    authority/v0/             # Member authority (GovDAO + ibcgov) gating the tightening operations
+    decisions/v0/             # Decision ledger (vendored from gnolang/bridges)
+    encoding/abi/v0/          # Solidity abi.encode
+    encoding/ethaddr/v0/      # Ethereum addresses (EIP-55)
+    ibc/ics20/controls/v0/    # Ethereum route controls: meters, claims, send records, refunds, voids, losses
+    ibc/lightclient/ethereum/v0/          # Ethereum light client
+    ibc/lightclient/ethereum/testing/v0/  # Ethereum client states for filetests
     jsonpage/v0/              # AVL tree JSON pagination
   r/aib/ibc/                  # Realms (stateful contracts)
     core/                     # IBC v2 core proxy: entry points, store, gates, admin (ADR 0001)
     core/impl/v0/             # Core lifecycle logic (CreateClient, SendPacket, RecvPacket, ...)
+    core/impl/v1/             # v0 + governed client migration (Ethereum fork schedule)
     apps/transfer/            # Token transfer app proxy: entry points, store, value moves, admin (ADR 0002)
     apps/transfer/impl/v0/    # ICS-20 logic (Transfer classification, callbacks, refunds)
+    apps/transfer/impl/v1/    # v0 + the Ethereum route controls (ADR 0004)
+    ibcgov/                   # Governance: decision ledger, governor/yield, guardians, gov port sender (ADR 0004)
+    ethrelay/                 # MsgCall wire entry points for relaying with Ethereum
     apps/testing/             # Mock IBCApp for tests
 ```
 
@@ -83,7 +93,7 @@ gno.land/
 **IBCApp** (`p/aib/ibc/app/v0/app.gno`): Apps must implement 4 callbacks:
 - `OnSendPacket`, `OnRecvPacket`, `OnTimeoutPacket`, `OnAcknowledgementPacket`
 - Every callback must first check that `cur.Previous().PkgPath()` is the core realm (transfer's `assertCoreCaller`): the methods are exported and a zero-value `App` is callable by any realm, so without the gate anyone can mint vouchers or release escrow
-- Register apps with `core.RegisterApp(cur, portID, app)`: immediate for realms under `gno.land/r/aib/`, pending until `core.ApproveApp` by the authority for any other realm
+- Register apps with `core.RegisterApp(cur, portID, app)`: immediate for realms under `gno.land/r/aib/`, pending until a `core.ApproveApp` decision of ibcgov for any other realm
 
 **lightclient.Interface** (`p/aib/ibc/lightclient/v0/lightclient.gno`): 12 methods including `Initialize`, `VerifyClientMessage`, `UpdateState`, `VerifyMembership`, `VerifyNonMembership`, `Status`, `LatestHeight`
 
@@ -217,7 +227,7 @@ Naming convention: `z{category}{letter}_{description}_filetest.gno`
 
 ### Authority in filetests
 
-Administrative functions (`AddRelayer`, `Pause`, `BlockAddress`, ...) require a member of the realm's authority. At `init` in the test framework the deployer is unknown, so the first `AddAuthorityMember` is ungated: a filetest bootstraps with `core.AddAuthorityMember(cross(cur), cur.Address())`, because calls from `main` present the filetest realm's own address. To act as GovDAO, `testing.SetRealm(testing.NewCodeRealm(authority.GovDAOPath))` before the call.
+Administration is split (ADR pr6375 R14, see the core README's Authority section). The authority of core and transfer has fixed members, the GovDAO proxy and the governance realm `gno.land/r/aib/ibc/ibcgov`; it gates only the immediate tightening operations (`Pause`, `PauseApp`, `RejectApp`, `BlockAddress`). Every loosening operation (`AddRelayer`, `RemoveRelayer`, `Unpause`, `UnpauseApp`, `ApproveApp`, `RecoverClient`, `UpdateImpl`, `MigrateClient`, `RetireClient`, `UnblockAddress`, membership, transfer's `GovApply`) is gated on a call from ibcgov alone. A filetest acts as ibcgov with `testing.SetRealm(testing.NewCodeRealm(core.IBCGovPath))` right before the call (in the same function: an override set in a helper that returns does not reliably carry over), and as GovDAO with `testing.SetRealm(testing.NewCodeRealm(authority.GovDAOPath))`. Restore the filetest's own identity afterwards with `testing.SetRealm(testing.NewCodeRealm("gno.land/r/aib/main"))` when later calls depend on it (app registrations record the caller's path).
 
 ### Unit Tests with Malleate Pattern
 
@@ -311,7 +321,7 @@ e2e/
 ├── tx_test.go              # signAndBroadcastAtomOneTx, signAndBroadcastGnoCall (suite methods)
 ├── suite_test.go           # Testify suite: SetupSuite, waitForIBCClients, gnokey helpers
 ├── ibc_transfer_test.go    # TestIBCTransferAtomOneToGno, TestIBCTransferGnoToAtomOne
-└── upgrade_test.go         # TestGovDAOUpdateImpl (UpdateImpl through r/gov/dao), TestUpgradeRehearsal (deploy v99, switch, relay, roll back)
+└── upgrade_test.go         # TestGovernorUpdateImpl (UpdateImpl through an ibcgov decision, premature execution refused), TestUpgradeRehearsal (deploy v99, switch, relay, roll back)
 ```
 
 ### Ports

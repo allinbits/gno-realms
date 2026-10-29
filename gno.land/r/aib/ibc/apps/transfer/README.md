@@ -10,7 +10,7 @@ token type is detected automatically from the `denom` argument:
 
 | Token type  | Denom format | Example                   | Mechanism                                                |
 | ----------- | ------------ | ------------------------- | -------------------------------------------------------- |
-| Native coin | plain string | `ugnot`                   | Escrowed via `banker.OriginSend` (direct user-call only) |
+| Native coin | plain string | `ugnot`                   | Escrowed from the coins sent with the call               |
 | IBC voucher | `ibc/{hash}` | `ibc/CAEF9C...`           | Burned from sender                                       |
 | GRC20 token | grc20reg key | `gno.land/r/demo/foo.FOO` | Escrowed via `TransferFrom`                              |
 
@@ -28,20 +28,33 @@ func Transfer(
 ) (packet types.MsgSendPacket, sequence uint64)
 ```
 
+Whatever the token, `Transfer` accepts only a direct user call (`gnokey maketx
+call`): it checks `cur.Previous().IsUserCall()` before classifying the token,
+so calls from intermediate code realms and from `maketx run` ephemeral realms
+are rejected, for vouchers and GRC20 tokens as well as native coins. The
+packet's sender is the transaction's origin caller.
+
+`timeoutTimestamp` is in Unix seconds and the core enforces its bounds: it
+must be after the current block time and at most 24 hours after it
+(`now < timeout <= now + 24h`), and it must be greater than the latest
+consensus timestamp the client holds for the counterparty. A literal
+timestamp in a script goes stale; compute it at submission, e.g.
+`$(( $(date +%s) + 3600 ))` for one hour from now, as the examples below do.
+
 ### Native coin
 
 The coin must be attached to the transaction via the `-send` flag and must match
-`denom` and `amount`. Only direct user calls (`gnokey maketx call`) are
-accepted: `Transfer` reads `banker.OriginSend()` guarded by
-`runtime.PreviousRealm().IsUserCall()` to ensure the coins actually landed at
-this realm. Calls from intermediate code realms or `maketx run` ephemeral
-realms are rejected.
+`denom` and `amount` (on an Ethereum route, the amount plus the route fee; see
+the route controls section). `Transfer` reads the attached coins with
+`unsafe.OriginSend()` (`chain/runtime/unsafe`), which is meaningful only
+because of the direct-user-call check above: it ensures the coins actually
+landed at this realm.
 
 ```
 gnokey maketx call -pkgpath gno.land/r/aib/ibc/apps/transfer -func Transfer \
     -send 100ugnot \
     -args "07-tendermint-1" -args "atone1abc..." -args "ugnot" -args "100" \
-    -args "1719878400" -args "" \
+    -args "$(( $(date +%s) + 3600 ))" -args "" \
     -gas-fee 1000000ugnot -gas-wanted 90000000 \
     -broadcast -chainid gnoland-1 ADDRESS
 ```
@@ -60,20 +73,24 @@ trace — see the header of `scripts/transfer-atomone-to-gno.sh`.
 gnokey maketx call -pkgpath gno.land/r/aib/ibc/apps/transfer -func Transfer \
     -args "07-tendermint-1" -args "atone1abc..." \
     -args "ibc/CAEF9CA8CE6C302D73A831A49E34E59149D3A9AD96CCEBDFBF62F6D5710D92D8" \
-    -args "100" -args "1719878400" -args "memo" \
+    -args "100" -args "$(( $(date +%s) + 3600 ))" -args "memo" \
     -gas-fee 1000000ugnot -gas-wanted 90000000 \
     -broadcast -chainid gnoland-1 ADDRESS
 ```
 
 ### GRC20 token
 
-The caller must first approve the transfer app realm to spend the tokens.
+The caller must first approve the transfer app realm to spend the tokens,
+and attach no native coins to the `Transfer` call. On an Ethereum route the
+route fee is drawn from the same allowance, separately and first, so the
+allowance and the balance must cover `amount + fee` (the denom's current
+`fee`, shown at `routes/{route}`); on other clients `amount` is enough.
 
 From Gno code (e.g. in a `MsgRun` script):
 
 ```gno
 transferAddr := chain.PackageAddress("gno.land/r/aib/ibc/apps/transfer")
-mytoken.Approve(cross, caller, transferAddr, amount)
+mytoken.Approve(cross(cur), caller, transferAddr, amount)
 ```
 
 Or via `gnokey` directly, where `g1tp3gk4quumurav4858hjfdy6hxtyffwmnxyr00` is
@@ -92,7 +109,7 @@ Then call Transfer with the grc20reg key as denom:
 gnokey maketx call -pkgpath gno.land/r/aib/ibc/apps/transfer -func Transfer \
     -args "07-tendermint-1" -args "atone1abc..." \
     -args "gno.land/r/demo/foo.FOO" -args "100" \
-    -args "1719878400" -args "" \
+    -args "$(( $(date +%s) + 3600 ))" -args "" \
     -gas-fee 1000000ugnot -gas-wanted 90000000 \
     -broadcast -chainid gnoland-1 ADDRESS
 ```
@@ -105,19 +122,25 @@ gnokey maketx call -pkgpath gno.land/r/aib/ibc/apps/transfer -func Transfer \
 
 ## Authority
 
-The realm is administered by an authority, the same model as the core realm: a
-member set (`p/aib/authority`) bootstrapped at deploy with the deployer (the AIB
-multisig) and the GovDAO proxy. Members call the functions below directly
-(`gnokey maketx call`); the principal is the caller, not the transaction signer.
-`AddAuthorityMember` / `RemoveAuthorityMember` manage membership (the last
-member cannot be removed), `IsAuthorityMember` reports it, and every operation
-has a GovDAO proposal constructor (`NewPauseProposalRequest`,
-`NewBlockAddressProposalRequest`, `NewAddAuthorityMemberProposalRequest`, ...),
-submitted as described in the core README. Pausing is not the app's job: the
-core's authority suspends any application with `core.PauseApp("transfer")`
-(sends refused, incoming packets answered with an error acknowledgement so the
-counterparty refunds, refunds still delivered), and the home page shows a banner
-while that is the case. The authority of this realm keeps a blocklist of
+Administration follows the core realm's split (ADR pr6375 R14). The
+tightening operation `BlockAddress` acts at once and is gated by an authority
+(`p/aib/authority`). Its initial members are the GovDAO proxy and the
+governance realm `gno.land/r/aib/ibc/ibcgov` (`IBCGovPath`); there is no
+deployer member. ibcgov can remove GovDAO at once
+(`NewTransferRemoveMemberRequest`); only ibcgov itself is irremovable, so
+GovDAO's tightening power lasts only while it remains a member. GovDAO submits it with `NewBlockAddressProposalRequest`, as
+described in the core README. Every other operation (`UnblockAddress`,
+`UpdateImpl`, `AddAuthorityMember`, `RemoveAuthorityMember`, and the Ethereum
+route controls of `GovApply`) is a decision of `gno.land/r/aib/ibc/ibcgov`
+alone, with that decision's own delay: `UnblockAddress`, `UpdateImpl` and
+`AddAuthorityMember` wait 7 days, while `RemoveAuthorityMember` (a
+tightening) applies at once, as does ibcgov's own block decision; the route
+controls' delays are listed in ADR 0004. Pausing is not the app's job: the core suspends any
+application with `core.PauseApp("transfer")` (sends refused, incoming packets
+answered with an error acknowledgement so the counterparty refunds, refunds
+still delivered), and the home page shows a banner while that is the case; the
+incident tool of the Ethereum route is its per-client flags (see the Ethereum
+route controls section). The authority of this realm keeps a blocklist of
 addresses, the equivalent of ibc-go's blocked addresses:
 
 - `BlockAddress(addr)`: a blocked address can no longer send (`OnSendPacket`
@@ -125,19 +148,159 @@ addresses, the equivalent of ibc-go's blocked addresses:
   error acknowledgement, so the counterparty refunds its sender). Refunds to a
   blocked sender still go through: blocking never confiscates funds already in
   flight.
-- `UnblockAddress(addr)`: removes it.
+- `UnblockAddress(addr)`: removes it (an ibcgov decision, after 7 days).
 - `IsBlocked(addr)`: reports the state; the `admin` page lists the blocklist.
 
 The blocklist holds canonical (lowercase) addresses: bech32 also accepts the
 all-uppercase spelling of an address, so `BlockAddress` and `UnblockAddress`
 normalize their argument (and reject an invalid address), and `IsBlocked`
 matches either spelling. On receive, `OnRecvPacket` decodes the packet's
-receiver as ibc-go does: a receiver that is not a valid gno address gets an
-error acknowledgement, and every check and transfer uses the canonical form
-(`CanonicalAddress`).
+receiver as ibc-go does, and every check and transfer uses the canonical form
+(`CanonicalAddress`). On a non-Ethereum client, a receiver that is not a
+valid gno address gets an error acknowledgement. On an Ethereum route it does
+not: the transfer is booked as an owed sweep entry that keeps the raw
+receiver, with a success acknowledgement, and only a governed sweep decision
+naming a payee pays it (see the route controls section).
 
 All of these are `MsgCall`-compatible and emit `block` / `unblock` /
 `authority_member_added` / `authority_member_removed` events.
+
+## Ethereum route controls
+
+With `impl/v1` active (on a fresh deployment it is the transfer app's first
+registered implementation, so it bootstraps with no decision; `impl/v0`
+registers nothing), every Ethereum client is under the controls of ADR pr6375 §7; every other client keeps `impl/v0`'s
+behaviour. The state lives in this realm (`InitExt("controls")`, the
+`gno.land/p/aib/ibc/ics20/controls/v0` registry); the flags and holds live in
+`gno.land/r/aib/ibc/ibcgov`, which also decides every change. Design and rule
+mapping: [ADR 0004](../../../../../../docs/adrs/0004-ethereum-route-controls.md).
+
+- **Routes.** An Ethereum client carries transfers only as the current client
+  of a route ibcgov enrolled, and only in the denoms enabled on it (gno-native:
+  `unescrow`; Ethereum tokens: `mint`, keyed by their voucher's `ibc/` denom).
+  Escrow, vouchers and controls are keyed by the route key (the first client
+  id); the denoms on the wire carry the current client id, so a route
+  replacement re-points the route in constant work.
+- **Sends** of a gno-native token: per-message minimum and maximum, the route
+  fee charged on top (`-send` the amount plus the fee; the fee goes to the
+  route's fee collector), receivers that are valid Ethereum addresses, not
+  zero, not reserved, not a refused bridge contract and not the denom's own
+  Ethereum token; a `sends` flag stops them. A voucher going back is never
+  limited by the send minimum and maximum, charged a fee or stopped by a
+  `sends` flag (or by a loss without a restoring decision), and is taken on
+  a route a replacement closed too (exit only: it lowers the supply and adds
+  no exposure), but waits until its denom is enabled on the route, and its
+  receiver passes the same recipient checks: a valid Ethereum address, not
+  zero, not reserved, not a refused bridge contract and not the token itself
+  (the voucher's base denom). Every send writes an immutable send record (full packet, commitment,
+  sender, amounts, height) in the same transaction; a minted denom keeps the
+  returned vouchers counted against its supply cap until the send settles.
+- **Deployment.** The transfer app is deployed fresh with impl/v1 as its
+  initial implementation; an Ethereum client carries nothing until ibcgov
+  enrolls it as a route (there is no migration from impl/v0).
+- **Receives** are refused with an error acknowledgement, before any state
+  change, under a `credits` flag, on a closed route, for a denom not enabled,
+  past a minted denom's supply cap (what is booked against it,
+  `Outstanding + Returning + Parked + ProvenOwed + Owed + Withheld + Swept`,
+  plus the receive, ADR 0004's one equation; the
+  cap governs admission only: lowering it below what is booked refuses new
+  credits and keeps every booked obligation payable), or for a blocked
+  receiver. Otherwise they
+  are booked as a claim keyed by the packet (or a sweep entry: below the fee,
+  above the free lock, to a bridge realm, or to a receiver that is no gno.land
+  address, kept raw), with a success acknowledgement.
+- **`Claim(clientID, denom, n)`** (anyone; a positive `n` above 20 is taken
+  as 20) pays up to `n` claims round-robin, looking at no more than `4n`
+  recipients, and returns how many it paid (claims it moved to the owed
+  sweep, their recipient having become a bridge realm, are not counted). A
+  zero return does not mean every remaining claim is unpayable: the
+  recipients it looked at may have had empty meters while others wait. It
+  pays the oldest claim first per recipient, within the bridge meter (day cap
+  `max(capFloor, lock/10)`, or the mint cap) and the recipient's meter (a
+  quarter of it). A claim's first payout has a fee portion,
+  `min(remainder, the claim's fee, the denom's fee now)` (a claim reduced
+  below its fee can finish as a fee payment alone), and, in the same turn, a
+  recipient portion if the meters hold more (at least `min(what remains,
+  fee)`, or nothing); no slivers (a later
+  installment needs at least `min(remainder, fee)` in both meters). A claim's
+  fee is locked when it is credited (`fee` in the claims JSON), and the fee
+  it pays is the lower of its fee and the denom's fee now, written back at
+  each payout turn: the fee locked at credit is a ceiling a later raise
+  never passes, and a cut applies and, once a payout turn has seen it, is
+  kept.
+  Meters start empty and restart empty when a `payouts` flag is cleared;
+  nothing is paid under one.
+- **Refunds** (error acknowledgement, timeout) are paid at once only when the
+  whole refund fits: no `refunds` hold and the route not closed, no older
+  refund of the denom waiting, the refund meter (`RefundCap` a day) holding
+  the whole amount, and, for an `unescrow` denom, the escrow holding it.
+  Otherwise the refund is queued. Queued refunds are paid first in, first
+  out by **`ClaimRefunds(clientID, denom, n)`** (anyone; a positive `n`
+  above 20 is taken as 20; nothing
+  under a `refunds` hold or on a closed route), in installments: each takes
+  what the meter (and, for `unescrow`, the escrow) allows of the head
+  refund's remainder, at least `min(remainder, max(1, RefundCap/24))`, which
+  the meter must hold for any installment, a minted one included (a minted
+  installment the meter allows is then cut to the supply's headroom when
+  that is less, any positive amount: headroom clips the payment, never the
+  meter minimum), and the call stops at a head it cannot pay. The outcome, the
+  local processing height and the payment state are attached to the send
+  record. Queued refunds are reserved: no receive or claim payout takes
+  their escrow.
+- **Closed routes.** A route replacement closes the route: no gno-native
+  send, credit, claim payout, acknowledgement or timeout refund payout, or
+  `ClaimRefunds` payout. A voucher return is still taken over the route's
+  new client (exit only), and its "send back" link stays on the home page.
+  A governed reconciliation's refunds are the other exception: a
+  settlement pays them on the closed route (that is how the retired
+  client's sends are settled), subject to its own checks and deferred under
+  a `refunds` hold. A genuine refund the settlement cannot pay then is
+  parked instead of refused: its record is settled, the refund owed and
+  queued. A minted one (the outstanding supply cannot hold it) is reserved
+  against the supply cap (apart from the returns in flight, so it never
+  refuses a return), and `ClaimRefunds` pays it after the reopening in
+  installments as the supply has room (a voucher return makes some). An
+  escrowed one (the free escrow is short, a forged receive having drained
+  it, say) is reserved by the queued refunds, so no claim, sweep or
+  receive takes the escrow it waits for, and `ClaimRefunds` pays it after
+  the reopening once the escrow is whole again (a recapitalization); the
+  route can reopen meanwhile, its losses accepted as a deficit. The replacement client must authenticate the route's identity, the
+  Ethereum chain, router and commitments slot recorded at the enrolment
+  (`ibcgov.RouteIdentity`). It reopens by a governed decision, refused
+  while a send record of a retired client is still open (its commitment
+  outstanding or its refund queued, not settled by a reconciliation) or was
+  processed (acknowledged or timed out) at or after the replacement's
+  suspect height and is not settled; records completed and paid before the
+  suspect interval need no settlement. The reopening records the remaining
+  losses as an accepted deficit and revokes unpaid recapitalization
+  authorizations, in batches of at most 64 incidents, then at most 64
+  authorizations (`ReopenBatch`), continued by anyone with
+  **`ContinueReopen(route)`**. A loss of any denom without a
+  restoring decision stops new exposure only (gno-native sends, credits,
+  claim payouts, sweep payments): voucher returns, acknowledgements, timeouts
+  and refunds go on.
+- **Governance** (`GovApply`, ibcgov only): enrolment, denom limits, fee
+  collector, refused recipients, voids and restores of withheld claims, credit
+  by vote, sweep payments (live entries of one denom, each paid whole to the
+  decision's payee, with no claim fee and outside the payout meters; for an
+  `unescrow` denom their total must fit the free escrow, what open and withheld claims,
+  queued refunds and proven reservations do not reserve; deferred under a `payouts` flag), losses,
+  recapitalization authorizations (only for
+  an `unescrow` denom, the only kind recapitalized on gno.land; paid by
+  anyone with **`Recapitalize(route, id)`**: for a native coin, a direct
+  user call sending exactly the authorized amount; for a GRC20, no coins
+  attached, the amount taken from the immediate caller's allowance to this
+  realm), reductions, accepted deficits,
+  settlements of a retired client's sends, route replacement and reopening.
+- **Renders**: `routes` (a JSON array of every enrolled route, each
+  element the `routes/{route}` object, not paginated), `routes/{route}` (one JSON
+  object of the route with every enabled denom and its totals, not
+  paginated), and `routes/{route}/claims`, `routes/{route}/sweeps`,
+  `routes/{route}/sends`, `routes/{route}/losses` (JSON pages of at most
+  100 entries, `{"entries":[...],"next":<cursor>}`: pass `next` as
+  `?from=` for the following page, `""` when there is none; losses are
+  ordered by direction then packet key), and the `route_*` events (`credit`,
+  `claim`, `settle`, `refund`, `recapitalize`, `gov`).
 
 ## Query endpoints
 
@@ -145,12 +308,16 @@ All endpoints return JSON and are accessible via gnoweb or `gnokey query vm/qren
 
 | Path                                | Description                                                                        |
 | ----------------------------------- | ---------------------------------------------------------------------------------- |
-| `denoms`                            | List all registered IBC denominations                                              |
+| `denoms`                            | List the registered IBC denominations (paginated)                                  |
 | `denoms/ibc/{hash}`                 | Details for a specific IBC denom (base, path, denom)                               |
 | `total_escrow/{denom}`              | Total escrowed amount for a native denom                                           |
 | `vouchers`                          | List all voucher tokens (paginated, includes `grc20reg_key`)                       |
 | `voucher/ibc/{hash}`                | Voucher token metadata (denom, grc20reg_key, name, symbol, decimals, total supply) |
 | `voucher/ibc/{hash}/balance/{addr}` | Voucher balance for an address                                                     |
+
+`denoms` and `vouchers` are paginated: `?page=N&limit=M` (page 1 and 20
+entries by default, at most 100 entries a page), answered as
+`{"items":[...],"page":N,"total":T}` where `total` is the number of pages.
 
 Example:
 
@@ -159,8 +326,15 @@ gnokey query vm/qrender -data "gno.land/r/aib/ibc/apps/transfer:total_escrow/ugn
 ```
 
 ```json
-{ "denom": "ugnot", "amount": 100 }
+{ "denom": "ugnot", "amount": 100, "clients": [{ "client": "07-tendermint-1", "amount": 100 }] }
 ```
+
+Amounts in these JSON renders are written as JSON numbers converted from
+float64: an integer above 2^53 (9007199254740992) can lose precision
+(9007199254740993 renders as 9007199254740992). Read exact values from Gno
+code: `VoucherBalanceOf(ibcDenom, addr)` for a balance, the voucher token's
+`TotalSupply()` (via grc20reg) for a supply, and the route controls' totals
+for an Ethereum route.
 
 ## Helper functions
 
@@ -178,7 +352,7 @@ balance := transfer.VoucherBalanceOf("ibc/CAEF9C...", addr)
 Send an IBC voucher token to another Gno address:
 
 ```gno
-transfer.VoucherSend(cross, "ibc/CAEF9C...", recipient, 100)
+transfer.VoucherSend(cross(cur), "ibc/CAEF9C...", recipient, 100)
 ```
 
 ```
@@ -194,7 +368,7 @@ gnokey maketx call -pkgpath gno.land/r/aib/ibc/apps/transfer -func VoucherSend \
 Set a spender allowance for an IBC voucher token:
 
 ```gno
-transfer.VoucherApprove(cross, "ibc/CAEF9C...", spender, 100)
+transfer.VoucherApprove(cross(cur), "ibc/CAEF9C...", spender, 100)
 ```
 
 ```
@@ -243,13 +417,16 @@ Voucher tokens can be discovered in two ways:
 
 2. **From `grc20reg`** — `grc20reg` keys tokens by `rlmPath.symbol`, so voucher
    tokens are registered as `gno.land/r/aib/ibc/apps/transfer.{SYMBOL}`, where
-   `{SYMBOL}` is the uppercase hex SHA256 hash from the `ibc/{HASH}` denom
-   truncated to `grc20.MaxSymbolLen` (11 chars) — *not* the full hash, which
-   exceeds the symbol length limit. Enumerate entries with the
+   `{SYMBOL}` is allocated from a counter when the voucher is created
+   (`IBC-` and the voucher's id in base 36, upper case: `IBC-1`, `IBC-2`,
+   ...), not derived from its hash: read it from the `vouchers` render or
+   `VoucherSymbol(ibcDenom)`. Enumerate entries with the
    `gno.land/r/aib/ibc/apps/transfer.` prefix.
 
-The token name is the base denomination (e.g. `uatom`) and the symbol is the
-truncated hash (e.g. `CAEF9CA8CE6`). For the full denom and richer metadata
+The token name is the base denomination (e.g. `uatom`) and the symbol is
+allocated when the voucher is created (e.g. `IBC-1`). Every voucher has zero decimals: the
+counterparty's decimal metadata is not carried over, and balances are the
+unscaled base-unit amounts the packets carried. For the full denom and richer metadata
 (trace hops, total supply), query the render endpoint `voucher/ibc/{HASH}`.
 
 Base denominations are the counterparty's and are accepted as received, like
@@ -270,10 +447,12 @@ routes write markdown characters in string values as `\u` escapes
 
 The same base denomination (e.g. `uatom`) arriving from different chains
 produces distinct voucher tokens with different IBC hashes. A DEX should use the
-full `ibc/{HASH}` denom to distinguish them — the token symbol is only the
-truncated hash, so read the full denom from the `denom` field of the `vouchers`
-render endpoint — and query `denoms/ibc/{HASH}` to resolve the trace path for
-display purposes.
+full `ibc/{HASH}` denom to distinguish them — the token symbol is an
+allocated label, so read the full denom from the `denom` field of the
+`vouchers` render endpoint — and query `denoms/ibc/{HASH}` to resolve the
+trace path for display purposes. No two vouchers share a symbol, or a
+registry key, whatever their hashes (the full hash is kept as the grc20reg
+slug).
 
 ## Events
 
@@ -305,18 +484,24 @@ Emitted on `OnRecvPacket`:
 
 Also emitted on `OnAcknowledgementPacket`:
 
-| Attribute         | Description           |
-| ----------------- | --------------------- |
-| `sender`          | Sender address        |
-| `receiver`        | Receiver address      |
-| `denom`           | Full denom path       |
-| `amount`          | Amount                |
-| `memo`            | Memo text             |
-| `acknowledgement` | Acknowledgement bytes |
+| Attribute         | Description                                                          |
+| ----------------- | -------------------------------------------------------------------- |
+| `sender`          | Sender address                                                       |
+| `receiver`        | Receiver address                                                     |
+| `denom`           | Full denom path (Ethereum route: the send record's accounting denom) |
+| `amount`          | Amount                                                               |
+| `memo`            | Memo text (not emitted on an Ethereum route)                         |
+| `acknowledgement` | Acknowledgement bytes                                                |
+
+followed by a second `fungible_token_packet` event carrying only `success`
+(the acknowledgement's result) or `error` (its error).
 
 ### `denomination`
 
-Emitted when a new voucher denom is created during `OnRecvPacket`.
+Emitted on every `OnRecvPacket` that credits a voucher (a token not
+originating on gno.land), not only when its denom is first created; on an
+Ethereum route, on every receive of a `mint` denom that passes the refusal
+checks.
 
 | Attribute    | Description                      |
 | ------------ | -------------------------------- |
@@ -325,37 +510,95 @@ Emitted when a new voucher denom is created during `OnRecvPacket`.
 
 ### `timeout`
 
-Emitted on `OnTimeoutPacket`. Tokens are refunded to the original sender.
+Emitted on `OnTimeoutPacket`.
 
-| Attribute  | Description                        |
-| ---------- | ---------------------------------- |
-| `receiver` | Refund recipient (original sender) |
-| `denom`    | Full denom path                    |
-| `amount`   | Refunded amount                    |
-| `memo`     | Original memo                      |
+| Attribute  | Description                                                                 |
+| ---------- | --------------------------------------------------------------------------- |
+| `receiver` | Refund recipient (original sender)                                          |
+| `denom`    | Full denom path (Ethereum route: the send record's accounting denom)        |
+| `amount`   | Non-Ethereum client: the refunded amount; Ethereum route: the whole send    |
+| `memo`     | Non-Ethereum client: the original memo; Ethereum route: empty               |
+
+On a non-Ethereum client the tokens are refunded in the same transaction. On
+an Ethereum route the refund follows the refund rules of the route controls
+section: `amount` is the send's whole entitlement even when the refund is
+queued. What was actually paid is in the `route_settle` event (`refunded`,
+the amount paid now, and `payment`, the record's payment state) and, for a
+queued refund, in each later `route_refund` event of `ClaimRefunds`. The same
+`route_settle` event follows an error acknowledgement.
 
 ## IBC packet lifecycle
 
 1. **Transfer** -- Caller invokes `Transfer`. Tokens are escrowed (native/GRC20)
    or burned (voucher). An IBC packet is sent via `core.SendPacket`.
 
-2. **RecvPacket** -- The destination chain receives the packet. If the token
-   originated on the destination chain, the escrowed tokens are returned.
-   Otherwise a voucher GRC20 token is minted and registered in `grc20reg`.
+2. **RecvPacket** -- The destination chain receives the packet. On a
+   non-Ethereum client, value moves at once: if the token originated on the
+   destination chain, the escrowed tokens are returned; otherwise a voucher
+   GRC20 token is minted and registered in `grc20reg`. On an Ethereum route,
+   the receive only books a claim (or an owed sweep entry) with its success
+   acknowledgement; the value moves later, when `Claim` pays the claim
+   within the meters or a governed decision pays the sweep entry.
 
-3. **Acknowledgement** -- On success, only a `fungible_token_packet` event is
-   emitted. On failure, the sender is refunded (re-mint vouchers, unescrow
-   native/GRC20).
+3. **Acknowledgement** -- On success, a non-Ethereum client emits two
+   `fungible_token_packet` events (the acknowledgement's attributes, then
+   `success`); on an Ethereum route the send record is first settled as
+   delivered (its supply reservation released), emitting `route_settle`
+   (`outcome`, `payment`, `refunded` 0), then the same two
+   `fungible_token_packet` events. On failure, the sender is refunded (re-mint vouchers, unescrow
+   native/GRC20): at once on a non-Ethereum client; on an Ethereum route,
+   at once only when the whole refund fits, otherwise queued and paid by
+   `ClaimRefunds` (see the route controls section).
 
 4. **Timeout** -- If the packet is not received before `timeoutTimestamp`, the
    sender is refunded using the same mechanism as a failed acknowledgement.
+
+On an Ethereum route the acknowledgement and timeout callbacks complete the
+packet's transport (the core deletes its commitment) whether or not the
+refund is paid in the same transaction; the send record tracks the payment.
+A queued refund is a deliberate deferral; a payment that fails is not: if
+the token transfer, unescrow or voucher mint of a refund paid at once
+fails, the callback panics and the whole transaction rolls back, transport
+completion included, so the relayer retries after the token is repaired.
+Such a payment is never parked or skipped.
+
+### Payload checks
+
+The core's packet limits come first (core README, Packet limits: among them
+262,144 bytes of payload data and, on send, a timeout at most 24 hours
+ahead; a receive only checks that its timeout has not arrived). The
+transfer app then requires:
+
+- port `transfer` at both ends, version `ics20-1`, and encoding
+  `application/x-protobuf` or `application/x-solidity-abi`;
+- packet client ids, stricter than the core's length and alphabet rule:
+  over a non-Ethereum client both the source and the destination client id
+  pass `types.IsValidClientID` (`{string}-{number}`, so an id like `peer`,
+  which the core accepts, is refused here); over an Ethereum client the
+  local client id passes `IsValidClientID` and the router's client id
+  `types.IsValidRouterClientID` (eureka's grammar: `client-N` or a custom
+  id of up to 128 characters);
+- an amount that is a decimal integer of at most 2^256 - 1 and strictly
+  positive read as an int256 (one at or above 2^255, an ABI uint256 word
+  included, reads as negative and is refused). To be sent or credited it
+  must also fit int64 (at most 9,223,372,036,854,775,807);
+- a sender that is not blank, and a receiver that is not blank except on an
+  Ethereum route, which books an undecodable receiver, blank included, as an
+  owed sweep entry;
+- a denom whose hops (`port/client`) are valid (port 2 to 128 characters,
+  client id 4 to 64 characters, or on an Ethereum route also a router client
+  id) and whose base is not blank and contains no `/`.
+
+The memo has no limit of its own: only the payload size bounds it. A send
+that fails a check aborts the transaction; a receive that fails one is
+answered with an error acknowledgement, and the sender is refunded.
 
 ## Escrow accounting
 
 Native coins and non-IBC GRC20 tokens are escrowed at the transfer realm's
 single account (Gno realms cannot own multiple addresses, so the ibc-go
 per-channel escrow address approach is not available). Per-client isolation is
-tracked in the realm store instead:
+tracked in the realm store instead. For non-Ethereum clients:
 
 - Escrow is tracked per `(client, denom)` in the realm store, not as a single
   global per-denom pool.
@@ -375,15 +618,27 @@ and forges a valid proof against it cannot unescrow funds that honest users
 locked under a different client. See
 `z4f_on_recv_packet_drain_filetest.gno` for the regression test.
 
+On an Ethereum route the escrow is keyed by the route's stable key (its first
+client id), so it follows the route across client replacements. A send
+escrows under it; a receive moves no value: it books a claim or a sweep
+entry, and the escrow is released later, by `Claim` within the meters or by
+a governed sweep payment. A receive above the free escrow (what open and withheld claims,
+queued refunds and proven reservations do not reserve) is not refused: it becomes an owed sweep
+entry, acknowledged with success.
+
 ## Upgrades
 
 This realm is a permanent, thin proxy (see
 [ADR 0002](../../../../../../docs/adrs/0002-proxy-realm-for-transfer-upgrades.md)):
 it holds the escrow, the voucher tokens with their ledgers and the known
 denominations, and forwards `Transfer`, the four IBC callbacks and `Render` to
-an implementation realm that holds the ICS-20 logic. The first one is
-`gno.land/r/aib/ibc/apps/transfer/impl/v0`. The lifecycle is the core's
-(`RegisterImpl` from the implementation's `init`, `UpdateImpl` by the
-authority or through `NewUpdateImplProposalRequest`, `ImplPath` and
-`ImplVersion`); see the core README's Upgrades section. The ICS-20 types
+an implementation realm that holds the ICS-20 logic. On a fresh deployment
+the first, and so the bootstrapping, registration is
+`gno.land/r/aib/ibc/apps/transfer/impl/v1`; `impl/v0` holds the ICS-20 logic
+`impl/v1` embeds for non-Ethereum clients and registers nothing. The lifecycle is the core's
+(`RegisterImpl(ctor, version, over, keepsControls)` from the implementation's
+`init`, `UpdateImpl` by an ibcgov decision, `ImplPath` and `ImplVersion`); see
+the core README's Upgrades section. Here the manifest also declares whether
+the implementation keeps the route controls: once any route exists,
+`CheckUpdateImpl` refuses an implementation that does not. The ICS-20 types
 shared by every implementation live in `gno.land/p/aib/ibc/ics20/v0`.
