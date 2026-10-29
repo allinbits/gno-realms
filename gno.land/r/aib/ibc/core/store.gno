@@ -2,6 +2,7 @@ package core
 
 import (
 	"chain/params"
+	"chain/runtime"
 
 	"gno.land/p/aib/ibc/app/v0"
 	"gno.land/p/aib/ibc/host/v0"
@@ -62,6 +63,9 @@ type Client interface {
 	// migration to a new light-client version. As for AddClient, convert must
 	// be a /p/-declared function so the new verifier is allocated here.
 	SetLightClient(_ int, rlm realm, convert func(current lightclient.Interface) lightclient.Interface)
+	// TrustGeneration counts the verifier's recoveries, freezes, upgrades,
+	// migrations and substitutions: the core starts a new generation on each.
+	TrustGeneration() uint64
 	// AllocateSendSequence allocates and returns the next send sequence.
 	AllocateSendSequence(_ int, rlm realm) uint64
 	// NextSequenceSend returns the sequence AllocateSendSequence would return
@@ -76,8 +80,14 @@ type Client interface {
 	DeletePacketCommitment(_ int, rlm realm, sequence uint64)
 
 	HasPacketReceipt(sequence uint64) bool
+	// PacketReceipt returns the receipt stored at sequence
+	// (types.CommitPacketReceipt of the received packet), or nil.
+	PacketReceipt(sequence uint64) []byte
 	PacketReceipts() bptree.ITree
-	SetPacketReceipt(_ int, rlm realm, sequence uint64)
+	// SetPacketReceipt stores types.CommitPacketReceipt(packet) at the
+	// packet's sequence, so the receipt identifies the packet (ADR pr6375
+	// R19).
+	SetPacketReceipt(_ int, rlm realm, packet types.Packet)
 	DeletePacketReceipt(_ int, rlm realm, sequence uint64)
 
 	HasPacketAcknowledgement(sequence uint64) bool
@@ -118,6 +128,10 @@ type coreStore struct {
 	// pendingKey(port, pkgPath); a B+ tree, because anyone may add to it and
 	// a map would be loaded whole on every access.
 	pendingApps *bptree.BPTree // port:pkgPath -> App
+	// retired holds the clients RetireClient retired, and under
+	// clientID|port the ports RetireClientPort retired a client for (see
+	// admin.gno; an ICS24 identifier holds no '|').
+	retired *bptree.BPTree // clientID or clientID|port -> true
 }
 
 var _ Store = (*coreStore)(nil)
@@ -127,7 +141,31 @@ func newStore() *coreStore {
 		clientByID:  bptree.NewBPTree32(),
 		routes:      make(map[string]App),
 		pendingApps: bptree.NewBPTree32(),
+		retired:     bptree.NewBPTree32(),
 	}
+}
+
+func (cs *coreStore) isRetired(clientID string) bool {
+	return cs.retired.Has(clientID)
+}
+
+// isRetiredAny reports whether clientID is retired, or retired for any port
+// ('}' follows '|': the keys clientID|port sort below clientID}).
+func (cs *coreStore) isRetiredAny(clientID string) bool {
+	if cs.retired.Has(clientID) {
+		return true
+	}
+	found := false
+	cs.retired.Iterate(clientID+"|", clientID+"}", func(string, any) bool {
+		found = true
+		return true
+	})
+	return found
+}
+
+// isRetiredFor reports whether clientID is retired, or retired for port.
+func (cs *coreStore) isRetiredFor(clientID, port string) bool {
+	return cs.retired.Has(clientID) || cs.retired.Has(clientID+"|"+port)
 }
 
 type client struct {
@@ -144,6 +182,11 @@ type client struct {
 	packetReceiptsBySeq         *bptree.BPTree // sequence:receipt
 	packetAcknowledgementsBySeq *bptree.BPTree // sequence:ack
 	pendingAsyncAcksBySeq       *bptree.BPTree // sequence:pendingAsyncAck
+	// trustGen counts the changes of whom the verifier trusts: a recovery,
+	// a freeze, an upgrade, a migration or a substitution of the verifier
+	// each start a new generation, and an outcome proven under an older one
+	// is never settled on (ADR pr6375 §5.4 "Proven outcomes").
+	trustGen uint64
 }
 
 var _ Client = (*client)(nil)
@@ -151,6 +194,7 @@ var _ Client = (*client)(nil)
 type pendingAsyncAck struct {
 	packet     types.Packet
 	appPkgPath string
+	height     int64 // the block height of the receive
 }
 
 func (cs *coreStore) AddClient(_ int, rlm realm, typ string, creator address, newLightClient func() lightclient.Interface) Client {
@@ -230,19 +274,38 @@ func (c *client) ID() string                         { return c.id }
 func (c *client) Type() string                       { return c.typ }
 func (c *client) Creator() address                   { return c.creator }
 func (c *client) CounterpartyClientID() string       { return c.counterpartyClientID }
-func (c *client) CounterpartyMerklePrefix() [][]byte { return c.counterpartyMerklePrefix }
+func (c *client) CounterpartyMerklePrefix() [][]byte { return copyPrefix(c.counterpartyMerklePrefix) }
 func (c *client) LightClient() lightclient.Interface { return c.lightClient }
 
 func (c *client) SetCounterparty(_ int, rlm realm, clientID string, merklePrefix [][]byte) {
 	assertProxyRealm(0, rlm)
 	c.counterpartyClientID = clientID
-	// Copied: slices keep the caller's realm as their owner, which could
-	// otherwise rewrite the prefix proofs are checked against later.
-	prefix := make([][]byte, len(merklePrefix))
-	for i, p := range merklePrefix {
-		prefix[i] = append([]byte{}, p...)
+	// Both levels are copied: the caller's slice stays the caller's, and a
+	// later change to it must not move the client's proof namespace.
+	c.counterpartyMerklePrefix = copyPrefix(merklePrefix)
+}
+
+// copyPrefix deep-copies a merkle prefix into this realm's storage.
+func copyPrefix(p [][]byte) [][]byte {
+	if p == nil {
+		return nil
 	}
-	c.counterpartyMerklePrefix = prefix
+	out := make([][]byte, len(p))
+	for i, e := range p {
+		out[i] = append([]byte{}, e...)
+	}
+	return out
+}
+
+// copyPacket deep-copies a packet (its payloads and their values).
+func copyPacket(p types.Packet) types.Packet {
+	out := p
+	out.Payloads = make([]types.Payload, len(p.Payloads))
+	for i, pl := range p.Payloads {
+		pl.Value = append([]byte{}, pl.Value...)
+		out.Payloads[i] = pl
+	}
+	return out
 }
 
 func (c *client) SetLightClient(_ int, rlm realm, convert func(lightclient.Interface) lightclient.Interface) {
@@ -255,7 +318,11 @@ func (c *client) SetLightClient(_ int, rlm realm, convert func(lightclient.Inter
 		panic("SetLightClient: nil light client")
 	}
 	c.lightClient = lc
+	c.trustGen++
 }
+
+// TrustGeneration is the verifier's trust generation (see client.trustGen).
+func (c *client) TrustGeneration() uint64 { return c.trustGen }
 
 func (c *client) AllocateSendSequence(_ int, rlm realm) uint64 {
 	assertProxyRealm(0, rlm)
@@ -307,19 +374,33 @@ func (c *client) HasPacketReceipt(sequence uint64) bool {
 	return c.packetReceiptsBySeq.Has(seqid.ID(sequence).Binary())
 }
 
-// SetPacketReceipt writes the packet receipt under the receipt path
-// This is a public path that is standardized by the IBC V2 specification.
-func (c *client) SetPacketReceipt(_ int, rlm realm, sequence uint64) {
+// PacketReceipt returns the receipt stored at sequence, or nil.
+func (c *client) PacketReceipt(sequence uint64) []byte {
+	v := c.packetReceiptsBySeq.Get(seqid.ID(sequence).Binary())
+	if v == nil {
+		return nil
+	}
+	return v.([]byte)
+}
+
+// SetPacketReceipt writes the packet receipt under the receipt path, the
+// public path the IBC v2 specification standardizes (ICS24). ibc-go stores the
+// constant 0x02 there; this core stores types.CommitPacketReceipt(packet), a
+// sha256 commitment to the sequence, the source client and the packet's IBC v2
+// commitment (destination client, timeout, payloads), so that the receipt
+// says which packet occupies the sequence (ADR pr6375 R19). Counterparties
+// only prove a receipt's absence (timeouts), which the value does not affect.
+func (c *client) SetPacketReceipt(_ int, rlm realm, packet types.Packet) {
 	assertProxyRealm(0, rlm)
-	value := []byte{byte(2)} // constant value
+	value := types.CommitPacketReceipt(packet)
 
 	// store in client data
-	c.packetReceiptsBySeq.Set(seqid.ID(sequence).Binary(), value)
+	c.packetReceiptsBySeq.Set(seqid.ID(packet.Sequence).Binary(), value)
 
 	// store in params, so it is provable by the counterparty
 	// The key will be: (abci path=.store/main/key)
 	// "/pv/vm:gno.land/r/aib/ibc/core:" + clientID + "2" + sequence
-	key := host.PacketReceiptKey(c.id, sequence)
+	key := host.PacketReceiptKey(c.id, packet.Sequence)
 	setChainParam(key, value)
 }
 
@@ -373,6 +454,16 @@ func (c *client) DeletePacketAcknowledgement(_ int, rlm realm, sequence uint64) 
 	setChainParam(key, nil)
 }
 
+// pendingAsyncAckHeight is the block height at which the packet waiting for
+// its asynchronous acknowledgement at sequence was received, 0 if none.
+func (c *client) pendingAsyncAckHeight(sequence uint64) int64 {
+	v := c.pendingAsyncAcksBySeq.Get(seqid.ID(sequence).Binary())
+	if v == nil {
+		return 0
+	}
+	return v.(*pendingAsyncAck).height
+}
+
 func (c *client) PendingAsyncAck(sequence uint64) (types.Packet, string, bool) {
 	v := c.pendingAsyncAcksBySeq.Get(seqid.ID(sequence).Binary())
 	if v == nil {
@@ -392,10 +483,9 @@ func (c *client) SavePendingAsyncAck(_ int, rlm realm, packet types.Packet, appP
 		panic(ufmt.Sprintf("acknowledgement already written for sequence %d", sequence))
 	}
 	c.pendingAsyncAcksBySeq.Set(seqid.ID(sequence).Binary(), &pendingAsyncAck{
-		// Copied: the packet comes from the relayer's message, whose realm
-		// could otherwise rewrite its payloads before the acknowledgement.
-		packet:     packet.Clone(),
+		packet:     copyPacket(packet),
 		appPkgPath: appPkgPath,
+		height:     runtime.ChainHeight(),
 	})
 }
 

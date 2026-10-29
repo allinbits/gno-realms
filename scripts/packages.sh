@@ -57,6 +57,7 @@ PACKAGES=(
   # depends on encoding/wire, ibc/lightclient, lightclient/extproof, ibc/types,
   # ics23 (and the crypto/bls12381 native)
   "gno.land/p/aib/ibc/lightclient/ethereum/v0:gno.land/p/aib/ibc/lightclient/ethereum/v0"
+  "gno.land/p/aib/ibc/lightclient/ethereum/testing/v0:gno.land/p/aib/ibc/lightclient/ethereum/testing/v0"
 
   # realms (stateful)
   # grc20test has no aib deps
@@ -82,4 +83,12 @@ PACKAGES=(
 
   # depends on r/aib/ibc/core, lightclient/ethereum, encoding/wire, extproof
   "gno.land/r/aib/ibc/ethrelay:gno.land/r/aib/ibc/ethrelay"
+
+  # the governance realm: depends on decisions, jsonmd, lightclient/ethereum,
+  # r/aib/ibc/core, r/aib/ibc/apps/transfer, r/gov/dao
+  "gno.land/r/aib/ibc/ibcgov:gno.land/r/aib/ibc/ibcgov"
+
+  # core impl/v1 (client migration), a candidate activated by an ibcgov
+  # decision (UpdateImpl, 7 days)
+  "gno.land/r/aib/ibc/core/impl/v1:gno.land/r/aib/ibc/core/impl/v1"
 )

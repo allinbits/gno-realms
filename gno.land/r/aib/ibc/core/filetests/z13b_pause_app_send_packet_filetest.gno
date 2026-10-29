@@ -2,6 +2,8 @@
 package main
 
 import (
+	"testing"
+
 	"time"
 
 	tmtesting "gno.land/p/aib/ibc/lightclient/tendermint/testing/v0"
@@ -50,8 +52,9 @@ func main(cur realm) {
 		},
 	}
 
-	core.AddAuthorityMember(cross(cur), cur.Address())
+	testing.SetRealm(testing.NewCodeRealm(core.IBCGovPath)) // decided by the governance realm
 	core.PauseApp(cross(cur), app1PortID)
+	testing.SetRealm(testing.NewCodeRealm("gno.land/r/aib/main"))
 	core.SendPacket(cross(cur), packet)
 }
 

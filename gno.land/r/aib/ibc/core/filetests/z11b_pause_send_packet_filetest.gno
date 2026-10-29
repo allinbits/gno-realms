@@ -2,6 +2,8 @@
 package main
 
 import (
+	"testing"
+
 	"gno.land/p/aib/ibc/types/v0"
 	"gno.land/r/aib/ibc/core"
 	_ "gno.land/r/aib/ibc/core/impl/v0"
@@ -9,8 +11,9 @@ import (
 
 // SendPacket is rejected while paused.
 func main(cur realm) {
-	core.AddAuthorityMember(cross(cur), cur.Address())
+	testing.SetRealm(testing.NewCodeRealm(core.IBCGovPath)) // decided by the governance realm
 	core.Pause(cross(cur))
+	testing.SetRealm(testing.NewCodeRealm("gno.land/r/aib/main"))
 	core.SendPacket(cross(cur), types.MsgSendPacket{})
 }
 

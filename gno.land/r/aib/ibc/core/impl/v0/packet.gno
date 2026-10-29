@@ -5,6 +5,8 @@ import (
 	"encoding/hex"
 	"time"
 
+	"gno.land/p/aib/ibc/lightclient/ethereum/v0"
+
 	"gno.land/p/aib/ibc/host/v0"
 	"gno.land/p/aib/ibc/lightclient/extproof/v0"
 	"gno.land/p/aib/ibc/lightclient/v0"
@@ -15,6 +17,17 @@ import (
 )
 
 const maxTimeoutDelta time.Duration = 24 * time.Hour
+
+// validatePacket validates a packet of the local client local: by the ICS26
+// router's client id grammar on the counterparty side when local is an
+// Ethereum client (types.Packet.ValidateBasicRouter), by the SDK's rule
+// otherwise (types.Packet.ValidateBasic), unchanged for every other client.
+func (l *logic) validatePacket(p types.Packet, local string) error {
+	if c := l.store.Client(local); c != nil && c.Type() == ethereum.ClientType {
+		return p.ValidateBasicRouter()
+	}
+	return p.ValidateBasic()
+}
 
 func (l *logic) SendPacket(_ int, rlm realm, msg types.MsgSendPacket) (sequence uint64) {
 	if err := msg.ValidateBasic(); err != nil {
@@ -66,7 +79,7 @@ func (l *logic) SendPacket(_ int, rlm realm, msg types.MsgSendPacket) (sequence 
 	// construct packet from given fields
 	sequence = c.AllocateSendSequence(0, rlm)
 	packet := types.NewPacket(sequence, msg.SourceClient, counterpartyClientID, msg.TimeoutTimestamp, msg.Payloads...)
-	if err := packet.ValidateBasic(); err != nil {
+	if err := l.validatePacket(packet, msg.SourceClient); err != nil {
 		panic(ufmt.Errorf("constructed packet failed basic validation: %v", err))
 	}
 
@@ -102,7 +115,7 @@ func (l *logic) RecvPacket(_ int, rlm realm, msg types.MsgRecvPacket) types.Resp
 		if len(msg.ProofCommitment) != 0 {
 			panic("a message cannot carry both an ICS23 proof and an Ext proof")
 		}
-		if err := msg.Packet.ValidateBasic(); err != nil {
+		if err := l.validatePacket(msg.Packet, msg.Packet.DestinationClient); err != nil {
 			panic(err)
 		}
 	} else if err := msg.ValidateBasic(); err != nil {
@@ -136,9 +149,17 @@ func (l *logic) RecvPacket(_ int, rlm realm, msg types.MsgRecvPacket) types.Resp
 	// Packet receipts must not be pruned, unless it has been marked stale by the
 	// increase of the recvStartSequence. TODO check relevancy of comment
 	if c.HasPacketReceipt(msg.Packet.Sequence) {
-		// This error indicates that the packet has already been relayed. Core IBC
-		// will treat this error as a no-op in order to prevent an entire relay
-		// transaction from failing and consuming unnecessary fees.
+		// The receipt identifies the packet (types.CommitPacketReceipt): the
+		// same packet again has already been relayed, which Core IBC treats as
+		// a no-op so that an entire relay transaction does not fail and consume
+		// unnecessary fees. A different packet at a received sequence is
+		// refused, as eureka refuses a different receipt at a sequence.
+		if !bytes.Equal(c.PacketReceipt(msg.Packet.Sequence), types.CommitPacketReceipt(msg.Packet)) {
+			panic(ufmt.Sprintf(
+				"a different packet was already received at sequence %d on client %s",
+				msg.Packet.Sequence, clientID,
+			))
+		}
 		return types.RESPONSE_NOOP
 	}
 
@@ -158,7 +179,7 @@ func (l *logic) RecvPacket(_ int, rlm realm, msg types.MsgRecvPacket) types.Resp
 	}
 
 	// Set Packet Receipt to prevent timeout from occurring on counterparty
-	c.SetPacketReceipt(0, rlm, msg.Packet.Sequence)
+	c.SetPacketReceipt(0, rlm, msg.Packet)
 
 	// Emit events
 	core.EmitRecvPacket(0, rlm, msg.Packet)
@@ -284,7 +305,7 @@ func (l *logic) Acknowledgement(_ int, rlm realm, msg types.MsgAcknowledgement) 
 		if err := msg.Acknowledgement.Validate(); err != nil {
 			panic(err)
 		}
-		if err := msg.Packet.ValidateBasic(); err != nil {
+		if err := l.validatePacket(msg.Packet, msg.Packet.SourceClient); err != nil {
 			panic(err)
 		}
 	} else if err := msg.ValidateBasic(); err != nil {
@@ -382,7 +403,7 @@ func (l *logic) Timeout(_ int, rlm realm, msg types.MsgTimeout) types.ResponseRe
 		if len(msg.ProofUnreceived) != 0 {
 			panic("a message cannot carry both an ICS23 proof and an Ext proof")
 		}
-		if err := msg.Packet.ValidateBasic(); err != nil {
+		if err := l.validatePacket(msg.Packet, msg.Packet.SourceClient); err != nil {
 			panic(err)
 		}
 	} else if err := msg.ValidateBasic(); err != nil {

@@ -72,7 +72,7 @@ func (l *logic) OnSendPacket(_ int, rlm realm, sourceClient, destinationClient s
 	// data, then we can remove this restriction.
 	// Non-IBC GRC20 tokens use aliases (slashes replaced with colons)
 	// so they pass this check naturally.
-	if err := validateBaseDenomNoSlash(token); err != nil {
+	if err := ValidateBaseDenomNoSlash(token); err != nil {
 		return err
 	}
 
@@ -85,7 +85,7 @@ func (l *logic) OnSendPacket(_ int, rlm realm, sourceClient, destinationClient s
 		if !ok {
 			return ufmt.Errorf("voucher packet must be initiated through transfer.Transfer")
 		}
-		if err := validatePendingSend(expected, data.Sender, sourceClient, token.Denom.Path(), coin.Amount); err != nil {
+		if err := ValidatePendingSend(expected, data.Sender, sourceClient, token.Denom.Path(), coin.Amount); err != nil {
 			return ufmt.Errorf("voucher packet %v", err)
 		}
 
@@ -101,7 +101,7 @@ func (l *logic) OnSendPacket(_ int, rlm realm, sourceClient, destinationClient s
 		if !ok {
 			return ufmt.Errorf("GRC20 packet must be initiated through transfer.Transfer")
 		}
-		if err := validatePendingSend(expected, data.Sender, sourceClient, token.Denom.Path(), coin.Amount); err != nil {
+		if err := ValidatePendingSend(expected, data.Sender, sourceClient, token.Denom.Path(), coin.Amount); err != nil {
 			return ufmt.Errorf("GRC20 packet %v", err)
 		}
 
@@ -135,7 +135,9 @@ func (l *logic) OnSendPacket(_ int, rlm realm, sourceClient, destinationClient s
 	return nil
 }
 
-func validatePendingSend(expected transfer.PendingSend, sender, sourceClient, denom string, amount int64) error {
+// ValidatePendingSend checks that a send matches the transfer.Transfer call
+// that announced it.
+func ValidatePendingSend(expected transfer.PendingSend, sender, sourceClient, denom string, amount int64) error {
 	if expected.Sender != sender ||
 		expected.SourceClient != sourceClient ||
 		expected.Denom != denom ||
@@ -185,7 +187,7 @@ func (l *logic) OnRecvPacket(_ int, rlm realm, sourceClient, destinationClient s
 		ack = types.NewErrorAppAcknowledgement(ackErr)
 		return types.RecvPacketResult{Status: types.PacketStatus_Failure}
 	}
-	if ackErr = validateBaseDenomNoSlash(token); ackErr != nil {
+	if ackErr = ValidateBaseDenomNoSlash(token); ackErr != nil {
 		ack = types.NewErrorAppAcknowledgement(ackErr)
 		return types.RecvPacketResult{Status: types.PacketStatus_Failure}
 	}
@@ -273,10 +275,10 @@ func (l *logic) OnRecvPacket(_ int, rlm realm, sourceClient, destinationClient s
 	return recvResult
 }
 
-// validateBaseDenomNoSlash rejects base denominations containing a slash.
+// ValidateBaseDenomNoSlash rejects base denominations containing a slash.
 // IBC v2 packets do not carry channel identifiers, so denomination traces
 // cannot be unambiguously separated from a slashed base denomination.
-func validateBaseDenomNoSlash(token ics20.Token) error {
+func ValidateBaseDenomNoSlash(token ics20.Token) error {
 	if strings.Contains(token.Denom.Base, "/") {
 		return ufmt.Errorf("base denomination %s cannot contain slashes for IBC v2 packet", token.Denom.Base)
 	}

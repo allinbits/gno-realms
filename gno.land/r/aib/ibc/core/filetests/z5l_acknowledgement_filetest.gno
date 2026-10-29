@@ -15,8 +15,9 @@ import (
 
 // Acknowledgement unauthorized relayer
 func main(cur realm) {
-	core.AddAuthorityMember(cross(cur), cur.Address())
+	testing.SetRealm(testing.NewCodeRealm(core.IBCGovPath)) // decided by the governance realm
 	core.AddRelayer(cross(cur), "g1wymu47drhr0kuq2098m792lytgtj2nyx77yrsm")
+	testing.SetRealm(testing.NewCodeRealm("gno.land/r/aib/main"))
 	var (
 		chainID        = "chain-id-2"
 		trustedHeight  = types.NewHeight(2, 2)

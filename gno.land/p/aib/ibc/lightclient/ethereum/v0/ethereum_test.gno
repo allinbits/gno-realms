@@ -572,6 +572,224 @@ func TestRecoverClientForks(t *testing.T) {
 	}
 }
 
+// Initialize runs once: a stored client's trusted state is never replaced
+// through it (Codex round 17).
+func TestInitializeOnce(t *testing.T) {
+	f := fixtureNative()
+	c := NewEthLightClient()
+	urequire.NoError(t, c.Initialize(f.clientState, f.consensusState))
+	before := c.LatestHeight()
+	cs, cons := f.clientState, f.consensusState
+	cs.LatestSlot, cons.Slot = cs.LatestSlot+1000, cons.Slot+1000
+	if c.Initialize(cs, cons) == nil {
+		t.Fatalf("initialized twice")
+	}
+	if c.LatestHeight() != before {
+		t.Fatalf("trusted state moved: %v", c.LatestHeight())
+	}
+}
+
+// A replacement keeps every trusted height without copying it (ADR pr6375
+// R16): NewFrom does constant work whatever the retired verifier's history,
+// serves each of its consensus states, stores its own apart, and never writes
+// to the retired verifier (Codex round 26 #2).
+func TestNewFromKeepsHistory(t *testing.T) {
+	f := fixtureNative()
+	old := NewEthLightClient()
+	urequire.NoError(t, old.Initialize(f.clientState, f.consensusState))
+	base := f.consensusState
+	for i := uint64(1); i <= 250; i++ {
+		cons := copyConsensusState(base)
+		cons.Slot = base.Slot + i
+		cons.StateRoot = []byte{byte(i), 1, 2, 3}
+		old.setConsensusState(&cons)
+	}
+	cs := *old.ClientState
+	cs.LatestSlot = base.Slot + 250
+	old.ClientState = &cs
+
+	c := NewFrom(Retire(old))
+	if n := c.ConsensusStateByHeight.Size(); n != 0 {
+		t.Fatalf("NewFrom copied %d consensus states", n)
+	}
+	for i := uint64(0); i <= 250; i++ {
+		got, ok := c.GetConsensusState(heightAtSlot(base.Slot + i))
+		want, _ := old.GetConsensusState(heightAtSlot(base.Slot + i))
+		if !ok || !bytes.Equal(got.StateRoot, want.StateRoot) || got.Slot != want.Slot {
+			t.Fatalf("height %d not served from the retired verifier", base.Slot+i)
+		}
+		// A copy: no pointer into the retired verifier escapes.
+		if got == want {
+			t.Fatalf("height %d served as the retired verifier's own pointer", base.Slot+i)
+		}
+		got.StateRoot[0] ^= 0xff
+		if again, _ := old.GetConsensusState(heightAtSlot(base.Slot + i)); again.StateRoot[0] == got.StateRoot[0] {
+			t.Fatalf("writing a served state wrote the retired verifier's")
+		}
+	}
+	if c.LatestHeight() != old.LatestHeight() || c.Status() != old.Status() {
+		t.Fatalf("head: %v %v", c.LatestHeight(), c.Status())
+	}
+
+	// The new verifier's own states, a later one and one at a retired
+	// height, never reach the retired verifier.
+	later := copyConsensusState(base)
+	later.Slot = base.Slot + 300
+	c.setConsensusState(&later)
+	again := copyConsensusState(base)
+	again.Slot = base.Slot + 10
+	again.StateRoot = []byte{0xee}
+	c.setConsensusState(&again)
+	if n := old.ConsensusStateByHeight.Size(); n != 251 {
+		t.Fatalf("the retired verifier changed: %d states", n)
+	}
+	if got, _ := old.GetConsensusState(heightAtSlot(base.Slot + 10)); got.StateRoot[0] != 10 {
+		t.Fatalf("the retired verifier's state changed")
+	}
+	if got, _ := c.GetConsensusState(heightAtSlot(base.Slot + 10)); got.StateRoot[0] != 0xee {
+		t.Fatalf("the new verifier's own state is not served first")
+	}
+	if c.ClientState == old.ClientState {
+		t.Fatalf("the client state is shared")
+	}
+	// A recovery of the new verifier stops trusting every height below the
+	// state it copies, retired ones included.
+	c.TrustedFromSlot = base.Slot + 300
+	if _, ok := c.GetConsensusState(heightAtSlot(base.Slot + 5)); ok {
+		t.Fatalf("a height below TrustedFromSlot was served")
+	}
+}
+
+// Successive verifier replacements keep every trusted height provable with
+// no chain of delegations (design review r2 #4): five replacements, each
+// verifier storing states of its own, and the last still serves a height
+// from before the first, through one ordered lookup of a history holding
+// one store per verifier.
+func TestNewFromFlatHistory(t *testing.T) {
+	f := fixtureNative()
+	c := NewEthLightClient()
+	urequire.NoError(t, c.Initialize(f.clientState, f.consensusState))
+	base := f.consensusState
+	first := base.Slot
+	slot := base.Slot
+	for gen := 1; gen <= 5; gen++ {
+		for i := 0; i < 3; i++ {
+			slot++
+			cons := copyConsensusState(base)
+			cons.Slot = slot
+			cons.StateRoot = []byte{byte(gen), byte(i), 3}
+			c.setConsensusState(&cons)
+		}
+		cs := *c.ClientState
+		cs.LatestSlot = slot
+		c.ClientState = &cs
+		c = NewFrom(Retire(c))
+		if c.HistoryDepth() != gen {
+			t.Fatalf("after %d replacements the history holds %d stores", gen, c.HistoryDepth())
+		}
+		// A replacement right after another adds no store.
+		if gen == 3 {
+			c = NewFrom(Retire(c))
+			if c.HistoryDepth() != gen {
+				t.Fatalf("an empty verifier joined the history: %d", c.HistoryDepth())
+			}
+		}
+	}
+	got, ok := c.GetConsensusState(heightAtSlot(first))
+	if !ok || got.Slot != first {
+		t.Fatalf("the height before the first replacement is not served: %v", ok)
+	}
+	for s := first + 1; s <= slot; s++ {
+		if got, ok := c.GetConsensusState(heightAtSlot(s)); !ok || got.Slot != s {
+			t.Fatalf("slot %d not served", s)
+		}
+	}
+	if _, ok := c.GetConsensusState(heightAtSlot(slot + 1)); ok {
+		t.Fatalf("served a slot nobody trusted")
+	}
+}
+
+// A replacement after a next-committee-only update keeps the older history
+// and the rewritten head (code rounds 44 #1 and 45 #1): V0 trusts slots 100
+// and 200; V1 replaces it and rewrites the head at 200 (a next-committee
+// update, finality unchanged), then, in the second case, advances finality
+// to 300; V2 replaces V1. The earlier store keeps its interval, and V1's
+// head at 200, with the next committee it learned, is served from the
+// overrides whether or not V1's finality advanced afterwards.
+func TestNewFromAfterOverlayKeepsHistory(t *testing.T) {
+	for _, advance := range []bool{false, true} {
+		f := fixtureNative()
+		v0 := NewEthLightClient()
+		urequire.NoError(t, v0.Initialize(f.clientState, f.consensusState))
+		base := f.consensusState
+		head := base.Slot + 100
+		cons := copyConsensusState(base)
+		cons.Slot = head
+		cons.StateRoot = []byte{0, 1}
+		cons.NextSyncCommittee = nil
+		v0.setConsensusState(&cons)
+		cs := *v0.ClientState
+		cs.LatestSlot = head
+		v0.ClientState = &cs
+
+		v1 := NewFrom(Retire(v0))
+		overlay := copyConsensusState(cons)
+		overlay.StateRoot = []byte{9, 9}
+		overlay.NextSyncCommittee = &SummarizedSyncCommittee{PubkeysHash: []byte{7}, AggregatePubkey: []byte{8}}
+		v1.setConsensusState(&overlay)
+		later := head + 100
+		if advance {
+			next := copyConsensusState(overlay)
+			next.Slot = later
+			next.StateRoot = []byte{5, 5}
+			v1.setConsensusState(&next)
+			cs1 := *v1.ClientState
+			cs1.LatestSlot = later
+			v1.ClientState = &cs1
+		}
+		v2 := NewFrom(Retire(v1))
+		if got, ok := v2.GetConsensusState(heightAtSlot(base.Slot)); !ok || got.Slot != base.Slot {
+			t.Fatalf("advance %v: the slot before the first replacement is lost: %v", advance, ok)
+		}
+		got, ok := v2.GetConsensusState(heightAtSlot(head))
+		if !ok || got.StateRoot[0] != 9 || got.NextSyncCommittee == nil || got.NextSyncCommittee.PubkeysHash[0] != 7 || got.NextSyncCommittee.AggregatePubkey[0] != 8 {
+			t.Fatalf("advance %v: the head's override is lost: %v %+v", advance, ok, got)
+		}
+		if string(got.CurrentSyncCommittee.PubkeysHash) != string(base.CurrentSyncCommittee.PubkeysHash) {
+			t.Fatalf("advance %v: the head's current committee changed", advance)
+		}
+		depth := 1
+		if advance {
+			depth = 2
+			if got, ok := v2.GetConsensusState(heightAtSlot(later)); !ok || got.StateRoot[0] != 5 {
+				t.Fatalf("the advanced slot is lost: %v", ok)
+			}
+		}
+		if v2.HistoryDepth() != depth {
+			t.Fatalf("advance %v: history holds %d stores", advance, v2.HistoryDepth())
+		}
+		// A height of another revision holds nothing, whichever store its
+		// slot would be read from: no state, no timestamp (code review r47
+		// #2; the core's render reads GetConsensusState too).
+		for _, slot := range []uint64{base.Slot, head, later} {
+			if _, ok := v2.GetConsensusState(types.NewHeight(1, slot)); ok {
+				t.Fatalf("advance %v: slot %d served at revision 1", advance, slot)
+			}
+			if _, err := v2.TimestampAtHeight(types.NewHeight(1, slot)); err == nil {
+				t.Fatalf("advance %v: a timestamp at revision 1, slot %d", advance, slot)
+			}
+		}
+		// A third replacement keeps them all.
+		v3 := NewFrom(Retire(v2))
+		if got, ok := v3.GetConsensusState(heightAtSlot(head)); !ok || got.NextSyncCommittee == nil || got.NextSyncCommittee.PubkeysHash[0] != 7 {
+			t.Fatalf("advance %v: a third replacement lost the override", advance)
+		}
+		if _, ok := v3.GetConsensusState(heightAtSlot(base.Slot)); !ok {
+			t.Fatalf("advance %v: a third replacement lost the first slot", advance)
+		}
+	}
+}
+
 // A client created with a wrong schedule for a fork already active, which
 // accepts no update, is recovered in place from a substitute with the right
 // one, and then verifies updates.

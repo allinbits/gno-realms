@@ -47,3 +47,14 @@ func EmitDenom(_ int, rlm realm, denomHash, denomJSON string) {
 		AttributeKeyDenom, denomJSON,
 	)
 }
+
+// EventTypeRoutePrefix prefixes the events of the Ethereum route controls
+// (ADR pr6375 §7): route_claim, route_refund, route_sweep, route_credit,
+// route_gov and the like, emitted under this realm's pkg_path.
+const EventTypeRoutePrefix = "route_"
+
+// EmitRoute emits route_<kind> with the given key/value pairs.
+func EmitRoute(_ int, rlm realm, kind string, attrs ...string) {
+	assertProxyRealm(0, rlm)
+	chain.Emit(EventTypeRoutePrefix+kind, attrs...)
+}

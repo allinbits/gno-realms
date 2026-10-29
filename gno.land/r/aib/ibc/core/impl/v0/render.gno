@@ -6,6 +6,8 @@ import (
 	"strings"
 	"time"
 
+	"gno.land/p/aib/jsonmd/v0"
+
 	"gno.land/p/aib/ibc/lightclient/ethereum/v0"
 	"gno.land/p/aib/ibc/lightclient/tendermint/v0"
 	"gno.land/p/aib/ibc/lightclient/v0"
@@ -107,7 +109,7 @@ func (rd *Renderer) Home(w *mux.ResponseWriter, r *mux.Request) {
 				id, id,
 				lc.Status(), id,
 				RenderAddr(c.Creator()),
-				c.CounterpartyClientID(),
+				jsonmd.Cell(c.CounterpartyClientID()),
 				lc.LatestHeight().String(), id, lc.LatestHeight().RevisionNumber, lc.LatestHeight().RevisionHeight,
 				heightTime,
 				nConsStates, id,
@@ -132,7 +134,7 @@ func (rd *Renderer) Home(w *mux.ResponseWriter, r *mux.Request) {
 		out.WriteString("|------|-----|------|\n")
 		for _, port := range ports {
 			app := rd.store.Route(port)
-			out.WriteString(ufmt.Sprintf("| %s | %s | %s |\n", port, RenderPkgPath(app.PkgPath), RenderAddr(app.Address)))
+			out.WriteString(ufmt.Sprintf("| %s | %s | %s |\n", jsonmd.Cell(port), RenderPkgPath(app.PkgPath), RenderAddr(app.Address)))
 		}
 		out.WriteString("\n")
 	} else {
@@ -283,7 +285,11 @@ func (rd *Renderer) ClientConsensusState(w *mux.ResponseWriter, r *mux.Request) 
 		}
 		RenderNode(w, RenderConsensusState(height, cs))
 	case ethereum.ClientType:
-		lc := c.LightClient().(*ethereum.EthLightClient)
+		lc, ok := ethVerifier(c.LightClient())
+		if !ok {
+			RenderNode(w, NodeError("client %s's verifier keeps no ethereum/v0 state", id))
+			return
+		}
 		cs, found := lc.GetConsensusState(height)
 		if !found {
 			RenderNode(w, NodeError("consensus state not found for height %s", height))
@@ -453,7 +459,10 @@ func ClientJSON(c core.Client) *json.Node {
 			m["last_consensus_state"] = RenderConsensusState(lc.LatestHeight(), lastConsState)
 		}
 	case ethereum.ClientType:
-		lc := c.LightClient().(*ethereum.EthLightClient)
+		lc, ok := ethVerifier(c.LightClient())
+		if !ok {
+			break // a verifier version this implementation cannot render
+		}
 		cs := lc.ClientState
 		m["client_state"] = RenderEthClientState(lc.LatestHeight(), cs)
 		lastConsState, found := lc.GetConsensusState(lc.LatestHeight())
@@ -473,8 +482,42 @@ func ConsensusStatesJSON(c core.Client, r *mux.Request) *json.Node {
 			height := types.ParseHeightNatSort(k)
 			return RenderConsensusState(height, cs)
 		})
+	case ethereum.ClientType:
+		// The consensus states this verifier stores itself; after a verifier
+		// replacement, the retired verifier's are served one height at a
+		// time (consensus_states/{revision}/{height}). A state below a
+		// recovery's cut-off is listed as untrusted, its content withheld.
+		lc, ok := ethVerifier(c.LightClient())
+		if !ok {
+			return NodeError("client %s's verifier keeps no ethereum/v0 state", c.ID())
+		}
+		return jsonpage.Render(lc.ConsensusStateByHeight, r, func(k string, v any) *json.Node {
+			cs := v.(*ethereum.ConsensusState)
+			height := types.ParseHeightNatSort(k)
+			if cs.Slot < lc.TrustedFromSlot {
+				return json.ObjectNode("", map[string]*json.Node{
+					"height":  RenderHeight(height),
+					"trusted": json.BoolNode("", false),
+				})
+			}
+			return RenderEthConsensusState(height, cs)
+		})
 	}
 	return NodeError("unhandled client type %s", c.Type())
+}
+
+// ethState is a verifier exposing ethereum/v0 state: the v0 verifier
+// itself, or a later version wrapping it.
+type ethState interface {
+	Ethereum() *ethereum.EthLightClient
+}
+
+// ethVerifier is the ethereum/v0 state of an Ethereum client's verifier.
+func ethVerifier(lc lightclient.Interface) (*ethereum.EthLightClient, bool) {
+	if v, ok := lc.(ethState); ok {
+		return v.Ethereum(), true
+	}
+	return nil, false
 }
 
 func RenderConsensusState(height types.Height, cs *tendermint.ConsensusState) *json.Node {
@@ -585,16 +628,14 @@ func RenderStrings(s []string) *json.Node {
 	return json.ArrayNode("", nodes)
 }
 
-// RenderNode writes n as JSON. gnoweb renders it as markdown, and values come
-// from client creators (chain ids, counterparty merkle prefixes) or the URL
-// (echoed in errors), so markdown in string values is escaped (see
-// jsonpage.MarkdownSafe); the JSON still decodes to the same values.
+// RenderNode writes n as JSON, inert in Markdown (jsonmd.Inert): its strings
+// may carry a path segment of the request or a relayer's identifier.
 func RenderNode(w *mux.ResponseWriter, n *json.Node) {
 	bz, err := json.Marshal(n)
 	if err != nil {
 		panic(err)
 	}
-	w.Write(string(jsonpage.MarkdownSafe(bz)))
+	w.Write(jsonmd.Inert(string(bz)))
 }
 
 func NodeErrorClientNotFound(id string) *json.Node {

@@ -40,8 +40,11 @@ func Transfer(cur realm, clientID, receiver, denom string, amount int64, timeout
 }
 
 // VoucherSend is a convenience helper to send an IBC voucher token from the
-// caller to the provided recipient.
+// caller to the provided recipient. The recipient is taken in its canonical
+// spelling: the ledger keys balances by the string, so an uppercase one
+// would credit a balance its owner cannot spend.
 func VoucherSend(cur realm, ibcDenom string, to address, amount int64) {
+	to = mustCanonicalAddress(to)
 	inst := getVoucher(ibcDenom)
 	if inst == nil {
 		panic(ufmt.Errorf("voucher token not found for denom %s", ibcDenom))
@@ -53,8 +56,9 @@ func VoucherSend(cur realm, ibcDenom string, to address, amount int64) {
 }
 
 // VoucherApprove is a convenience helper to set a spender allowance for an IBC
-// voucher token on behalf of the caller.
+// voucher token on behalf of the caller, for the spender's canonical spelling.
 func VoucherApprove(cur realm, ibcDenom string, spender address, amount int64) {
+	spender = mustCanonicalAddress(spender)
 	inst := getVoucher(ibcDenom)
 	if inst == nil {
 		panic(ufmt.Errorf("voucher token not found for denom %s", ibcDenom))

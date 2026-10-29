@@ -2,6 +2,8 @@
 package main
 
 import (
+	"testing"
+
 	"encoding/hex"
 	"time"
 
@@ -14,8 +16,9 @@ import (
 // Client operations keep working while the packet path is paused, so clients
 // can be created and kept alive during a pause.
 func main(cur realm) {
-	core.AddAuthorityMember(cross(cur), cur.Address())
+	testing.SetRealm(testing.NewCodeRealm(core.IBCGovPath)) // decided by the governance realm
 	core.Pause(cross(cur))
+	testing.SetRealm(testing.NewCodeRealm("gno.land/r/aib/main"))
 
 	var (
 		chainID        = "chain-id-2"
@@ -35,16 +38,6 @@ func main(cur realm) {
 
 // Events:
 // [
-//   {
-//     "type": "authority_member_added",
-//     "attrs": [
-//       {
-//         "key": "address",
-//         "value": "g1gjs8nfdrd55z3xu9gjcatnj29vkwuyx4ffqxd9"
-//       }
-//     ],
-//     "pkg_path": "gno.land/r/aib/ibc/core"
-//   },
 //   {
 //     "type": "pause",
 //     "attrs": [],

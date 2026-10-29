@@ -1,0 +1,120 @@
+package ethereum
+
+import (
+	"errors"
+
+	"gno.land/p/aib/encoding/wire/v0"
+	"gno.land/p/aib/ibc/lightclient/v0"
+	"gno.land/p/nt/ufmt/v0"
+)
+
+// MigrateForkParameters replaces the fork schedule of a live client in place,
+// keeping its client state otherwise, its consensus states and (in the IBC
+// core) its client id and packet state: the migration R16 of ADR pr6375 needs
+// for an Ethereum fork that this package version already verifies (its
+// containers and generalized indices are known here, only the activation
+// epoch was not). A fork whose containers change needs a new package version
+// and a conversion through the core's Client.SetLightClient instead.
+//
+// The client state with the new schedule must pass ValidateBasic (epochs in
+// order, a version for every scheduled fork, Electra at or before the latest
+// slot, the fork parameters' genesis slot the client's own), the genesis fork
+// version must stay, and the schedule must differ from the current one;
+// the client must be Active. Nothing else binds it to the current schedule,
+// for the reasons RecoverClient gives: the migration is governed, and a
+// wrong schedule can stop verification but not make a relayed update verify
+// false data. So a migration may schedule a fork before or after its
+// activation, repairing a client stalled before it without waiting for
+// expiry.
+//
+// Call it on the stored client (the core's verifier): it writes the new state
+// under the receiver's storage realm.
+func (c *EthLightClient) MigrateForkParameters(fp ForkParameters) error {
+	if err := c.CheckForkParameters(fp); err != nil {
+		return err
+	}
+	updated := *c.ClientState
+	updated.ForkParameters = fp
+	c.ClientState = &updated
+	return nil
+}
+
+// CheckForkParameters is why MigrateForkParameters would refuse fp, or nil;
+// it changes nothing, so a governed migration is refused deterministically
+// before it runs.
+func (c *EthLightClient) CheckForkParameters(fp ForkParameters) error {
+	if status := c.Status(); status != lightclient.Active {
+		return ufmt.Errorf("cannot migrate a client with status %s", status)
+	}
+	cs := c.ClientState
+	old := cs.ForkParameters
+	if fp == old {
+		return errors.New("the fork schedule is unchanged")
+	}
+	if fp.GenesisForkVersion != old.GenesisForkVersion {
+		return errors.New("the genesis fork version cannot change")
+	}
+	// A created client's checks on the new schedule: valid, Electra at or
+	// before the latest slot, and its genesis slot the client's own, which
+	// keeps it unchanged.
+	next := *cs
+	next.ForkParameters = fp
+	return next.ValidateBasic()
+}
+
+// CheckSuccessor is why next cannot take over from the verifier r views in a
+// verifier replacement, or nil. A conversion is code of a later core
+// implementation: nothing else holds its result to the checks a created or
+// recovered client meets, so they are made here. next must track the same
+// chain and router (sameChainAndRouter, which RouteIdentity summarizes) and
+// have a valid fork schedule. As for a recovery, no fork comparison binds it
+// to the retired verifier's schedule.
+func (r *Retired) CheckSuccessor(next *EthLightClient) error {
+	old, cs := r.c.ClientState, next.ClientState
+	if !sameChainAndRouter(old, cs) {
+		return errors.New("the successor tracks a different chain or router")
+	}
+	return cs.ValidateBasic()
+}
+
+// EncodeForkParameters writes p in the wire format: Blob(genesis fork
+// version, 4 bytes), Uint genesis slot, then for each fork from Altair to
+// Gloas Blob(version, 4 bytes) and Uint epoch.
+func EncodeForkParameters(p ForkParameters) []byte {
+	w := wire.NewWriter()
+	w.Blob(p.GenesisForkVersion[:]).Uint(p.GenesisSlot)
+	for _, f := range p.forks() {
+		w.Blob(f.Version[:]).Uint(f.Epoch)
+	}
+	return w.Bytes()
+}
+
+// DecodeForkParameters reads what EncodeForkParameters writes, refusing
+// trailing bytes.
+func DecodeForkParameters(bz []byte) (ForkParameters, error) {
+	d := newDecoder(bz)
+	p := ForkParameters{GenesisForkVersion: d.version(), GenesisSlot: d.Uint()}
+	fork := func() Fork { return Fork{Version: d.version(), Epoch: d.Uint()} }
+	p.Altair = fork()
+	p.Bellatrix = fork()
+	p.Capella = fork()
+	p.Deneb = fork()
+	p.Electra = fork()
+	p.Fulu = fork()
+	p.Gloas = fork()
+	if err := d.done(); err != nil {
+		return ForkParameters{}, ufmt.Errorf("fork parameters: %v", err)
+	}
+	return p, nil
+}
+
+// version reads a 4-byte fork version blob.
+func (d *decoder) version() [4]byte {
+	var v [4]byte
+	b := d.Blob()
+	if d.ok() && len(b) != 4 {
+		d.err = errors.New("wire: a fork version is 4 bytes")
+	}
+	copy(v[:], b)
+	return v
+}

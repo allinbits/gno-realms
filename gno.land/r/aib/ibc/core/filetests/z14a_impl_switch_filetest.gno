@@ -40,7 +40,7 @@ func newV99(s core.Store) core.Logic { return v99{Logic: implv0.New(s), store: s
 // registerV99 registers the candidate as if from its own realm.
 func registerV99(cur realm) {
 	testing.SetRealm(testing.NewCodeRealm(v99Path))
-	core.RegisterImpl(cross(cur), newV99)
+	core.RegisterImpl(cross(cur), newV99, "v99", nil)
 	testing.SetRealm(testing.NewCodeRealm("gno.land/r/aib/main"))
 }
 
@@ -55,7 +55,6 @@ func createClient(cur realm, chainID string) string {
 // usable, the new implementation emits under the proxy's pkg_path, and
 // rollback is a plain UpdateImpl.
 func main(cur realm) {
-	core.AddAuthorityMember(cross(cur), cur.Address())
 	println("at genesis:", core.ImplPath(), core.ImplVersion())
 
 	registerV99(cur)
@@ -64,7 +63,9 @@ func main(cur realm) {
 
 	before := createClient(cur, "chainA-2")
 
+	testing.SetRealm(testing.NewCodeRealm(core.IBCGovPath)) // decided by the governance realm
 	core.UpdateImpl(cross(cur), v99Path)
+	testing.SetRealm(testing.NewCodeRealm("gno.land/r/aib/main"))
 	println("after update:", core.ImplPath(), core.ImplVersion())
 	println("client before switch:", before, core.ClientStatus(before))
 	after := createClient(cur, "chainB-2")
@@ -72,7 +73,9 @@ func main(cur realm) {
 	println(core.Render(""))
 	println(core.Render("clients/" + before + "/status"))
 
+	testing.SetRealm(testing.NewCodeRealm(core.IBCGovPath)) // decided by the governance realm
 	core.UpdateImpl(cross(cur), v0Path)
+	testing.SetRealm(testing.NewCodeRealm("gno.land/r/aib/main"))
 	println("after rollback:", core.ImplPath(), core.ImplVersion())
 	println("clients:", core.ClientIDs())
 	println(core.Render("admin"))
@@ -81,7 +84,7 @@ func main(cur realm) {
 // Output:
 // at genesis: gno.land/r/aib/ibc/core/impl/v0 v0
 // after register: gno.land/r/aib/ibc/core/impl/v0 v0
-// registered: slice[("gno.land/r/aib/ibc/core/impl/v0" string),("gno.land/r/aib/ibc/core/impl/v99" string)]
+// registered: slice[("gno.land/r/aib/ibc/core/impl/v0" string),("gno.land/r/aib/ibc/core/impl/v1" string),("gno.land/r/aib/ibc/core/impl/v99" string)]
 // after update: gno.land/r/aib/ibc/core/impl/v99 v99
 // client before switch: 07-tendermint-1 Active
 // client after switch: 07-tendermint-2 Active
@@ -96,27 +99,18 @@ func main(cur realm) {
 // ## Authority & Relayers
 //
 // - **Authority members**:
-//   - [g1gjs8…qxd9](/u/g1gjs8nfdrd55z3xu9gjcatnj29vkwuyx4ffqxd9)
+//   - [g12l3d…fay4](/u/g12l3du5z70zzq9rkc82asre09srefve7p5mfay4)
 //   - [g1p84d…zv5r](/u/g1p84dvfh4wrplyxx4zsmy77a8rxcnjup2j7zv5r)
 // - **Paused**: false
 // - **Implementation**: [`gno.land/r/aib/ibc/core/impl/v0`](/r/aib/ibc/core/impl/v0) (version v0)
 // - **Registered implementations**:
 //   - [`gno.land/r/aib/ibc/core/impl/v0`](/r/aib/ibc/core/impl/v0)
+//   - [`gno.land/r/aib/ibc/core/impl/v1`](/r/aib/ibc/core/impl/v1)
 //   - [`gno.land/r/aib/ibc/core/impl/v99`](/r/aib/ibc/core/impl/v99)
 // - **Relayers**: any (whitelist empty)
 
 // Events:
 // [
-//   {
-//     "type": "authority_member_added",
-//     "attrs": [
-//       {
-//         "key": "address",
-//         "value": "g1gjs8nfdrd55z3xu9gjcatnj29vkwuyx4ffqxd9"
-//       }
-//     ],
-//     "pkg_path": "gno.land/r/aib/ibc/core"
-//   },
 //   {
 //     "type": "create_client",
 //     "attrs": [

@@ -5,6 +5,8 @@ import (
 	"chain/runtime/unsafe"
 
 	"gno.land/p/aib/authority/v0"
+	"gno.land/p/aib/ibc/lightclient/ethereum/v0"
+	"gno.land/p/aib/ibc/types/v0"
 	"gno.land/p/nt/bptree/v0"
 	"gno.land/p/nt/ufmt/v0"
 )
@@ -14,54 +16,71 @@ const (
 	EventTypeUnpause                = "unpause"
 	EventTypeAuthorityMemberAdded   = "authority_member_added"
 	EventTypeAuthorityMemberRemoved = "authority_member_removed"
+	EventTypeClientRetired          = "client_retired"
 )
 
+// IBCGovPath is the governance realm of the IBC realms (ADR pr6375 R11, R14):
+// it holds the decision ledger, the governor and its one-way yield to GovDAO,
+// and the 7-day delays. Every power that loosens something here (an
+// implementation upgrade, the relayer list, unpausing, approving an app,
+// recovering, migrating or retiring a client, the authority's membership) is
+// gated on a call from it, so no decision skips its delay.
+const IBCGovPath = "gno.land/r/aib/ibc/ibcgov"
+
 var (
-	// auth gates every administrative operation: the relayer whitelist, the
-	// pause switch, RecoverClient and its own membership. It is bootstrapped
-	// at init with two members, the deployer (the AIB multisig on mainnet)
-	// and the GovDAO proxy, which acts through the proposal constructors in
-	// proposals.gno. The principal is cur.Previous().Address(): a direct
-	// MsgCall from a member, or a GovDAO callback declared in this realm. A
-	// call routed through another realm, or through MsgRun, presents that
-	// realm's address and is refused.
+	// auth gates the immediate, tightening operations: Pause, PauseApp and
+	// RejectApp. Its members are fixed at init to the GovDAO proxy, which acts
+	// through the proposal constructors in proposals.gno, and the ibcgov
+	// realm; there is no deployer member (ADR pr6375 R14). The principal is
+	// cur.Previous().Address(): a GovDAO callback declared in this realm, or a
+	// crossing call from ibcgov. Membership changes are governance decisions.
 	auth     *authority.Authority
 	relayers = bptree.NewBPTree32()
 	paused   bool
 )
 
 func init(cur realm) {
-	// cur.Previous() is the deployer during init: the creator of the package,
-	// both for MsgAddPackage and for MsgEnablePackage on an inert chain. In
-	// the gno test framework it is empty; see p/aib/authority for the
-	// bootstrap that filetests use.
-	auth = authority.New(cur.Previous().Address())
+	auth = authority.NewWithMembers(
+		chain.PackageAddress(authority.GovDAOPath),
+		chain.PackageAddress(IBCGovPath),
+	)
 }
 
-// Every exported administrative function below is a thin crossing wrapper
-// over a non-crossing (_ int, rlm realm, ...) helper. The helpers are what the
-// GovDAO proposal callbacks (proposals.gno) invoke: a callback runs with this
-// realm's live cur whose Previous() is the GovDAO proxy, whereas a crossing
-// call from inside the callback would present this realm itself.
+// The tightening functions below are thin crossing wrappers over non-crossing
+// (_ int, rlm realm, ...) helpers. The helpers are what the GovDAO proposal
+// callbacks (proposals.gno) invoke: a callback runs with this realm's live cur
+// whose Previous() is the GovDAO proxy, whereas a crossing call from inside
+// the callback would present this realm itself.
 
-// AddAuthorityMember adds a member to the authority. Members only.
+// assertGovernance panics unless the caller of the crossing function whose
+// cur it is passed (a non-crossing call) is the ibcgov realm.
+func assertGovernance(cur realm, op string) {
+	if p := cur.Previous().PkgPath(); p != IBCGovPath {
+		caller := p
+		if caller == "" {
+			caller = string(cur.Previous().Address())
+		}
+		panic(ufmt.Sprintf("%s: only %s decides this, not %s", op, IBCGovPath, caller))
+	}
+}
+
+// AddAuthorityMember adds a member to the authority. Governance only.
 func AddAuthorityMember(cur realm, addr address) {
-	addAuthorityMember(0, cur, addr)
-}
-
-func addAuthorityMember(_ int, rlm realm, addr address) {
-	auth.AddMember(0, rlm, addr)
+	assertGovernance(cur, "add_authority_member")
+	auth.AddMember(0, cur, addr)
 	chain.Emit(EventTypeAuthorityMemberAdded, "address", string(addr))
 }
 
 // RemoveAuthorityMember removes a member; the last one cannot be removed.
-// Members only.
+// Governance only.
 func RemoveAuthorityMember(cur realm, addr address) {
-	removeAuthorityMember(0, cur, addr)
-}
-
-func removeAuthorityMember(_ int, rlm realm, addr address) {
-	auth.RemoveMember(0, rlm, addr)
+	assertGovernance(cur, "remove_authority_member")
+	if addr == chain.PackageAddress(IBCGovPath) {
+		// ibcgov changes membership as a member: removing it would freeze
+		// the membership and its tightening powers for good.
+		panic("remove_authority_member: the governance realm stays a member")
+	}
+	auth.RemoveMember(0, cur, addr)
 	chain.Emit(EventTypeAuthorityMemberRemoved, "address", string(addr))
 }
 
@@ -70,29 +89,22 @@ func AuthorityMembers() []address {
 	return auth.Members()
 }
 
-// IsAuthorityMember reports whether addr may administer this realm.
+// IsAuthorityMember reports whether addr may run the tightening operations.
 func IsAuthorityMember(addr address) bool {
 	return auth.IsMember(addr)
 }
 
-// AddRelayer adds an address to the authorized relayer whitelist. Members only.
+// AddRelayer adds an address to the authorized relayer whitelist. Governance
+// only.
 func AddRelayer(cur realm, addr address) {
-	addRelayer(0, cur, addr)
-}
-
-func addRelayer(_ int, rlm realm, addr address) {
-	auth.Assert(0, rlm, "add_relayer")
+	assertGovernance(cur, "add_relayer")
 	relayers.Set(string(addr), true)
 }
 
 // RemoveRelayer removes an address from the authorized relayer whitelist.
-// Members only.
+// Governance only: removing the last one opens relaying to anyone.
 func RemoveRelayer(cur realm, addr address) {
-	removeRelayer(0, cur, addr)
-}
-
-func removeRelayer(_ int, rlm realm, addr address) {
-	auth.Assert(0, rlm, "remove_relayer")
+	assertGovernance(cur, "remove_relayer")
 	relayers.Remove(string(addr))
 }
 
@@ -109,8 +121,9 @@ func Relayers() []address {
 // Pause suspends the packet path: SendPacket, RecvPacket, WriteAcknowledgement,
 // Acknowledgement and Timeout panic until Unpause. Client operations
 // (CreateClient, RegisterCounterparty, UpdateClient, UpgradeClient,
-// RecoverClient) keep working, so clients do not expire during a pause.
-// Members only.
+// RecoverClient) keep working, so clients do not expire during a pause. It
+// blocks refunds too, so it is reserved for a core bug (ADR pr6375 §7.3).
+// Authority members only; see proposals.gno for the GovDAO path.
 func Pause(cur realm) {
 	pause(0, cur)
 }
@@ -121,13 +134,9 @@ func pause(_ int, rlm realm) {
 	chain.Emit(EventTypePause)
 }
 
-// Unpause resumes the packet path. Members only.
+// Unpause resumes the packet path. Governance only.
 func Unpause(cur realm) {
-	unpause(0, cur)
-}
-
-func unpause(_ int, rlm realm) {
-	auth.Assert(0, rlm, "unpause")
+	assertGovernance(cur, "unpause")
 	paused = false
 	chain.Emit(EventTypeUnpause)
 }
@@ -141,6 +150,82 @@ func Paused() bool {
 func ensureNotPaused() {
 	if paused {
 		panic("core is paused")
+	}
+}
+
+// RetireClient retires a client for good: every packet message, client update
+// and counterparty registration naming it is refused from now on, whatever
+// its verifier's status. A route replacement (ADR pr6375 §7.12, R18) retires
+// the old client of a route that a new client replaces, after which the old
+// route's packets are settled by reconciliation. Governance only.
+func RetireClient(cur realm, clientID string) {
+	assertGovernance(cur, "retire_client")
+	if store.getClient(clientID) == nil {
+		panic(ufmt.Sprintf("client %s not found", clientID))
+	}
+	if store.isRetired(clientID) {
+		panic(ufmt.Sprintf("client %s is retired already", clientID))
+	}
+	store.retired.Set(clientID, true)
+	chain.Emit(EventTypeClientRetired, "client_id", clientID)
+}
+
+// IsClientRetired reports whether RetireClient retired clientID.
+func IsClientRetired(clientID string) bool {
+	return store.isRetired(clientID)
+}
+
+// RetireClientPort retires a client for one port only: every packet message
+// naming the client with a payload on port is refused from now on, while
+// its other ports, client updates and counterparty stay. A route
+// replacement retires the old client for the transfer port while the
+// governance channel's epoch still runs over it (ADR pr6375 §7.12, the
+// two-phase epoch switch); RetireClient retires it for good once IBCAdmin's
+// epoch notice moves the channel. Governance only.
+func RetireClientPort(cur realm, clientID, port string) {
+	assertGovernance(cur, "retire_client_port")
+	if store.getClient(clientID) == nil {
+		panic(ufmt.Sprintf("client %s not found", clientID))
+	}
+	if store.isRetiredFor(clientID, port) {
+		panic(ufmt.Sprintf("client %s is retired for port %s already", clientID, port))
+	}
+	store.retired.Set(clientID+"|"+port, true)
+	chain.Emit(EventTypeClientRetired, "client_id", clientID, "port", port)
+}
+
+// IsClientRetiredAny reports whether clientID is retired, or retired for any
+// port (RetireClientPort): such a client takes no new role.
+func IsClientRetiredAny(clientID string) bool {
+	return store.isRetiredAny(clientID)
+}
+
+// IsClientRetiredFor reports whether clientID is retired, or retired for
+// port (RetireClientPort).
+func IsClientRetiredFor(clientID, port string) bool {
+	return store.isRetiredFor(clientID, port)
+}
+
+// ensureNotRetired panics if clientID was retired.
+func ensureNotRetired(clientID string) {
+	if store.isRetired(clientID) {
+		panic(ufmt.Sprintf("client %s is retired", clientID))
+	}
+}
+
+// ensureNotRetiredFor panics if clientID was retired, or retired for the
+// local port of a payload (its source port when sent from here, its
+// destination port when received).
+func ensureNotRetiredFor(clientID string, payloads []types.Payload, received bool) {
+	ensureNotRetired(clientID)
+	for _, p := range payloads {
+		port := p.SourcePort
+		if received {
+			port = p.DestinationPort
+		}
+		if store.isRetiredFor(clientID, port) {
+			panic(ufmt.Sprintf("client %s is retired for port %s", clientID, port))
+		}
 	}
 }
 
@@ -163,4 +248,16 @@ func ensureAuthorizedRelayer() address {
 		panic(ufmt.Sprintf("unauthorized relayer %s", caller))
 	}
 	return caller
+}
+
+// ensureRelayerFor is ensureAuthorizedRelayer for a message whose proof is
+// checked against clientID. Relaying for an Ethereum client is permissionless
+// (ADR pr6375 R17): its updates, receives, acknowledgements and timeouts are
+// all proof-checked, and a refund must never wait on a listed relayer, so the
+// whitelist does not apply. Any other client keeps the whitelist.
+func ensureRelayerFor(clientID string) address {
+	if c := store.getClient(clientID); c != nil && c.typ == ethereum.ClientType {
+		return unsafe.OriginCaller()
+	}
+	return ensureAuthorizedRelayer()
 }

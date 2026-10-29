@@ -130,6 +130,22 @@ func queryGnoClientCounterparty(containerID, clientID string) (string, error) {
 	return resp.CounterpartyClientID, nil
 }
 
+// queryVoucherRegKey returns the grc20reg key of the voucher of an IBC denom,
+// as the transfer app renders it.
+func queryVoucherRegKey(containerID, denom string) (string, error) {
+	content, err := gnoQuery(containerID, "r/aib/ibc/apps/transfer", "voucher/"+denom)
+	if err != nil {
+		return "", err
+	}
+	var resp struct {
+		Key string `json:"grc20reg_key"`
+	}
+	if err := json.Unmarshal([]byte(content), &resp); err != nil || resp.Key == "" {
+		return "", fmt.Errorf("parse grc20reg key: %v (raw: %s)", err, content)
+	}
+	return resp.Key, nil
+}
+
 // queryVoucherBalance returns the voucher token balance for a given IBC denom and address.
 func queryVoucherBalance(containerID, addr, denom string) (int64, error) {
 	renderArgs := fmt.Sprintf("voucher/%s/balance/%s", denom, addr)
