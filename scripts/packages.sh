@@ -84,8 +84,9 @@ PACKAGES=(
   # depends on r/aib/ibc/core, lightclient/ethereum, encoding/wire, extproof
   "gno.land/r/aib/ibc/ethrelay:gno.land/r/aib/ibc/ethrelay"
 
-  # the governance realm: depends on decisions, jsonmd, lightclient/ethereum,
-  # r/aib/ibc/core, r/aib/ibc/apps/transfer, r/gov/dao
+  # the governance realm: depends on decisions, encoding/abi, encoding/ethaddr,
+  # ics20/controls, lightclient/ethereum, r/aib/ibc/core,
+  # r/aib/ibc/apps/transfer, r/gov/dao; registers port gov at init
   "gno.land/r/aib/ibc/ibcgov:gno.land/r/aib/ibc/ibcgov"
 
   # core impl/v1 (client migration), a candidate activated by an ibcgov
