@@ -256,7 +256,9 @@ Base denominations are the counterparty's and are accepted as received, like
 ibc-go does. gnoweb renders every page as markdown, JSON included, so the
 render routes escape them: the Home table escapes its cells, and the JSON
 routes write markdown characters in string values as `\u` escapes
-(`jsonpage.MarkdownSafe`), which decode to the same strings.
+(`jsonpage.MarkdownSafe`), which decode to the same strings. Control
+characters and bytes that are not UTF-8 are written as valid JSON escapes
+(`jsonpage.ValidEscapes`); such bytes, which JSON cannot carry, show as U+FFFD.
 
 ### Trading
 
