@@ -42,6 +42,9 @@ PACKAGES=(
   "gno.land/p/aib/ibc/app/v0:gno.land/p/aib/ibc/app/v0"
   "gno.land/p/aib/ibc/lightclient/extproof/v0:gno.land/p/aib/ibc/lightclient/extproof/v0"
 
+  # depends on encoding/wire, ibc/host, ibc/types (the Ethereum route controls)
+  "gno.land/p/aib/ibc/ics20/controls/v0:gno.land/p/aib/ibc/ics20/controls/v0"
+
   # depends on ibc/types, ics23
   "gno.land/p/aib/ibc/lightclient/v0:gno.land/p/aib/ibc/lightclient/v0"
 
