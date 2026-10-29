@@ -179,3 +179,62 @@ func TestExtractDenomFromPath(t *testing.T) {
 		})
 	}
 }
+
+// Ethereum router client ids are hops on an Ethereum route: suffixless and
+// up to 128 characters (Codex round 4 #2, class C).
+func TestRouterHops(t *testing.T) {
+	long := "gnoland." + strings.Repeat("x", 120)
+	for _, id := range []string{"gnoland", "gnoland." + strings.Repeat("x", 57), long} {
+		d := ics20.ExtractDenomFromPathFunc("transfer/"+id+"/ugnot", ics20.IsHopClientID)
+		urequire.Equal(t, 1, len(d.Trace), id)
+		urequire.Equal(t, id, d.Trace[0].ClientId)
+		urequire.Equal(t, "ugnot", d.Base)
+	}
+	// The SDK parser keeps its rule.
+	d := ics20.ExtractDenomFromPath("transfer/gnoland/ugnot")
+	urequire.Equal(t, 0, len(d.Trace))
+	// 129 characters is no router id.
+	bad := ics20.ExtractDenomFromPathFunc("transfer/"+long+"x/ugnot", ics20.IsHopClientID)
+	urequire.Equal(t, 0, len(bad.Trace))
+}
+
+// Hop validation is the SDK's, unchanged from the base (Codex round 11 #4):
+// a hop's client id is an ICS24 identifier of at most 64 characters, so a
+// 65- or 128-character SDK-shaped client id fails a transfer's validation
+// as it did; the router grammar applies only where an Ethereum route
+// extracts its own denoms (ExtractDenomFromPathFunc with IsHopClientID).
+func TestHopValidationIsTheBase(t *testing.T) {
+	id := func(n int) string { return strings.Repeat("a", n-2) + "-1" } // SDK-shaped: {type}-{N}
+	for _, c := range []struct {
+		n  int
+		ok bool
+	}{{64, true}, {65, false}, {128, false}} {
+		data := ics20.NewFungibleTokenPacketData("transfer/"+id(c.n)+"/ucoin", "100", "atone1sender", "g1receiver", "")
+		err := data.ValidateBasic()
+		if (err == nil) != c.ok {
+			t.Fatalf("length %d: %v", c.n, err)
+		}
+	}
+}
+
+// An Ethereum route checks its packet data by the router's grammar alone
+// (Codex round 12 #1, #5): hops with ids ending in "-1" of 64, 65 and 128
+// characters pass, where the SDK rule takes only the 64-character one, and a
+// blank receiver is left to the route's sweep.
+func TestValidateBasicEthereum(t *testing.T) {
+	for _, n := range []int{64, 65, 128} {
+		id := strings.Repeat("a", n-2) + "-1"
+		data := ics20.NewFungibleTokenPacketData("transfer/"+id+"/ugnot", "100", "0x5f67a5398d91087d1b37a8a43436196a7830867f", "", "")
+		d, err := data.ValidateBasicEthereum()
+		if err != nil || len(d.Trace) != 1 || d.Trace[0].ClientId != id || d.Base != "ugnot" {
+			t.Fatalf("length %d: %v %+v", n, err, d)
+		}
+		data.Receiver = "g1x"
+		if (data.ValidateBasic() == nil) != (n == 64) {
+			t.Fatalf("the SDK rule at length %d", n)
+		}
+	}
+	if _, err := ics20.NewFungibleTokenPacketData("transfer/"+strings.Repeat("a", 127)+"-1/ugnot", "100", "0xabc", "x", "").ValidateBasicEthereum(); err == nil {
+		t.Fatalf("a 129-character id")
+	}
+}

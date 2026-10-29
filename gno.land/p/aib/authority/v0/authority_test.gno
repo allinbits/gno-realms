@@ -66,3 +66,20 @@ func TestRemoveMember(cur realm, t *testing.T) {
 		removeMember(cross(cur), a, bob)
 	})
 }
+
+func TestNewWithMembersHasNoBootstrap(cur realm, t *testing.T) {
+	gov := chain.PackageAddress("gno.land/r/aib/ibc/ibcgov")
+	a := NewWithMembers(dao, gov, "")
+	uassert.Equal(t, 2, len(a.Members()))
+	uassert.True(t, a.IsMember(dao))
+	uassert.True(t, a.IsMember(gov))
+	// No ungated first AddMember: the deployer is never a member.
+	testing.SetRealm(testing.NewUserRealm(bob))
+	uassert.AbortsContains(t, cur, "is not a member of the authority", func() {
+		addMember(cross(cur), a, bob)
+	})
+	testing.SetRealm(testing.NewCodeRealm("gno.land/r/aib/ibc/ibcgov"))
+	addMember(cross(cur), a, alice)
+	uassert.True(t, a.IsMember(alice))
+	uassert.PanicsContains(t, cur, "no member", func() { NewWithMembers("") })
+}

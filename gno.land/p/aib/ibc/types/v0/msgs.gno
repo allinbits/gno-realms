@@ -68,6 +68,10 @@ type MsgRecvPacket struct {
 
 // ValidateBasic performs basic checks on a MsgRecvPacket.
 func (msg *MsgRecvPacket) ValidateBasic() error {
+	// Before anything else touches a proof: no caller-supplied code runs.
+	if err := ics23.CheckProofs(msg.ProofCommitment); err != nil {
+		return err
+	}
 	if len(msg.ProofCommitment) == 0 {
 		return ufmt.Errorf("proof commitment can not be empty")
 	}
@@ -88,6 +92,10 @@ type MsgAcknowledgement struct {
 
 // ValidateBasic performs basic checks on a MsgAcknowledgement.
 func (msg *MsgAcknowledgement) ValidateBasic() error {
+	// Before anything else touches a proof: no caller-supplied code runs.
+	if err := ics23.CheckProofs(msg.ProofAcked); err != nil {
+		return err
+	}
 	if len(msg.ProofAcked) == 0 {
 		return errors.New("cannot submit an empty acknowledgement proof")
 	}
@@ -185,6 +193,10 @@ type MsgTimeout struct {
 }
 
 func (msg *MsgTimeout) ValidateBasic() error {
+	// Before anything else touches a proof: no caller-supplied code runs.
+	if err := ics23.CheckProofs(msg.ProofUnreceived); err != nil {
+		return err
+	}
 	if len(msg.ProofUnreceived) == 0 {
 		return errors.New("cannot submit an empty timeout proof")
 	}
