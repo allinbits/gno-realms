@@ -586,8 +586,11 @@ transfer app then requires:
   Ethereum route, which books an undecodable receiver, blank included, as an
   owed sweep entry;
 - a denom whose hops (`port/client`) are valid (port 2 to 128 characters,
-  client id 4 to 64 characters, or on an Ethereum route also a router client
-  id) and whose base is not blank and contains no `/`.
+  client id 4 to 64 characters, or on an Ethereum route also a `client-N`
+  the router generated or the router's own client id for gno.land, up to
+  128 characters: `ics20.EthereumHop`) and whose base is not blank and
+  contains no `/`. Any other custom router id is no hop on an Ethereum
+  route: it stays in the base, which its `/` then makes refused.
 
 The memo has no limit of its own: only the payload size bounds it. A send
 that fails a check aborts the transaction; a receive that fails one is

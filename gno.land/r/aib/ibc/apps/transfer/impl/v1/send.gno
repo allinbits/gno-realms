@@ -246,7 +246,7 @@ func (l *logic) OnSendPacket(_ int, rlm realm, sourceClient, destinationClient s
 	if err := validatePayload(sourceClient, destinationClient, payload); err != nil {
 		return err
 	}
-	data, token, err := unmarshalPayload(payload)
+	data, token, err := unmarshalPayload(destinationClient, payload)
 	if err != nil {
 		return err
 	}

@@ -189,7 +189,7 @@ func main(cur realm) {
 // # IBC governance
 //
 // - governor: g1d93xxem0wckkwmmkv4exummjta047h6lhqp9y5 (until the yield) — it alone decides, by Govern from its own key, and gno.land/r/gov/dao's proposals are refused
-// - clock factor 1 (1 on mainnet; a devnet build is compiled with 8): the 7-day delay is 604800 s and the 14-day deadline 1209600 s of block time
+// - clock factor 1 (1 on mainnet; a devnet build might be compiled with a larger value): the 7-day delay is 604800 s and the 14-day deadline 1209600 s of block time
 // - governance channel: not bound
 // - **guardian hold** since 1237678295: queued decisions are deferred, unpauses are spent
 //

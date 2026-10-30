@@ -32,8 +32,9 @@ func validatePayload(localClient, routerClient string, payload types.Payload) er
 }
 
 // unmarshalPayload decodes the packet data of payload, sent or received on
-// an Ethereum route, in its encoding.
-func unmarshalPayload(payload types.Payload) (ics20.FungibleTokenPacketData, ics20.Token, error) {
+// an Ethereum route whose router names gno.land's client routerClient, in
+// its encoding.
+func unmarshalPayload(routerClient string, payload types.Payload) (ics20.FungibleTokenPacketData, ics20.Token, error) {
 	var (
 		data ics20.FungibleTokenPacketData
 		err  error
@@ -47,10 +48,10 @@ func unmarshalPayload(payload types.Payload) (ics20.FungibleTokenPacketData, ics
 		return data, ics20.Token{}, ufmt.Errorf("decoding FungibleTokenPacketData: %v", err)
 	}
 	// An Ethereum route's data is validated by its own rules only
-	// (ValidateBasicEthereum), not the SDK's first: a router client id hop
-	// of more than 64 characters, or a blank receiver (an owed sweep), is
-	// valid here.
-	denom, err := data.ValidateBasicEthereum()
+	// (ValidateBasicEthereum), not the SDK's first: the router's client id
+	// as a hop, of up to 128 characters, or a blank receiver (an owed
+	// sweep), is valid here.
+	denom, err := data.ValidateBasicEthereum(routerClient)
 	if err != nil {
 		return data, ics20.Token{}, ufmt.Errorf("invalid FungibleTokenPacketData: %v", err)
 	}
