@@ -7,4 +7,6 @@ LICENSE.md, including its strong-attribution additional terms). Vendored here as
 namespace rather than import the bridge operator's deployment).
 
 Local changes: package and constant documentation, `UnpauseDelay`,
-`Decision.Copy` and `Ledger.Find`, and tests for them.
+`Decision.Copy` and `Ledger.Find`, `DAOPath` taken from
+`gno.land/p/aib/authority/v0`, `Ledger.JSON` quoted as JSON (`jsonmd.Quote`,
+not Go's `strconv.Quote`) and paged by decision number, and tests for them.
