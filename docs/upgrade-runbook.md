@@ -17,18 +17,63 @@ the proxies and stay provable across the switch.
 
 - The candidate is a realm under the proxy's `impl/` namespace,
   `gno.land/r/aib/ibc/core/impl/vN` or
-  `gno.land/r/aib/ibc/apps/transfer/impl/vN` (the suffix must be `v<N>`). It
+  `gno.land/r/aib/ibc/apps/transfer/impl/vN`. The `v<N>` suffix is a
+  convention: registration checks only that the path is under the proxy's
+  `/impl/` namespace, and ibcgov's update builders that it starts with
+  `/impl/v`; neither parses a number. It
   implements the proxy's `Logic`, registers itself from `init` with
   `RegisterImpl`, and reuses from `impl/v0` what it does not change (`New`, the
   exported `Renderer`).
+- Every implementation a proxy registers is a realm of the bridge for
+  good: each proxy indexes it by realm address (`IsImplAddress`), and the
+  transfer app's receive, payout, enrolment and collector checks read that
+  index, one keyed lookup whatever the number registered, so registering
+  candidates never makes those checks costlier.
+- `RegisterImpl` takes, beside the constructor, a manifest of plain
+  values: `RegisterImpl(cur, ctor, version, over)` for the core,
+  `RegisterImpl(cur, ctor, version, over, keepsControls)` for the transfer
+  app. `version` is what the candidate's `Version()` reports; `over` lists
+  the versions of an active implementation it installs over (`""` for the
+  bootstrap; its own version is always accepted; `nil` accepts any);
+  `keepsControls` declares that it implements the route controls. Either
+  proxy refuses the registration when the implementation's realm address
+  is a transfer route's fee collector (it would become a realm of the
+  bridge): change that route's collector first
+  (`NewSetFeeCollectorRequest`, 7 days), then deploy or enable the
+  implementation. The governed preflight (`CheckUpdateImpl`) checks the manifest, then runs the
+  candidate's constructor against a fresh, empty store (never the live
+  one), checks the version it builds (and, for transfer, whether it keeps
+  the controls) against the manifest, and evaluates its declared install
+  condition (`CheckInstall`): candidate code runs during the preflight. The
+  installation checks the built candidate against its manifest again and
+  panics on a difference.
 - `OnInstall` is the migration hook. It runs inside `UpdateImpl` before the
   switch, and `prevVersion` tells it which implementation was active, which
   is also the layout of the data as long as versions activate in sequence.
-  Its contract: do nothing when `prevVersion` is its own version (a
-  re-install), migrate when it is the version it was written to follow, panic
-  otherwise. Keep the migration cheap: at most linear in the number of
-  clients, with anything proportional to packets left to lazy conversion on
-  access. A migration that is not additive forfeits the rollback.
+  Which predecessors a candidate installs over is declared by its manifest
+  (`over`, enforced by the governed preflight, `CheckUpdateImpl`, only: the
+  installation re-checks the built version and controls against the
+  manifest, not `over`; a hook that needs its own predecessor check makes
+  it in `OnInstall`) and, where it
+  needs more, by its hook (`CheckInstall`/`OnInstall`). The shipped hooks:
+  core `impl/v0`'s is empty (its manifest accepts any predecessor); core
+  `impl/v1`'s accepts `""`, `v0` and itself and refuses any other; transfer
+  `impl/v1`'s accepts any predecessor and initializes the route controls'
+  extension, idempotently (`InitExt`, a no-op once it exists). A new hook
+  should do nothing on a re-install, migrate from the version it follows,
+  and refuse the rest. Keep the migration bounded: constant work, whatever the number
+  of clients, packets, denoms or records. Anything proportional to them is
+  converted lazily on access, or by a permissionless continuation that does
+  a bounded batch a call (as `transfer.ContinueReopen` does), never in the
+  hook: an installation whose work grows with the state could one day
+  exceed a transaction's gas and leave its decision pending for good. The
+  implementations shipped so far install in constant work, and a verifier
+  replacement copies no consensus-state history (`ethereum.NewFrom`): it
+  costs O(log previous verifier stores), inserting the retired store into
+  the persistent history index and any head it rewrote at or below the
+  index's top into the persistent override tree; reads of the retired
+  history take O(log replacements). A migration that is not additive forfeits the
+  rollback.
 - A migration rewrites the proxy's store in place. All the state lives in the
   proxy (clients, commitments, receipts, acknowledgements; escrow, vouchers,
   denominations) and the hook reaches it through the `Store` and `Client`
@@ -45,8 +90,10 @@ the proxies and stay provable across the switch.
 
 One `MsgAddPackage`, from any account that may deploy under the `aib`
 namespace, usually the AIB multisig. List the candidate in
-`scripts/packages.sh` after the current implementation (a fresh chain then
-deploys both, and the first registered, `v0`, bootstraps), then:
+`scripts/packages.sh` after the current implementation, so that on a fresh
+chain the current one registers first and bootstraps: for the core that is
+`impl/v0`; for the transfer app it is `impl/v1` (transfer `impl/v0`
+registers nothing; it is the logic `impl/v1` embeds). Then:
 
 ```
 ONLY=gno.land/r/aib/ibc/core/impl/vN ./scripts/make-deploy-tx.sh   # unsigned tx for the multisig
@@ -76,22 +123,36 @@ The `admin` page of the realm shows the same.
 
 ## 4. Activate it
 
-`UpdateImpl` is reserved to the realm's authority: the AIB multisig and the
-GovDAO proxy.
+`UpdateImpl` is a decision of the governance realm `gno.land/r/aib/ibc/ibcgov`
+(ADR pr6375 R14): the proxies accept it from that realm only, and the decision
+waits 7 days after it is recorded, during which a cancel decision can withdraw
+it and a guardian hold defers it. Before the governor yields, the governor
+records it with `MsgRun` (the request is a struct, so `MsgCall` cannot build
+it):
 
-Through GovDAO, a member submits the proposal with `MsgRun` (the request is a
-struct, so `MsgCall` cannot build it), members vote, anyone executes:
+```gno
+package main
+
+import "gno.land/r/aib/ibc/ibcgov"
+
+func main(cur realm) {
+	ibcgov.Govern(cross(cur), ibcgov.NewCoreUpdateImplRequest(cross(cur), "gno.land/r/aib/ibc/core/impl/vN"))
+}
+```
+
+After the yield, a GovDAO member proposes the same request, members vote and
+anyone executes the proposal, which records the decision:
 
 ```gno
 package main
 
 import (
-	"gno.land/r/aib/ibc/core"
+	"gno.land/r/aib/ibc/ibcgov"
 	"gno.land/r/gov/dao"
 )
 
 func main(cur realm) {
-	pid := dao.MustCreateProposal(cross(cur), core.NewUpdateImplProposalRequest(cross(cur), "gno.land/r/aib/ibc/core/impl/vN"))
+	pid := dao.MustCreateProposal(cross(cur), ibcgov.NewCoreUpdateImplRequest(cross(cur), "gno.land/r/aib/ibc/core/impl/vN").Proposal())
 	println("proposal:", int64(pid))
 }
 ```
@@ -102,27 +163,42 @@ gnokey maketx call -pkgpath gno.land/r/gov/dao -func MustVoteOnProposalSimple -a
 gnokey maketx call -pkgpath gno.land/r/gov/dao -func ExecuteProposal -args <pid> ... <any-key>
 ```
 
-Through the multisig, one `MsgCall`:
+Seven days later anyone applies it, with the decision number the ledger
+assigned (`gno.land/r/aib/ibc/ibcgov:decisions`):
 
 ```
-gnokey maketx call -pkgpath gno.land/r/aib/ibc/core -func UpdateImpl \
-  -args gno.land/r/aib/ibc/core/impl/vN -broadcast=false ... <multisig-address>
+gnokey maketx call -pkgpath gno.land/r/aib/ibc/ibcgov -func Execute -args <decision> ... <any-key>
 ```
 
-then the usual multisign and broadcast.
+The transfer app is the same with `NewTransferUpdateImplRequest`.
 
-Either way the proxy builds the candidate against its store, runs
-`OnInstall`, switches, and emits `impl_updated{old_path,new_path,version}`.
-If the proposal is executed before the candidate is live, the proxy panics,
-the execution transaction aborts and the proposal stays executable: run step
-3 again later and execute again.
+The proxy then builds the candidate against its store, runs `OnInstall`,
+switches, and emits `impl_updated{old_path,new_path,version}`. The builder
+refuses a path that is not registered yet. When the decision executes,
+ibcgov first runs the proxy's `CheckUpdateImpl(path)`. It reads the
+registered manifest and builds the candidate against a fresh, empty store
+(never the live one), then refuses: a path not registered, a manifest that
+does not install over the active version, a candidate that builds another
+version than its manifest (or, for transfer, answers otherwise whether it
+keeps the controls), an install hook that refuses the active implementation
+(declared as `CheckInstall(prevPath, prevVersion)`, a pure check the proxy
+evaluates), or, for the transfer app, an implementation that does not keep
+the route controls once any route exists. Each spends the decision instead
+of leaving it pending. Only what the preflight cannot evaluate still rolls
+back the whole `Execute` transaction and leaves the decision pending: a
+panic in candidate code (the constructor or `OnInstall`), a constructor
+whose result depends on the store it is handed, or a hook refusing on a
+condition it does not declare through `CheckInstall`.
 
 ### When a migration fails
 
-- A panic in `OnInstall` aborts the whole transaction: the switch does not
-  happen, nothing the hook wrote persists, the previous implementation stays
-  active and the candidate stays registered. Activating it again later
-  merely retries.
+- A version mismatch or a declared hook refusal is caught by the preflight
+  and spends the decision. A panic in the constructor or in `OnInstall`
+  aborts the whole transaction: the switch does not happen, nothing the hook
+  wrote persists, the previous implementation stays active, the candidate
+  stays registered and the ibcgov decision stays pending. Executing it again
+  later merely retries; declare a hook's conditions in `CheckInstall` so
+  they are refused instead.
 - A realm path cannot be redeployed, so a fix ships as the next version. Its
   hook is installed over the implementation that is still active, not over
   the failed one: a `v2` written after a failed `v1` carries the migration
@@ -139,6 +215,817 @@ the execution transaction aborts and the proposal stays executable: run step
 
 ## 6. Rollback
 
-`UpdateImpl` with the previous path, through the same authority. The old
-implementation is still registered, so nothing needs redeploying; its
-`OnInstall` runs again.
+`UpdateImpl` with the previous path, through the same governance decision
+(7 days). The old implementation is still registered, so nothing needs
+redeploying, and its `OnInstall` runs again; but a registered path is not
+enough. Before proposing the rollback, check that it would pass:
+
+```
+gnokey query vm/qeval -data 'gno.land/r/aib/ibc/core.CheckUpdateImpl("gno.land/r/aib/ibc/core/impl/v0")' -remote <rpc>
+gnokey query vm/qeval -data 'gno.land/r/aib/ibc/apps/transfer.CheckUpdateImpl("gno.land/r/aib/ibc/apps/transfer/impl/vN")' -remote <rpc>
+```
+
+An empty string means it would apply; otherwise the reason is the one the
+decision would be spent with:
+
+- the previous implementation's manifest must install over the version now
+  active (its `over` list; core `impl/v0` declares `nil`, any; core `impl/v1`
+  declares `""` and `v0`);
+- for the transfer app, once any Ethereum route exists, the implementation
+  must keep the route controls (its manifest's `keepsControls`): the
+  controls are never rolled back. The rehearsal candidate
+  `e2e/gno/rehearsal/transfer-v99` declares it does not keep them, so it can
+  be activated, and rolled back from, only before any route is enrolled.
+  Transfer `impl/v0` is no rollback target at all: it never registers.
+
+## 7. Ethereum routes on a fresh deployment (transfer impl/v1)
+
+The transfer app is deployed fresh with `impl/v1` as its initial
+implementation: it registers first (see `scripts/packages.sh`), serves every
+non-Ethereum client as `impl/v0` does, and puts every Ethereum client under
+the route controls (ADR 0004). There is no migration from `impl/v0`: an
+Ethereum client carries nothing until a decision makes it a route.
+
+Before deploying ibcgov (it is immutable, so this is fixed for good),
+choose its authority mode and set `LaunchGovernor` in
+`gno.land/r/aib/ibc/ibcgov/ibcgov.gno` accordingly: a verified production
+governor key, which decides with `Govern` until it yields to GovDAO, or
+`""`, which makes GovDAO's proposals the only way to decide from the first
+block (`Govern` and `Yield` refused). The source ships a placeholder test
+address; deploying it unchanged hands governance to a key nobody holds.
+
+0. **Authenticate the client's initial state independently (mandatory).**
+   `CreateClient` stores the Ethereum client state and the initial consensus
+   state as given, with no bootstrap proof: the light client trusts them
+   from then on, and enrolling the client checks only that it is usable
+   (Active, not retired, counterparty registered), not that its checkpoint
+   is genuine. Before creating it, and again before voting on its
+   enrollment, check against sources you trust, independently of whoever
+   proposes them: the checkpoint (finalized slot, execution state root and
+   timestamp), the current and next sync committee summaries (pubkeys hash,
+   aggregate key), the chain parameters (chain id, genesis validators root,
+   genesis time and slot, fork schedule, slot, epoch and period lengths,
+   sync committee size, minimum participants) and the router configuration
+   (the ICS26 router address and its commitment mapping slot). A wrong value
+   lets forged headers or proofs through.
+1. Create the Ethereum client and register its counterparty (the router's
+   client id, eureka's single empty merkle prefix). `CreateClient` needs a
+   listed relayer while the whitelist names any; `RegisterCounterparty` must
+   be signed by the same origin signer that created the client, and is
+   write-once: a registered counterparty is never replaced. Ethereum's public
+   relaying covers updates and packets, not these two calls.
+2. Enroll it with `NewEnrollRouteRequest(clientID, feeCollector, bridge)`
+   (7 days), where `bridge` names the route's Ethereum router, ICS20
+   transfer and IBCAdmin ("router ics20 ibcAdmin", protected recipients from
+   then on). The router must be the one the client reads (its
+   `IBCContractAddress`). The route records the client's identity, the chain
+   id, genesis validators root, router and commitments slot
+   (`ibcgov.RouteIdentity(route)`), and every later replacement client must
+   name the same.
+3. Seat the guardians and watch keys. All six seats start empty (seats 0–3
+   guardians, 4–5 watch keys), and an unseated key cannot flag, so no hold
+   or flag protects the route until they are seated: install them with
+   `NewSetSeatsRequest("0:g1...,1:g1...")`, at most two guardian seats a
+   decision. Every seat change waits 7 days and, under a hold, until day 21
+   of the hold that first deferred it once due (the first `Execute` under
+   that hold records the anchor and returns; a hold cleared and set again
+   never moves it; Ethereum anchors from its hold history at the first
+   hold standing at or after the due time; neither anchors earlier than
+   that ideal boundary, and either may anchor later, so either chain's
+   wait can be the longer), a vacancy (`"1:"`) included: a vacancy removes the holder the seat
+   had when the request was built, and is skipped if the seat changed hands
+   since.
+4. Launch invariant: Ethereum stays at epoch 1 until the binding has
+   executed here and IBCAdmin has recorded its first decision from gno.land
+   (Ethereum refuses an emergency recovery before that, which is what
+   proves the binding happened at epoch 1). If Ethereum's epoch advanced
+   before the binding anyway, the launch is void: binding opens epoch 1
+   here, which Ethereum no longer accepts, and no notice path can repair
+   the offset; redeploy. Once the enrollment has executed, bind the
+   governance channel to the route's original client with
+   `NewBindGovernanceRequest(clientID)` (7 days): the client must still be
+   Active and the route's original client when it executes. Before
+   recording it, verify the pair Ethereum's epoch 1 uses: IBCAdmin's
+   `govClient()` is the router client whose counterparty is this gno client
+   (`core.CounterpartyClientID(clientID)`), and this client tracks it. The
+   route's client cannot be replaced before the binding (refused when
+   requested and when it executes): if the client fails (freezes, expires)
+   during the binding delay, recover it in place
+   (`NewRecoverClientRequest(clientID, substitute)`, 7 days, same id) and
+   bind again, or, if it cannot be recovered, restart the unlaunched
+   deployment. Every Ethereum-bound decision (`NewEth*Request`) is refused
+   until the channel is bound.
+5. **Value gate (mandatory).** The route starts with no enabled denom, so
+   no value moves over it, and Ethereum's transfer app deploys with zero
+   limits. Execute no denom enablement here until IBCAdmin has recorded
+   gno.land's first decision: check on Ethereum that `epoch()` is 1 and
+   `lastSeq() >= 1` (the first governance dispatch, the binding's proof that
+   epoch 1 runs over the verified pair) before recording the first
+   `NewSetDenomRequest`, that is before approving the GovDAO proposal that
+   records it. Its 7-day delay starts at recording, and once it is due
+   anyone can execute it, so the check cannot wait until execution: a
+   denom enablement recorded before the check could be executed by anyone
+   before the launch is proven. If one was recorded early, cancel it
+   (`NewCancelRequest`) and record it again after the check. Ethereum activates its side by a governed kind 4
+   (`NewEthLimitsRequest`), which names the route by the **router's**
+   client id, `core.CounterpartyClientID(clientID)` (`client-0` at
+   launch), never by this chain's `clientID` (`ethereum-1`): the router's
+   grammar admits the latter, and Ethereum would record the limits under a
+   route key nothing uses. The builders of every kind naming the route
+   (2, 4, 5, 11, 13) refuse any id but the epoch client's counterparty, a
+   gno client id with the router client it is paired with, and the
+   decision is spent if the epoch moved between the request and its
+   recording (ADR 0004). Then enable each denom with
+   `NewSetDenomRequest`. Before enabling a GRC20, review the token's code
+   and admin powers. Each transfer must move exactly the stated amount (no
+   fee, tax or rounding), its balance queries must be truthful, and no
+   balance may change on its own (no rebasing) or through a hook. Escrow
+   accounting records stated amounts, so any of these leaves a shortfall.
+   It must not be able to pause transfers or blacklist the transfer
+   realm. Any power to burn or seize the transfer realm's
+   balance, or to change the token's semantics, must be absent or held by
+   a party governance trusts (ADR 0004). Such an action against the escrow
+   leaves a shortfall that no packet-loss remedy repairs. A governed sweep or settlement paying it checks what it
+   can beforehand but cannot predict a token's runtime refusal, and such a
+   refusal rolls the decision's execution back, leaving it pending. If it
+   happens, cancel the decision (`NewCancelRequest`) or execute it again
+   once the token transfers; if executing it later would be unsafe, cancel
+   it and propose it again.
+6. Once the channel is bound (never before: see step 4), a client of a
+   route is replaced with `NewReplaceRouteRequest` (an Active
+   Ethereum client that is no route's client yet, authenticating the route's
+   identity), which closes the route until `NewReopenRouteRequest`; §8 is
+   the whole incident drill. While the governance epoch runs over the old
+   client, the replacement retires it for transfers only: the epoch moves to
+   the new client when IBCAdmin's epoch notice arrives over it (sent when
+   Ethereum executes the matching kind 10, or its emergency recovery), and
+   the old client is then retired for good. Once the channel is bound, a
+   client of the route is never retired for the gov port by its
+   replacement, nor by a prune while off the graph: only a switch leaving
+   it as the old epoch client retires it for governance (ADR 0004, the governance retirement rule). The notice is accepted only
+   along a transition ibcgov expects, and over the local client it names
+   only: dispatching the kind 10
+   (`NewEthRouteReplacementRequest(old, new, suspectFrom, localClient)`)
+   records it as a decision of its own, applied after 7 days (anyone
+   executes it; a hold defers it); for an emergency recovery, record
+   `NewExpectRecoveryRequest(oldRouterClient, newRouterClient, localClient)`
+   (7 days, deferred by a hold) before relaying its notice (only while
+   `IBCAdmin.recoveryDisabled()` is false: after a kind 14 no recovery can
+   open, and such an expectation only holds a place in the graph). A notice more
+   than one epoch on is recorded as proven when relayed; then call
+   `ApplyEpochNotice(epoch, localClient, "router1/local1,...,routerK/localK")`
+   with its path of expected transitions from the current epoch client
+   (the client that proved it must still be Active, at the same trust
+   generation). A notice may be any number of epochs on, up to the expected
+   graph's 64 transitions, as long as its whole path is recorded here: no
+   cap on Ethereum's side is assumed. A transition Ethereum cancelled or
+   never executed is removed at once with
+   `NewRemoveExpectationRequest(oldRouterClient, newRouterClient,
+   localClient)`, freeing its place; it is refused only while a notice
+   proven over a client the transition leads to could still be applied (its
+   epoch past the current, its client Active, not retired, at the same
+   generation). Once that client is frozen, expires, is recovered or has
+   its verifier replaced, or the epoch reaches the notice's, the removal
+   goes through. When Ethereum's epoch is more than 64 ahead, catch up in
+   prefixes: have IBCAdmin resend the notice of an intermediate epoch within
+   the recorded graph (any recorded epoch's notice can be resent, even
+   after it was acknowledged, over that epoch's own router client), relay
+   and apply it; the switch frees the transitions behind it, so record the
+   next expectations (7 days each) and repeat. If the gno local client of
+   an intermediate transition failed, recover it in place
+   (`NewRecoverClientRequest`, 7 days; it keeps its id, which Ethereum's
+   packets are addressed to) and relay the resent notice through it; the
+   recovery needs the subject frozen or expired and an honest substitute
+   ahead of it (created from an independently authenticated checkpoint at
+   a later slot than the subject's latest): without one, catch-up past
+   that client can fail for good; if
+   Ethereum's recovery created a new router client instead, record that
+   transition with a fresh local client (`NewExpectRecoveryRequest`).
+   Resending is harmless: the current epoch's notice is answered as a
+   duplicate (status 3), one of a transition not taken or an epoch passed
+   gets an error acknowledgement, and one over a client retired for
+   governance is refused by the core; none changes anything.
+   Outbound decisions are re-sent the same way: `ibcgov.Redispatch(e, seq)`
+   sends a current-epoch decision again, identical bytes in a fresh packet,
+   whenever none of its packets is in flight, after any answer but a
+   conflict. Use it when a later seq waits on Ethereum behind one gno shows
+   as acknowledged (a success acknowledgement a compromised Ethereum-side
+   verifier forged): IBCAdmin answers a seq it already holds with a
+   duplicate, which changes nothing. A decision answered with a conflict
+   (status 4, no redispatch) is not re-sent freely. If a later seq waits
+   behind it, check on Ethereum whether the conflict was real: read
+   `IBCAdmin.decision(e, seq)` (no decision stored, or one whose hash is
+   `keccak256` of `ibcgov.DispatchBody(e, seq)`) and look for a
+   `Conflict(e, seq, …)` event and a raised `conflictBlock()`. If IBCAdmin
+   holds no decision or these very bytes and emitted no conflict, the
+   acknowledgement was fabricated: decide
+   `ibcgov.NewRetransmitRequest(e, seq)` (applies at once), then anyone
+   calls `ibcgov.Redispatch(e, seq)` once; a further re-send needs a new
+   decision. A real conflict (different bytes stored) is never re-sent.
+
+   Removing an active expectation (`NewRemoveExpectationRequest`), or
+   releasing a pending intent (the cancellation, refusal or spending of its
+   last owning decision: a transition recorded several times stays pending
+   while any of its decisions does), leaves a tombstone that keeps its local client, and
+   those of the transitions beyond it, from being retired for governance
+   until an epoch switch supersedes it (`ibcgov.Tombstones()` counts them),
+   so the transition can be expected again and its notice still arrives
+   over that client. Live transitions and tombstones share one budget of
+   64; a removal, a cancellation or approving a tombstoned transition again
+   never needs room, a brand-new transition does.
+
+   **All capacity exhausted** (a router client's 4 successors live, the
+   joint budget of 64 full, Ethereum's executed transition among the
+   tombstones or not recorded at all):
+   1. Find the transition Ethereum executed (IBCAdmin's `epoch()` and its
+      notices) and whether gno holds it as a tombstone (the `GovTombstone`
+      event of its removal or release names it).
+   2. Free a successor place of its old router client: remove a losing
+      active expectation (`NewRemoveExpectationRequest`, at once; it
+      becomes a tombstone, no room needed), or, for a losing pending one,
+      cancel every decision still owning it (`NewCancelRequest` for each:
+      `Decision(id)` of each kind 10 or recovery expectation recorded for
+      that transition); the place is freed, and the tombstone made, only
+      when the last owner is released.
+   3. If the executed transition is tombstoned, approve it again
+      (`NewExpectRecoveryRequest` with the same router clients and local
+      client, 7 days): it moves back into the graph, no room needed.
+   4. If it is brand new, free a place in the joint budget first: purge a
+      junk tombstone (`NewPurgeTombstoneRequest`, 7 days; refused while a
+      recorded notice needs it), then record the expectation (7 days).
+   5. Relay the notice afresh (IBCAdmin resends it in a fresh packet) once
+      the expectation is active; the switch clears the tombstones it
+      supersedes.
+   6. If Ethereum moved further than the graph can hold (honest recoveries
+      past its 64 places), keep following its clients with route
+      replacements as usual: a replaced client of the governance route that
+      the graph does not hold keeps its gov port (only the transfer port is
+      retired), so it can still carry its notice later. Apply the furthest
+      prefix the graph holds (step 5): the switch frees the places behind
+      it. Then record the next transitions (`NewExpectRecoveryRequest`, 7
+      days each, naming the kept clients), relay their notices afresh, and
+      repeat until gno reaches Ethereum's epoch. A switch retires for
+      governance only the old epoch client, and keeps the path's
+      intermediate clients and every client its pruning disconnects off the
+      graph, gov port open, so a branch it left behind
+      (say B→C not recorded when B's notice applied) can still be expected
+      and its notice applied; `ibcgov.PruneGovRetirements(64)` retires
+      nothing a switch did not retire. Purge a
+      tombstone (`NewPurgeTombstoneRequest`) only for a transition Ethereum
+      did not execute (advice: a purge frees capacity only, and never makes
+      a client retirable: the clients it disconnects are kept off the graph,
+      gov port open, until a switch passes them).
+
+   Residuals (ADR 0004 known limits): a forged notice applied by a
+   compromised approved local client, or a local client kept Active by
+   forged updates at every prefix endpoint, cannot be undone inside ibcgov.
+   A forged switch costs nothing when it names the epoch and client a kind
+   10 Ethereum already holds will establish (its genuine notice is then a
+   duplicate). Otherwise the only repair is Ethereum's emergency recovery
+   (enabled at launch, gone for good once a kind 14 disabled it): record its expectation from the router counterparty of
+   gno's current epoch client (`ibcgov.EpochClient()`), over a fresh healthy
+   local client, so its notice switches from there; its epoch must be above
+   gno's, so a gno pushed ahead needs as many recoveries as pass it, each
+   step's expectation recorded. A poisoned client is recovered in place
+   only once misbehaviour freezes it or it expires, and only from an honest
+   substitute ahead of it; with no such substitute, catch-up past it fails
+   for good. Core and transfer take
+   loosening governance only from ibcgov's fixed path, so no fresh ibcgov
+   can take over; when Ethereum can reach the adopted epoch and client by
+   neither, Ethereum-bound governance is lost, while gno-side governance
+   goes on. If it is not, the notice must be proven afresh: relaying
+   the original packet again either returns `RESPONSE_NOOP` (its receipt
+   exists, once the core's client-status and timeout checks pass) or
+   aborts, and neither authenticates the notice again; IBCAdmin sends the identical notice bytes in a fresh packet
+   (`resendEpochNotice(epoch)`, a new transport sequence), and that packet
+   is relayed. A client is retired for governance only when a switch
+   leaves it as the old epoch client; the path's intermediate clients are
+   kept (whoever applies a notice names its path, which proves nothing
+   about which clients Ethereum passed). A switch, a purge or a removal never retires the others: the
+   clients a switch's pruning or a purge disconnects leave the waiting list
+   (`AwaitingGovRetirement()`) and are kept off the graph, gov port open and
+   inert, and a removal leaves a tombstone that keeps them on it.
+   `ibcgov.PruneGovRetirements(64)` remains as a safety net and retires
+   nothing a switch did not retire; a client kept off the graph that is
+   never on the epoch's path keeps its gov port for good. The local client is the new gno
+   client tracking the new router client, Active, its counterparty set. A notice that
+   arrives before the replacement executes here moves the epoch all the
+   same.
+7. A client's verifier is replaced by another verifier version (ADR pr6375
+   R16) in two governed steps: first a core implementation that compiles the
+   conversion in (`implv1.NewWithConversions`: from version, to version,
+   the new verifier package's conversion) is registered under
+   `gno.land/r/aib/ibc/core/impl/` and installed with
+   `NewCoreUpdateImplRequest` (7 days); then `NewReplaceVerifierRequest(
+   clientID, toVersion)` (7 days) converts the client. A conversion the
+   active implementation does not declare, a Frozen client, a verifier
+   exposing no ethereum/v0 state (`Ethereum()`, which the conversion reads),
+   or a converted verifier failing its checks spends the decision. The client
+   keeps its id and every consensus state it trusted (served read only from
+   the retired verifier), its status (Active or Expired) and the slot it
+   trusts consensus states from; its trust generation advances and its
+   route's payout meters start empty.
+
+   **Deadline.** A client whose updates stop (an unsupported fork, a
+   verifier defect) expires about 9.1 days after its latest trusted slot on
+   mainnet (ADR 0003). The two steps are recorded one after the other:
+   record the conversion only once the conversion-bearing implementation is
+   installed, 14 days in all. Never record them together. Execution is
+   permissionless once a decision is due, so anyone could execute the
+   conversion before the upgrade; the conversion is then spent (its
+   availability is checked when it executes), and recording it again costs
+   another 7 days. A guardian hold defers both until it ends. Prepare ahead: register
+   and install the conversion-bearing core implementation before the fork
+   it is for, so that only the 7-day `NewReplaceVerifierRequest` remains
+   when a client stalls; record it within about two days of the stall and
+   the client is converted while still Active. **Missed deadline.** If the
+   client expired first, the conversion still applies and keeps it Expired;
+   then recover it the ordinary way: authenticate a checkpoint ahead of the
+   client independently (as in step 0), create a substitute client from it
+   (its verifier converted too if it must be), and record
+   `NewRecoverClientRequest(clientID, substituteID)` (7 days). A Frozen
+   client is recovered first, then converted.
+
+   **Handing over IBCAdmin's executor.** `NewEthHandOverRequest(exec,
+   codeHash)` (kind 9) only moves IBCAdmin's executor pin to the
+   new executor's address and code hash; it carries no migration call
+   (Ethereum spends at recording a kind 9 that carries one). Any migration
+   is done afterwards by the new executor through its own decisions.
+
+   The gno.land builder only parses its arguments, so check the target on
+   Ethereum before recording it. Ethereum checks it only at execution:
+   - the address holds deployed contract code, not an EIP-7702 designator;
+   - that code's hash equals `codeHash`;
+   - `bindings()` returns exactly the existing router, AccessManager and
+     transfer proxy addresses within 100,000 gas.
+
+   A target failing any check spends the hand-over at execution
+   (`codehash` or `bindings`), and the replacement then needs a fresh
+   decision. Also review the new executor's storage layout against
+   IBCAdmin's, because it runs by delegatecall in IBCAdmin's storage.
+
+   Repair through kind 9 also depends on two things:
+   - an authenticated governance channel, or recovery components that work
+     well enough to restore one;
+   - the transfer app's `gnoBusy()` view answering accurately. Delivery,
+     draining and execution all consult it, kind 9 included, and there is
+     no bypass (ADR pr6375 R14, R15).
+
+   **Replacing a failed executor.** A failed executor affects the decisions
+   it has to record in two ways, and resending repairs delivery, never a
+   spent decision:
+   - *Halted* (status 2, buffered, unspent): the executor's code is not the
+     pinned one or its answer is malformed. The decision stays buffered,
+     and every later seq waits behind it. Read `IBCAdmin.decision(e, seq)`
+     to see which seqs hold.
+   - *Spent* (status 5): the executor reverted when recording it. Redispatch
+     sends the same seq and bytes, which IBCAdmin answers as a duplicate,
+     so the action is lost. If it is still wanted, record a new decision:
+     it gets a fresh seq and its kind's normal delay.
+
+   The repair:
+   1. If a halted decision is ahead of the hand-over, cancel it with
+      `NewEthCancelRequest`. Its tombstones apply when it arrives on
+      Ethereum, even while the cancel itself is buffered, and a tombstoned
+      decision is recorded as cancelled without the executor. Without the
+      cancel, the hand-over cannot record.
+   2. Record `NewEthHandOverRequest(exec, codeHash)`. It records without
+      the executor, even with halted decisions behind it. Each delivery
+      drains at most eight buffered decisions, so with many cancelled
+      predecessors the hand-over can stay buffered after its delivery.
+      Repeat adequately funded `drain()` calls on IBCAdmin until
+      `decision(e, seq)` shows the hand-over pending. Its 7-day delay runs
+      from Ethereum's `recordedTime`, not from its dispatch here.
+   3. Execute it on Ethereum once its delay has passed.
+      - While an emergency recovery is open, the hand-over is refused
+        `Suspended`, as are kinds 3, 6 to 10 and 14. The guardians first cancel the
+        recovery with `cancelRecovery`, reaching its cancellation
+        threshold. That path is IBCAdmin's own and works with a broken
+        executor.
+      - A guardian hold defers the hand-over until day 21 of the hold, as
+        it does a seat replacement.
+      - A standing guardian or watch flag, even from a key no longer
+        available, defers it for at most 21 days from that flag's start.
+      - A conflict flag has no start of its own. It counts from the first
+        execution attempt made once the decision is due, so attempt
+        execution as soon as it is due.
+      - Ethereum pins the anchor at that first attempt, and clearing or
+        re-flagging does not move it.
+   4. Call `drain()` on IBCAdmin to record the decisions buffered behind
+      it through the new executor. One call records at most eight, and it
+      stops early at a decision that halts or when gas runs short. Repeat
+      adequately funded calls until `lastSeq()` stops advancing and
+      `decision(e, lastSeq() + 1)` shows nothing buffered.
+   5. Restore ordinary governance. The hand-over changes only the
+      executor pin. IBCAdmin's flags and any hold still stand, and they
+      keep deferring every other 7-day decision: repairs, settlements and
+      reopening. Keep the transfer containment in place, then:
+      - ask each available flagging key to clear its own flag;
+      - while no hold stands, clear earlier flags and conflicts with
+        `NewEthUnpauseRequest(2, "")` (kind 2, IBCAdmin, 24 hours on
+        Ethereum);
+      - replace a flagging key that is no longer available with
+        `NewEthSeatsRequest` (kind 3);
+      - wait out any hold still standing.
+   6. Record new decisions for any cancelled or spent action still wanted.
+
+**Disabling Ethereum's emergency recovery (kind 14).** IBCAdmin launches
+with the emergency recovery enabled (ADR pr6375 §7.12: 30-day delay, 3 of
+4 guardians to open and to cancel, eligible after 30 days of silence or a
+14-day hold, or with the governance client frozen or expired). Disabling it
+is permanent: nothing re-enables it, not a hand-over, not an upgrade, and a
+new deployment is the only way back. After it, a lost governance channel
+(the epoch client frozen or expired, a forged epoch switch) has no repair
+but a decision Ethereum already holds, and the route's escrow can be
+stranded for good (ADR pr6375 R2, R10, R15).
+
+Criteria, all of them (ADR pr6375 §13), before proposing it:
+- the guardians' custody of the recovery is no longer wanted: they can no
+  longer replace the route on their own once it is disabled;
+- the governance client on Ethereum and the local Ethereum client here have
+  run healthy (relayed, monitored, never frozen or expired) for a sustained
+  period, with their alerting in place;
+- a kind 6 client, or a kind 10 to it, is ready to be recorded early in any
+  incident, since nothing else will restore the channel once it is lost;
+- no recovery proposal is open or gathering approvals on IBCAdmin
+  (`recovery()`): an open one suspends the disable until the guardians
+  cancel it.
+
+The process:
+1. Check `IBCAdmin.recoveryDisabled()` is false and `recovery()` shows no
+   open proposal.
+2. Record `NewEthDisableRecoveryRequest(clientID)`, `clientID` the route's
+   current router client (`core.CounterpartyClientID(ibcgov.EpochClient())`);
+   a stale one is refused here. Decided by the governor before the yield,
+   by GovDAO after it; dispatched at once.
+3. Relay it; IBCAdmin records it (status 1). A status 5 is a refusal:
+   `client` (the epoch moved: record it again over the new client) or
+   `disabled` (already off).
+4. After 7 days, anyone calls `IBCAdmin.execute(seq)`. Flags and holds
+   defer it like any 7-day decision; an open recovery suspends it
+   (`Suspended`) until the guardians cancel it, and a recovery that
+   executes instead abandons it with its epoch (record it again in the new
+   one).
+5. Confirm `recoveryDisabled()` is true and the `EmergencyRecoveryDisabled`
+   event; approvals left on IBCAdmin are cleared. A recovery expectation
+   recorded here is now useless: remove an active one
+   (`NewRemoveExpectationRequest`) to free its place.
+
+## 8. Incident drill: replacing a route's client
+
+The drill applies to the one Ethereum route the governance channel serves
+(one per channel, ever): its Ethereum-side steps (kind 10, emergency
+recovery, settlement, kind 13 reopening) go to IBCAdmin over the channel,
+which governs that route's client. A second route has no Ethereum
+replacement or recovery path (it would need its own ibcgov and Ethereum
+support, not shipped), so none can be enrolled.
+
+A suspect or failed client of a route (a forged header accepted, a frozen or
+expired client that cannot be recovered in time) is replaced on both chains,
+the route's packets of the suspect interval are proven and settled, the
+losses resolved, and the route reopened. Every decision below is recorded
+by the governor with `ibcgov.Govern` (or, after the yield, a GovDAO proposal
+of the same request: §4), and executed by anyone with `ibcgov.Execute(id)`
+once due; `ibcgov.Decision(id)` shows its state and note. `R` is the route
+key, `OLD` its current gno.land client, `NEW` the replacement, `ROLD` and
+`RNEW` the router's client ids on Ethereum (`core.CounterpartyClientID(OLD)`
+and `core.CounterpartyClientID(NEW)`: the Ethereum-bound builders check
+the ids against that pairing and refuse a gno.land client id, naming the
+router client it is paired with; a kind 6 op 1 adding `RNEW` names `NEW`
+as its counterparty, so register it on gno.land first, step 4), `INC` the
+incident name (1 to 32 characters of `a-z`, `0-9`, `-`).
+
+1. **Contain.** Guardians and watch keys flag at once, from their seat keys:
+
+   ```
+   gnokey maketx call -pkgpath gno.land/r/aib/ibc/ibcgov -func SetFlag -args R -args payouts -args "<suspect packet keys, or empty>" ... <seat-key>
+   ```
+
+   per function (`sends`, `credits`, `payouts`, `refunds`). Two guardian
+   seats flagging make a hold: every queued decision is deferred, unpauses
+   are spent. A guardian's `payouts` flag naming packets makes their void
+   immediate (`NewVoidRequest(R, keys, forged, INC)`). Check:
+   `ibcgov.Held()`, `ibcgov.Flags(R)`.
+2. **Cancel** any pending decision the incident makes unsafe (an upgrade, a
+   denom loosening, a sweep): `NewCancelRequest(id)` applies at once, hold
+   or not. Ethereum-bound decisions are cancelled on Ethereum by kind 1
+   (`NewEthCancelRequest`).
+3. **Choose `suspectFrom`.** It is the gno.land height from which
+   acknowledgements and timeouts processed through `OLD` are suspect: the
+   earliest verification operation (an update, or a membership or absence
+   proof checked) that may have been compromised, considering verifier
+   defects and the implementation versions affected. The default is `0`
+   (every record). The controls raise a boundary below the previous
+   replacement's height to it (`ReplacedAt`): the first replacement keeps
+   the height supplied, 0 by default, since `ReplacedAt` is 0 at enrolment
+   (no record predates the enrolment, so 0 covers nothing more), and a
+   later one starts no earlier than the replacement that made `OLD`
+   current. The boundary must cover the earliest operation that may have
+   been compromised: an update, or a membership or non-membership
+   verification (a packet's proof, a `ProveOutcome`, a receive), under any
+   affected verifier implementation version. A later boundary than 0 needs
+   both: a safe prefix (every consensus state `OLD` retained before it is
+   genuine, each root authenticated independently, step 0 of §7), and
+   evidence that no affected verifier version verified any proof, against
+   any root, before it. It is then the gno.land height of the earliest of
+   the two (the installation of the earliest root that may be forged, the
+   first proof an affected version checked), never later. Genuine roots
+   alone never justify it: a sound root says nothing about a defective
+   verification against it, and a forged older root can still back a
+   proof; a newer genuine head never advances it. One record too many costs
+   a proof; one too few keeps a forged refund.
+   Ethereum's kind 10 takes its own `suspectFrom`, an Ethereum block.
+4. **Prepare `NEW`.** Authenticate a
+   checkpoint independently (§7 step 0), create `NEW` from it with the
+   route's identity (`ibcgov.RouteIdentity(R)`: the same chain id, genesis
+   validators root, router and commitments slot; any other is refused), and
+   register its counterparty `RNEW` (a custom id kind 6 adds on Ethereum).
+5. **Lift the hold, keep the containment.** A hold defers the replacement
+   too. The guardians clear their flags (`ClearFlag(R, fn)`), and the hold
+   ends 24 hours after fewer than two guardian seats flag, while the watch
+   keys keep their `sends`, `credits` and `payouts` flags: those pause the
+   functions without making a hold. Keep a `refunds` flag until the
+   replacement has executed: until then a queued refund could still be paid
+   (`ClaimRefunds`); once the route is closed nothing is, and the flag
+   would only defer the settlements that pay genuine refunds (step 9).
+6. **Replace, on both chains.** Record `NewReplaceRouteRequest(R, NEW,
+   suspectFrom)` (7 days) and Ethereum's kind 10,
+   `NewEthRouteReplacementRequest(ROLD, RNEW, suspectFromBlock, NEW)` (sent at
+   once; IBCAdmin applies its own delay). The gno.land replacement closes
+   `R` (voucher returns over `NEW` still go: exit only) and retires `OLD`
+   for transfers; while the governance epoch runs over `OLD` it stays there,
+   so the kind 10 and every decision in flight can still be re-sent
+   (`Redispatch`). When IBCAdmin executes kind 10 (or Ethereum's emergency
+   recovery, if `OLD` cannot carry it; then first record
+   `NewExpectRecoveryRequest(ROLD, RNEW, NEW)` here, 7 days, within
+   Ethereum's 30-day recovery delay) it sends the epoch notice
+   over `NEW`;
+   relay it (`RecvPacket` on `NEW`, port `gov`). The notice is accepted only
+   once its transition's expectation is active: the kind 10's dispatch
+   records it as a separate "expect transition" decision; execute it
+   (`ibcgov.Execute(id)`, 7 days after the dispatch, deferred by a hold)
+   before relaying; the gno.land route replacement need not have executed.
+   Check: `ibcgov.Epoch()` one higher, `ibcgov.EpochClient() == NEW`,
+   `core.IsClientRetiredFor(OLD, "gov")`; `core.IsClientRetired(OLD)`
+   (retired for good) once the gno.land route replacement has executed
+   too (before it, the notice retires only the gov port). A notice refused with an error
+   acknowledgement (sent before its expectation applied) is sent again by
+   IBCAdmin in a fresh packet; relay that one.
+   The replacement reserves the refunds the retired client's records may
+   owe in its first batch (64 steps, plus possibly one final move past a
+   client whose records it has just finished). The transfer app's `route_gov` event
+   for the replacement says in its `note` attribute "prepare the rest with
+   transfer.PrepareReplacement" when more remain (ibcgov's decision note
+   does not carry it): then call `transfer.PrepareReplacement(R, n)`
+   (1 ≤ n ≤ 64 steps a call, plus possibly one final move past a finished
+   client), for example `transfer.PrepareReplacement(R, 64)`, until
+   it returns true; a settlement refused as "not prepared" says the same. No
+   settlement, sweep payment, credit by vote or reopening applies before.
+   The replacement moves the flags standing under `NEW` onto `R`, merging
+   one with the route's own flag of the same seat and function: the route's
+   named packets come first and the merged flag keeps at most 64, so names
+   beyond that are dropped silently and no longer let a void execute at
+   once. Guardians read `ibcgov.Flags(R)` after the replacement and
+   re-assert (`SetFlag`) any suspect packet name that was dropped.
+
+   **A repeated replacement** (`NEW` failed, or must be replaced, before the
+   reconciliation of an earlier retired client finished) runs this step
+   again from `NEW` to a fresh client (`NEW2`), and then runs steps 7 to 10
+   for every retired client that still blocks the reopening, not only the
+   last one replaced:
+   - list them with `ReopenBlockers(R)` on the controls reader
+     (`transfer.ExtView("controls")`): every retired client with a record
+     open or processed in its suspect interval and not settled, whatever
+     the number of replacements; the route's `replaced` list
+     (`Render("routes/R")`) names every retired client, in order;
+   - each keeps its own suspect height, recorded when it was retired
+     (`SuspectFrom(R, client)`: the supplied suspect height, zero by
+     default; later replacements clamp it up to the previous replacement
+     height, when the client became current): enumerate its records against that height (step 7,
+     keys `client/…`), never against the latest replacement's;
+   - each keeps its own incident: settle and book its losses under the
+     incident name used for its replacement (`INC` of that drill), so its
+     accounting stays apart;
+   - prove its unfinished records again through the route's current client
+     (`NEW2`): an outcome proven through a verifier since retired, frozen or
+     recovered is void (step 8);
+   - settle them per originating client, `NewSettleRequest(R, client, …,
+     its INC)` (step 9), the client being the one the record was sent over.
+7. **Enumerate the records to settle.** Every send record of `OLD` that is
+   open (outcome `""`, its commitment outstanding, or payment `queued`), and
+   every one processed at or after `suspectFrom` (`processed_height`) whose
+   `settlement` is 0, read from the pages of
+   `Render("routes/R/sends?from=<next>")` (keys `OLD/…`): the union of the
+   two sets by packet key, records already settled (`settlement` not 0)
+   excluded. `SuspectUnsettled(R, OLD)` on the controls reader
+   (`transfer.ExtView("controls")`) counts the second set, which may hold
+   queued refunds of the first: do not add the two counts. A record carries the
+   full packet, so a record whose commitment the core already deleted (an
+   acknowledgement or a timeout processed it) is proven and settled the same
+   way. Receives of `OLD` whose claims or sweep entries paid out and that
+   the router never sent are the forged receives (claims and sweeps pages).
+   **Every suspect receive entitlement, paid or not, is part of the
+   reconciliation, for every client the route ever retired**, not only
+   those `ReopenBlockers(R)` lists (that index tracks send records only):
+   take the route's retired clients from the `replaced` list of
+   `Render("routes/R")` (every client a replacement retired, in order), and
+   for each client `X` its own suspect height (`SuspectFrom(R, X)` on the
+   controls reader). List every claim of `X` (open, withheld or done) and
+   every sweep entry of `X` (paid or unpaid) from
+   `Render("routes/R/claims?from=<next>")` and `.../sweeps?from=<next>`
+   (keys `X/…`), the receives at or after its suspect height (and any
+   earlier one in doubt), and authenticate each one:
+   1. Get the received packet's bytes `P` (its `MsgRecvPacket` in the
+      gno.land transaction that received it, from a node or explorer that
+      keeps the chain's history) and check that it is the packet gno.land
+      received at that sequence: `types.CommitPacketReceipt(P)` equals
+      `core.PacketReceipt(X, seq)`.
+   2. On Ethereum, read the transfer app's retained send record of that
+      sequence, `GnoICS20Transfer.sendRecord(sourceClient, seq)` (the
+      packet's source client on the router), from an Ethereum archive or
+      full node trusted independently of the incident, at a finalized
+      block the operators authenticate themselves (its hash and state root
+      from an independent source): `eth_call` and `eth_getProof` of the
+      record's storage slot both pinned to that block's number or hash,
+      never to "latest" or any unfinalized block. Check its `commitment`
+      equals `types.CommitPacket(P)`. The transfer app
+      keeps every send record for good (no code path deletes one), so the
+      record outlives the router commitment.
+   3. A matching record is a genuine entitlement. A forged one is proven by
+      any of four conclusive readings of the same finalized, authenticated
+      block, three of them independent of the packet's timeout (a forged
+      packet can carry one years ahead):
+      - **mismatch**: a record at that (source client, sequence) whose
+        `commitment` is non-zero and differs from `types.CommitPacket(P)`
+        proves forgery at once: the transfer app writes its record in the
+        transaction of the send, from the router's own commitment, and
+        never rewrites it, so that sequence carried another packet;
+      - **absence past the sequence**: no record (a zero commitment) proves
+        forgery once the router's last allocated send sequence for that
+        source client, `prevSequenceSends[sourceClient]` in its ERC-7201
+        `IBCStore` storage (no getter: `eth_getProof` of the mapping's slot
+        on the router, pinned to the same block), is at or past the
+        receive's sequence: the sequence was allocated, and a transfer
+        send would have written its record in the same transaction, so no
+        transfer packet can ever be sent there;
+      - **absence on a retired client**: no record proves forgery at once,
+        whatever the sequence counter or the timeout says, when the
+        Ethereum transfer app has retired the client id the receive names:
+        `isRetired(sourceClient)` on the transfer proxy, by `eth_call`
+        pinned to the same block (or, by `eth_getProof` of the proxy's
+        storage, the word at `keccak256(bytes(sourceClient) ‖
+        uint256(0xf3bec7e430c885c7577ab512690266d2e153034fd4fd64588d19040d9649610a))`).
+        `retired[id]` is set only by `migrateRoute` (kind 10, or the
+        emergency recovery) and never cleared, every transfer send over a
+        retired id is refused, and send records are written only on that
+        send path, so no future transfer can write a record there; only a
+        governed, build-verified kind 7 upgrade could change that. A route
+        replacement on Ethereum therefore ends a forged receive's hostage:
+        retire the client it names, then resolve the receive this way;
+      - **absence past the timeout** (the fallback, when the router has not
+        reached the sequence yet and the client is not retired): no record proves forgery once that
+        finalized block's timestamp has reached the packet's timeout
+        (`TimeoutTimestamp` of `P`): after it the packet can no longer be
+        sent, so an absence then is final.
+      Short of all four, the entitlement stays unresolved, and the
+      containment (the closed route, the `payouts` flag) stays in place;
+      read again at a later finalized block. Every reading is checked
+      against fabricated state the same way: the node trusted
+      independently of the incident, the block's hash and state root
+      authenticated by the operators themselves, `eth_call` and
+      `eth_getProof` pinned to that block, never "latest". The router's
+      live packet commitment is no evidence either way: the source
+      acknowledgement deletes it, so its absence is inconclusive, never
+      proof of forgery. Evidence that cannot be obtained leaves the
+      entitlement unresolved: the route stays closed.
+   This procedure is off-chain: gno.land's Ethereum client verifies proofs
+   of the router's storage only (`IBCContractAddress`, fixed at its
+   creation), not of the transfer app's, so the record is judged by
+   governance on evidence from that independently trusted node, which is
+   the trust assumption of this step.
+   Each forged one's remainder must go before the route reopens or
+   containment is cleared:
+   What an entitlement paid out: for a claim, its `paid` (an amount); for a
+   sweep entry, whose `paid` is a boolean, its `claim_paid` (what its claim
+   paid before it was swept, present only for one moved from a claim) plus
+   its `amount` when `paid` is true and `paid_to` is not `"credit by vote"`
+   (a credit by vote pays through its claim instead).
+   - nothing paid out (a claim's `paid` 0, a sweep entry's payout 0): void
+     it as forged
+     (`NewVoidRequest(R, keys, true, INC)`, at once while a guardian's
+     `payouts` flag names it), which drops the remainder;
+   - partly or wholly paid: settle it as a forged receive (action 5,
+     amount what it paid out, step 9), which drops the remainder and books
+     what was paid as the loss, exactly once (a forged void books the same
+     and is the alternative while the route is not yet reconciled; never
+     both: the ledger refuses a second loss of the packet).
+   The reopening does not check this: it waits only for the retired
+   clients' send records. Nothing in the code stops a forged claim left
+   unvoided from being paid once the route is open and the `payouts` flag
+   is cleared, so this is a hard precondition of steps 11 and 12.
+8. **Prove each outcome** through `NEW` (the route's current client), at a
+   height `H = (0, slot)` of a consensus state `NEW` holds, with
+   `transfer.ProveOutcome(packet, H, receiptProof, ackProof)` from a
+   `MsgRun` (the packet is the record's, the proofs `ethereum.MembershipProof`
+   values of the router's storage at `H`, from `eth_getProof` of the
+   router's commitments entries `keccak256(keccak256(path) ‖ commitmentSlot)`
+   for the packet's receipt path and acknowledgement path, both under its
+   destination client on the router, `ROLD`). No receipt is refundable
+   only at a height whose time is at or past the packet's timeout; the
+   packet's receipt with eureka's success acknowledgement is delivered, with
+   the universal error acknowledgement refundable; another packet's receipt
+   is a collision (refundable). Check: the record's `proven`, `proven_by`,
+   `proven_gen`. An outcome is void once `NEW` is recovered, frozen,
+   upgraded or migrated (`core.ClientTrustGeneration(NEW)` no longer the
+   record's `proven_gen`): prove it again.
+9. **Settle**, at most 64 items a decision, each record once:
+   `NewSettleRequest(R, OLD, "seq:action:amount,…", INC)` (7 days):
+   - proven refundable or collision: `1` with the amount minus `refunded`
+     (`0` for one refunded in full, which only settles it); a refund the
+     supply (minted) or the free escrow (escrowed) cannot pay now is parked,
+     owed and reserved, never refusing the settlement, and paid by
+     `ClaimRefunds` after the reopening, as the supply's headroom or the
+     escrow allows (an escrow a forged receive drained: recapitalize it, step
+     10, or accept the deficit and reopen, the refund then waiting for the
+     escrow to be whole);
+   - proven delivered, a queued refund none of which was paid: `2`, amount
+     `0`;
+   - proven delivered, no refund paid: `3`, amount `0`;
+   - proven delivered and refunded (a forged refund): `4`, amount
+     `refunded`, booked as a loss;
+   - a forged receive (inbound sequence): `5`, amount what it paid out,
+     booked as a loss; its claim's remainder is dropped.
+
+   A settlement paying refunds is deferred under a `refunds` flag (step 5).
+   A settlement is final once it applies: before then a hold defers it, and
+   `NEW` expiring (not Active) or taking a new trust generation (a recovery,
+   freeze, upgrade or migration) voids its proofs, but a compromise of
+   `NEW` found afterwards does not reopen it, and no governed path on
+   gno.land pays a refund it denied. Hold the decision (step 5) while `NEW`
+   is in doubt.
+   Ethereum's records are settled by kind 12 (`NewEthSettleRequest`, at most
+   8 items). Check: `settlement` set on every record of step 7, and
+   `SuspectUnsettled(R, OLD)` 0.
+10. **Resolve the losses**, each once across the two chains. A loss is
+    authoritative on the chain that paid it out: what gno.land paid (a
+    forged void, settlement action 4 or 5), whatever the token, is booked
+    and remedied here, a forged mint of an Ethereum-native token's vouchers
+    included; what Ethereum paid is booked there by kind 12 (action 4 or 5).
+    A record of the same packet and token on the other chain is a mirror:
+    here, `NewRecordLossRequest(R, key, denom, amount, "ethereum", INC-m,
+    cause)` records one (it keeps the route closed to new exposure until
+    resolved), under an incident of its own that names the authoritative
+    record; it is resolved only by an accepted deficit
+    (`NewAcceptDeficitRequest`), a reduction or a recapitalization against
+    it being refused and spent. When reporting, count each (packet, token)
+    loss once, from the payout chain's open balance: a mirror is never
+    added. Then, on gno.land, per denom and incident (`Render("routes/R/losses")`,
+    `Totals(R, denom)`): recapitalize an `unescrow` denom
+    (`NewRecapitalizeRequest(R, denom, amount, INC)`, then anyone pays it
+    with `transfer.Recapitalize(R, authorizationID)`: the authorization id
+    is the route's own numbering, not the ibcgov decision number; read it
+    from the transfer app's `route_gov` event of the executed decision
+    (`op` `recapitalize`, `route` `R`, its `note` the id), check it with
+    `Recap(R, authorizationID)` on the controls reader (denom, amount,
+    incident, not paid or revoked), and pass that id to the payment or to a
+    revocation (`NewRevokeRecapRequest(R, authorizationID)`)), reduce open or withheld claims or
+    owed sweep entries (`NewReduceRequest(R, key, amount, INC)`), or accept
+    a deficit (`NewAcceptDeficitRequest(R, denom, amount, INC)`); whatever
+    stays unresolved, the reopening accepts. Check: `Unresolved(R)`. An
+    accepted deficit of an escrowed denom leaves its escrow short, and after
+    the reopening `ClaimRefunds` pays the queued refunds first in, first
+    out against the lock less `ProvenOwed`, stopping at the first one the
+    rest cannot serve: an earlier refund can take backing a later genuine
+    refund needs. Recapitalize the denom before reopening and lifting the
+    `refunds` hold, or accept that the queue's order assigns the remaining
+    shortfall.
+11. **Reopen.** Precondition: every forged receive entitlement of step 7
+    is voided or settled (the claims and sweeps pages show none of a
+    retired client's suspect receives `open`, `withheld` or unpaid that the
+    router did not send). First check the whole route: `ReopenBlockers(R)` on the
+    controls reader must be empty (after a repeated replacement it lists
+    every retired client still unfinished; `SuspectUnsettled(R, client)`
+    and `OpenSends(R, client)` say what each still holds).
+    `NewReopenRouteRequest(R)` (7 days) is refused while any retired
+    client's record of step 7 is unsettled. When it applies, it accepts the remaining
+    losses and revokes unpaid recapitalizations in batches; when the transfer
+    app's `route_gov` event says in its `note` "continue with
+    transfer.ContinueReopen" (ibcgov's decision note does not carry it),
+    call `transfer.ContinueReopen(R)` until it returns true. Ethereum
+    reopens by kind 13 (`NewEthReopenRequest(RNEW)`). Before proposing
+    it with a deficit left on an escrowed denom, decide as in step 10:
+    recapitalize first, or accept that the queued refunds share the
+    shortfall first in, first out. Check: `Closed(R)` false.
+12. **Clear the flags.** Precondition, as for step 11: no forged receive
+    entitlement remains unvoided, since clearing `payouts` lets every open
+    claim be paid. The watch keys and guardians clear their own flags
+    (`ClearFlag`), or `NewUnpauseRouteRequest(R, "sends,credits,payouts,refunds")`
+    clears every seat's at once (spent while a hold stands). Clearing
+    `payouts` starts a new payouts epoch: the meters refill from empty. Then
+    pay what waited: `transfer.ClaimRefunds(NEW, denom, n)` and
+    `transfer.Claim(NEW, denom, n)`. Lifting the `refunds` hold on an
+    escrowed denom still short of a deficit pays its queue first in, first
+    out (step 10): recapitalize before clearing it if the order must not
+    decide which genuine refunds wait. Done when `ibcgov.Flags(R)` is empty,
+    `ibcgov.Held()` false, `Closed(R)` and `LossClosed(R)` false, and every
+    denom's `queued_refunds` drained.

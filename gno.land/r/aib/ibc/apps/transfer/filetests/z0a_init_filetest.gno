@@ -9,7 +9,7 @@ import (
 
 	// Import to trigger the init and register the app
 	_ "gno.land/r/aib/ibc/apps/transfer"
-	_ "gno.land/r/aib/ibc/apps/transfer/impl/v0"
+	_ "gno.land/r/aib/ibc/apps/transfer/impl/v1"
 	"gno.land/r/aib/ibc/core"
 	_ "gno.land/r/aib/ibc/core/impl/v0"
 )
@@ -32,4 +32,4 @@ func main(cur realm) {
 
 // Output:
 // ----------- assert render apps
-// [{"port_id":"transfer","pkg_path":"gno.land/r/aib/ibc/apps/transfer","address":"g1tp3gk4quumurav4858hjfdy6hxtyffwmnxyr00","paused":false}]
+// [{"port_id":"transfer","pkg_path":"gno.land/r/aib/ibc/apps/transfer","address":"g1tp3gk4quumurav4858hjfdy6hxtyffwmnxyr00","paused":false},{"port_id":"gov","pkg_path":"gno.land/r/aib/ibc/ibcgov","address":"g12l3du5z70zzq9rkc82asre09srefve7p5mfay4","paused":false}]

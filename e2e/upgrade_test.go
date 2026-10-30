@@ -14,7 +14,9 @@ type upgradeTarget struct {
 
 var upgradeTargets = []upgradeTarget{
 	{"core", "gno.land/r/aib/ibc/core", "gno.land/r/aib/ibc/core/impl/v0", "gno.land/r/aib/ibc/core/impl/v99"},
-	{"transfer", "gno.land/r/aib/ibc/apps/transfer", "gno.land/r/aib/ibc/apps/transfer/impl/v0", "gno.land/r/aib/ibc/apps/transfer/impl/v99"},
+	// The transfer app starts with impl/v1 (the route controls) on a fresh
+	// deployment; it serves AtomOne as impl/v0 did.
+	{"transfer", "gno.land/r/aib/ibc/apps/transfer", "gno.land/r/aib/ibc/apps/transfer/impl/v1", "gno.land/r/aib/ibc/apps/transfer/impl/v99"},
 }
 
 func (t upgradeTarget) rel() string { return strings.TrimPrefix(t.realm, "gno.land/") }
@@ -29,9 +31,9 @@ const decisionDelay = 10 * time.Second
 // gno.land/r/aib/ibc/ibcgov, where the launch governor (on the e2e devnet the
 // test key, e2e/gno/Dockerfile) records the decision and anyone executes it
 // once its delay has passed. Executing it before is refused and leaves it
-// pending. Re-installing the initial implementation (impl/v0 of both) keeps
-// the chain usable by the other tests; the switch to another implementation
-// is TestUpgradeRehearsal.
+// pending. Re-installing the initial implementation (core impl/v0, transfer
+// impl/v1) keeps the chain usable by the other tests; the
+// switch to another implementation is TestUpgradeRehearsal.
 func (s *E2ETestSuite) TestGovernorUpdateImpl() {
 	for _, tc := range upgradeTargets {
 		s.Run(tc.name, func() {

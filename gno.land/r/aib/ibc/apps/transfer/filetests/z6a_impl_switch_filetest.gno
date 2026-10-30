@@ -20,7 +20,7 @@ import (
 
 // OnRecvPacket: success with native coins
 const (
-	v1Path  = "gno.land/r/aib/ibc/apps/transfer/impl/v0"
+	v1Path  = "gno.land/r/aib/ibc/apps/transfer/impl/v1"
 	v99Path = "gno.land/r/aib/ibc/apps/transfer/impl/v99"
 )
 
@@ -167,7 +167,7 @@ func main(cur realm) {
 // sent back through v99, sequence: 1
 // receiver voucher balance after send back: 60
 //
-// impl after rollback: gno.land/r/aib/ibc/apps/transfer/impl/v0 v0
+// impl after rollback: gno.land/r/aib/ibc/apps/transfer/impl/v1 v1
 // receiver voucher balance after rollback: 60
 // ## Authority
 //
@@ -175,9 +175,9 @@ func main(cur realm) {
 //   - g12l3du5z70zzq9rkc82asre09srefve7p5mfay4
 //   - g1p84dvfh4wrplyxx4zsmy77a8rxcnjup2j7zv5r
 // - **Paused**: false (set by the IBC core)
-// - **Implementation**: [`gno.land/r/aib/ibc/apps/transfer/impl/v0`](/r/aib/ibc/apps/transfer/impl/v0) (version v0)
+// - **Implementation**: [`gno.land/r/aib/ibc/apps/transfer/impl/v1`](/r/aib/ibc/apps/transfer/impl/v1) (version v1)
 // - **Registered implementations**:
-//   - gno.land/r/aib/ibc/apps/transfer/impl/v0
+//   - gno.land/r/aib/ibc/apps/transfer/impl/v1
 //   - gno.land/r/aib/ibc/apps/transfer/impl/v99
 // - **Blocked addresses**: none
 
@@ -372,7 +372,7 @@ func main(cur realm) {
 //     "attrs": [
 //       {
 //         "key": "old_path",
-//         "value": "gno.land/r/aib/ibc/apps/transfer/impl/v0"
+//         "value": "gno.land/r/aib/ibc/apps/transfer/impl/v1"
 //       },
 //       {
 //         "key": "new_path",
@@ -468,11 +468,11 @@ func main(cur realm) {
 //       },
 //       {
 //         "key": "new_path",
-//         "value": "gno.land/r/aib/ibc/apps/transfer/impl/v0"
+//         "value": "gno.land/r/aib/ibc/apps/transfer/impl/v1"
 //       },
 //       {
 //         "key": "version",
-//         "value": "v0"
+//         "value": "v1"
 //       }
 //     ],
 //     "pkg_path": "gno.land/r/aib/ibc/apps/transfer"
