@@ -6,12 +6,13 @@ import (
 	"strings"
 	"time"
 
+	"gno.land/p/aib/jsonmd/v0"
+
 	"gno.land/p/aib/ibc/ics20/v0"
 	"gno.land/p/aib/ibc/lightclient/v0"
 	"gno.land/p/aib/jsonpage/v0"
 	"gno.land/p/moul/txlink/v0"
 	"gno.land/p/nt/grc20/v0"
-	"gno.land/p/nt/markdown/sanitize/v0"
 	"gno.land/p/nt/mux/v0"
 	"gno.land/p/nt/ufmt/v0"
 	"gno.land/p/onbloc/json/v0"
@@ -67,6 +68,10 @@ func (rd *Renderer) Register(router *mux.Router) {
 // JSON routes list everything.
 const homeListLimit = 100
 
+// HomeListLimit is homeListLimit, for implementations that rewrite the home
+// page (impl/v1 rewrites the send-back links of the listed vouchers).
+const HomeListLimit = homeListLimit
+
 func (rd *Renderer) Home(w *mux.ResponseWriter, r *mux.Request) {
 	var out strings.Builder
 	out.WriteString("# IBC transfer\n\n")
@@ -117,7 +122,7 @@ func (rd *Renderer) Home(w *mux.ResponseWriter, r *mux.Request) {
 			// escape it (and the path that embeds it) as a table cell.
 			out.WriteString(ufmt.Sprintf(
 				"| [`%s`](/r/aib/ibc/apps/transfer:denoms/%s) | %s | %s | %s | %s | %s |\n",
-				ShortDenom(ibcDenom), ibcDenom, sanitize.TableCell(d.Base), sanitize.TableCell(d.Path()), supply, grc20link, actions,
+				ShortDenom(ibcDenom), ibcDenom, jsonmd.Cell(d.Base), jsonmd.Cell(d.Path()), supply, grc20link, actions,
 			))
 		}
 		if denoms.Size() > homeListLimit {
@@ -133,10 +138,7 @@ func (rd *Renderer) Home(w *mux.ResponseWriter, r *mux.Request) {
 		out.WriteString("| Denom | Amount |\n")
 		out.WriteString("|-------|--------|\n")
 		escrowTotals.IterateByOffset(0, homeListLimit, func(denom string, v any) bool {
-			out.WriteString(ufmt.Sprintf(
-				"| [`%s`](/r/aib/ibc/apps/transfer:total_escrow/%s) | %d |\n",
-				denom, denom, v.(chain.Coin).Amount,
-			))
+			out.WriteString(ufmt.Sprintf("| %s | %d |\n", escrowDenomCell(denom), v.(chain.Coin).Amount))
 			return false
 		})
 		if escrowTotals.Size() > homeListLimit {
@@ -155,6 +157,19 @@ func (rd *Renderer) Home(w *mux.ResponseWriter, r *mux.Request) {
 	out.WriteString("- `voucher/ibc/{hash}`: get voucher token metadata\n")
 	out.WriteString("- `voucher/ibc/{hash}/balance/{addr}`: get a voucher balance for an address\n\n")
 	w.Write(out.String())
+}
+
+// escrowDenomCell is an escrow table's denom cell: a link to its total when
+// the denom is spelled in the bank's alphabet, else the denom escaped as
+// table text (a GRC20 alias carries a token's chosen symbol).
+func escrowDenomCell(denom string) string {
+	for i := 0; i < len(denom); i++ {
+		c := denom[i]
+		if !(c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '/' || c == ':' || c == '.' || c == '_' || c == '-') {
+			return jsonmd.Cell(denom)
+		}
+	}
+	return "[`" + denom + "`](/r/aib/ibc/apps/transfer:total_escrow/" + denom + ")"
 }
 
 func (rd *Renderer) Admin(w *mux.ResponseWriter, r *mux.Request) {
@@ -319,7 +334,14 @@ func RenderTransferLinks() string {
 	for _, clientID := range clientIDs {
 		status := core.ClientStatus(clientID)
 		height := core.ClientLatestHeight(clientID)
-		if status == lightclient.Active {
+		if core.IsClientRetiredFor(clientID, transfer.PortID) {
+			// A retired client (ADR pr6375 §7.12) carries nothing more: its
+			// status stays as it was, so it is checked first.
+			out.WriteString(ufmt.Sprintf(
+				"- `%s` — retired, trusted height `%s` ([client details](/r/aib/ibc/core:clients/%s))\n",
+				clientID, height, clientID,
+			))
+		} else if status == lightclient.Active {
 			out.WriteString(ufmt.Sprintf(
 				"- [send via `%s`](%s) — %s, trusted height `%s` ([client details](/r/aib/ibc/core:clients/%s))\n",
 				clientID, NewTransferLink(clientID, "", "").URL(), status, height, clientID,
@@ -400,22 +422,20 @@ func ShortDenom(ibcDenom string) string {
 	return ibcDenom
 }
 
-// RenderNode writes n as JSON. gnoweb renders it as markdown, and values come
-// from counterparties (base denominations, voucher names) or the URL, so
-// markdown in string values is escaped (see jsonpage.MarkdownSafe); the JSON
-// still decodes to the same values.
+// RenderNode writes n as JSON, inert in Markdown (jsonmd.Inert): its strings
+// may carry a counterparty's base denom or a path segment of the request.
 func RenderNode(w *mux.ResponseWriter, n *json.Node) {
 	bz, err := json.Marshal(n)
 	if err != nil {
 		panic(err)
 	}
-	w.Write(string(jsonpage.MarkdownSafe(bz)))
+	w.Write(jsonmd.Inert(string(bz)))
 }
 
 // GRC20RegKey returns the grc20reg key for a voucher ibc denom. grc20reg keys
-// tokens by rlmPath.symbol, and a voucher's symbol is the truncated IBC hash
-// (see transfer.VoucherSymbol), not the full one.
-// e.g. "ibc/CAEF9CA8CE6C302D..." → "gno.land/r/aib/ibc/apps/transfer.CAEF9CA8CE6"
+// tokens by rlmPath.symbol, and a voucher's symbol is allocated when it is
+// created (see transfer.VoucherSymbol), "" before.
+// e.g. the first voucher → "gno.land/r/aib/ibc/apps/transfer.IBC-1"
 func GRC20RegKey(ibcDenom string) string {
 	return transfer.PkgPath + "." + transfer.VoucherSymbol(ibcDenom)
 }

@@ -20,7 +20,7 @@ import (
 
 // OnRecvPacket: success with native coins
 const (
-	v0Path  = "gno.land/r/aib/ibc/apps/transfer/impl/v0"
+	v1Path  = "gno.land/r/aib/ibc/apps/transfer/impl/v0"
 	v99Path = "gno.land/r/aib/ibc/apps/transfer/impl/v99"
 )
 
@@ -135,10 +135,9 @@ func main(cur realm) {
 	println("\nack res:", res)
 	println("receiver voucher balance:", transfer.VoucherBalanceOf(voucherDenom, receiver))
 
-	transfer.AddAuthorityMember(cross(cur), cur.Address())
 	testing.SetRealm(testing.NewCodeRealm(v99Path))
-	transfer.RegisterImpl(cross(cur), newV99)
-	testing.SetRealm(testing.NewCodeRealm("gno.land/r/aib/main"))
+	transfer.RegisterImpl(cross(cur), newV99, "v99", nil, false)
+	testing.SetRealm(testing.NewCodeRealm(transfer.IBCGovPath)) // decided by the governance realm
 	transfer.UpdateImpl(cross(cur), v99Path)
 	println("\nimpl:", transfer.ImplPath(), transfer.ImplVersion())
 	println("receiver voucher balance after switch:", transfer.VoucherBalanceOf(voucherDenom, receiver))
@@ -148,8 +147,8 @@ func main(cur realm) {
 	println("sent back through v99, sequence:", seq)
 	println("receiver voucher balance after send back:", transfer.VoucherBalanceOf(voucherDenom, receiver))
 
-	testing.SetRealm(testing.NewCodeRealm("gno.land/r/aib/main"))
-	transfer.UpdateImpl(cross(cur), v0Path)
+	testing.SetRealm(testing.NewCodeRealm(transfer.IBCGovPath)) // decided by the governance realm
+	transfer.UpdateImpl(cross(cur), v1Path)
 	println("\nimpl after rollback:", transfer.ImplPath(), transfer.ImplVersion())
 	println("receiver voucher balance after rollback:", transfer.VoucherBalanceOf(voucherDenom, receiver))
 	println(transfer.Render("admin"))
@@ -173,7 +172,7 @@ func main(cur realm) {
 // ## Authority
 //
 // - **Authority members**:
-//   - g1gjs8nfdrd55z3xu9gjcatnj29vkwuyx4ffqxd9
+//   - g12l3du5z70zzq9rkc82asre09srefve7p5mfay4
 //   - g1p84dvfh4wrplyxx4zsmy77a8rxcnjup2j7zv5r
 // - **Paused**: false (set by the IBC core)
 // - **Implementation**: [`gno.land/r/aib/ibc/apps/transfer/impl/v0`](/r/aib/ibc/apps/transfer/impl/v0) (version v0)
@@ -247,7 +246,7 @@ func main(cur realm) {
 //     "attrs": [
 //       {
 //         "key": "token",
-//         "value": "gno.land/r/aib/ibc/apps/transfer.CAEF9CA8CE6.0000001"
+//         "value": "gno.land/r/aib/ibc/apps/transfer.IBC-1.0000001"
 //       },
 //       {
 //         "key": "name",
@@ -255,7 +254,7 @@ func main(cur realm) {
 //       },
 //       {
 //         "key": "symbol",
-//         "value": "CAEF9CA8CE6"
+//         "value": "IBC-1"
 //       },
 //       {
 //         "key": "decimals",
@@ -269,7 +268,7 @@ func main(cur realm) {
 //     "attrs": [
 //       {
 //         "key": "token_path",
-//         "value": "gno.land/r/aib/ibc/apps/transfer.CAEF9CA8CE6"
+//         "value": "gno.land/r/aib/ibc/apps/transfer.IBC-1"
 //       },
 //       {
 //         "key": "pkgpath",
@@ -281,7 +280,7 @@ func main(cur realm) {
 //       },
 //       {
 //         "key": "symbol",
-//         "value": "CAEF9CA8CE6"
+//         "value": "IBC-1"
 //       }
 //     ],
 //     "pkg_path": "gno.land/r/nt/grc20reg/v0"
@@ -291,7 +290,7 @@ func main(cur realm) {
 //     "attrs": [
 //       {
 //         "key": "token",
-//         "value": "gno.land/r/aib/ibc/apps/transfer.CAEF9CA8CE6.0000001"
+//         "value": "gno.land/r/aib/ibc/apps/transfer.IBC-1.0000001"
 //       },
 //       {
 //         "key": "from",
@@ -369,16 +368,6 @@ func main(cur realm) {
 //     "pkg_path": "gno.land/r/aib/ibc/core"
 //   },
 //   {
-//     "type": "authority_member_added",
-//     "attrs": [
-//       {
-//         "key": "address",
-//         "value": "g1gjs8nfdrd55z3xu9gjcatnj29vkwuyx4ffqxd9"
-//       }
-//     ],
-//     "pkg_path": "gno.land/r/aib/ibc/apps/transfer"
-//   },
-//   {
 //     "type": "impl_updated",
 //     "attrs": [
 //       {
@@ -427,7 +416,7 @@ func main(cur realm) {
 //     "attrs": [
 //       {
 //         "key": "token",
-//         "value": "gno.land/r/aib/ibc/apps/transfer.CAEF9CA8CE6.0000001"
+//         "value": "gno.land/r/aib/ibc/apps/transfer.IBC-1.0000001"
 //       },
 //       {
 //         "key": "from",

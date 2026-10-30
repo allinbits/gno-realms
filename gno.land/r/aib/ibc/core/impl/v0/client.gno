@@ -2,6 +2,7 @@ package impl
 
 import (
 	"chain/runtime/unsafe"
+	"errors"
 
 	"gno.land/p/aib/ibc/host/v0"
 	"gno.land/p/aib/ibc/lightclient/ethereum/v0"
@@ -20,9 +21,41 @@ func (l *logic) mustClient(clientID string) core.Client {
 	return c
 }
 
+// checkStates refuses client and consensus states that are not the light
+// client packages' own concrete types, by value, before any of their methods
+// runs: a caller-supplied implementation would run its own code in the
+// core's realm context. Whether the two belong to the same client type is
+// CreateClient's next check, on our own types' methods.
+func checkStates(cs lightclient.ClientState, cons lightclient.ConsensusState) error {
+	switch cs.(type) {
+	case tendermint.ClientState, ethereum.ClientState:
+	default:
+		return errors.New("the client state must be a light client's own type")
+	}
+	switch cons.(type) {
+	case tendermint.ConsensusState, ethereum.ConsensusState:
+	default:
+		return errors.New("the consensus state must be a light client's own type")
+	}
+	return nil
+}
+
+// checkClientMessage refuses a client message that is not a light client
+// package's own concrete type, before any of its methods runs.
+func checkClientMessage(m lightclient.ClientMessage) error {
+	switch m.(type) {
+	case *tendermint.MsgHeader, *tendermint.Misbehaviour, *ethereum.Header, *ethereum.Misbehaviour:
+		return nil
+	}
+	return errors.New("the client message must be a light client's own type")
+}
+
 // CreateClient initializes the light client of the given type with the
 // states and records relayer as its creator.
 func (l *logic) CreateClient(_ int, rlm realm, relayer address, clientState lightclient.ClientState, consensusState lightclient.ConsensusState) string {
+	if err := checkStates(clientState, consensusState); err != nil {
+		panic(err)
+	}
 	if clientState.ClientType() != consensusState.ClientType() {
 		panic("client type for client state and consensus state do not match")
 	}
@@ -63,10 +96,26 @@ func (l *logic) CreateClient(_ int, rlm realm, relayer address, clientState ligh
 // RegisterCounterparty registers the IBC v2 counterparty info for the given
 // clientID. It must be called by the same relayer that called CreateClient.
 func (l *logic) RegisterCounterparty(_ int, rlm realm, clientID string, counterpartyMerklePrefix [][]byte, counterpartyClientID string) {
-	if !types.IsValidClientID(counterpartyClientID) {
+	// An Ethereum client's counterparty is a client of the ICS26 router,
+	// whose ids follow its own grammar ("client-N", or a custom id such as
+	// "gnoland"); every other counterparty is an SDK chain's {type}-{N}.
+	if !types.IsValidClientID(counterpartyClientID) && !types.IsValidRouterClientID(counterpartyClientID) {
 		panic("invalid counterparty client id")
 	}
 	c := l.mustClient(clientID)
+	valid := types.IsValidClientID(counterpartyClientID)
+	if c.Type() == ethereum.ClientType {
+		valid = types.IsValidRouterClientID(counterpartyClientID)
+		// An Ethereum router keeps its commitments at the bare ICS24 keys:
+		// eureka's canonical prefix is a single empty element. Any other
+		// would move every proof of the client off the router's state.
+		if len(counterpartyMerklePrefix) != 1 || len(counterpartyMerklePrefix[0]) != 0 {
+			panic("an Ethereum counterparty's merkle prefix is a single empty element")
+		}
+	}
+	if !valid {
+		panic("invalid counterparty client id")
+	}
 	caller := unsafe.OriginCaller()
 	if c.Creator() != caller {
 		panic(ufmt.Sprintf("expected same signer as CreateClient submitter %s, got %s", c.Creator(), caller))
@@ -80,6 +129,9 @@ func (l *logic) RegisterCounterparty(_ int, rlm realm, clientID string, counterp
 // UpdateClient updates the given light client with a new header, or submits a
 // misbehaviour (clientMessage can be either).
 func (l *logic) UpdateClient(_ int, rlm realm, clientID string, clientMessage lightclient.ClientMessage) {
+	if err := checkClientMessage(clientMessage); err != nil {
+		panic(err)
+	}
 	if err := clientMessage.ValidateBasic(); err != nil {
 		panic(err)
 	}

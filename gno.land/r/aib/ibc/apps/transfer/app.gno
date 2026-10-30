@@ -34,6 +34,18 @@ func init(cur realm) {
 
 var _ app.IBCApp = &App{}
 
+// IsFeeCollector reports whether a is the fee collector of any route of the
+// route controls: the core reads it before registering an implementation,
+// whose realm would become a realm of the bridge (ADR 0004). A read only.
+func (a *App) IsFeeCollector(addr address) bool { return isFeeCollector(addr) }
+
+// isFeeCollector reads the route controls' index of fee collectors, if the
+// controls exist.
+func isFeeCollector(addr address) bool {
+	fc, ok := store.ExtView("controls").(interface{ IsFeeCollector(address) bool })
+	return ok && fc.IsFeeCollector(addr)
+}
+
 // corePkgPath is the only realm allowed to invoke the IBCApp callbacks below.
 const corePkgPath = "gno.land/r/aib/ibc/core"
 

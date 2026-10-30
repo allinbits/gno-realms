@@ -10,9 +10,11 @@ tracks the same counterparty chain.
 core.RecoverClient(cross, subjectClientID, substituteClientID string)
 ```
 
-Only a member of the authority can call it (see `admin.gno` and the README's
-Authority section): the AIB multisig directly, or GovDAO through a proposal
-built with `NewRecoverClientProposalRequest`.
+Only the governance realm `gno.land/r/aib/ibc/ibcgov` can call it (see
+`admin.gno` and the README's Authority section): a recovery trusts the
+substitute, so it is a decision with ibcgov's 7-day delay
+(`ibcgov.NewRecoverClientRequest`), made by the governor before its yield and
+by GovDAO after.
 
 ## End-to-end flow
 
@@ -80,15 +82,15 @@ A proposal asks to run:
 core.RecoverClient(cross, subjectID, substituteID)
 ```
 
-Gated by the authority; the proposal is built with
-`core.NewRecoverClientProposalRequest(cross(cur), subjectID, substituteID)`.
+Gated on the governance realm; the decision is built with
+`ibcgov.NewRecoverClientRequest(cross(cur), subjectID, substituteID)`.
 
 ### 6. `RecoverClient` executes
 
 `r/aib/ibc/core/client.gno`:
 
-1. `auth.Assert(0, rlm, "recover_client")`: the caller must be a member of the
-   authority.
+1. `assertGovernance(cur, "recover_client")`: the caller must be
+   `gno.land/r/aib/ibc/ibcgov`; neither client may be retired.
 2. Subject and substitute IDs must differ; both must resolve; `typ` must match.
 3. Subject status ∈ {`Frozen`, `Expired`}; substitute status must be `Active`.
 4. Delegates to `subject.lightClient.RecoverClient(substitute.lightClient)`.
@@ -168,12 +170,13 @@ The tendermint rules above do not apply to `ethereum` clients; see ADR 0003.
   as trusted: its creator's bootstrap is not proven, so governance must
   authenticate the substitute's state and vet its schedule before recovering
   from it; see ADR 0003.
-- Only a Frozen or Expired subject is recovered. With this core
-  implementation (`impl/v0`), a known limit: a client facing a fork its
-  schedule lacks stays Active until it expires (8 sync committee periods
-  after its latest slot, about 9.1 days on mainnet), and only then is
-  recovered. Core `impl/v1` removes it with a governed fork-schedule
-  migration of an Active client. A client that merely fell
+- Only a Frozen or Expired subject is recovered. An Active client facing a
+  fork its schedule lacks is not waited out: with core `impl/v1`, it is
+  migrated in place by a governed fork-schedule migration
+  (`ibcgov.NewMigrateClientRequest(cur, clientID, "ethereum-fork-schedule",
+  ...)`), before or after the fork activates (core README). Only with
+  `impl/v0` alone would such a client have to expire first (8 sync
+  committee periods after its latest slot, about 9.1 days on mainnet). A client that merely fell
   behind needs no recovery: until it expires, a relayer catches it up by
   replaying each missed period's update.
 

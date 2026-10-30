@@ -2,6 +2,8 @@
 package main
 
 import (
+	"testing"
+
 	"time"
 
 	tmtesting "gno.land/p/aib/ibc/lightclient/tendermint/testing/v0"
@@ -12,7 +14,6 @@ import (
 
 // RecoverClient failure: subject client is Active (not Frozen or Expired).
 func main(cur realm) {
-	core.AddAuthorityMember(cross(cur), cur.Address())
 	var (
 		clientState    = tmtesting.NewClientState("chain-id-2", types.NewHeight(2, 2))
 		trustedValset  = tmtesting.GenValset()
@@ -21,7 +22,9 @@ func main(cur realm) {
 	subjectID := core.CreateClient(cross(cur), clientState, consensusState)
 	substituteID := core.CreateClient(cross(cur), clientState, consensusState)
 
+	testing.SetRealm(testing.NewCodeRealm(core.IBCGovPath)) // decided by the governance realm
 	core.RecoverClient(cross(cur), subjectID, substituteID)
+	testing.SetRealm(testing.NewCodeRealm("gno.land/r/aib/main"))
 }
 
 // Error:

@@ -143,9 +143,9 @@ func main(cur realm) {
 // res: (2 gno.land/p/aib/ibc/types/v0.ResponseResultType)
 //
 // ----------- assert render clients/07-tendermint-1/packet_receipts
-// {"items":[{"sequence":"1","data":"Ag=="}],"page":1,"total":1}
+// {"items":[{"sequence":"1","data":"wXN0rG457rG26RY83iG2Lgl16hpxtMM3m0iC3RUol4A="}],"page":1,"total":1}
 // ----------- assert render clients/07-tendermint-1/packet_receipts/1
-// {"sequence":"1","data":"Ag=="}
+// {"sequence":"1","data":"wXN0rG457rG26RY83iG2Lgl16hpxtMM3m0iC3RUol4A="}
 //
 // ----------- assert render clients/07-tendermint-1/packet_acknowledgements
 // {"items":[{"sequence":"1","data":"1VweDPBIAzwFFDq7yxEn1x+nFqDTbfioZ8D2GCwn5EU="}],"page":1,"total":1}

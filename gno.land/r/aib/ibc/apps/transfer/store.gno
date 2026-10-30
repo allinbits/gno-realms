@@ -3,6 +3,7 @@ package transfer
 import (
 	"chain"
 	"chain/banker"
+	"strconv"
 	"strings"
 
 	"gno.land/p/aib/ibc/ics20/v0"
@@ -43,6 +44,9 @@ type Store interface {
 	// IterateEscrow walks the accounting, clients in key order and their
 	// denoms in key order, until fn returns true.
 	IterateEscrow(fn func(clientID string, c chain.Coin) bool)
+	// Escrowed is the amount of denom accounted to clientID (a client id, or
+	// the route key of a controlled route), 0 if none.
+	Escrowed(clientID, denom string) int64
 	// EscrowTotals is a read-only view of the amount escrowed per denom
 	// across all clients (denom:chain.Coin), and EscrowClients one of the
 	// amount escrowed per client for denom (clientID:chain.Coin). Unlike
@@ -76,6 +80,23 @@ type Store interface {
 	ConsumePendingVoucherSend(_ int, rlm realm) (PendingSend, bool)
 	SetPendingGRC20Send(_ int, rlm realm, sender, sourceClient, denom string, amount int64)
 	ConsumePendingGRC20Send(_ int, rlm realm) (PendingSend, bool)
+
+	// Extension state: values an implementation keeps in this realm under a
+	// key, beside the frozen state above (the Ethereum route controls of
+	// ADR pr6375 §7). InitExt stores ctor() under key once, calling ctor here
+	// so the value is allocated in this realm: ctor must be a /p/-declared
+	// top-level function (as for core.Store.AddClient). Ext returns the
+	// stored value, mutable, to the implementation only. ExtView returns its
+	// read-only view (the value's ReadOnly() result), which anyone may read.
+	InitExt(_ int, rlm realm, key string, ctor func() any)
+	Ext(_ int, rlm realm, key string) any
+	ExtView(key string) any
+}
+
+// ReadOnlyer is implemented by extension values: ReadOnly returns a view
+// that exposes no mutator, which ExtView hands to anyone.
+type ReadOnlyer interface {
+	ReadOnly() any
 }
 
 // PendingSend records the token send that Transfer authorized for
@@ -97,9 +118,8 @@ var (
 	escrowTotals  *bptree.BPTree // denom:chain.Coin
 	voucherTokens *bptree.BPTree // ibcDenom:*voucher
 
-	// nextVoucherID allocates a unique grc20 token id for each voucher. Voucher
-	// symbols are truncated IBC-hash prefixes that can collide, so a shared
-	// monotonic id keeps every token's grc20 identifier distinct.
+	// nextVoucherID allocates a unique grc20 token id for each voucher, and
+	// with it the voucher's symbol (see VoucherSymbol).
 	nextVoucherID seqid.ID
 
 	// Gno persists package-level vars to the realm store at end of tx. These
@@ -111,6 +131,9 @@ var (
 	// possible in Transfer where PreviousRealm() is the EOA, to the escrow
 	// accounting done in OnSendPacket.
 	pendingNativeEscrow *chain.Coin
+	// ext holds the implementations' extension state (see Store.InitExt).
+	ext = bptree.NewBPTree32() // key -> value
+
 	// pendingVoucherSend and pendingGRC20Send are set by the voucher and
 	// GRC20 branches of Transfer after the direct user-call guard passes.
 	// OnSendPacket consumes them before burning or escrowing user-owned
@@ -124,6 +147,7 @@ var (
 type voucher struct {
 	token  *grc20.Token
 	ledger *grc20.PrivateLedger
+	symbol string // its grc20 symbol and registry key's symbol, allocated once
 }
 
 func init() {
@@ -172,6 +196,46 @@ func (transferStore) IterateEscrow(fn func(clientID string, c chain.Coin) bool) 
 		})
 		return stop
 	})
+}
+
+func (transferStore) Escrowed(clientID, denom string) int64 {
+	t := getEscrowForClient(clientID)
+	if t == nil {
+		return 0
+	}
+	x := t.Get(denom)
+	if x == nil {
+		return 0
+	}
+	return x.(chain.Coin).Amount
+}
+
+func (transferStore) InitExt(_ int, rlm realm, key string, ctor func() any) {
+	assertProxyRealm(0, rlm)
+	if ext.Has(key) {
+		return
+	}
+	if ctor == nil {
+		panic("InitExt: nil constructor")
+	}
+	v := ctor()
+	if _, ok := v.(ReadOnlyer); !ok {
+		panic("InitExt: the value has no read-only view")
+	}
+	ext.Set(key, v)
+}
+
+func (transferStore) Ext(_ int, rlm realm, key string) any {
+	assertProxyRealm(0, rlm)
+	return ext.Get(key)
+}
+
+func (transferStore) ExtView(key string) any {
+	v := ext.Get(key)
+	if v == nil {
+		return nil
+	}
+	return v.(ReadOnlyer).ReadOnly()
 }
 
 func (transferStore) EscrowTotals() bptree.ITree { return readOnlyTree{t: escrowTotals} }
@@ -483,18 +547,29 @@ func getDenom(ibcDenom string) (ics20.Denom, bool) {
 	return d.(ics20.Denom), true
 }
 
-// VoucherSymbol returns the grc20 token symbol for an IBC voucher denom: the IBC
-// hash truncated to grc20's MaxSymbolLen. The full voucherDenom ("ibc/<64-hex-
-// hash>") can't be a symbol because v2 grc20 enforces MaxSymbolLen and
-// [A-Za-z0-9_-] only. Since grc20reg keys tokens by rlmpath.symbol, this is also
-// the symbol component of a voucher's registry key, so callers locate a voucher
-// via grc20reg.Get(<this realm's pkgpath> + "." + VoucherSymbol(ibcDenom)).
+// VoucherSymbol returns the grc20 token symbol of the voucher of an IBC
+// denom, "" if it has none yet. A voucher's symbol is allocated from a
+// monotonic counter when the voucher is created ("IBC-" and the voucher's id
+// in base 36, upper case: IBC-1, IBC-2, ..., within grc20's MaxSymbolLen),
+// so no two vouchers ever share one, whatever their hashes; the full IBC
+// hash stays the voucher's identity (its denom, and the grc20reg slug).
+// grc20reg keys tokens by rlmpath.symbol, so callers locate a voucher via
+// grc20reg.Get(<this realm's pkgpath> + "." + VoucherSymbol(ibcDenom)).
 func VoucherSymbol(ibcDenom string) string {
-	symbol := strings.TrimPrefix(ibcDenom, "ibc/")
-	if len(symbol) > grc20.MaxSymbolLen {
-		symbol = symbol[:grc20.MaxSymbolLen]
+	v := voucherTokens.Get(ibcDenom)
+	if v == nil {
+		return ""
 	}
-	return symbol
+	return v.(*voucher).symbol
+}
+
+// voucherSymbolOf is the symbol of the voucher with grc20 id id.
+func voucherSymbolOf(id uint64) string {
+	sym := "IBC-" + strings.ToUpper(strconv.FormatUint(id, 36))
+	if len(sym) > grc20.MaxSymbolLen {
+		panic("transfer: voucher symbols are exhausted")
+	}
+	return sym
 }
 
 // getOrCreateVoucher returns the existing voucher instance for the given IBC
@@ -502,18 +577,18 @@ func VoucherSymbol(ibcDenom string) string {
 // discoverability. Non-crossing helper; rlm is needed to issue the cross
 // call into grc20reg.Register from this realm's frame.
 //
-// The token symbol is a truncated IBC hash (see VoucherSymbol); its name is the
-// base denom, and nextVoucherID keeps each token's grc20 id distinct. grc20reg
-// keys the token by rlmpath.symbol (not the slug), so the full-hash slug is
-// retained only as event metadata. Because the key is the truncated symbol,
-// two vouchers whose hashes share an 11-char prefix would collide on the
-// registry key (astronomically unlikely, but no longer guarded by the slug).
+// The token's name is the base denom, its symbol is allocated from the
+// voucher ids (see VoucherSymbol), and its grc20reg slug is the full hash:
+// the registry key rlmpath.symbol is unique per voucher, so no denom,
+// whatever its hash, can take another's key.
 func getOrCreateVoucher(_ int, rlm realm, baseDenom, voucherDenom string) *voucher {
 	if v := voucherTokens.Get(voucherDenom); v != nil {
 		return v.(*voucher)
 	}
-	token, ledger := grc20.NewToken(baseDenom, VoucherSymbol(voucherDenom), 0, nextVoucherID.Next(), rlm)
-	inst := &voucher{token: token, ledger: ledger}
+	id := nextVoucherID.Next()
+	sym := voucherSymbolOf(uint64(id))
+	token, ledger := grc20.NewToken(baseDenom, sym, 0, id, rlm)
+	inst := &voucher{token: token, ledger: ledger, symbol: sym}
 	voucherTokens.Set(voucherDenom, inst)
 	grc20reg.Register(cross(rlm), token, voucherDenom[len("ibc/"):])
 	return inst

@@ -66,6 +66,40 @@ type Logic interface {
 	OnAcknowledgementPacket(_ int, rlm realm, sourceClient, destinationClient string, sequence uint64, acknowledgement []byte, payload types.Payload) error
 }
 
+// ControlsLogic is implemented by an implementation that keeps the Ethereum
+// route controls of ADR pr6375 §7 (impl/v1): the permissionless payouts of
+// the claim queue and of the queued refunds, the recapitalization of a route's escrow, and the
+// governance operations ibcgov decides. The proxy's entry points Claim,
+// ClaimRefunds, ProveOutcome, ContinueReopen, PrepareReplacement, Recapitalize and GovApply forward to it
+// non-crossing, as the other entry points do; an implementation without it
+// refuses them.
+type ControlsLogic interface {
+	// Claim pays up to n claims of denom on the route of clientID and
+	// returns how many it paid something on.
+	Claim(_ int, rlm realm, clientID, denom string, n int) int
+	// ClaimRefunds pays up to n queued refunds of denom on the route of
+	// clientID and returns how many it paid something on.
+	ClaimRefunds(_ int, rlm realm, clientID, denom string, n int) int
+	// ProveOutcome stores the destination's outcome of a retired client's
+	// send, proven through the route's replacement client.
+	ProveOutcome(_ int, rlm realm, packet types.Packet, proofHeight types.Height, receiptProof, ackProof any)
+	// ContinueReopen runs the next batch of a route's reopening and
+	// reports whether the route is open.
+	ContinueReopen(_ int, rlm realm, route string) bool
+	// PrepareReplacement walks the next batch of a replaced route's retired
+	// records, reserving the refunds they may owe, and reports whether the
+	// preparation is complete.
+	PrepareReplacement(_ int, rlm realm, route string, n int) bool
+	// Recapitalize pays an authorized recapitalization into the escrow of
+	// route: sent is the send envelope of a direct user call (a native
+	// denom), empty otherwise (a GRC20, taken from the caller's allowance).
+	Recapitalize(_ int, rlm realm, sent []chain.Coin, route string, id int64)
+	// GovApply applies a governance operation; it returns "" when applied
+	// and the reason otherwise, which spends the decision. Only ibcgov's
+	// calls reach it.
+	GovApply(_ int, rlm realm, op string, params []byte) string
+}
+
 var (
 	// impl is the active implementation; nil until the first registration.
 	impl        Logic
@@ -75,7 +109,58 @@ var (
 	// path. A constructor receives the proxy-owned store so a swapped
 	// implementation reads and writes the same persistent state.
 	implCtors = bptree.NewBPTree32() // path -> func(Store) Logic
+	// implAddrs indexes every registered implementation by its realm
+	// address, superseded ones included (a registry only grows): bridge
+	// membership is one keyed lookup (IsImplAddress), whatever the number
+	// registered.
+	implAddrs = bptree.NewBPTree32() // realm address -> path
+	// implManifests holds what each registered implementation declared
+	// about itself, store-free: the preflight reads it and never builds a
+	// candidate (ADR 0004, R14).
+	implManifests = bptree.NewBPTree32() // path -> manifest
 )
+
+// manifest is what an implementation declares about itself when it
+// registers, as plain values. KeepsControls answers from it alone;
+// CheckUpdateImpl checks it, then builds the candidate against the empty
+// sandboxStore (never the live store) and checks the built version and
+// controls answer against it: candidate code runs in the preflight, but
+// nothing is handed the live store before a governed installation. The
+// installation checks the built implementation against it again.
+type manifest struct {
+	// Version is the Version() the implementation reports.
+	Version string
+	// Over lists the versions of an active implementation it installs over
+	// ("" at bootstrap); it always re-installs over its own version. nil
+	// installs over any.
+	Over []string
+	// KeepsControls declares that it implements ControlsLogic.
+	KeepsControls bool
+}
+
+// accepts reports whether m installs over an active implementation of
+// version prev.
+func (m manifest) accepts(prev string) bool {
+	if m.Over == nil || prev == m.Version {
+		return true
+	}
+	for _, v := range m.Over {
+		if v == prev {
+			return true
+		}
+	}
+	return false
+}
+
+// newManifest builds a manifest in this realm's storage: the caller's slice
+// stays the caller's.
+func newManifest(version string, over []string, keepsControls bool) manifest {
+	m := manifest{Version: version, KeepsControls: keepsControls}
+	if over != nil {
+		m.Over = append([]string{}, over...)
+	}
+	return m
+}
 
 // assertProxyRealm guards the exported store mutators, the value moves and
 // the Emit* wrappers. The active implementation is always invoked
@@ -94,8 +179,12 @@ func assertProxyRealm(_ int, rlm realm) {
 // set of installable implementations is confined to this realm's own
 // namespace. Registration alone activates nothing, except for the very first
 // one while no implementation is installed (bootstrap). Every later switch
-// requires UpdateImpl.
-func RegisterImpl(cur realm, ctor func(Store) Logic) {
+// requires UpdateImpl. version, over and keepsControls are its manifest: the
+// version it reports, the versions of an active implementation it installs
+// over ("" at bootstrap; its own version always; nil for any) and whether it
+// keeps the route controls, which the preflight reads instead of building
+// it.
+func RegisterImpl(cur realm, ctor func(Store) Logic, version string, over []string, keepsControls bool) {
 	caller := cur.Previous().PkgPath()
 	if !strings.HasPrefix(caller, implPathPrefix) {
 		panic(ufmt.Sprintf("RegisterImpl: caller %s is not under %s", caller, implPathPrefix))
@@ -103,24 +192,31 @@ func RegisterImpl(cur realm, ctor func(Store) Logic) {
 	if ctor == nil {
 		panic("RegisterImpl: nil constructor")
 	}
+	if version == "" {
+		panic("RegisterImpl: the manifest names no version")
+	}
+	// A registered implementation is a realm of the bridge: one at an
+	// address a route pays its fees to would turn that collector into one.
+	// The collector is changed first, by a governed (delayed) decision.
+	if isFeeCollector(chain.PackageAddress(caller)) {
+		panic(ufmt.Sprintf("RegisterImpl: %s is a route's fee collector: change the collector first", caller))
+	}
 	implCtors.Set(caller, ctor)
+	implManifests.Set(caller, newManifest(version, over, keepsControls))
+	implAddrs.Set(string(chain.PackageAddress(caller)), caller)
 	if impl == nil {
 		install(0, cur, caller)
 	}
 }
 
 // UpdateImpl activates a registered implementation, identified by its realm
-// path. Authority members only; see proposals.gno for the GovDAO path. The
-// implementation is built against the proxy-owned store and its OnInstall
-// hook runs before the switch, so a panic there leaves the previous
+// path. Governance only (ADR pr6375 R14): an upgrade is a 7-day decision in
+// ibcgov. The implementation is built against the proxy-owned store and its
+// OnInstall hook runs before the switch, so a panic there leaves the previous
 // implementation active. Rollback is UpdateImpl with the previous path.
 func UpdateImpl(cur realm, path string) {
-	updateImpl(0, cur, path)
-}
-
-func updateImpl(_ int, rlm realm, path string) {
-	auth.Assert(0, rlm, "update_impl")
-	install(0, rlm, path)
+	assertGovernance(cur, "update_impl")
+	install(0, cur, path)
 }
 
 func install(_ int, rlm realm, path string) {
@@ -128,10 +224,20 @@ func install(_ int, rlm realm, path string) {
 	if v == nil {
 		panic(ufmt.Sprintf("no implementation registered at %s", path))
 	}
+	// Only here, in an authorized installation (bootstrap or a governed
+	// UpdateImpl), is candidate code given the store.
 	ctor := v.(func(Store) Logic)
 	l := ctor(store)
 	if l == nil {
 		panic(ufmt.Sprintf("implementation %s returned a nil Logic", path))
+	}
+	m := implManifests.Get(path).(manifest)
+	if mismatch := manifestMismatch(path, m, l); mismatch != "" {
+		panic(mismatch)
+	}
+	// l keeps the controls exactly when its manifest says so.
+	if refusal := controlsContinuity(m.KeepsControls); refusal != "" {
+		panic(refusal)
 	}
 	// A panic in the hook unwinds the transaction: nothing below runs and
 	// nothing the hook wrote persists.
@@ -147,6 +253,86 @@ func install(_ int, rlm realm, path string) {
 	)
 }
 
+// manifestMismatch is how l, built by the implementation registered at path,
+// differs from its manifest m (its version, and whether it keeps the route
+// controls), or "".
+func manifestMismatch(path string, m manifest, l Logic) string {
+	_, keeps := l.(ControlsLogic)
+	if l.Version() == m.Version && keeps == m.KeepsControls {
+		return ""
+	}
+	return ufmt.Sprintf("implementation %s is not what its manifest declared (version %s, keeps controls %t): it builds version %s, keeps controls %t",
+		path, m.Version, m.KeepsControls, l.Version(), keeps)
+}
+
+// InstallChecker is implemented by an implementation whose OnInstall
+// refuses some predecessors: CheckInstall is why it would, or nil, as a
+// pure function of the plain values the proxy passes (the active
+// implementation's path and version), so the preflight evaluates exactly
+// what OnInstall will.
+type InstallChecker interface {
+	CheckInstall(prevPath, prevVersion string) error
+}
+
+// CheckUpdateImpl is why UpdateImpl(path) would fail now, or "", with no
+// change: path is not registered, its manifest does not install over the
+// active version, it drops the route controls, or the implementation its
+// constructor builds disagrees with its manifest or refuses the active
+// implementation (InstallChecker). A governed switch that would fail is
+// refused (and its decision spent) instead of aborting and staying pending.
+// The candidate is built against an empty sandbox store (sandboxStore),
+// never the live one: the live store reaches candidate code only in an
+// authorized installation.
+func CheckUpdateImpl(path string) string {
+	v := implManifests.Get(path)
+	if v == nil {
+		return "no implementation registered at " + path
+	}
+	m := v.(manifest)
+	if refusal := controlsContinuity(m.KeepsControls); refusal != "" {
+		return refusal
+	}
+	if !m.accepts(implVersion) {
+		return ufmt.Sprintf("transfer impl %s cannot install over version %s", m.Version, implVersion)
+	}
+	l := implCtors.Get(path).(func(Store) Logic)(sandboxStore{})
+	if l == nil {
+		return "implementation " + path + " returned a nil Logic"
+	}
+	if mismatch := manifestMismatch(path, m, l); mismatch != "" {
+		return mismatch
+	}
+	if ic, ok := l.(InstallChecker); ok {
+		if err := ic.CheckInstall(implPath, implVersion); err != nil {
+			return err.Error()
+		}
+	}
+	return ""
+}
+
+// controlsContinuity refuses an implementation without the route controls
+// once any route has them (ADR pr6375 §5.4): it would move value on Ethereum
+// routes without keeping their send records, meters and supply accounting,
+// so a reinstalled controls implementation would trust stale state (refund
+// a packet a second time). The controls are never rolled back.
+func controlsContinuity(keepsControls bool) string {
+	if keepsControls {
+		return ""
+	}
+	if rd, ok := store.ExtView("controls").(interface{ Routes() []string }); ok && len(rd.Routes()) > 0 {
+		return "transfer: an implementation without the route controls cannot replace them once a route has them"
+	}
+	return ""
+}
+
+// KeepsControls reports whether the implementation registered at path
+// declared it keeps the route controls (ControlsLogic), from its manifest:
+// nothing is built. The installation checks the declaration.
+func KeepsControls(path string) bool {
+	v := implManifests.Get(path)
+	return v != nil && v.(manifest).KeepsControls
+}
+
 // ImplPath returns the realm path of the active implementation, "" if none.
 func ImplPath() string {
 	return implPath
@@ -157,6 +343,15 @@ func ImplVersion() string {
 	return implVersion
 }
 
+// IsRegisteredImpl reports whether an implementation is registered at path:
+// a keyed lookup.
+func IsRegisteredImpl(path string) bool { return implCtors.Get(path) != nil }
+
+// IsImplAddress reports whether a is the realm address of a registered
+// implementation, superseded ones included: a keyed lookup, whatever the
+// number registered.
+func IsImplAddress(a address) bool { return implAddrs.Get(string(a)) != nil }
+
 // RegisteredImplPaths returns the paths of the registered implementations,
 // active or not, sorted lexically.
 func RegisteredImplPaths() []string {
@@ -166,6 +361,14 @@ func RegisteredImplPaths() []string {
 		return false
 	})
 	return paths
+}
+
+func mustControls() ControlsLogic {
+	c, ok := mustImpl().(ControlsLogic)
+	if !ok {
+		panic("transfer: the active implementation " + implVersion + " keeps no route controls")
+	}
+	return c
 }
 
 func mustImpl() Logic {

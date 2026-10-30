@@ -2,6 +2,8 @@
 package main
 
 import (
+	"testing"
+
 	"encoding/hex"
 	"time"
 
@@ -15,8 +17,9 @@ import (
 
 // RecvPacket success with authorized relayer
 func main(cur realm) {
-	core.AddAuthorityMember(cross(cur), cur.Address())
+	testing.SetRealm(testing.NewCodeRealm(core.IBCGovPath)) // decided by the governance realm
 	core.AddRelayer(cross(cur), "g1wymu47drhr0kuq2098m792lytgtj2nyx77yrsm")
+	testing.SetRealm(testing.NewCodeRealm("gno.land/r/aib/main"))
 	var (
 		chainID       = "chain-id-2"
 		trustedHeight = types.NewHeight(2, 2)
@@ -145,9 +148,9 @@ func main(cur realm) {
 // res: (2 gno.land/p/aib/ibc/types/v0.ResponseResultType)
 //
 // ----------- assert render clients/07-tendermint-1/packet_receipts
-// {"items":[{"sequence":"1","data":"Ag=="}],"page":1,"total":1}
+// {"items":[{"sequence":"1","data":"wXN0rG457rG26RY83iG2Lgl16hpxtMM3m0iC3RUol4A="}],"page":1,"total":1}
 // ----------- assert render clients/07-tendermint-1/packet_receipts/1
-// {"sequence":"1","data":"Ag=="}
+// {"sequence":"1","data":"wXN0rG457rG26RY83iG2Lgl16hpxtMM3m0iC3RUol4A="}
 //
 // ----------- assert render clients/07-tendermint-1/packet_acknowledgements
 // {"items":[{"sequence":"1","data":"1VweDPBIAzwFFDq7yxEn1x+nFqDTbfioZ8D2GCwn5EU="}],"page":1,"total":1}
@@ -194,16 +197,6 @@ func main(cur realm) {
 
 // Events:
 // [
-//   {
-//     "type": "authority_member_added",
-//     "attrs": [
-//       {
-//         "key": "address",
-//         "value": "g1gjs8nfdrd55z3xu9gjcatnj29vkwuyx4ffqxd9"
-//       }
-//     ],
-//     "pkg_path": "gno.land/r/aib/ibc/core"
-//   },
 //   {
 //     "type": "create_client",
 //     "attrs": [

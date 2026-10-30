@@ -20,10 +20,10 @@ func newV99(s transfer.Store) transfer.Logic { return v99{Logic: implv0.New(s)} 
 // UpdateImpl is reserved to the authority.
 func main(cur realm) {
 	testing.SetRealm(testing.NewCodeRealm(v99Path))
-	transfer.RegisterImpl(cross(cur), newV99)
+	transfer.RegisterImpl(cross(cur), newV99, "v99", nil, false)
 	testing.SetRealm(testing.NewCodeRealm("gno.land/r/aib/main"))
 	transfer.UpdateImpl(cross(cur), v99Path)
 }
 
 // Error:
-// update_impl: caller g1gjs8nfdrd55z3xu9gjcatnj29vkwuyx4ffqxd9 is not a member of the authority
+// update_impl: only gno.land/r/aib/ibc/ibcgov decides this, not gno.land/r/aib/main
