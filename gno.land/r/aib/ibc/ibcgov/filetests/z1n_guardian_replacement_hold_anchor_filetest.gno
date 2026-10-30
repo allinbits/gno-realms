@@ -1,0 +1,119 @@
+// PKGPATH: gno.land/r/aib/main
+package main
+
+import (
+	"testing"
+	"time"
+
+	ethtesting "gno.land/p/aib/ibc/lightclient/ethereum/testing/v0"
+	"gno.land/p/nt/testutils/v0"
+	_ "gno.land/r/aib/ibc/apps/transfer/impl/v0"
+	"gno.land/r/aib/ibc/core"
+	_ "gno.land/r/aib/ibc/core/impl/v0"
+	"gno.land/r/aib/ibc/ibcgov"
+)
+
+// bridge is the route's Ethereum router, ICS20 transfer and IBCAdmin: its
+// protected recipients.
+const bridge = "0x1d95d544586eacb63b6154e9e45122b32ded11aa 0x00000000000000000000000000000000000b0002 0x00000000000000000000000000000000000b0003"
+
+var (
+	collector = testutils.TestAddress("collector")
+	g0        = testutils.TestAddress("guardian-0")
+	g1        = testutils.TestAddress("guardian-1")
+	g2        = testutils.TestAddress("guardian-2")
+	g3        = testutils.TestAddress("guardian-3")
+	w4        = testutils.TestAddress("watch-4")
+	w5        = testutils.TestAddress("watch-5")
+	g3new     = testutils.TestAddress("guardian-3-new")
+)
+
+// advance moves the block time on by d.
+func advance(d time.Duration) {
+	ctx := testing.GetContext()
+	ctx.Time = ctx.Time.Add(d)
+	testing.SetContext(ctx)
+}
+
+// govern makes a decision as the governor and returns its number.
+func govern(cur realm, req ibcgov.Request) int64 {
+	testing.SetRealm(testing.NewUserRealm(ibcgov.Governor()))
+	ibcgov.Govern(cross(cur), req)
+	testing.SetRealm(testing.NewCodeRealm("gno.land/r/aib/main"))
+	return ibcgov.LastDecision()
+}
+
+// execute applies a queued decision once its 7 days have passed.
+func execute(cur realm, id int64) {
+	advance(7*24*time.Hour + time.Second)
+	ibcgov.Execute(cross(cur), id)
+}
+
+// setupRoute creates an Ethereum client, installs transfer impl/v1 and
+// enrolls the client as a route, every step a governor decision.
+func setupRoute(cur realm) string {
+	clientID := core.CreateClient(cross(cur), ethtesting.ClientState(), ethtesting.ConsensusState())
+	core.RegisterCounterparty(cross(cur), clientID, [][]byte{{}}, "client-0")
+	execute(cur, govern(cur, ibcgov.NewEnrollRouteRequest(cross(cur), clientID, string(collector), bridge)))
+	advance(7*24*time.Hour + time.Second) // keeps the timeline of the goldens
+	return clientID
+}
+
+// flagAs sets a flag as the key of a seat.
+func flagAs(cur realm, who address, route, fn, keys string) {
+	testing.SetRealm(testing.NewUserRealm(who))
+	ibcgov.SetFlag(cross(cur), route, fn, keys)
+	testing.SetRealm(testing.NewCodeRealm("gno.land/r/aib/main"))
+}
+
+func clearAs(cur realm, who address, route, fn string) {
+	testing.SetRealm(testing.NewUserRealm(who))
+	ibcgov.ClearFlag(cross(cur), route, fn)
+	testing.SetRealm(testing.NewCodeRealm("gno.land/r/aib/main"))
+}
+
+// A guardian replacement's deadline is anchored at the hold that first
+// deferred it (main ADR design review r2 #1): a hold from day 0 defers it
+// once due (day 7), anchoring it at day 0; a guardian clears on day 19, the
+// hold lingers a day and ends, and a guardian flags again on day 20, a new
+// hold. The replacement still lands on day 21 of the first hold, not of the
+// new one; a later Execute before then is refused.
+func main(cur realm) {
+	route := setupRoute(cur)
+	execute(cur, govern(cur, ibcgov.NewSetSeatsRequest(cross(cur), "0:"+string(g0)+",1:"+string(g1))))
+	execute(cur, govern(cur, ibcgov.NewSetSeatsRequest(cross(cur), "2:"+string(g2)+",3:"+string(g3))))
+	flagAs(cur, g0, route, ibcgov.FnSends, "")
+	flagAs(cur, g1, route, ibcgov.FnSends, "")
+	first := ibcgov.HoldSince()
+	replace := govern(cur, ibcgov.NewSetSeatsRequest(cross(cur), "3:"+string(g3new)))
+	advance(7*24*time.Hour + time.Second)
+	ibcgov.Execute(cross(cur), replace) // deferred: anchored at the hold's start
+	d, _ := ibcgov.Decision(replace)
+	println("day 7:", d.State(), "| seat 3 replaced:", ibcgov.Seat(3) == g3new)
+	println("day 7, again:", revive(func() { ibcgov.Execute(cross(cur), replace) }) != nil)
+	at := func(day int64) {
+		advance(time.Duration(first+day*86400-testing.GetContext().Time.Unix()) * time.Second)
+	}
+	at(19)
+	clearAs(cur, g1, route, ibcgov.FnSends)
+	at(20)
+	advance(time.Second)
+	println("day 20, the hold ended:", !ibcgov.Held())
+	flagAs(cur, g1, route, ibcgov.FnSends, "")
+	println("a new hold since day 20:", ibcgov.Held(), ibcgov.HoldSince() > first)
+	at(21)
+	advance(-time.Second)
+	println("just before day 21:", revive(func() { ibcgov.Execute(cross(cur), replace) }) != nil)
+	advance(time.Second)
+	ibcgov.Execute(cross(cur), replace)
+	d, _ = ibcgov.Decision(replace)
+	println("day 21 of the first hold:", d.State(), "| seat 3 replaced:", ibcgov.Seat(3) == g3new, "| still held:", ibcgov.Held())
+}
+
+// Output:
+// day 7: pending | seat 3 replaced: false
+// day 7, again: true
+// day 20, the hold ended: true
+// a new hold since day 20: true true
+// just before day 21: true
+// day 21 of the first hold: applied | seat 3 replaced: true | still held: true

@@ -9,8 +9,15 @@
 //   - the governor: a compiled key decides through the same builders, checks
 //     and delays (Govern) until it calls Yield once, after which only GovDAO's
 //     proposals decide;
+//   - the guardians on gno.land: six seats (0–3 guardians, 4–5 watch keys)
+//     whose flags pause a route's sends, credits, payouts or refunds at once,
+//     and whose holds (two guardian seats flagging) defer every queued
+//     decision;
 //   - the sole holder of the loosening powers over the IBC core and the
-//     transfer app (core.IBCGovPath, transfer.IBCGovPath).
+//     transfer app (core.IBCGovPath, transfer.IBCGovPath);
+//   - the sender of governance packets to IBCAdmin on Ethereum: the gov port,
+//     the §5.4 envelope, contiguous per-epoch sequences, one-time dispatch
+//     authorizations and re-dispatch of identical bytes.
 //
 // Builders are called in a MsgRun: before the yield the governor runs
 //
@@ -33,6 +40,7 @@ import (
 	"time"
 
 	"gno.land/p/aib/decisions/v0"
+	"gno.land/r/aib/ibc/core"
 )
 
 const (
@@ -54,9 +62,18 @@ const (
 var (
 	// yielded is the block height of the governor's yield, 0 before.
 	yielded int64
-	// ledger numbers every decision.
+	// ledger numbers every decision, gno-side and Ethereum-bound.
 	ledger decisions.Ledger
 )
+
+func init(cur realm) {
+	// Register the gov port. On chain init runs once; the guard is for the gno
+	// test harness, which may instantiate this realm twice.
+	if core.AppPkgPath(GovPort) == PkgPath {
+		return
+	}
+	core.RegisterApp(cross(cur), GovPort, &App{})
+}
 
 func now() int64 { return time.Now().Unix() }
 

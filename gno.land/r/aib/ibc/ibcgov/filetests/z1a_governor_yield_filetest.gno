@@ -125,6 +125,20 @@ func main(cur realm) {
 //
 // - governor: gno.land/r/gov/dao since height 123 (g1d93xxem0wckkwmmkv4exummjta047h6lhqp9y5 yielded)
 // - clock factor 1 (1 on mainnet; a devnet build might be compiled with a larger value): the 7-day delay is 604800 s and the 14-day deadline 1209600 s of block time
+// - governance channel: not bound
+//
+// ## Seats
+//
+// - 0 (guardian): empty
+// - 1 (guardian): empty
+// - 2 (guardian): empty
+// - 3 (guardian): empty
+// - 4 (watch key): empty
+// - 5 (watch key): empty
+//
+// ## Routes
+//
+// No route enrolled.
 //
 // ## Decisions
 //
