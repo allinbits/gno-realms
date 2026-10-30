@@ -221,6 +221,24 @@ func TestIsLeftNeighbor_NoPanicOnEdgeCases(cur realm, t *testing.T) {
 	}
 }
 
+type ownProof struct{ ics23.CommitmentProof_Exist }
+
+func (ownProof) GetExist() *ics23.ExistenceProof { panic("caller code ran") }
+
+// ics23.CheckProofs admits this package's concrete proof types only, by value,
+// before any method runs: not a caller's own type, even one embedding ours
+// (Codex round 19).
+func TestCheckProofs(t *testing.T) {
+	if err := ics23.CheckProofs([]ics23.CommitmentProof{ics23.CommitmentProof_Exist{}, ics23.CommitmentProof_Nonexist{}}); err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range []ics23.CommitmentProof{ownProof{}, &ics23.CommitmentProof_Exist{}, nil} {
+		if ics23.CheckProofs([]ics23.CommitmentProof{ics23.CommitmentProof_Exist{}, p}) == nil {
+			t.Fatalf("admitted %T", p)
+		}
+	}
+}
+
 func TestProofSpecClone(t *testing.T) {
 	spec := ics23.IavlSpec()
 	clone := spec.Clone()
