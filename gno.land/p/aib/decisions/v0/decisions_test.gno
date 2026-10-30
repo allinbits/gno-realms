@@ -58,7 +58,7 @@ func TestLedger(t *testing.T) {
 	if Factor != 1 || Delay != 7*Day/Factor || Deadline != 14*Day/Factor || Delay != 604800 || Deadline != 1209600 {
 		t.Fatalf("clocks: factor %d delay %d deadline %d", Factor, Delay, Deadline)
 	}
-	if Clocks() != "clock factor 1 (1 on mainnet; a devnet build is compiled with 8): the 7-day delay is 604800 s and the 14-day deadline 1209600 s of block time" || ClocksJSON() != "{\"factor\":1,\"delay\":604800,\"deadline\":1209600}" {
+	if Clocks() != "clock factor 1 (1 on mainnet; a devnet build might be compiled with a larger value): the 7-day delay is 604800 s and the 14-day deadline 1209600 s of block time" || ClocksJSON() != "{\"factor\":1,\"delay\":604800,\"deadline\":1209600}" {
 		t.Fatalf("clocks text: %s %s", Clocks(), ClocksJSON())
 	}
 	// the page: per kind, pending and executed
@@ -70,8 +70,8 @@ func TestLedger(t *testing.T) {
 			t.Fatalf("page lacks %q:\n%s", want, p)
 		}
 	}
-	j := l.JSON()
-	if !strings.HasPrefix(j, "[{\"id\":1,\"kind\":\"set cap floor\"") || !strings.Contains(j, "\"state\":\"spent\"") {
+	j := l.JSON(0)
+	if !strings.HasPrefix(j, "{\"entries\":[{\"id\":1,\"kind\":\"set cap floor\"") || !strings.Contains(j, "\"state\":\"spent\"") || !strings.HasSuffix(j, "],\"next\":0}") {
 		t.Fatalf("json: %s", j)
 	}
 	n := 0
@@ -90,6 +90,30 @@ func TestPageCap(t *testing.T) {
 	p := l.Page()
 	if strings.Contains(p, "#1 applied") || !strings.Contains(p, "#"+itoa(int64(PageMax+5))+" applied") || !strings.Contains(p, "#6 applied") {
 		t.Fatalf("the page should show the last %d executed:\n%s", PageMax, p)
+	}
+}
+
+// The JSON is a page of PageMax decisions by number, and quotes as JSON: a bell, which Go's strconv.Quote writes as
+// \a (no JSON escape), is \u0007.
+func TestJSONPage(t *testing.T) {
+	var l Ledger
+	for i := 0; i < PageMax+5; i++ {
+		l.Record("void", "ids \a", nil, 1, 2, 2)
+	}
+	first := l.JSON(0)
+	if !strings.HasPrefix(first, "{\"entries\":[{\"id\":1,") || !strings.Contains(first, "{\"id\":"+itoa(int64(PageMax))+",") ||
+		strings.Contains(first, "{\"id\":"+itoa(int64(PageMax+1))+",") || !strings.HasSuffix(first, "\"next\":"+itoa(int64(PageMax+1))+"}") {
+		t.Fatalf("first page: %s", first)
+	}
+	if !strings.Contains(first, "\"text\":\"ids \\u0007\"") || strings.Contains(first, "\\a") {
+		t.Fatalf("quoting: %s", first)
+	}
+	last := l.JSON(int64(PageMax + 1))
+	if !strings.HasPrefix(last, "{\"entries\":[{\"id\":"+itoa(int64(PageMax+1))+",") || !strings.HasSuffix(last, "\"next\":0}") || strings.Count(last, "\"id\":") != 5 {
+		t.Fatalf("last page: %s", last)
+	}
+	if past := l.JSON(int64(PageMax + 6)); past != "{\"entries\":[],\"next\":0}" {
+		t.Fatalf("past the end: %s", past)
 	}
 }
 

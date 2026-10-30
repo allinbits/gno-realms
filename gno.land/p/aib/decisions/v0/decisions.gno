@@ -8,7 +8,8 @@
 // Vendored from gnolang/bridges (branch ethereum-draft, commit a58efe81c9eb), solana/realm/p/decisions/v0
 // (Copyright (C) 2026 NewTendermint, LLC, under the GNO Network General Public License; see VENDORED.md). Changes
 // from the original: the package documentation, UnpauseDelay, Decision.Copy and Ledger.Find, so a realm can hand out
-// a decision by value and look one up without exposing the stored pointer.
+// a decision by value and look one up without exposing the stored pointer; DAOPath taken from the authority package;
+// the JSON quoted as JSON (jsonmd.Quote) and paged.
 package decisions
 
 import (
@@ -16,6 +17,7 @@ import (
 	"strconv"
 	"strings"
 
+	"gno.land/p/aib/authority/v0"
 	"gno.land/p/aib/jsonmd/v0"
 
 	"gno.land/p/nt/avl/v0"
@@ -41,7 +43,7 @@ const (
 	PageMax = 100
 	// DAOPath is the realm whose frame every builder's closure must be called from, once the governor has yielded
 	// (or from the first block, when none was compiled): the proxy that executes GovDAO's proposals.
-	DAOPath = "gno.land/r/gov/dao"
+	DAOPath = authority.GovDAOPath
 )
 
 // ------------------------------------------------------------- governor --
@@ -70,7 +72,7 @@ func GovernorLine(governor address, yielded int64) string {
 
 // GovernorJSON is the same for the agents: `"governor":"…","yielded":H` (no leading or trailing comma).
 func GovernorJSON(governor address, yielded int64) string {
-	return "\"governor\":" + strconv.Quote(string(governor)) + ",\"yielded\":" + itoa(yielded)
+	return "\"governor\":" + jsonmd.Quote(string(governor)) + ",\"yielded\":" + itoa(yielded)
 }
 
 // Decision is one numbered change, as the realm's page shows it.
@@ -220,7 +222,7 @@ func itoa(n int64) string { return strconv.FormatInt(n, 10) }
 
 // Clocks says the clock factor and the delays it gives, for every realm's page; the mainnet build's factor is 1.
 func Clocks() string {
-	return "clock factor " + itoa(Factor) + " (1 on mainnet; a devnet build is compiled with 8): the 7-day delay is " + itoa(Delay) +
+	return "clock factor " + itoa(Factor) + " (1 on mainnet; a devnet build might be compiled with a larger value): the 7-day delay is " + itoa(Delay) +
 		" s and the 14-day deadline " + itoa(Deadline) + " s of block time"
 }
 
@@ -298,23 +300,26 @@ func line(d *Decision) string {
 	return s
 }
 
-// JSON is every decision, oldest first, as a JSON array.
-func (l *Ledger) JSON() string {
-	var b strings.Builder
-	b.WriteString("[")
-	first := true
-	l.all.Iterate("", "", func(_ string, v any) bool {
+// JSON is a page of the decisions, oldest first, from decision number from on (from the first when from is 1 or
+// less), up to PageMax of them: {"entries":[...],"next":N}. next is the number of the first decision left out, the
+// from of the following page, or 0 when the page reaches the end.
+func (l *Ledger) JSON(from int64) string {
+	if from < 1 {
+		from = 1
+	}
+	var parts []string
+	next := int64(0)
+	l.all.Iterate(key(from), "", func(_ string, v any) bool {
 		d := v.(*Decision)
-		if !first {
-			b.WriteString(",")
+		if len(parts) == PageMax {
+			next = d.ID
+			return true
 		}
-		first = false
-		b.WriteString("{\"id\":" + itoa(d.ID) + ",\"kind\":" + strconv.Quote(d.Kind) + ",\"text\":" + strconv.Quote(d.Text) +
-			",\"state\":" + strconv.Quote(d.State()) + ",\"made\":" + itoa(d.Made) + ",\"recorded\":" + itoa(d.Recorded) +
-			",\"due\":" + itoa(d.Due) + ",\"applied\":" + itoa(d.Applied) + ",\"cancelled\":" + itoa(d.Cancelled) +
-			",\"note\":" + strconv.Quote(d.Note) + "}")
+		parts = append(parts, "{\"id\":"+itoa(d.ID)+",\"kind\":"+jsonmd.Quote(d.Kind)+",\"text\":"+jsonmd.Quote(d.Text)+
+			",\"state\":"+jsonmd.Quote(d.State())+",\"made\":"+itoa(d.Made)+",\"recorded\":"+itoa(d.Recorded)+
+			",\"due\":"+itoa(d.Due)+",\"applied\":"+itoa(d.Applied)+",\"cancelled\":"+itoa(d.Cancelled)+
+			",\"note\":"+jsonmd.Quote(d.Note)+"}")
 		return false
 	})
-	b.WriteString("]")
-	return b.String()
+	return "{\"entries\":[" + strings.Join(parts, ",") + "],\"next\":" + itoa(next) + "}"
 }
