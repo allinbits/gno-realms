@@ -244,7 +244,7 @@ func (l *logic) creditPending(_ int, rlm realm, rt *controls.Route, p controls.P
 	if len(pkt.Payloads) != 1 {
 		return "packet " + p.Key + " carries no single transfer payload"
 	}
-	_, token, err := unmarshalPayload(pkt.Payloads[0])
+	_, token, err := unmarshalPayload(pkt.SourceClient, pkt.Payloads[0])
 	if err != nil {
 		return err.Error()
 	}

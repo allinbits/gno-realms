@@ -128,16 +128,24 @@ func ExtractDenomFromPath(fullPath string) Denom {
 	return ExtractDenomFromPathFunc(fullPath, types.IsValidClientID)
 }
 
-// IsHopClientID reports whether id can be a hop's client id: an SDK client
-// id, or an Ethereum ICS26 router's ("client-N", or a custom id of up to 128
-// characters such as "gnoland").
-func IsHopClientID(id string) bool {
-	return types.IsValidClientID(id) || types.IsValidRouterClientID(id)
+// EthereumHop is the hop grammar of an Ethereum route whose ICS26 router
+// names gno.land's client routerClient: a hop's client id is an SDK client
+// id ({type}-{N}), one the router generated ("client-N"), or routerClient
+// itself, so a gno-native token returning as "transfer/gnoland/ugnot" has
+// its hop. Any other custom router id is no hop: the custom grammar (4 to 128
+// characters) also takes an ERC20 address, a bech32 account or "pool", so
+// "transfer/client-0/gamm/pool/1" would parse as a hop (gamm, pool) and a base
+// "1". Left in the base, such a part makes it slashed, which the route
+// refuses.
+func EthereumHop(routerClient string) func(string) bool {
+	return func(id string) bool {
+		return types.IsValidClientID(id) || types.IsValidRouterClientID(id) &&
+			(id == routerClient || strings.HasPrefix(id, types.RouterClientIDPrefix))
+	}
 }
 
 // ExtractDenomFromPathFunc is ExtractDenomFromPath with the client ids of the
-// hops recognized by isClientID: on an Ethereum route, IsHopClientID, so a
-// gno-native token returning as "transfer/gnoland/ugnot" has its hop.
+// hops recognized by isClientID: on an Ethereum route, EthereumHop.
 func ExtractDenomFromPathFunc(fullPath string, isClientID func(string) bool) Denom {
 	denomSplit := strings.Split(fullPath, "/")
 
@@ -209,16 +217,17 @@ func (h Hop) String() string {
 	return ufmt.Sprintf("%s/%s", h.PortId, h.ClientId)
 }
 
-// ValidateBasicEthereum validates the packet data of an Ethereum route, by
-// the route's own rules alone (the SDK's ValidateBasic stays every other
-// route's): the amount strictly positive, the sender set, the denom's hops
-// recognized and checked by the ICS26 router's client id grammar
-// (IsHopClientID; a hop's client id is an ICS24 identifier or a router
-// client id of up to 128 characters), and its base set. The receiver is not
+// ValidateBasicEthereum validates the packet data of an Ethereum route whose
+// ICS26 router names gno.land's client routerClient, by the route's own rules
+// alone (the SDK's ValidateBasic stays every other route's): the amount
+// strictly positive, the sender set, the denom's hops recognized by
+// EthereumHop(routerClient) and checked by the router's client id grammar
+// (an ICS24 identifier or a router client id of up to 128 characters), and
+// its base set. The receiver is not
 // checked: an Ethereum route books a receive whose receiver is no address,
 // blank included, as an owed sweep entry (ADR pr6375 §6.8, §7.1). It returns
 // the denom it parsed.
-func (f FungibleTokenPacketData) ValidateBasicEthereum() (Denom, error) {
+func (f FungibleTokenPacketData) ValidateBasicEthereum(routerClient string) (Denom, error) {
 	amount, err := strconv.ParseUint256(f.Amount, 10)
 	if err != nil {
 		return Denom{}, ufmt.Errorf("unable to parse transfer amount %q: %v", f.Amount, err)
@@ -229,7 +238,7 @@ func (f FungibleTokenPacketData) ValidateBasicEthereum() (Denom, error) {
 	if strings.TrimSpace(f.Sender) == "" {
 		return Denom{}, ufmt.Errorf("sender address cannot be blank")
 	}
-	d := ExtractDenomFromPathFunc(f.Denom, IsHopClientID)
+	d := ExtractDenomFromPathFunc(f.Denom, EthereumHop(routerClient))
 	if strings.TrimSpace(d.Base) == "" {
 		return Denom{}, ufmt.Errorf("base denomination cannot be blank")
 	}

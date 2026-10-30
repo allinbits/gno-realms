@@ -2,6 +2,7 @@ package ibcgov
 
 import (
 	"encoding/hex"
+	"net/url"
 	"strconv"
 	"strings"
 
@@ -12,9 +13,11 @@ import (
 
 // Render serves the governance state:
 //
-//	""                   the page: governor, channel, seats, flags, holds, decisions
-//	"decisions"          every decision, oldest first, as JSON
-//	"dispatch/<e>/<seq>" an Ethereum-bound decision's packet state, as JSON
+//	""                    the page: governor, channel, seats, flags, holds, decisions
+//	"decisions?from=<id>" the decisions as JSON, oldest first, 100 a page from
+//	                      decision <id> (the first without from); the page's
+//	                      "next" is the from of the following one (0 at the end)
+//	"dispatch/<e>/<seq>"  an Ethereum-bound decision's packet state, as JSON
 //
 // The page's text comes from the builders, which take no free text: client
 // ids, denoms and incidents pass character checks, addresses and keys are
@@ -24,8 +27,8 @@ func Render(path string) string {
 	switch {
 	case path == "":
 		return home()
-	case path == "decisions":
-		return jsonmd.Inert(ledger.JSON())
+	case path == "decisions" || strings.HasPrefix(path, "decisions?"):
+		return jsonmd.Inert(ledger.JSON(fromOf(path)))
 	case strings.HasPrefix(path, "dispatch/"):
 		parts := strings.Split(strings.TrimPrefix(path, "dispatch/"), "/")
 		if len(parts) != 2 {
@@ -39,6 +42,15 @@ func Render(path string) string {
 		return jsonmd.Inert(dispatchJSON(uint32(e), s))
 	}
 	return "# Not found\n"
+}
+
+// fromOf is a JSON path's ?from= decision number, 0 (the first) when absent
+// or not a number.
+func fromOf(path string) int64 {
+	_, query, _ := strings.Cut(path, "?")
+	v, _ := url.ParseQuery(query)
+	n, _ := strconv.ParseInt(v.Get("from"), 10, 64)
+	return n
 }
 
 func home() string {

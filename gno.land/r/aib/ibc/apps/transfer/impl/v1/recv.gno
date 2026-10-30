@@ -74,7 +74,7 @@ func (l *logic) OnRecvPacket(_ int, rlm realm, sourceClient, destinationClient s
 		return refuse(err)
 	}
 	var err error
-	data, token, err = unmarshalPayload(payload)
+	data, token, err = unmarshalPayload(sourceClient, payload)
 	if err != nil {
 		return refuse(err)
 	}

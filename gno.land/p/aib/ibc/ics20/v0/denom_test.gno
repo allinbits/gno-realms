@@ -180,29 +180,55 @@ func TestExtractDenomFromPath(t *testing.T) {
 	}
 }
 
-// Ethereum router client ids are hops on an Ethereum route: suffixless and
-// up to 128 characters (Codex round 4 #2, class C).
+// On an Ethereum route the router's own client id for gno.land is a hop,
+// suffixless and up to 128 characters (Codex round 4 #2, class C), and so is
+// a "client-N" the router generated.
 func TestRouterHops(t *testing.T) {
 	long := "gnoland." + strings.Repeat("x", 120)
 	for _, id := range []string{"gnoland", "gnoland." + strings.Repeat("x", 57), long} {
-		d := ics20.ExtractDenomFromPathFunc("transfer/"+id+"/ugnot", ics20.IsHopClientID)
+		d := ics20.ExtractDenomFromPathFunc("transfer/"+id+"/ugnot", ics20.EthereumHop(id))
 		urequire.Equal(t, 1, len(d.Trace), id)
 		urequire.Equal(t, id, d.Trace[0].ClientId)
 		urequire.Equal(t, "ugnot", d.Base)
 	}
+	d := ics20.ExtractDenomFromPathFunc("transfer/client-7/transfer/07-tendermint-0/uatom", ics20.EthereumHop("gnoland"))
+	urequire.Equal(t, 2, len(d.Trace))
+	urequire.Equal(t, "client-7", d.Trace[0].ClientId)
+	urequire.Equal(t, "07-tendermint-0", d.Trace[1].ClientId)
+	urequire.Equal(t, "uatom", d.Base)
 	// The SDK parser keeps its rule.
-	d := ics20.ExtractDenomFromPath("transfer/gnoland/ugnot")
+	d = ics20.ExtractDenomFromPath("transfer/gnoland/ugnot")
 	urequire.Equal(t, 0, len(d.Trace))
-	// 129 characters is no router id.
-	bad := ics20.ExtractDenomFromPathFunc("transfer/"+long+"x/ugnot", ics20.IsHopClientID)
+	// 129 characters is no router id, even the route's own.
+	bad := ics20.ExtractDenomFromPathFunc("transfer/"+long+"x/ugnot", ics20.EthereumHop(long+"x"))
 	urequire.Equal(t, 0, len(bad.Trace))
+}
+
+// Another custom router id is no hop on an Ethereum route: an ERC20
+// address, "pool" or a bech32 account stays in the base, slashed, where the
+// route's no-slash rule refuses it, instead of naming a hop.
+func TestRouterHopsRefuseOtherCustomIDs(t *testing.T) {
+	hop := ics20.EthereumHop("gnoland")
+	for _, c := range []struct{ path, base string }{
+		{"transfer/client-0/erc20/0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48", "erc20/0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48"},
+		{"transfer/client-0/gamm/pool/1", "gamm/pool/1"},
+		{"transfer/client-0/factory/cosmos1qyqszqgpqyqszqgpqyqszqgpqyqszqgpjnp7du/sub", "factory/cosmos1qyqszqgpqyqszqgpqyqszqgpqyqszqgpjnp7du/sub"},
+		{"transfer/osmosis/uosmo", "transfer/osmosis/uosmo"},
+	} {
+		d := ics20.ExtractDenomFromPathFunc(c.path, hop)
+		urequire.Equal(t, c.base, d.Base, c.path)
+		data := ics20.NewFungibleTokenPacketData(c.path, "100", "0x5f67a5398d91087d1b37a8a43436196a7830867f", "g1x", "")
+		got, err := data.ValidateBasicEthereum("gnoland")
+		urequire.NoError(t, err, c.path)
+		urequire.Equal(t, c.base, got.Base, c.path)
+	}
 }
 
 // Hop validation is the SDK's, unchanged from the base (Codex round 11 #4):
 // a hop's client id is an ICS24 identifier of at most 64 characters, so a
 // 65- or 128-character SDK-shaped client id fails a transfer's validation
 // as it did; the router grammar applies only where an Ethereum route
-// extracts its own denoms (ExtractDenomFromPathFunc with IsHopClientID).
+// extracts its own denoms (ExtractDenomFromPathFunc with EthereumHop).
 func TestHopValidationIsTheBase(t *testing.T) {
 	id := func(n int) string { return strings.Repeat("a", n-2) + "-1" } // SDK-shaped: {type}-{N}
 	for _, c := range []struct {
@@ -225,7 +251,7 @@ func TestValidateBasicEthereum(t *testing.T) {
 	for _, n := range []int{64, 65, 128} {
 		id := strings.Repeat("a", n-2) + "-1"
 		data := ics20.NewFungibleTokenPacketData("transfer/"+id+"/ugnot", "100", "0x5f67a5398d91087d1b37a8a43436196a7830867f", "", "")
-		d, err := data.ValidateBasicEthereum()
+		d, err := data.ValidateBasicEthereum("gnoland")
 		if err != nil || len(d.Trace) != 1 || d.Trace[0].ClientId != id || d.Base != "ugnot" {
 			t.Fatalf("length %d: %v %+v", n, err, d)
 		}
@@ -234,7 +260,7 @@ func TestValidateBasicEthereum(t *testing.T) {
 			t.Fatalf("the SDK rule at length %d", n)
 		}
 	}
-	if _, err := ics20.NewFungibleTokenPacketData("transfer/"+strings.Repeat("a", 127)+"-1/ugnot", "100", "0xabc", "x", "").ValidateBasicEthereum(); err == nil {
+	if _, err := ics20.NewFungibleTokenPacketData("transfer/"+strings.Repeat("a", 127)+"-1/ugnot", "100", "0xabc", "x", "").ValidateBasicEthereum("gnoland"); err == nil {
 		t.Fatalf("a 129-character id")
 	}
 }
