@@ -17,6 +17,13 @@ const Encoding = "application/x-solidity-abi"
 
 const word = abienc.Word
 
+// MaxAmount is the largest amount Ethereum's transfer app takes on a send or
+// a receive, 2^96 - 1 (gno-eth-ibc GnoICS20Transfer: ICS20InvalidAmount above
+// it; ADR pr6375 E6, §7.2). A gno.land send above it would only come back
+// refused, and a receive above it can only be a forgery, so the transfer app
+// refuses both before any state change.
+const MaxAmount uint256 = 1<<96 - 1
+
 var errDecode = errors.New("abi: invalid FungibleTokenPacketData encoding")
 
 // Marshal ABI-encodes data. The amount must be a decimal number below 2^256.

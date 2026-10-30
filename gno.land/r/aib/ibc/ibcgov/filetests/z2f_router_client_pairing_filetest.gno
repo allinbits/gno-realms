@@ -91,7 +91,7 @@ func main(cur realm) {
 	local := client(cur, "gnoland-2") // ethereum-2, paired with the kind 10's new client
 	bare := client(cur, "")           // ethereum-3, no counterparty yet
 	execute(cur, govern(cur, ibcgov.NewEnrollRouteRequest(cross(cur), route, string(collector), bridge)))
-	println("before the binding:", revive(func() { ibcgov.NewEthLimitsRequest(cross(cur), "client-0", a1, "1", "1", "1", "0", "0") }))
+	println("before the binding:", revive(func() { ibcgov.NewEthLimitsRequest(cross(cur), "client-0", a1, 1, 1, 1, 0, 0) }))
 	execute(cur, govern(cur, ibcgov.NewBindGovernanceRequest(cross(cur), route)))
 	println("epoch", ibcgov.Epoch(), "over", ibcgov.EpochClient(), "paired with", core.CounterpartyClientID(ibcgov.EpochClient()))
 
@@ -100,7 +100,7 @@ func main(cur realm) {
 	// client with no counterparty and an unknown id are refused.
 	for _, id := range []string{route, local, bare, "gnoland-9", "client-0"} {
 		try(cur, "unpause "+id, func() ibcgov.Request { return ibcgov.NewEthUnpauseRequest(cross(cur), 1, id) })
-		try(cur, "limits "+id, func() ibcgov.Request { return ibcgov.NewEthLimitsRequest(cross(cur), id, a1, "1", "1", "1", "0", "0") })
+		try(cur, "limits "+id, func() ibcgov.Request { return ibcgov.NewEthLimitsRequest(cross(cur), id, a1, 1, 1, 1, 0, 0) })
 		try(cur, "voucher "+id, func() ibcgov.Request { return ibcgov.NewEthVoucherRequest(cross(cur), id, "ugnot", a1, hash) })
 		try(cur, "settings "+id, func() ibcgov.Request { return ibcgov.NewEthRouteSettingsRequest(cross(cur), id, 3600) })
 		try(cur, "reopen "+id, func() ibcgov.Request { return ibcgov.NewEthReopenRequest(cross(cur), id) })
@@ -140,14 +140,14 @@ func main(cur realm) {
 	// the switch is spent when it is recorded after it, the route's router
 	// client is gnoland-2 from now on, and a settlement names either router
 	// client the epoch ran over (Ethereum alone can tell which it retired).
-	stale := ibcgov.NewEthLimitsRequest(cross(cur), "client-0", a1, "1", "1", "1", "0", "0")
+	stale := ibcgov.NewEthLimitsRequest(cross(cur), "client-0", a1, 1, 1, 1, 0, 0)
 	execute(cur, expect)
 	notice(cur, 2, "gnoland-2", local)
 	println("epoch", ibcgov.Epoch(), "over", ibcgov.EpochClient(), "paired with", core.CounterpartyClientID(ibcgov.EpochClient()))
 	d, _ := ibcgov.Decision(govern(cur, stale))
 	println("the limits request built before the switch:", d.State(), "-", d.Note)
 	for _, id := range []string{"client-0", "gnoland-2"} {
-		try(cur, "limits "+id, func() ibcgov.Request { return ibcgov.NewEthLimitsRequest(cross(cur), id, a1, "1", "1", "1", "0", "0") })
+		try(cur, "limits "+id, func() ibcgov.Request { return ibcgov.NewEthLimitsRequest(cross(cur), id, a1, 1, 1, 1, 0, 0) })
 		try(cur, "reopen "+id, func() ibcgov.Request { return ibcgov.NewEthReopenRequest(cross(cur), id) })
 		try(cur, "settle "+id, func() ibcgov.Request { return ibcgov.NewEthSettleRequest(cross(cur), id, "1:3:0") })
 	}

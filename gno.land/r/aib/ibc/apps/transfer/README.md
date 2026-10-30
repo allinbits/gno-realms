@@ -22,7 +22,7 @@ func Transfer(
     clientID string,           // IBC client on this chain (e.g. "07-tendermint-1")
     receiver string,           // recipient address on destination chain
     denom string,              // token denomination (see table above)
-    amount int64,              // amount to transfer
+    amount uint256,            // amount to transfer, in base units
     timeoutTimestamp uint64,   // unix seconds after which the packet times out
     memo string,               // arbitrary memo included in the IBC packet
 ) (packet types.MsgSendPacket, sequence uint64)
@@ -424,10 +424,15 @@ Voucher tokens can be discovered in two ways:
    `gno.land/r/aib/ibc/apps/transfer.` prefix.
 
 The token name is the base denomination (e.g. `uatom`) and the symbol is
-allocated when the voucher is created (e.g. `IBC-1`). Every voucher has zero decimals: the
-counterparty's decimal metadata is not carried over, and balances are the
-unscaled base-unit amounts the packets carried. For the full denom and richer metadata
-(trace hops, total supply), query the render endpoint `voucher/ibc/{HASH}`.
+allocated when the voucher is created (e.g. `IBC-1`). An ICS20 packet carries
+no decimal metadata, so balances are always the unscaled base-unit amounts the
+packets carried. A voucher's decimals only tell wallets how to show them: on
+an Ethereum route they are the denom's governed configuration
+(`ibcgov.NewSetDenomRequest`'s `decimals`, 0 to 18, ADR 0005 "Voucher
+decimals"), fixed when the first receive creates the voucher; a voucher of a
+client the route controls do not cover (a Tendermint chain) has zero. For the
+full denom and richer metadata (trace hops, total supply), query the render
+endpoint `voucher/ibc/{HASH}`.
 
 Base denominations are the counterparty's and are accepted as received, like
 ibc-go does. gnoweb renders every page as markdown, JSON included, so the
@@ -579,9 +584,12 @@ transfer app then requires:
   `types.IsValidRouterClientID` (eureka's grammar: `client-N` or a custom
   id of up to 128 characters);
 - an amount that is a decimal integer of at most 2^256 - 1 and strictly
-  positive read as an int256 (one at or above 2^255, an ABI uint256 word
-  included, reads as negative and is refused). To be sent or credited it
-  must also fit int64 (at most 9,223,372,036,854,775,807);
+  positive, read as a uint256 (digits only: no sign, space or separator).
+  A native coin's amount must also fit an int64 (at most
+  9,223,372,036,854,775,807), the chain's coin maximum; vouchers and GRC20
+  escrow (`gno.land/p/nt/grc20/v1`) count in uint256. On an Ethereum route
+  every amount is at most 2^96 - 1, the most Ethereum's transfer app takes:
+  a send above it is refused and a receive above it error-acked;
 - a sender that is not blank, and a receiver that is not blank except on an
   Ethereum route, which books an undecodable receiver, blank included, as an
   owed sweep entry;

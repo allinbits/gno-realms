@@ -336,7 +336,13 @@ address; deploying it unchanged hands governance to a key nobody holds.
    gno client id with the router client it is paired with, and the
    decision is spent if the epoch moved between the request and its
    recording (ADR 0004). Then enable each denom with
-   `NewSetDenomRequest`. Before enabling a GRC20, review the token's code
+   `NewSetDenomRequest`. For an Ethereum token (`mint`), name its decimals
+   (the ERC20's `decimals()`, 0 to 18; ADR 0005 "Voucher decimals") with
+   the request: the first receive creates the voucher with them, and from
+   then on they never change (a configuration naming others is refused when
+   built and when it executes), so verify them before the first receive; a
+   correction is a 7-day decision only while no voucher exists. An
+   `unescrow` denom takes 0. Before enabling a GRC20, review the token's code
    and admin powers. Each transfer must move exactly the stated amount (no
    fee, tax or rounding), its balance queries must be truthful, and no
    balance may change on its own (no rebasing) or through a hook. Escrow
@@ -941,13 +947,13 @@ incident name (1 to 32 characters of `a-z`, `0-9`, `-`).
 9. **Settle**, at most 64 items a decision, each record once:
    `NewSettleRequest(R, OLD, "seq:action:amount,…", INC)` (7 days):
    - proven refundable or collision: `1` with the amount minus `refunded`
-     (`0` for one refunded in full, which only settles it); a refund the
-     supply (minted) or the free escrow (escrowed) cannot pay now is parked,
-     owed and reserved, never refusing the settlement, and paid by
-     `ClaimRefunds` after the reopening, as the supply's headroom or the
-     escrow allows (an escrow a forged receive drained: recapitalize it, step
-     10, or accept the deficit and reopen, the refund then waiting for the
-     escrow to be whole);
+     (`0` for one refunded in full, which only settles it); a minted refund
+     is always paid by the settlement itself (ADR 0005); an escrowed refund
+     the free escrow cannot pay now is parked, owed and reserved, never
+     refusing the settlement, and paid by `ClaimRefunds` after the
+     reopening, as the escrow allows (an escrow a forged receive drained:
+     recapitalize it, step 10, or accept the deficit and reopen, the refund
+     then waiting for the escrow to be whole);
    - proven delivered, a queued refund none of which was paid: `2`, amount
      `0`;
    - proven delivered, no refund paid: `3`, amount `0`;
@@ -981,7 +987,9 @@ incident name (1 to 32 characters of `a-z`, `0-9`, `-`).
     loss once, from the payout chain's open balance: a mirror is never
     added. Then, on gno.land, per denom and incident (`Render("routes/R/losses")`,
     `Totals(R, denom)`): recapitalize an `unescrow` denom
-    (`NewRecapitalizeRequest(R, denom, amount, INC)`, then anyone pays it
+    (`NewRecapitalizeRequest(R, denom, amount, INC)`, `amount` at most
+    `2^63 - 1` for a coin denom, which one coin pays, any `uint256` for a
+    GRC20; then anyone pays it
     with `transfer.Recapitalize(R, authorizationID)`: the authorization id
     is the route's own numbering, not the ibcgov decision number; read it
     from the transfer app's `route_gov` event of the executed decision

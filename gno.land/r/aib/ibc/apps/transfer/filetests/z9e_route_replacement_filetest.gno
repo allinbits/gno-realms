@@ -71,7 +71,7 @@ func setupRoute(cur realm) string {
 
 // send transfers amount of ugnot from sender to an Ethereum receiver, sending
 // coins with the call (the coins land at the transfer realm first).
-func send(cur realm, route string, amount, coins int64, receiver string) uint64 {
+func send(cur realm, route string, amount uint256, coins int64, receiver string) uint64 {
 	testing.IssueCoins(chain.PackageAddress(transfer.PkgPath), chain.NewCoins(chain.NewCoin("ugnot", coins)))
 	testing.SetRealm(testing.NewUserRealm(sender))
 	testing.SetOriginSend(chain.NewCoins(chain.NewCoin("ugnot", coins)))
@@ -83,8 +83,8 @@ func send(cur realm, route string, amount, coins int64, receiver string) uint64 
 
 // recv delivers a packet from Ethereum to the transfer app as the core does
 // after verifying its proof.
-func recv(cur realm, route string, seq uint64, denom, receiver string, amount int64) types.RecvPacketResult {
-	data := ics20.NewFungibleTokenPacketData(denom, strconv.FormatInt(amount, 10), "0x5f67a5398d91087d1b37a8a43436196a7830867f", receiver, "")
+func recv(cur realm, route string, seq uint64, denom, receiver string, amount uint256) types.RecvPacketResult {
+	data := ics20.NewFungibleTokenPacketData(denom, strconv.FormatUint256(amount, 10), "0x5f67a5398d91087d1b37a8a43436196a7830867f", receiver, "")
 	bz, err := abi.Marshal(data)
 	if err != nil {
 		panic(err)
@@ -102,8 +102,8 @@ func controlsView() controls.Reader { return transfer.ExtView("controls").(contr
 func ugnot(a address) int64 { return banker.NewReadonlyBanker().GetCoin(a, "ugnot") }
 
 // recvOn delivers a packet arriving on client dst from the router client src.
-func recvOn(cur realm, src, dst string, seq uint64, denom, receiver string, amount int64) types.RecvPacketResult {
-	data := ics20.NewFungibleTokenPacketData(denom, strconv.FormatInt(amount, 10), ethReceiver, receiver, "")
+func recvOn(cur realm, src, dst string, seq uint64, denom, receiver string, amount uint256) types.RecvPacketResult {
+	data := ics20.NewFungibleTokenPacketData(denom, strconv.FormatUint256(amount, 10), ethReceiver, receiver, "")
 	bz, _ := abi.Marshal(data)
 	payload := types.Payload{SourcePort: "transfer", DestinationPort: "transfer", Version: "ics20-1", Encoding: abi.Encoding, Value: bz}
 	testing.SetRealm(testing.NewCodeRealm("gno.land/r/aib/ibc/core"))
@@ -113,7 +113,7 @@ func recvOn(cur realm, src, dst string, seq uint64, denom, receiver string, amou
 	return res
 }
 
-func sendVoucher(cur realm, client, voucher string, amount int64) uint64 {
+func sendVoucher(cur realm, client, voucher string, amount uint256) uint64 {
 	testing.SetRealm(testing.NewUserRealm(bob))
 	_, seq := transfer.Transfer(cross(cur), client, ethReceiver, voucher, amount, uint64(time.Now().Add(time.Hour).Unix()), "")
 	testing.SetRealm(testing.NewCodeRealm("gno.land/r/aib/main"))
@@ -130,7 +130,7 @@ func wireDenom(route, client string, seq uint64) string {
 func meters(route, denom string) string {
 	epoch, at := ibcgov.PayoutsEpoch(route)
 	b, r := controlsView().Meters(route, denom, bob, time.Now().Unix(), epoch, at, 0)
-	return "bridge " + strconv.FormatInt(b, 10) + ", bob " + strconv.FormatInt(r, 10)
+	return "bridge " + strconv.FormatUint256(b, 10) + ", bob " + strconv.FormatUint256(r, 10)
 }
 
 // sendBack is the home page's "send back" action of the voucher (its link
@@ -152,7 +152,7 @@ func decided(id int64) string {
 
 func claimState(route string, seq uint64) string {
 	c, _ := controlsView().Claim(route, controls.PacketKey(route, seq))
-	return c.State + " paid " + strconv.FormatInt(c.Paid, 10)
+	return c.State + " paid " + strconv.FormatUint256(c.Paid, 10)
 }
 
 // Route replacement on gno.land (ADR pr6375 §7.12, R18): a decision points the
@@ -166,8 +166,8 @@ func claimState(route string, seq uint64) string {
 // the route again (Codex review #3).
 func main(cur realm) {
 	route := setupRoute(cur) // ethereum-1
-	execute(cur, govern(cur, ibcgov.NewSetDenomRequest(cross(cur), route, "ugnot", "unescrow", 10_000, 0, 20, 2, 25_000, 40, 10_000, "0x0000000000000000000000000000000000c0ffee")))
-	execute(cur, govern(cur, ibcgov.NewSetDenomRequest(cross(cur), route, weth, "mint", 4_000, 10_000, 10, 1, 0, 0, 4_000, "")))
+	execute(cur, govern(cur, ibcgov.NewSetDenomRequest(cross(cur), route, "ugnot", "unescrow", 10_000, 0, 20, 2, 25_000, 40, 10_000, "0x0000000000000000000000000000000000c0ffee", 0)))
+	execute(cur, govern(cur, ibcgov.NewSetDenomRequest(cross(cur), route, weth, "mint", 4_000, 10_000, 10, 1, 0, 0, 4_000, "", 0)))
 	execute(cur, govern(cur, ibcgov.NewBindGovernanceRequest(cross(cur), route)))
 	voucher := ics20.NewDenom(weth, ics20.NewHop("transfer", route)).IBCDenom()
 
@@ -309,10 +309,10 @@ func main(cur realm) {
 // unresolved: 20
 // reopen: applied - reopen | closed: false | accepted 20 unrecovered 20
 // send back after the reopening: send back](/r/aib/main$help&func=Transfer&amount=&clientID=ethereum-2&denom=ibc%2F2495500BDD01666856D26EE034DB2F940FD4DA91239F4D5C7AE1E9D07538CFFE&memo=&receiver=&timeoutTimestamp=1243060304) via `ethereum-2`
-// {"denom":"ugnot","amount":2000,"clients":[{"client":"ethereum-1","amount":2000}]}
+// {"denom":"ugnot","amount":"2000","clients":[{"client":"ethereum-1","amount":"2000"}]}
 // voucher back: wire denom transfer/ethereum-2/0x457df1a9866af7b6a78eeba9291fc3e58b4d864b | bob's vouchers: 340
 // ugnot send on the wire: ugnot
 // weth arriving on the new client: (1 gno.land/p/aib/ibc/types/v0.PacketStatus)
 // ugnot returning on the new client: (1 gno.land/p/aib/ibc/types/v0.PacketStatus)
 // bob's vouchers: 630 | bob's ugnot + 180 | carol: done paid 300
-// {"denom":"ugnot","amount":1800,"clients":[{"client":"ethereum-1","amount":1800}]}
+// {"denom":"ugnot","amount":"1800","clients":[{"client":"ethereum-1","amount":"1800"}]}

@@ -78,7 +78,7 @@ func main(cur realm) {
 	}
 
 	escrow := transfer.Render("total_escrow/ugnot")
-	println("total_escrow/ugnot amount 101:", strings.HasPrefix(escrow, `{"denom":"ugnot","amount":101,`))
+	println("total_escrow/ugnot amount 101:", strings.HasPrefix(escrow, `{"denom":"ugnot","amount":"101",`))
 	println("total_escrow/ugnot clients listed:", strings.Count(escrow, `"client":`))
 }
 

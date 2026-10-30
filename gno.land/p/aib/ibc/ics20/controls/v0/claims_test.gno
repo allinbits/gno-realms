@@ -16,6 +16,10 @@ var (
 
 const t0 = int64(1_700_000_000)
 
+// maxInt64 is the chain's coin maximum: the most a native denom's escrow
+// (an int64 bank balance) can hold.
+const maxInt64 uint256 = 1<<63 - 1
+
 func gnot() DenomConfig {
 	return DenomConfig{Kind: KindUnescrow, CapFloor: 10_000, Fee: 20, FeeFloor: 2, SendMax: 25_000, SendMin: 40, RefundCap: 10_000, Remote: "0x0000000000000000000000000000000000c0ffee"}
 }
@@ -54,7 +58,7 @@ func replaceReady(r *Registry, key, newClient string, suspectFrom, height int64)
 
 func pk(seq uint64) string { return PacketKey("ethereum-1", seq) }
 
-func mustCredit(t *testing.T, rt *Route, now int64, seq uint64, denom string, to address, amount, lock int64) bool {
+func mustCredit(t *testing.T, rt *Route, now int64, seq uint64, denom string, to address, amount, lock uint256) bool {
 	t.Helper()
 	swept, err := rt.Credit(now, 10, 0, pk(seq), denom, to, amount, ByPacket, "", lock)
 	if err != nil {
@@ -63,7 +67,7 @@ func mustCredit(t *testing.T, rt *Route, now int64, seq uint64, denom string, to
 	return swept
 }
 
-func sumPay(ps []Payment) (amount, fee int64) {
+func sumPay(ps []Payment) (amount, fee uint256) {
 	for _, p := range ps {
 		amount += p.Amount
 		fee += p.Fee
@@ -75,13 +79,13 @@ func sumPay(ps []Payment) (amount, fee int64) {
 func checkClaimTotals(t *testing.T, rt *Route, denom string) {
 	t.Helper()
 	d := rt.Denom(denom)
-	var owed, withheld, paid int64
+	var owed, withheld, paid uint256
 	rt.claims.Iterate("", "", func(_ string, v any) bool {
 		c := v.(*Claim)
 		if c.Denom != denom {
 			return false
 		}
-		if c.Paid > c.Amount || c.Paid < 0 {
+		if c.Paid > c.Amount {
 			t.Fatalf("claim %s paid %d of %d", c.Key, c.Paid, c.Amount)
 		}
 		switch c.State {
@@ -177,6 +181,7 @@ func TestConfigValidateAndLoosens(t *testing.T) {
 		func(c *DenomConfig) { c.Remote = "" },              // no Ethereum token (Codex review #17)
 		func(c *DenomConfig) { c.Remote = "0x0000000000000000000000000000000000C0FFEE" },
 		func(c *DenomConfig) { c.Remote = "0x0000000000000000000000000000000000000000" },
+		func(c *DenomConfig) { c.Decimals = 1 }, // a gno-native token's voucher is minted on Ethereum, not here
 	}
 	for i, m := range bad {
 		c := gnot()
@@ -185,7 +190,19 @@ func TestConfigValidateAndLoosens(t *testing.T) {
 			t.Errorf("case %d validated: %+v", i, c)
 		}
 	}
+	// A voucher's decimals are within grc20's bound.
 	mc := mintCfg()
+	mc.Decimals = MaxDecimals
+	if err := mc.Validate(); err != nil {
+		t.Errorf("minted denom with %d decimals: %v", MaxDecimals, err)
+	}
+	for _, d := range []int{MaxDecimals + 1, -1} {
+		mc.Decimals = d
+		if mc.Validate() == nil {
+			t.Errorf("minted denom with %d decimals validated", d)
+		}
+	}
+	mc = mintCfg()
 	mc.SendMax = 1
 	if mc.Validate() == nil {
 		t.Errorf("minted denom with send limits")
@@ -234,15 +251,21 @@ func TestConfigValidateAndLoosens(t *testing.T) {
 			t.Errorf("case %d: loosens %v", i, !tc.loose)
 		}
 	}
+	// A change of a voucher's decimals waits in either direction.
+	mint18 := mintCfg()
+	mint18.Decimals = 18
+	if !Loosens(mintCfg(), mint18) || !Loosens(mint18, mintCfg()) {
+		t.Errorf("a change of decimals does not wait")
+	}
 }
 
 func TestCheckSend(t *testing.T) {
 	_, rt := newRoute(t)
 	d := rt.Denom("ugnot")
 	for _, tc := range []struct {
-		amount int64
+		amount uint256
 		ok     bool
-	}{{39, false}, {40, true}, {25_000, true}, {25_001, false}, {0, false}, {-1, false}} {
+	}{{39, false}, {40, true}, {25_000, true}, {25_001, false}, {0, false}} {
 		if (d.CheckSend(tc.amount) == nil) != tc.ok {
 			t.Errorf("send %d: ok %v", tc.amount, !tc.ok)
 		}
@@ -255,7 +278,7 @@ func TestCheckSend(t *testing.T) {
 
 func TestCreditBooksClaimOrSweep(t *testing.T) {
 	_, rt := newRoute(t)
-	lock := int64(100_000)
+	lock := uint256(100_000)
 	if mustCredit(t, rt, t0, 1, "ugnot", alice, 1_000, lock) {
 		t.Fatalf("1000 swept")
 	}
@@ -326,7 +349,7 @@ func TestMintSupplyCap(t *testing.T) {
 // Meters start empty: nothing is paid at the moment of the credit.
 func TestMetersStartEmpty(t *testing.T) {
 	_, rt := newRoute(t)
-	lock := int64(100_000)
+	lock := uint256(100_000)
 	mustCredit(t, rt, t0, 1, "ugnot", alice, 1_000, lock)
 	ps, err := rt.PayClaims(t0, 0, t0, "ugnot", 20, lock)
 	if err != nil || len(ps) != 0 {
@@ -338,7 +361,7 @@ func TestMetersStartEmpty(t *testing.T) {
 // both meters allow.
 func TestClaimFeeFirstThenInstallments(t *testing.T) {
 	_, rt := newRoute(t)
-	lock := int64(100_000) // cap = max(10000, 10000) = 10000; recipient 2500/day
+	lock := uint256(100_000) // cap = max(10000, 10000) = 10000; recipient 2500/day
 	mustCredit(t, rt, t0, 1, "ugnot", alice, 5_000, lock)
 	// Credited at t0: the recipient's meter starts then. After an hour the
 	// recipient meter holds 104 (2500/24), the bridge 416.
@@ -383,7 +406,7 @@ func TestClaimFeeFirstThenInstallments(t *testing.T) {
 // min(what the claim still owes, the fee).
 func TestClaimNoSlivers(t *testing.T) {
 	_, rt := newRoute(t)
-	lock := int64(100_000)
+	lock := uint256(100_000)
 	mustCredit(t, rt, t0, 1, "ugnot", alice, 5_000, lock)
 	// After 12 minutes the recipient meter holds 20 (2500 * 720/86400 = 20.8):
 	// the fee, whole.
@@ -406,7 +429,7 @@ func TestClaimNoSlivers(t *testing.T) {
 // A claim's remainder below the fee is paid as soon as the meters hold it.
 func TestClaimSmallRemainderNotASliver(t *testing.T) {
 	_, rt := newRoute(t)
-	lock := int64(100_000)
+	lock := uint256(100_000)
 	mustCredit(t, rt, t0, 1, "ugnot", alice, 30, lock)      // fee 20 + 10
 	ps, _ := rt.PayClaims(t0+500, 0, t0, "ugnot", 20, lock) // recipient meter 14
 	if len(ps) != 0 {
@@ -432,7 +455,7 @@ func TestClaimSmallRemainderNotASliver(t *testing.T) {
 // call pays at most n claims and looks at most at 4n recipients.
 func TestClaimRoundRobinOldestFirst(t *testing.T) {
 	_, rt := newRoute(t)
-	lock := int64(1_000_000) // cap 100000/day, recipient 25000
+	lock := uint256(1_000_000) // cap 100000/day, recipient 25000
 	mustCredit(t, rt, t0, 1, "ugnot", alice, 100, lock)
 	mustCredit(t, rt, t0, 2, "ugnot", alice, 100, lock)
 	mustCredit(t, rt, t0, 3, "ugnot", bob, 100, lock)
@@ -472,7 +495,7 @@ func TestClaimRoundRobinOldestFirst(t *testing.T) {
 // n is capped at MaxClaims.
 func TestClaimAtMostTwenty(t *testing.T) {
 	_, rt := newRoute(t)
-	lock := int64(10_000_000)
+	lock := uint256(10_000_000)
 	for i := uint64(1); i <= 30; i++ {
 		mustCredit(t, rt, t0, i, "ugnot", testutils.TestAddress("r"+string(rune('a'+i))), 50, lock)
 	}
@@ -486,10 +509,10 @@ func TestClaimAtMostTwenty(t *testing.T) {
 // an unescrowed denom never pays more than the lock holds.
 func TestClaimBoundedByMetersAndLock(t *testing.T) {
 	_, rt := newRoute(t)
-	lock := int64(100_000) // cap 10000
+	lock := uint256(100_000) // cap 10000
 	mustCredit(t, rt, t0, 1, "ugnot", alice, 50_000, lock)
 	mustCredit(t, rt, t0, 2, "ugnot", bob, 40_000, lock)
-	var total int64
+	var total uint256
 	for h := int64(1); h <= 48; h++ {
 		ps, _ := rt.PayClaims(t0+h*3600, 0, t0, "ugnot", 20, lock)
 		a, f := sumPay(ps)
@@ -525,7 +548,7 @@ func TestClaimBoundedByMetersAndLock(t *testing.T) {
 // A payouts flag cleared (a new epoch) empties both meters.
 func TestClaimEpochResetsMeters(t *testing.T) {
 	_, rt := newRoute(t)
-	lock := int64(100_000)
+	lock := uint256(100_000)
 	mustCredit(t, rt, t0, 1, "ugnot", alice, 5_000, lock)
 	// Two days pass with payouts flagged (nobody claims). The flag clears at
 	// t0+2d: epoch 1. A claim right then pays nothing.
@@ -562,15 +585,15 @@ func TestClaimsRandomized(t *testing.T) {
 	recips := []address{alice, bob, carol, collector}
 	for trial := 0; trial < 5; trial++ {
 		_, rt := newRoute(t)
-		lock := int64(200_000)
+		lock := uint256(200_000)
 		now := t0
 		var seq uint64
-		var paidTotal int64
+		var paidTotal uint256
 		for step := 0; step < 120; step++ {
 			now += g.next(7200)
 			if g.next(2) == 0 {
 				seq++
-				amt := g.next(30_000) + 1
+				amt := uint256(g.next(30_000) + 1)
 				_, err := rt.Credit(now, 10, 0, pk(seq), "ugnot", recips[g.next(4)], amt, ByPacket, "", lock)
 				if err != nil {
 					t.Fatal(err)
@@ -594,7 +617,7 @@ func TestClaimsRandomized(t *testing.T) {
 			t.Fatalf("paid %d of %d credited", paidTotal, d.Totals.Credited)
 		}
 		days := (now - t0 + Day - 1) / Day
-		if paidTotal > (days+1)*20_000 {
+		if paidTotal > uint256(days+1)*20_000 {
 			t.Fatalf("paid %d in %d days", paidTotal, days)
 		}
 	}
@@ -605,9 +628,6 @@ func TestClaimsRandomized(t *testing.T) {
 func TestMintStartsAtExistingSupply(t *testing.T) {
 	r := NewRegistry()
 	rt, _ := r.Enroll("ethereum-1", collector, t0, 1)
-	if err := rt.SetDenom("ibc/WETH", mintCfg(), t0, 0, -1); err == nil {
-		t.Fatalf("negative supply")
-	}
 	supplyCap := mintCfg().SupplyCap
 	if err := rt.SetDenom("ibc/WETH", mintCfg(), t0, 0, supplyCap-100); err != nil {
 		t.Fatal(err)
@@ -629,7 +649,7 @@ func TestMintStartsAtExistingSupply(t *testing.T) {
 	}
 }
 
-func sendRec7(seq uint64, amount int64) SendRecord {
+func sendRec7(seq uint64, amount uint256) SendRecord {
 	rec := sendRec(seq, "ibc/WETH", KindMint, amount)
 	rec.Key = PacketKey("ethereum-7", seq)
 	rec.Fee = 0
@@ -641,7 +661,7 @@ func sendRec7(seq uint64, amount int64) SendRecord {
 // installment (docs-vs-code review round 2 #6).
 func TestClaimFeeLockedAtCredit(t *testing.T) {
 	_, rt := newRoute(t)
-	lock := int64(100_000) // a recipient 2500 a day
+	lock := uint256(100_000) // a recipient 2500 a day
 	mustCredit(t, rt, t0, 1, "ugnot", alice, 3_000, lock)
 	raised := gnot()
 	raised.Fee = 2_000 // the ceiling is CapFloor/4 = 2500
@@ -654,7 +674,7 @@ func TestClaimFeeLockedAtCredit(t *testing.T) {
 		t.Fatalf("%v %+v", err, ps)
 	}
 	for _, p := range ps {
-		want := int64(20) // credited before the change
+		want := uint256(20) // credited before the change
 		if p.To == bob {
 			want = 2_000 // credited after it
 		}
@@ -680,7 +700,7 @@ func TestClaimFeeLockedAtCredit(t *testing.T) {
 func TestClaimFeeFollowsACut(t *testing.T) {
 	raised := gnot()
 	raised.CapFloor, raised.Fee = 100_000, 20_000
-	lock := int64(100_000)
+	lock := uint256(100_000)
 	setup := func() *Route {
 		_, rt := newRoute(t)
 		if err := rt.SetDenom("ugnot", raised, t0, 0, 0); err != nil {
@@ -737,12 +757,12 @@ func TestClaimFeeFollowsACut(t *testing.T) {
 // claim's fee back up (docs-vs-code review round 4 #1).
 func TestClaimFeeCutKept(t *testing.T) {
 	_, rt := newRoute(t)
-	lock := int64(100_000) // a recipient 2500 a day
+	lock := uint256(100_000) // a recipient 2500 a day
 	mustCredit(t, rt, t0, 1, "ugnot", alice, 3_000, lock)
 	if ps, _ := rt.PayClaims(t0+Day, 0, t0, "ugnot", 1, lock); len(ps) != 1 || ps[0].Fee != 20 {
 		t.Fatalf("first installment: %+v", ps)
 	}
-	setFee := func(fee int64) {
+	setFee := func(fee uint256) {
 		c := gnot()
 		c.Fee = fee
 		if err := rt.SetDenom("ugnot", c, t0, 0, 0); err != nil {

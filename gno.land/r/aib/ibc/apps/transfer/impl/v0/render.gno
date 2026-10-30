@@ -1,7 +1,6 @@
 package impl
 
 import (
-	"chain"
 	"strconv"
 	"strings"
 	"time"
@@ -12,7 +11,7 @@ import (
 	"gno.land/p/aib/ibc/lightclient/v0"
 	"gno.land/p/aib/jsonpage/v0"
 	"gno.land/p/moul/txlink/v0"
-	"gno.land/p/nt/grc20/v0"
+	"gno.land/p/nt/grc20/v1"
 	"gno.land/p/nt/mux/v0"
 	"gno.land/p/nt/ufmt/v0"
 	"gno.land/p/onbloc/json/v0"
@@ -91,7 +90,7 @@ func (rd *Renderer) Home(w *mux.ResponseWriter, r *mux.Request) {
 			supply := ""
 			grc20link := ""
 			if token := rd.store.VoucherToken(ibcDenom); token != nil {
-				supply = ufmt.Sprintf("[%d](/r/aib/ibc/apps/transfer:voucher/%s)", token.TotalSupply(), ibcDenom)
+				supply = "[" + strconv.FormatUint256(token.TotalSupply(), 10) + "](/r/aib/ibc/apps/transfer:voucher/" + ibcDenom + ")"
 				key := GRC20RegKey(ibcDenom)
 				// Shorten the hash suffix: "gno.land/r/.../transfer.CAEF9C..." → keep prefix + first 4 … last 4 of hash
 				dotIdx := strings.LastIndex(key, ".")
@@ -102,7 +101,7 @@ func (rd *Renderer) Home(w *mux.ResponseWriter, r *mux.Request) {
 						shortKey = key[:dotIdx+1] + hash[:4] + "…" + hash[len(hash)-4:]
 					}
 				}
-				const grc20regPath = "gno.land/r/nt/grc20reg/v0"
+				const grc20regPath = "gno.land/r/nt/grc20reg/v1"
 				grc20link = ufmt.Sprintf("[%s](%s:%s)", shortKey, StripDomain(grc20regPath), key)
 			}
 			// Actions: IBC "send back" (via the voucher's source client) plus
@@ -138,7 +137,7 @@ func (rd *Renderer) Home(w *mux.ResponseWriter, r *mux.Request) {
 		out.WriteString("| Denom | Amount |\n")
 		out.WriteString("|-------|--------|\n")
 		escrowTotals.IterateByOffset(0, homeListLimit, func(denom string, v any) bool {
-			out.WriteString(ufmt.Sprintf("| %s | %d |\n", escrowDenomCell(denom), v.(chain.Coin).Amount))
+			out.WriteString("| " + escrowDenomCell(denom) + " | " + strconv.FormatUint256(v.(uint256), 10) + " |\n")
 			return false
 		})
 		if escrowTotals.Size() > homeListLimit {
@@ -217,23 +216,27 @@ func (rd *Renderer) TotalEscrowForDenom(w *mux.ResponseWriter, r *mux.Request) {
 	// just the aggregate. The total is kept at the top level for quick checks;
 	// the client list is capped (see homeListLimit).
 	clients := []*json.Node{}
-	var total int64
+	var total uint256
 	if v := rd.store.EscrowTotals().Get(denom); v != nil {
-		total = v.(chain.Coin).Amount
+		total = v.(uint256)
 	}
 	rd.store.EscrowClients(denom).IterateByOffset(0, homeListLimit, func(clientID string, v any) bool {
 		clients = append(clients, json.ObjectNode("", map[string]*json.Node{
 			"client": json.StringNode("", clientID),
-			"amount": json.NumberNode("", float64(v.(chain.Coin).Amount)),
+			"amount": amountNode(v.(uint256)),
 		}))
 		return false
 	})
 	RenderNode(w, json.ObjectNode("", map[string]*json.Node{
 		"denom":   json.StringNode("", denom),
-		"amount":  json.NumberNode("", float64(total)),
+		"amount":  amountNode(total),
 		"clients": json.ArrayNode("", clients),
 	}))
 }
+
+// amountNode is an amount in JSON: a decimal string, since a 256-bit value
+// does not survive a reader that parses numbers as doubles.
+func amountNode(v uint256) *json.Node { return json.StringNode("", strconv.FormatUint256(v, 10)) }
 
 func (rd *Renderer) Vouchers(w *mux.ResponseWriter, r *mux.Request) {
 	RenderNode(w, jsonpage.Render(rd.store.Vouchers(), r, func(key string, v any) *json.Node {
@@ -259,7 +262,7 @@ func VoucherJSON(ibcDenom string, token *grc20.Token) *json.Node {
 		"name":         json.StringNode("", token.GetName()),
 		"symbol":       json.StringNode("", token.GetSymbol()),
 		"decimals":     json.NumberNode("", float64(token.GetDecimals())),
-		"total_supply": json.NumberNode("", float64(token.TotalSupply())),
+		"total_supply": amountNode(token.TotalSupply()),
 	})
 }
 
@@ -275,7 +278,7 @@ func (rd *Renderer) VoucherBalance(w *mux.ResponseWriter, r *mux.Request) {
 	RenderNode(w, json.ObjectNode("", map[string]*json.Node{
 		"denom":   json.StringNode("", ibcDenom),
 		"address": json.StringNode("", addr),
-		"balance": json.NumberNode("", float64(balance)),
+		"balance": amountNode(balance),
 	}))
 }
 

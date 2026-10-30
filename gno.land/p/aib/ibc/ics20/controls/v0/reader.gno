@@ -200,7 +200,7 @@ func (rd Reader) Voidable(route, key string, forged bool) bool {
 }
 
 // Unrecovered is a route's economic open loss total.
-func (rd Reader) Unrecovered(route string) int64 {
+func (rd Reader) Unrecovered(route string) uint256 {
 	if rt := rd.route(route); rt != nil {
 		return rt.Unrecovered()
 	}
@@ -208,7 +208,7 @@ func (rd Reader) Unrecovered(route string) int64 {
 }
 
 // Unresolved is a route's loss total still waiting for a restoring decision.
-func (rd Reader) Unresolved(route string) int64 {
+func (rd Reader) Unresolved(route string) uint256 {
 	if rt := rd.route(route); rt != nil {
 		return rt.Unresolved()
 	}
@@ -219,7 +219,7 @@ func (rd Reader) Unresolved(route string) int64 {
 // now under the payouts epoch (epoch, as of epochAt) and lock, as PayClaims
 // would find them, computed on copies: the state does not change. A
 // recipient without a queue reads 0.
-func (rd Reader) Meters(route, denom string, to address, now, epoch, epochAt, lock int64) (bridge, recipient int64) {
+func (rd Reader) Meters(route, denom string, to address, now, epoch, epochAt int64, lock uint256) (bridge, recipient uint256) {
 	rt := rd.route(route)
 	if rt == nil {
 		return 0, 0
@@ -281,7 +281,9 @@ func (rd Reader) RoutesJSON() string {
 // RouteJSON is a route's state for monitors (ADR pr6375 §7.11): its client,
 // its retired clients, its fee collector, its refused recipients, and per
 // denom the configuration, the meter levels as last refilled and the
-// accounting terms. "null" for an unknown route.
+// accounting terms. "null" for an unknown route. Every amount is a decimal
+// string (a 256-bit value is lossy as a JSON number for readers that parse
+// doubles); heights, times and counts are numbers.
 func (rd Reader) RouteJSON(route string) string {
 	rt := rd.route(route)
 	if rt == nil {
@@ -290,7 +292,7 @@ func (rd Reader) RouteJSON(route string) string {
 	var b strings.Builder
 	b.WriteString("{\"route\":" + q(rt.Key) + ",\"client\":" + q(rt.Client) + ",\"replaced\":" + strList(rt.Replaced) +
 		",\"enrolled\":" + itoa(rt.Enrolled) + ",\"activated\":" + itoa(rt.Activated) + ",\"closed\":" + strconv.FormatBool(rt.IsClosed()) + ",\"loss_closed\":" + strconv.FormatBool(rt.LossClosed()) + ",\"fee_collector\":" + q(string(rt.FeeCollector)) +
-		",\"refused_recipients\":" + strList(rt.Refused()) + ",\"protected_recipients\":" + strList(rt.Protected()) + ",\"unrecovered\":" + itoa(rt.Unrecovered()) + ",\"unresolved\":" + itoa(rt.Unresolved()) + ",\"denoms\":[")
+		",\"refused_recipients\":" + strList(rt.Refused()) + ",\"protected_recipients\":" + strList(rt.Protected()) + ",\"unrecovered\":" + qu(rt.Unrecovered()) + ",\"unresolved\":" + qu(rt.Unresolved()) + ",\"denoms\":[")
 	for i, name := range rt.Denoms() {
 		if i > 0 {
 			b.WriteString(",")
@@ -304,31 +306,32 @@ func (rd Reader) RouteJSON(route string) string {
 func denomJSON(d *Denom) string {
 	c, t := d.Config, d.Totals
 	return "{\"denom\":" + q(d.Name) + ",\"kind\":" + q(c.Kind) +
-		",\"cap_floor\":" + itoa(c.CapFloor) + ",\"launch_cap_floor\":" + itoa(d.LaunchCapFloor) +
-		",\"supply_cap\":" + itoa(c.SupplyCap) + ",\"fee\":" + itoa(c.Fee) + ",\"fee_floor\":" + itoa(c.FeeFloor) +
-		",\"send_max\":" + itoa(c.SendMax) + ",\"send_min\":" + itoa(c.SendMin) + ",\"refund_cap\":" + itoa(c.RefundCap) + ",\"remote\":" + q(c.Remote) +
-		",\"meter\":{\"level\":" + itoa(d.meter.Level) + ",\"at\":" + itoa(d.meter.At) + ",\"epoch\":" + itoa(d.meter.Epoch) + "}" +
-		",\"refund_meter\":{\"level\":" + itoa(d.refundMeter.Level) + ",\"at\":" + itoa(d.refundMeter.At) + "}" +
+		",\"cap_floor\":" + qu(c.CapFloor) + ",\"launch_cap_floor\":" + qu(d.LaunchCapFloor) +
+		",\"supply_cap\":" + qu(c.SupplyCap) + ",\"fee\":" + qu(c.Fee) + ",\"fee_floor\":" + qu(c.FeeFloor) +
+		",\"send_max\":" + qu(c.SendMax) + ",\"send_min\":" + qu(c.SendMin) + ",\"refund_cap\":" + qu(c.RefundCap) + ",\"remote\":" + q(c.Remote) +
+		",\"decimals\":" + itoa(int64(c.Decimals)) +
+		",\"meter\":{\"level\":" + qu(d.meter.Level) + ",\"at\":" + itoa(d.meter.At) + ",\"epoch\":" + itoa(d.meter.Epoch) + "}" +
+		",\"refund_meter\":{\"level\":" + qu(d.refundMeter.Level) + ",\"at\":" + itoa(d.refundMeter.At) + "}" +
 		",\"waiting\":" + itoa(int64(d.waiting.Size())) + ",\"queued_refunds\":" + itoa(int64(d.refundQueue.Size())) +
-		",\"totals\":{\"credited\":" + itoa(t.Credited) + ",\"owed\":" + itoa(t.Owed) + ",\"withheld\":" + itoa(t.Withheld) +
-		",\"swept\":" + itoa(t.Swept) + ",\"paid\":" + itoa(t.Paid) + ",\"fees\":" + itoa(t.Fees) +
-		",\"sweep_paid\":" + itoa(t.SweepPaid) + ",\"outstanding\":" + itoa(t.Outstanding) + ",\"returning\":" + itoa(t.Returning) + ",\"parked\":" + itoa(t.Parked) + ",\"proven_owed\":" + itoa(t.ProvenOwed) + ",\"in_flight\":" + itoa(t.InFlight) + ",\"sent\":" + itoa(t.Sent) +
-		",\"send_fees\":" + itoa(t.SendFees) + ",\"refunded\":" + itoa(t.Refunded) + ",\"queued_refunds\":" + itoa(t.QueuedRefunds) +
-		",\"lost\":" + itoa(t.Lost) + ",\"recapitalized\":" + itoa(t.Recapitalized) + ",\"reduced\":" + itoa(t.Reduced) +
-		",\"accepted\":" + itoa(t.Accepted) + ",\"unrecovered\":" + itoa(t.Unrecovered()) + ",\"unresolved\":" + itoa(t.Unresolved()) + "}}"
+		",\"totals\":{\"credited\":" + qu(t.Credited) + ",\"owed\":" + qu(t.Owed) + ",\"withheld\":" + qu(t.Withheld) +
+		",\"swept\":" + qu(t.Swept) + ",\"paid\":" + qu(t.Paid) + ",\"fees\":" + qu(t.Fees) +
+		",\"sweep_paid\":" + qu(t.SweepPaid) + ",\"outstanding\":" + qu(t.Outstanding) + ",\"returning\":" + qu(t.Returning) + ",\"proven_owed\":" + qu(t.ProvenOwed) + ",\"in_flight\":" + qu(t.InFlight) + ",\"sent\":" + qu(t.Sent) +
+		",\"send_fees\":" + qu(t.SendFees) + ",\"refunded\":" + qu(t.Refunded) + ",\"queued_refunds\":" + qu(t.QueuedRefunds) +
+		",\"lost\":" + qu(t.Lost) + ",\"recapitalized\":" + qu(t.Recapitalized) + ",\"reduced\":" + qu(t.Reduced) +
+		",\"accepted\":" + qu(t.Accepted) + ",\"unrecovered\":" + qu(t.Unrecovered()) + ",\"unresolved\":" + qu(t.Unresolved()) + "}}"
 }
 
 // ClaimJSON is a claim's JSON.
 func ClaimJSON(c Claim) string {
 	return "{\"key\":" + q(c.Key) + ",\"denom\":" + q(c.Denom) + ",\"to\":" + q(string(c.To)) +
-		",\"amount\":" + itoa(c.Amount) + ",\"paid\":" + itoa(c.Paid) + ",\"reduced\":" + itoa(c.Reduced) + ",\"fee\":" + itoa(c.Fee) +
+		",\"amount\":" + qu(c.Amount) + ",\"paid\":" + qu(c.Paid) + ",\"reduced\":" + qu(c.Reduced) + ",\"fee\":" + qu(c.Fee) +
 		",\"state\":" + q(c.State) + ",\"by\":" + q(c.By) + ",\"at\":" + itoa(c.At) + ",\"height\":" + itoa(c.Height) +
 		",\"seq\":" + itoa(c.Seq) + "}"
 }
 
 // SweepJSON is a sweep entry's JSON.
 func SweepJSON(e SweepEntry) string {
-	return "{\"key\":" + q(e.Key) + ",\"denom\":" + q(e.Denom) + ",\"to\":" + q(e.To) + ",\"amount\":" + itoa(e.Amount) + ",\"reduced\":" + itoa(e.Reduced) +
+	return "{\"key\":" + q(e.Key) + ",\"denom\":" + q(e.Denom) + ",\"to\":" + q(e.To) + ",\"amount\":" + qu(e.Amount) + ",\"reduced\":" + qu(e.Reduced) +
 		",\"reason\":" + q(e.Reason) + ",\"height\":" + itoa(e.Height) + ",\"voided\":" + strconv.FormatBool(e.Voided) +
 		",\"paid\":" + strconv.FormatBool(e.Paid) + ",\"paid_to\":" + q(e.PaidTo) + fromClaimJSON(e) + "}"
 }
@@ -338,7 +341,7 @@ func fromClaimJSON(e SweepEntry) string {
 	if !e.FromClaim {
 		return ""
 	}
-	return ",\"from_claim\":true,\"claim_paid\":" + itoa(e.ClaimPaid)
+	return ",\"from_claim\":true,\"claim_paid\":" + qu(e.ClaimPaid)
 }
 
 // SendJSON is a send record's JSON: the full packet (hex payload values), its
@@ -346,10 +349,10 @@ func fromClaimJSON(e SweepEntry) string {
 func SendJSON(r SendRecord) string {
 	return "{\"key\":" + q(r.Key) + ",\"packet\":" + packetJSON(r.Packet) + ",\"commitment\":" + q(hex.EncodeToString(r.Commitment)) +
 		",\"sender\":" + q(string(r.Sender)) + ",\"receiver\":" + q(r.Receiver) + ",\"denom\":" + q(r.Denom) +
-		",\"kind\":" + q(r.Kind) + ",\"amount\":" + itoa(r.Amount) + ",\"fee\":" + itoa(r.Fee) +
+		",\"kind\":" + q(r.Kind) + ",\"amount\":" + qu(r.Amount) + ",\"fee\":" + qu(r.Fee) +
 		",\"sent_height\":" + itoa(r.SentHeight) + ",\"sent_at\":" + itoa(r.SentAt) + ",\"outcome\":" + q(r.Outcome) +
 		",\"processed_height\":" + itoa(r.ProcessedHeight) + ",\"processed_at\":" + itoa(r.ProcessedAt) +
-		",\"payment\":" + q(r.Payment) + ",\"refunded\":" + itoa(r.Refunded) + ",\"settlement\":" + itoa(int64(r.Settlement)) + ",\"reservation\":" + itoa(r.Reservation) + ",\"proven\":" + itoa(int64(r.Proven)) + ",\"proven_at\":" + strconv.FormatUint(r.ProvenAt, 10) + ",\"proven_by\":" + q(r.ProvenBy) + ",\"proven_gen\":" + strconv.FormatUint(r.ProvenGen, 10) + ",\"incident\":" + q(r.Incident) + "}"
+		",\"payment\":" + q(r.Payment) + ",\"refunded\":" + qu(r.Refunded) + ",\"settlement\":" + itoa(int64(r.Settlement)) + ",\"reservation\":" + qu(r.Reservation) + ",\"proven\":" + itoa(int64(r.Proven)) + ",\"proven_at\":" + strconv.FormatUint(r.ProvenAt, 10) + ",\"proven_by\":" + q(r.ProvenBy) + ",\"proven_gen\":" + strconv.FormatUint(r.ProvenGen, 10) + ",\"incident\":" + q(r.Incident) + "}"
 }
 
 func packetJSON(p types.Packet) string {
@@ -365,7 +368,7 @@ func packetJSON(p types.Packet) string {
 
 // LossJSON is a loss's JSON.
 func LossJSON(l Loss) string {
-	return "{\"key\":" + q(l.Key) + ",\"direction\":" + q(l.Direction) + ",\"denom\":" + q(l.Denom) + ",\"amount\":" + itoa(l.Amount) + ",\"chain\":" + q(l.Chain) +
+	return "{\"key\":" + q(l.Key) + ",\"direction\":" + q(l.Direction) + ",\"denom\":" + q(l.Denom) + ",\"amount\":" + qu(l.Amount) + ",\"chain\":" + q(l.Chain) +
 		",\"incident\":" + q(l.Incident) + ",\"cause\":" + q(l.Cause) + "}"
 }
 

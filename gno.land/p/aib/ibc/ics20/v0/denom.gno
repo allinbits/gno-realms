@@ -6,12 +6,12 @@ package ics20
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"strconv"
 	"strings"
 
 	"gno.land/p/aib/ibc/host/v0"
 	"gno.land/p/aib/ibc/types/v0"
 	"gno.land/p/nt/ufmt/v0"
-	"gno.land/p/onbloc/int256/v0"
 	"gno.land/p/onbloc/json/v0"
 )
 
@@ -228,12 +228,12 @@ func (h Hop) String() string {
 // blank included, as an owed sweep entry (ADR pr6375 §6.8, §7.1). It returns
 // the denom it parsed.
 func (f FungibleTokenPacketData) ValidateBasicEthereum(routerClient string) (Denom, error) {
-	amount, err := int256.FromDecimal(f.Amount)
+	amount, err := strconv.ParseUint256(f.Amount, 10)
 	if err != nil {
 		return Denom{}, ufmt.Errorf("unable to parse transfer amount %q: %v", f.Amount, err)
 	}
-	if amount.Sign() != 1 {
-		return Denom{}, ufmt.Errorf("amount must be strictly positive: got %s", amount)
+	if amount == 0 {
+		return Denom{}, ufmt.Errorf("amount must be strictly positive: got %s", f.Amount)
 	}
 	if strings.TrimSpace(f.Sender) == "" {
 		return Denom{}, ufmt.Errorf("sender address cannot be blank")

@@ -72,7 +72,7 @@ func setupRoute(cur realm) string {
 
 // send transfers amount of ugnot from sender to an Ethereum receiver, sending
 // coins with the call (the coins land at the transfer realm first).
-func send(cur realm, route string, amount, coins int64, receiver string) uint64 {
+func send(cur realm, route string, amount uint256, coins int64, receiver string) uint64 {
 	testing.IssueCoins(chain.PackageAddress(transfer.PkgPath), chain.NewCoins(chain.NewCoin("ugnot", coins)))
 	testing.SetRealm(testing.NewUserRealm(sender))
 	testing.SetOriginSend(chain.NewCoins(chain.NewCoin("ugnot", coins)))
@@ -84,8 +84,8 @@ func send(cur realm, route string, amount, coins int64, receiver string) uint64 
 
 // recv delivers a packet from Ethereum to the transfer app as the core does
 // after verifying its proof.
-func recv(cur realm, route string, seq uint64, denom, receiver string, amount int64) types.RecvPacketResult {
-	data := ics20.NewFungibleTokenPacketData(denom, strconv.FormatInt(amount, 10), "0x5f67a5398d91087d1b37a8a43436196a7830867f", receiver, "")
+func recv(cur realm, route string, seq uint64, denom, receiver string, amount uint256) types.RecvPacketResult {
+	data := ics20.NewFungibleTokenPacketData(denom, strconv.FormatUint256(amount, 10), "0x5f67a5398d91087d1b37a8a43436196a7830867f", receiver, "")
 	bz, err := abi.Marshal(data)
 	if err != nil {
 		panic(err)
@@ -122,7 +122,7 @@ func claim(cur realm, route, denom string) int {
 }
 
 // sendVoucher sends bob's vouchers back to Ethereum.
-func sendVoucher(cur realm, route, receiver, voucher string, amount int64) uint64 {
+func sendVoucher(cur realm, route, receiver, voucher string, amount uint256) uint64 {
 	testing.SetRealm(testing.NewUserRealm(bob))
 	_, seq := transfer.Transfer(cross(cur), route, receiver, voucher, amount, uint64(time.Now().Add(time.Hour).Unix()), "")
 	testing.SetRealm(testing.NewCodeRealm("gno.land/r/aib/main"))
@@ -142,8 +142,8 @@ func status(r types.RecvPacketResult) string {
 // meters, which start empty and restart empty when a payouts flag clears.
 func main(cur realm) {
 	route := setupRoute(cur)
-	execute(cur, govern(cur, ibcgov.NewSetDenomRequest(cross(cur), route, "ugnot", "unescrow", 10_000, 0, 20, 2, 25_000, 40, 10_000, "0x0000000000000000000000000000000000c0ffee")))
-	execute(cur, govern(cur, ibcgov.NewSetDenomRequest(cross(cur), route, weth, "mint", 4_000, 10_000, 10, 1, 0, 0, 4_000, "")))
+	execute(cur, govern(cur, ibcgov.NewSetDenomRequest(cross(cur), route, "ugnot", "unescrow", 10_000, 0, 20, 2, 25_000, 40, 10_000, "0x0000000000000000000000000000000000c0ffee", 0)))
+	execute(cur, govern(cur, ibcgov.NewSetDenomRequest(cross(cur), route, weth, "mint", 4_000, 10_000, 10, 1, 0, 0, 4_000, "", 0)))
 	execute(cur, govern(cur, ibcgov.NewSetSeatsRequest(cross(cur), "0:"+string(guardian)+",4:"+string(watch))))
 	voucher := ics20.NewDenom(weth, ics20.NewHop("transfer", route)).IBCDenom()
 
@@ -209,8 +209,8 @@ func main(cur realm) {
 // weth 3000 to bob: success ack
 // weth past the supply cap: error ack
 // credits flagged: error ack
-// {"entries":[{"key":"ethereum-1/00000000000000000003","denom":"ugnot","to":"g1v9kxjcm9ta047h6lta047h6lta047h6lzd40gh","amount":300,"paid":0,"reduced":0,"fee":20,"state":"open","by":"packet","at":1237591895,"height":123,"seq":1},{"key":"ethereum-1/00000000000000000007","denom":"ibc/2495500BDD01666856D26EE034DB2F940FD4DA91239F4D5C7AE1E9D07538CFFE","to":"g1vfhkyh6lta047h6lta047h6lta047h6l03vdhu","amount":3000,"paid":0,"reduced":0,"fee":10,"state":"open","by":"packet","at":1237591895,"height":123,"seq":1}],"next":""}
-// {"entries":[{"key":"ethereum-1/00000000000000000002","denom":"ugnot","to":"not-an-address","amount":5,"reduced":0,"reason":"invalid receiver","height":123,"voided":false,"paid":false,"paid_to":""},{"key":"ethereum-1/00000000000000000004","denom":"ugnot","to":"g1v9kxjcm9ta047h6lta047h6lta047h6lzd40gh","amount":900,"reduced":0,"reason":"above the free lock","height":123,"voided":false,"paid":false,"paid_to":""},{"key":"ethereum-1/00000000000000000005","denom":"ugnot","to":"g1v9kxjcm9ta047h6lta047h6lta047h6lzd40gh","amount":10,"reduced":0,"reason":"below the fee","height":123,"voided":false,"paid":false,"paid_to":""},{"key":"ethereum-1/00000000000000000006","denom":"ugnot","to":"g1tp3gk4quumurav4858hjfdy6hxtyffwmnxyr00","amount":50,"reduced":0,"reason":"bridge realm","height":123,"voided":false,"paid":false,"paid_to":""}],"next":""}
+// {"entries":[{"key":"ethereum-1/00000000000000000003","denom":"ugnot","to":"g1v9kxjcm9ta047h6lta047h6lta047h6lzd40gh","amount":"300","paid":"0","reduced":"0","fee":"20","state":"open","by":"packet","at":1237591895,"height":123,"seq":1},{"key":"ethereum-1/00000000000000000007","denom":"ibc/2495500BDD01666856D26EE034DB2F940FD4DA91239F4D5C7AE1E9D07538CFFE","to":"g1vfhkyh6lta047h6lta047h6lta047h6l03vdhu","amount":"3000","paid":"0","reduced":"0","fee":"10","state":"open","by":"packet","at":1237591895,"height":123,"seq":1}],"next":""}
+// {"entries":[{"key":"ethereum-1/00000000000000000002","denom":"ugnot","to":"not-an-address","amount":"5","reduced":"0","reason":"invalid receiver","height":123,"voided":false,"paid":false,"paid_to":""},{"key":"ethereum-1/00000000000000000004","denom":"ugnot","to":"g1v9kxjcm9ta047h6lta047h6lta047h6lzd40gh","amount":"900","reduced":"0","reason":"above the free lock","height":123,"voided":false,"paid":false,"paid_to":""},{"key":"ethereum-1/00000000000000000005","denom":"ugnot","to":"g1v9kxjcm9ta047h6lta047h6lta047h6lzd40gh","amount":"10","reduced":"0","reason":"below the fee","height":123,"voided":false,"paid":false,"paid_to":""},{"key":"ethereum-1/00000000000000000006","denom":"ugnot","to":"g1tp3gk4quumurav4858hjfdy6hxtyffwmnxyr00","amount":"50","reduced":"0","reason":"bridge realm","height":123,"voided":false,"paid":false,"paid_to":""}],"next":""}
 // claim at once: 0 0
 // claim a day later: 1 1
 // alice + 280 collector + 20
@@ -223,4 +223,4 @@ func main(cur realm) {
 // voucher return under a sends flag: 2 kind mint fee 0 bob's vouchers: 740
 // denom on the wire: transfer/ethereum-1/0x457df1a9866af7b6a78eeba9291fc3e58b4d864b
 // to the token itself: the receiver is the token itself
-// {"route":"ethereum-1","client":"ethereum-1","replaced":[],"enrolled":1235172691,"activated":123,"closed":false,"loss_closed":false,"fee_collector":"g1vdhkcmr9vd6x7ujlta047h6lta047h6lsp3m50","refused_recipients":[],"protected_recipients":["0x00000000000000000000000000000000000b0002 ics20","0x00000000000000000000000000000000000b0003 ibc admin","0x0000000000000000000000000000000000c0ffee voucher token","0x1d95d544586eacb63b6154e9e45122b32ded11aa router"],"unrecovered":0,"unresolved":0,"denoms":[{"denom":"ibc/2495500BDD01666856D26EE034DB2F940FD4DA91239F4D5C7AE1E9D07538CFFE","kind":"mint","cap_floor":4000,"launch_cap_floor":4000,"supply_cap":10000,"fee":10,"fee_floor":1,"send_max":0,"send_min":0,"refund_cap":4000,"remote":"","meter":{"level":750,"at":1237786295,"epoch":1},"refund_meter":{"level":0,"at":1236987094},"waiting":1,"queued_refunds":0,"totals":{"credited":3000,"owed":1750,"withheld":0,"swept":0,"paid":1240,"fees":10,"sweep_paid":0,"outstanding":750,"returning":500,"parked":0,"proven_owed":0,"in_flight":500,"sent":500,"send_fees":0,"refunded":0,"queued_refunds":0,"lost":0,"recapitalized":0,"reduced":0,"accepted":0,"unrecovered":0,"unresolved":0}},{"denom":"ugnot","kind":"unescrow","cap_floor":10000,"launch_cap_floor":10000,"supply_cap":0,"fee":20,"fee_floor":2,"send_max":25000,"send_min":40,"refund_cap":10000,"remote":"0x0000000000000000000000000000000000c0ffee","meter":{"level":9700,"at":1237678295,"epoch":0},"refund_meter":{"level":0,"at":1236382293},"waiting":0,"queued_refunds":0,"totals":{"credited":300,"owed":0,"withheld":0,"swept":965,"paid":280,"fees":20,"sweep_paid":0,"outstanding":0,"returning":0,"parked":0,"proven_owed":0,"in_flight":1000,"sent":1000,"send_fees":20,"refunded":0,"queued_refunds":0,"lost":0,"recapitalized":0,"reduced":0,"accepted":0,"unrecovered":0,"unresolved":0}}]}
+// {"route":"ethereum-1","client":"ethereum-1","replaced":[],"enrolled":1235172691,"activated":123,"closed":false,"loss_closed":false,"fee_collector":"g1vdhkcmr9vd6x7ujlta047h6lta047h6lsp3m50","refused_recipients":[],"protected_recipients":["0x00000000000000000000000000000000000b0002 ics20","0x00000000000000000000000000000000000b0003 ibc admin","0x0000000000000000000000000000000000c0ffee voucher token","0x1d95d544586eacb63b6154e9e45122b32ded11aa router"],"unrecovered":"0","unresolved":"0","denoms":[{"denom":"ibc/2495500BDD01666856D26EE034DB2F940FD4DA91239F4D5C7AE1E9D07538CFFE","kind":"mint","cap_floor":"4000","launch_cap_floor":"4000","supply_cap":"10000","fee":"10","fee_floor":"1","send_max":"0","send_min":"0","refund_cap":"4000","remote":"","decimals":0,"meter":{"level":"750","at":1237786295,"epoch":1},"refund_meter":{"level":"0","at":1236987094},"waiting":1,"queued_refunds":0,"totals":{"credited":"3000","owed":"1750","withheld":"0","swept":"0","paid":"1240","fees":"10","sweep_paid":"0","outstanding":"750","returning":"500","proven_owed":"0","in_flight":"500","sent":"500","send_fees":"0","refunded":"0","queued_refunds":"0","lost":"0","recapitalized":"0","reduced":"0","accepted":"0","unrecovered":"0","unresolved":"0"}},{"denom":"ugnot","kind":"unescrow","cap_floor":"10000","launch_cap_floor":"10000","supply_cap":"0","fee":"20","fee_floor":"2","send_max":"25000","send_min":"40","refund_cap":"10000","remote":"0x0000000000000000000000000000000000c0ffee","decimals":0,"meter":{"level":"9700","at":1237678295,"epoch":0},"refund_meter":{"level":"0","at":1236382293},"waiting":0,"queued_refunds":0,"totals":{"credited":"300","owed":"0","withheld":"0","swept":"965","paid":"280","fees":"20","sweep_paid":"0","outstanding":"0","returning":"0","proven_owed":"0","in_flight":"1000","sent":"1000","send_fees":"20","refunded":"0","queued_refunds":"0","lost":"0","recapitalized":"0","reduced":"0","accepted":"0","unrecovered":"0","unresolved":"0"}}]}

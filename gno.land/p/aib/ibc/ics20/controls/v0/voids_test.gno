@@ -7,9 +7,9 @@ import (
 	"testing"
 )
 
-func setupClaims(t *testing.T) (*Route, int64) {
+func setupClaims(t *testing.T) (*Route, uint256) {
 	_, rt := newRoute(t)
-	lock := int64(100_000) // cap 10000, a recipient 2500 a day
+	lock := uint256(100_000) // cap 10000, a recipient 2500 a day
 	mustCredit(t, rt, t0, 1, "ugnot", alice, 50_000, lock)
 	mustCredit(t, rt, t0, 2, "ugnot", bob, 3_000, lock)
 	mustCredit(t, rt, t0, 3, "ugnot", carol, 10, lock) // swept: below the fee
@@ -458,9 +458,11 @@ func boolInt(b bool) int {
 }
 
 func TestCodecRoundTrip(t *testing.T) {
+	cfg := gnot()
+	cfg.Decimals = MaxDecimals
 	p := Params{
 		Route: "ethereum-1", Denom: "ugnot", Key: pk(3), Client: "ethereum-2", Chain: ChainGno, Incident: "inc", Cause: "c",
-		To: alice, Keys: []string{pk(1), pk(2)}, Forged: true, Amount: 42, Config: gnot(),
+		To: alice, Keys: []string{pk(1), pk(2)}, Forged: true, Amount: 42, Config: cfg,
 		Items: []SettleItem{{Seq: 7, Action: SettlePay, Amount: 5}, {Seq: 9, Action: SettleDelivered}},
 	}
 	got, err := DecodeParams(p.Encode())
@@ -487,6 +489,10 @@ func TestCodecRoundTrip(t *testing.T) {
 	if _, err := DecodeParams(manyItems.Encode()); err == nil {
 		t.Fatalf("too many items")
 	}
+	tooFine := Params{Config: DenomConfig{Decimals: MaxDecimals + 1}}
+	if _, err := DecodeParams(tooFine.Encode()); err == nil {
+		t.Fatalf("too many decimals")
+	}
 	if _, err := DecodeParams(Params{}.Encode()); err != nil {
 		t.Fatalf("empty params: %v", err)
 	}
@@ -501,7 +507,7 @@ func TestReaderJSON(t *testing.T) {
 		t.Fatalf("reader")
 	}
 	js := rd.RouteJSON("ethereum-1")
-	for _, want := range []string{`"route":"ethereum-1"`, `"denom":"ugnot"`, `"kind":"unescrow"`, `"owed":1000`, `"sent":500`, `"fee_collector":"` + string(collector) + `"`} {
+	for _, want := range []string{`"route":"ethereum-1"`, `"denom":"ugnot"`, `"kind":"unescrow"`, `"owed":"1000"`, `"sent":"500"`, `"fee_collector":"` + string(collector) + `"`} {
 		if !strings.Contains(js, want) {
 			t.Fatalf("route json lacks %s: %s", want, js)
 		}
@@ -728,7 +734,7 @@ func TestReplaceClosesUntilReopened(t *testing.T) {
 // §7.12).
 func TestQueuedRefundsReserved(t *testing.T) {
 	_, rt := newRoute(t)
-	lock := int64(10_000)
+	lock := uint256(10_000)
 	rt.RecordSend(sendRec(1, "ugnot", KindUnescrow, 8_000))
 	rt.Settle(t0, 1, pk(1), OutcomeTimeout, true, lock) // held
 	if !mustCredit(t, rt, t0, 5, "ugnot", alice, 3_000, lock) {
@@ -738,7 +744,7 @@ func TestQueuedRefundsReserved(t *testing.T) {
 		t.Fatalf("swept a credit within the free lock")
 	}
 	// The claim pays only from what the refund leaves: 2000.
-	paid := int64(0)
+	paid := uint256(0)
 	for day := int64(1); day < 10; day++ {
 		ps, _ := rt.PayClaims(t0+day*Day, 0, t0, "ugnot", 20, lock-paid)
 		a, f := sumPay(ps)
@@ -749,19 +755,19 @@ func TestQueuedRefundsReserved(t *testing.T) {
 	}
 }
 
-// Losses near the int64 maximum on two denoms never wrap the route's
-// closure: it is decided denom by denom, sums saturate, and a loss past
-// int64 in total is booked exactly (design review r2 #1).
+// Losses past the int64 maximum on two denoms never wrap the route's
+// closure: it is decided denom by denom, and a loss past int64 in total is
+// booked exactly (design review r2 #1).
 func TestLossesNearMaximum(t *testing.T) {
 	_, rt := newRoute(t)
-	big := int64(5_000_000_000_000_000_000)
+	big := uint256(5_000_000_000_000_000_000)
 	if err := rt.RecordLoss(pk(1), "ugnot", big, ChainGno, "inc", "collision"); err != nil {
 		t.Fatal(err)
 	}
 	if err := rt.RecordLoss(pk(2), "ibc/WETH", big, ChainEthereum, "inc", "collision"); err != nil {
 		t.Fatal(err)
 	}
-	if !rt.ExposureClosed() || rt.Unresolved() != maxInt64 || rt.Unrecovered() != maxInt64 {
+	if !rt.ExposureClosed() || rt.Unresolved() != 2*big || rt.Unrecovered() != 2*big {
 		t.Fatalf("closed %v unresolved %d", rt.IsClosed(), rt.Unresolved())
 	}
 	if err := rt.RecordLoss(pk(3), "ugnot", big, ChainGno, "inc-2", "collision"); err != nil {
@@ -780,8 +786,7 @@ func TestLossesNearMaximum(t *testing.T) {
 }
 
 // Batch losses never wrap: four or five paid claims of 2^62 voided together
-// are booked exactly, the ledger's balances being wide (Codex round 3 #1,
-// design review r2 #1), and a reopening accepts all of them.
+// are booked exactly, past int64 (Codex round 3 #1, design review r2 #1).
 func TestBatchLossesNeverWrap(t *testing.T) {
 	for _, n := range []int{4, 5} {
 		_, rt := newRoute(t)
@@ -795,7 +800,7 @@ func TestBatchLossesNeverWrap(t *testing.T) {
 			t.Fatalf("%d claims of 2^62: %v", n, err)
 		}
 		d := rt.Denom("ibc/WETH")
-		if d.Totals.OpenUnresolved != maxInt64 || d.Totals.w[wUnres].hi != int64(n) {
+		if d.Totals.OpenUnresolved != uint256(n)<<62 {
 			t.Fatalf("%d claims of 2^62: %+v", n, d.Totals)
 		}
 	}
@@ -816,8 +821,8 @@ func TestBatchLossesNeverWrap(t *testing.T) {
 	if _, err := settleProven(rt, "ethereum-1", items, "inc", lockOf(0)); err != nil {
 		t.Fatalf("a settlement's losses past int64: %v", err)
 	}
-	if w := rt.Denom("ibc/WETH").Totals.w[wUnrec]; w.hi != 4 || w.lo != 0 {
-		t.Fatalf("booked %+v", w)
+	if got := rt.Denom("ibc/WETH").Totals.OpenUnrecovered; got != 4<<62 {
+		t.Fatalf("booked %d", got)
 	}
 }
 
@@ -847,14 +852,14 @@ func TestReopenInBatches(t *testing.T) {
 	}
 	n += 7
 	for !done {
-		var a int64
+		var a uint256
 		a, done, err = rt.ContinueReopen()
 		if err != nil {
 			t.Fatal(err)
 		}
 		total += a
 	}
-	if total != int64(n) || rt.IsClosed() || rt.Denom("ugnot").Totals.Unresolved() != 0 {
+	if total != uint256(n) || rt.IsClosed() || rt.Denom("ugnot").Totals.Unresolved() != 0 {
 		t.Fatalf("accepted %d of %d", total, n)
 	}
 }
@@ -893,11 +898,11 @@ func TestForgedVoidOfPaidSweep(t *testing.T) {
 
 // The loss ledger admits a loss against its outstanding balances, not its
 // lifetime totals (Codex round 11 #1): a loss fully recovered frees its
-// capacity, so repeated losses crossing MaxInt64 in total are booked; the
-// lifetime statistics saturate.
+// capacity, and repeated losses crossing MaxInt64 in total are booked exactly,
+// the lifetime statistics with them.
 func TestLossCapacityFreedByRecovery(t *testing.T) {
 	_, rt := newRoute(t)
-	const big5 = int64(5_000_000_000_000_000_000)
+	const big5 = uint256(5_000_000_000_000_000_000)
 	for i := 0; i < 3; i++ {
 		incident := "inc-" + itoa(int64(i))
 		if err := rt.RecordLoss(pk(uint64(100+i)), "ugnot", big5, ChainGno, incident, "collision"); err != nil {
@@ -915,16 +920,19 @@ func TestLossCapacityFreedByRecovery(t *testing.T) {
 		}
 	}
 	d := rt.Denom("ugnot")
-	if d.Totals.Unrecovered() != big5 || d.Totals.Unresolved() != big5 || d.Totals.Lost != maxInt64 {
+	if d.Totals.Unrecovered() != big5 || d.Totals.Unresolved() != big5 || d.Totals.Lost != 3*big5 {
 		t.Fatalf("%+v", d.Totals)
 	}
-	// The outstanding balance itself is wide: a loss past int64 in total is
-	// booked exactly.
+	// A loss past int64 in total is booked exactly.
 	if err := rt.RecordLoss(pk(200), "ugnot", big5, ChainGno, "inc-9", "collision"); err != nil {
 		t.Fatalf("a loss past int64 in total refused: %v", err)
 	}
-	if d.Totals.Unrecovered() != maxInt64 {
+	if d.Totals.Unrecovered() != 2*big5 {
 		t.Fatalf("%+v", d.Totals)
+	}
+	// A loss the ledger's balances cannot hold is refused, the balances kept.
+	if err := rt.RecordLoss(pk(201), "ugnot", maxAmount, ChainGno, "inc-9", "collision"); err == nil || d.Totals.Unrecovered() != 2*big5 {
+		t.Fatalf("a loss past the maximum: %v %+v", err, d.Totals)
 	}
 }
 
@@ -951,7 +959,7 @@ func TestReplacementAbortsReopening(t *testing.T) {
 	}
 	total, done, err := rt.Reopen()
 	for err == nil && !done {
-		var a int64
+		var a uint256
 		a, done, err = rt.ContinueReopen()
 		total += a
 	}
@@ -999,7 +1007,7 @@ func TestRecapitalizeAcceptedDeficit(t *testing.T) {
 // incident "inc".
 func remedyRoute(t *testing.T) *Route {
 	r, rt := newRoute(t)
-	lock := int64(100_000)
+	lock := uint256(100_000)
 	mustCredit(t, rt, t0, 1, "ugnot", alice, 50_000, lock)
 	mustCredit(t, rt, t0, 2, "ugnot", bob, 3_000, lock)
 	if _, err := rt.Credit(t0, 10, 0, pk(20), "ugnot", alice, 500, ByPacket, "bridge realm", big); err != nil {
@@ -1114,7 +1122,7 @@ func TestRemedyOrder(t *testing.T) {
 				if refused := after && p.accepts; (perr != nil) != refused {
 					t.Fatalf("%s: refused %v, want %v (%v)", name, perr != nil, refused, perr)
 				}
-				wantUnrec := int64(100)
+				wantUnrec := uint256(100)
 				if p.recovers {
 					wantUnrec = 40
 				}
@@ -1196,7 +1204,7 @@ func TestPayClaimsSweepsBridgeRealm(t *testing.T) {
 // (docs-vs-code review round 4 #3).
 func TestOpenRecapsBounded(t *testing.T) {
 	_, rt := newRoute(t)
-	lock := int64(100_000)
+	lock := uint256(100_000)
 	mustCredit(t, rt, t0, 1, "ugnot", alice, 50_000, lock)
 	if err := rt.RecordLoss(pk(10), "ugnot", 1_000, ChainGno, "inc", "collision"); err != nil {
 		t.Fatal(err)
@@ -1223,7 +1231,7 @@ func TestOpenRecapsBounded(t *testing.T) {
 	if err := rt.Reduce(pk(1), 700, "inc"); err != nil {
 		t.Fatal(err)
 	}
-	if got := rt.openRecaps("ugnot", "inc", 0).sat(); got != 300 {
+	if got := rt.openRecaps("ugnot", "inc", 0); got != 300 {
 		t.Fatalf("open after the reduction: %d", got)
 	}
 	r, _ := rt.Recap(ids[1])
@@ -1233,15 +1241,15 @@ func TestOpenRecapsBounded(t *testing.T) {
 	}
 }
 
-// The loss ledger never refuses a loss for its outstanding balances (design
-// review r2 #1): with q = MaxInt64/2, three cycles of a return burning q,
-// delivered, then refunded by a forged acknowledgement, leave three losses
-// of q to book in reconciliation, 3q past int64; each settles, and the
-// reopening accepts all of them and opens the route.
+// The loss ledger never refuses a loss past int64 (design review r2 #1):
+// with q = MaxInt64/2, three cycles of a return burning q, delivered, then
+// refunded by a forged acknowledgement, leave three losses of q to book in
+// reconciliation, 3q past int64; each settles, the balances are exact, and
+// the reopening accepts all of them and opens the route.
 func TestLossLedgerBeyondInt64(t *testing.T) {
 	const q = maxInt64 / 2
 	r, rt := newRoute(t)
-	cfg := DenomConfig{Kind: KindMint, CapFloor: maxInt64, SupplyCap: maxInt64, Fee: 10, FeeFloor: 1, RefundCap: maxInt64}
+	cfg := DenomConfig{Kind: KindMint, CapFloor: maxAmount, SupplyCap: maxAmount, Fee: 10, FeeFloor: 1, RefundCap: maxAmount}
 	if err := rt.SetDenom("ibc/BIG", cfg, t0, 0, q); err != nil {
 		t.Fatal(err)
 	}
@@ -1258,10 +1266,10 @@ func TestLossLedgerBeyondInt64(t *testing.T) {
 			t.Fatalf("loss %d: %v", i, err)
 		}
 	}
-	if d.Totals.OpenUnrecovered != maxInt64 || d.Totals.OpenUnresolved != maxInt64 {
+	if d.Totals.OpenUnrecovered != 3*q || d.Totals.OpenUnresolved != 3*q {
 		t.Fatalf("%+v", d.Totals)
 	}
-	if _, done, err := rt.Reopen(); err != nil || !done || rt.IsClosed() || d.Totals.OpenUnresolved != 0 || d.Totals.OpenUnrecovered != maxInt64 {
+	if _, done, err := rt.Reopen(); err != nil || !done || rt.IsClosed() || d.Totals.OpenUnresolved != 0 || d.Totals.OpenUnrecovered != 3*q {
 		t.Fatalf("reopen: %v %v %+v", done, err, d.Totals)
 	}
 }
@@ -1278,7 +1286,7 @@ func TestCreditByVoteAfterManyReplacements(t *testing.T) {
 	if err := rt.SetDenom("ugnot", gnot(), t0, 0, 0); err != nil {
 		t.Fatal(err)
 	}
-	const lock = int64(100_000)
+	const lock = uint256(100_000)
 	if !mustCredit(t, rt, t0, 4, "ugnot", carol, lock, 0) { // no free lock: swept
 		t.Fatalf("setup: not swept")
 	}
@@ -1436,5 +1444,45 @@ func TestMirrorLossAcceptedOnly(t *testing.T) {
 	}
 	if err := rt.Accept("ugnot", 500, "m"); err != nil || rt.Incident("ugnot", "m").OpenUnresolved != 0 {
 		t.Fatalf("the mirror is not accepted: %v", err)
+	}
+}
+
+// A forged void's losses are checked against the ledger's balances before
+// anything changes (uint256 code review r1 #2): each is within a paid claim
+// or entry, but the balances hold every earlier loss too, of every incident
+// of the denom, and the batch is summed per denom.
+func TestForgedVoidLossesPreflighted(t *testing.T) {
+	_, rt := newRoute(t)
+	if err := rt.RecordLoss(pk(1), "ibc/WETH", maxAmount-5, ChainGno, "inc", "collision"); err != nil {
+		t.Fatal(err)
+	}
+	for i, paid := range []uint256{3, 3, 6} {
+		k := pk(uint64(100 + i))
+		rt.claims.Set(k, &Claim{Key: k, Denom: "ibc/WETH", To: alice, Amount: paid, Paid: paid, State: Done})
+	}
+	d := rt.Denom("ibc/WETH")
+	before, booked := d.Totals, rt.lossesBooked
+	// One payout past the room, two that fit alone but not together; the
+	// denom's room is shared by its incidents.
+	for _, keys := range [][]string{{pk(102)}, {pk(100), pk(101)}} {
+		for _, inc := range []string{"inc", "inc-2"} {
+			if err := rt.Void(keys, true, inc); err == nil {
+				t.Fatalf("voided %v under %s past the ledger's balances", keys, inc)
+			}
+		}
+	}
+	if d.Totals != before || rt.lossesBooked != booked {
+		t.Fatalf("a refused void changed state: %+v", d.Totals)
+	}
+	for _, k := range []string{pk(100), pk(101), pk(102)} {
+		if c, _ := rt.Claim(k); c.State != Done {
+			t.Fatalf("%s voided", k)
+		}
+	}
+	if err := rt.Void([]string{pk(100)}, true, "inc-2"); err != nil {
+		t.Fatal(err)
+	}
+	if d.Totals.OpenUnrecovered != maxAmount-2 || rt.Incident("ibc/WETH", "inc-2").OpenUnrecovered != 3 {
+		t.Fatalf("booked %+v", d.Totals)
 	}
 }

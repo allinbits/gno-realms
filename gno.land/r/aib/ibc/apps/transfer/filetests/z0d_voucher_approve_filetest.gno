@@ -15,7 +15,7 @@ import (
 	_ "gno.land/r/aib/ibc/apps/transfer/impl/v1"
 	"gno.land/r/aib/ibc/core"
 	_ "gno.land/r/aib/ibc/core/impl/v0"
-	"gno.land/r/nt/grc20reg/v0"
+	"gno.land/r/nt/grc20reg/v1"
 )
 
 // VoucherApprove: success for IBC voucher token via MsgCall helper.
@@ -207,7 +207,7 @@ func mintVoucher(cur realm, clientID, counterpartyID string, trustedHeight types
 //         "value": "0"
 //       }
 //     ],
-//     "pkg_path": "gno.land/p/nt/grc20/v0"
+//     "pkg_path": "gno.land/p/nt/grc20/v1"
 //   },
 //   {
 //     "type": "register",
@@ -229,7 +229,7 @@ func mintVoucher(cur realm, clientID, counterpartyID string, trustedHeight types
 //         "value": "IBC-1"
 //       }
 //     ],
-//     "pkg_path": "gno.land/r/nt/grc20reg/v0"
+//     "pkg_path": "gno.land/r/nt/grc20reg/v1"
 //   },
 //   {
 //     "type": "Transfer",
@@ -251,7 +251,7 @@ func mintVoucher(cur realm, clientID, counterpartyID string, trustedHeight types
 //         "value": "100"
 //       }
 //     ],
-//     "pkg_path": "gno.land/p/nt/grc20/v0"
+//     "pkg_path": "gno.land/p/nt/grc20/v1"
 //   },
 //   {
 //     "type": "fungible_token_packet",
@@ -333,6 +333,6 @@ func mintVoucher(cur realm, clientID, counterpartyID string, trustedHeight types
 //         "value": "40"
 //       }
 //     ],
-//     "pkg_path": "gno.land/p/nt/grc20/v0"
+//     "pkg_path": "gno.land/p/nt/grc20/v1"
 //   }
 // ]

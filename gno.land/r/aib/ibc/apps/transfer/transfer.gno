@@ -15,7 +15,9 @@ import (
 //   - Native coin (everything else): the coin must be sent with the transaction
 //     via the send field, and must match denom and amount.
 //
-// memo is included in the IBC packet payload.
+// memo is included in the IBC packet payload. amount is in base units, a
+// uint256: a native coin's amount (plus the route fee on an Ethereum route)
+// must fit an int64, the chain's coin maximum.
 //
 // The classification and the packet construction are the implementation's
 // (see upgrade.gno). Three things stay here. The value-moving authority must
@@ -29,7 +31,7 @@ import (
 // reported as stranded). And the sends the implementation records for
 // OnSendPacket are cleared on every exit path, so nothing bleeds into a later
 // transaction.
-func Transfer(cur realm, clientID, receiver, denom string, amount int64, timeoutTimestamp uint64, memo string) (
+func Transfer(cur realm, clientID, receiver, denom string, amount uint256, timeoutTimestamp uint64, memo string) (
 	packet types.MsgSendPacket, sequence uint64,
 ) {
 	if !cur.Previous().IsUserCall() {
@@ -43,7 +45,7 @@ func Transfer(cur realm, clientID, receiver, denom string, amount int64, timeout
 // caller to the provided recipient. The recipient is taken in its canonical
 // spelling: the ledger keys balances by the string, so an uppercase one
 // would credit a balance its owner cannot spend.
-func VoucherSend(cur realm, ibcDenom string, to address, amount int64) {
+func VoucherSend(cur realm, ibcDenom string, to address, amount uint256) {
 	to = mustCanonicalAddress(to)
 	inst := getVoucher(ibcDenom)
 	if inst == nil {
@@ -57,7 +59,7 @@ func VoucherSend(cur realm, ibcDenom string, to address, amount int64) {
 
 // VoucherApprove is a convenience helper to set a spender allowance for an IBC
 // voucher token on behalf of the caller, for the spender's canonical spelling.
-func VoucherApprove(cur realm, ibcDenom string, spender address, amount int64) {
+func VoucherApprove(cur realm, ibcDenom string, spender address, amount uint256) {
 	spender = mustCanonicalAddress(spender)
 	inst := getVoucher(ibcDenom)
 	if inst == nil {

@@ -1,11 +1,11 @@
 package ics20
 
 import (
+	"strconv"
 	"strings"
 
 	"gno.land/p/aib/encoding/proto/v0"
 	"gno.land/p/nt/ufmt/v0"
-	"gno.land/p/onbloc/int256/v0"
 )
 
 // FungibleTokenPacketData defines a struct for the packet payload
@@ -121,12 +121,12 @@ func (f *FungibleTokenPacketData) ProtoUnmarshal(bz []byte) error {
 
 // ValidateBasic is used for validating the token transfer.
 func (f FungibleTokenPacketData) ValidateBasic() error {
-	amount, err := int256.FromDecimal(f.Amount)
+	amount, err := strconv.ParseUint256(f.Amount, 10)
 	if err != nil {
 		return ufmt.Errorf("unable to parse transfer amount %q: %v", f.Amount, err)
 	}
-	if amount.Sign() != 1 {
-		return ufmt.Errorf("amount must be strictly positive: got %s", amount)
+	if amount == 0 {
+		return ufmt.Errorf("amount must be strictly positive: got %s", f.Amount)
 	}
 	if strings.TrimSpace(f.Sender) == "" {
 		return ufmt.Errorf("sender address cannot be blank")

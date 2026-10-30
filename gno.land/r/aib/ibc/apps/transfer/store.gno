@@ -3,15 +3,17 @@ package transfer
 import (
 	"chain"
 	"chain/banker"
+	"math"
+	"math/overflow"
 	"strconv"
 	"strings"
 
 	"gno.land/p/aib/ibc/ics20/v0"
 	"gno.land/p/nt/bptree/v0"
-	"gno.land/p/nt/grc20/v0"
+	"gno.land/p/nt/grc20/v1"
 	"gno.land/p/nt/seqid/v0"
 	"gno.land/p/nt/ufmt/v0"
-	"gno.land/r/nt/grc20reg/v0"
+	"gno.land/r/nt/grc20reg/v1"
 )
 
 // The state of the transfer app lives in this realm forever (see ADR 0002):
@@ -25,6 +27,13 @@ import (
 // because this realm is the home of the voucher tokens and the holder of the
 // escrow, and because each of them keeps the escrow accounting in step with
 // the balances.
+//
+// Amounts are uint256, the range of an ICS20 amount on the wire and of a
+// grc20 v1 token (ADR pr6375 R15; gno ADR pr6387, pr6388): vouchers and
+// GRC20 escrow count in it exactly. Native coins stay int64, so the two
+// native paths convert at the boundary: a coin that landed here widens
+// (CoinAmount), and a release is refused above math.MaxInt64 (coinOf), which
+// the escrow invariant never reaches for a native denom.
 
 // Store is the proxy-owned state and the value-moving services, as seen by an
 // implementation.
@@ -36,49 +45,56 @@ type Store interface {
 	// Denoms is a read-only view; values are ics20.Denom.
 	Denoms() bptree.ITree
 
-	// Escrow accounting per (client, denom). AddEscrow records coins that
-	// already landed at this realm (a native transfer); the GRC20 and
-	// release paths below keep the accounting in step with the moves.
-	AddEscrow(_ int, rlm realm, clientID string, c chain.Coin)
-	CheckEscrow(clientID string, c chain.Coin) error
+	// Escrow accounting per (client, denom), in base units. AddEscrow
+	// records value that already landed at this realm (a native transfer);
+	// the GRC20 and release paths below keep the accounting in step with
+	// the moves.
+	AddEscrow(_ int, rlm realm, clientID, denom string, amount uint256)
+	CheckEscrow(clientID, denom string, amount uint256) error
 	// IterateEscrow walks the accounting, clients in key order and their
 	// denoms in key order, until fn returns true.
-	IterateEscrow(fn func(clientID string, c chain.Coin) bool)
+	IterateEscrow(fn func(clientID, denom string, amount uint256) bool)
 	// Escrowed is the amount of denom accounted to clientID (a client id, or
 	// the route key of a controlled route), 0 if none.
-	Escrowed(clientID, denom string) int64
+	Escrowed(clientID, denom string) uint256
 	// EscrowTotals is a read-only view of the amount escrowed per denom
-	// across all clients (denom:chain.Coin), and EscrowClients one of the
-	// amount escrowed per client for denom (clientID:chain.Coin). Unlike
+	// across all clients (denom:uint256), and EscrowClients one of the
+	// amount escrowed per client for denom (clientID:uint256). Unlike
 	// IterateEscrow they can be paged, so listings stay bounded however many
 	// clients escrow.
 	EscrowTotals() bptree.ITree
 	EscrowClients(denom string) bptree.ITree
 
-	// EscrowGRC20 moves c from `from` to this realm (TransferFrom, so the
-	// owner must have approved this realm) and records it under clientID.
-	EscrowGRC20(_ int, rlm realm, clientID, denomKey string, from address, c chain.Coin) error
-	// UnescrowGRC20 and UnescrowNative release c to receiver out of what
-	// clientID escrowed: check, move, then debit.
-	UnescrowGRC20(_ int, rlm realm, clientID, receiver string, c chain.Coin) error
-	UnescrowNative(_ int, rlm realm, clientID, receiver string, c chain.Coin) error
+	// EscrowGRC20 moves amount of the grc20reg token denomKey from `from` to
+	// this realm (TransferFrom, so the owner must have approved this realm)
+	// and records it under clientID as the token's alias (GRC20Alias).
+	EscrowGRC20(_ int, rlm realm, clientID, denomKey string, from address, amount uint256) error
+	// UnescrowGRC20 and UnescrowNative release amount of denom (a GRC20
+	// alias, or a native coin denom) to receiver out of what clientID
+	// escrowed: check, move, then debit. A native amount above
+	// math.MaxInt64 is refused: no coin holds it.
+	UnescrowGRC20(_ int, rlm realm, clientID, receiver, denom string, amount uint256) error
+	UnescrowNative(_ int, rlm realm, clientID, receiver, denom string, amount uint256) error
 
 	// Vouchers: the tokens and their ledgers never leave this realm.
 	VoucherToken(ibcDenom string) *grc20.Token
 	// Vouchers is a read-only view; values are *grc20.Token.
 	Vouchers() bptree.ITree
-	GetOrCreateVoucher(_ int, rlm realm, baseDenom, voucherDenom string) *grc20.Token
-	MintVoucher(_ int, rlm realm, ibcDenom string, to address, amount int64) error
-	BurnVoucher(_ int, rlm realm, ibcDenom string, from address, amount int64) error
+	// GetOrCreateVoucher is the voucher of voucherDenom, created with
+	// decimals (0 to grc20.MaxDecimals) if it did not exist: an existing
+	// voucher keeps the decimals it was created with, whatever is passed.
+	GetOrCreateVoucher(_ int, rlm realm, baseDenom, voucherDenom string, decimals int) *grc20.Token
+	MintVoucher(_ int, rlm realm, ibcDenom string, to address, amount uint256) error
+	BurnVoucher(_ int, rlm realm, ibcDenom string, from address, amount uint256) error
 
 	// The sends Transfer authorizes for OnSendPacket. Transfer clears them on
 	// every exit path (see transfer.gno); the Consume* readers clear their
 	// slot as well.
 	SetPendingNativeEscrow(_ int, rlm realm, c chain.Coin)
 	PendingNativeEscrow() (chain.Coin, bool)
-	SetPendingVoucherSend(_ int, rlm realm, sender, sourceClient, denom string, amount int64)
+	SetPendingVoucherSend(_ int, rlm realm, sender, sourceClient, denom string, amount uint256)
 	ConsumePendingVoucherSend(_ int, rlm realm) (PendingSend, bool)
-	SetPendingGRC20Send(_ int, rlm realm, sender, sourceClient, denom string, amount int64)
+	SetPendingGRC20Send(_ int, rlm realm, sender, sourceClient, denom string, amount uint256)
 	ConsumePendingGRC20Send(_ int, rlm realm) (PendingSend, bool)
 
 	// Extension state: values an implementation keeps in this realm under a
@@ -106,16 +122,16 @@ type PendingSend struct {
 	Sender       string
 	SourceClient string
 	Denom        string
-	Amount       int64
+	Amount       uint256
 }
 
 var (
 	denoms      *bptree.BPTree // ibcDenom:ics20.Denom
-	totalEscrow *bptree.BPTree // clientID:*bptree.BPTree(denom:chain.Coin)
+	totalEscrow *bptree.BPTree // clientID:*bptree.BPTree(denom:uint256)
 	// escrowByDenom and escrowTotals index totalEscrow by denom (see
 	// indexEscrow), for the paged listings of EscrowTotals and EscrowClients.
-	escrowByDenom *bptree.BPTree // denom:*bptree.BPTree(clientID:chain.Coin)
-	escrowTotals  *bptree.BPTree // denom:chain.Coin
+	escrowByDenom *bptree.BPTree // denom:*bptree.BPTree(clientID:uint256)
+	escrowTotals  *bptree.BPTree // denom:uint256
 	voucherTokens *bptree.BPTree // ibcDenom:*voucher
 
 	// nextVoucherID allocates a unique grc20 token id for each voucher, and
@@ -177,28 +193,28 @@ func (transferStore) SetDenom(_ int, rlm realm, d ics20.Denom) {
 
 func (transferStore) Denoms() bptree.ITree { return readOnlyTree{t: denoms} }
 
-func (transferStore) AddEscrow(_ int, rlm realm, clientID string, c chain.Coin) {
+func (transferStore) AddEscrow(_ int, rlm realm, clientID, denom string, amount uint256) {
 	assertProxyRealm(0, rlm)
-	addEscrowForClient(clientID, c)
+	addEscrowForClient(clientID, denom, amount)
 }
 
-func (transferStore) CheckEscrow(clientID string, c chain.Coin) error {
-	return checkEscrowForClient(clientID, c)
+func (transferStore) CheckEscrow(clientID, denom string, amount uint256) error {
+	return checkEscrowForClient(clientID, denom, amount)
 }
 
-func (transferStore) IterateEscrow(fn func(clientID string, c chain.Coin) bool) {
+func (transferStore) IterateEscrow(fn func(clientID, denom string, amount uint256) bool) {
 	totalEscrow.IterateByOffset(0, totalEscrow.Size(), func(clientID string, v any) bool {
 		t := v.(*bptree.BPTree)
 		stop := false
-		t.IterateByOffset(0, t.Size(), func(_ string, cv any) bool {
-			stop = fn(clientID, cv.(chain.Coin))
+		t.IterateByOffset(0, t.Size(), func(denom string, cv any) bool {
+			stop = fn(clientID, denom, cv.(uint256))
 			return stop
 		})
 		return stop
 	})
 }
 
-func (transferStore) Escrowed(clientID, denom string) int64 {
+func (transferStore) Escrowed(clientID, denom string) uint256 {
 	t := getEscrowForClient(clientID)
 	if t == nil {
 		return 0
@@ -207,7 +223,7 @@ func (transferStore) Escrowed(clientID, denom string) int64 {
 	if x == nil {
 		return 0
 	}
-	return x.(chain.Coin).Amount
+	return x.(uint256)
 }
 
 func (transferStore) InitExt(_ int, rlm realm, key string, ctor func() any) {
@@ -247,28 +263,28 @@ func (transferStore) EscrowClients(denom string) bptree.ITree {
 	return readOnlyTree{t: bptree.NewBPTree32()}
 }
 
-func (transferStore) EscrowGRC20(_ int, rlm realm, clientID, denomKey string, from address, c chain.Coin) error {
+func (transferStore) EscrowGRC20(_ int, rlm realm, clientID, denomKey string, from address, amount uint256) error {
 	assertProxyRealm(0, rlm)
 	token := grc20reg.Get(denomKey)
 	if token == nil {
 		return ufmt.Errorf("GRC20 token %s not found in grc20reg", denomKey)
 	}
 	teller := token.RealmTeller(0, rlm)
-	if err := teller.TransferFrom(0, rlm, from, rlm.Address(), c.Amount); err != nil {
+	if err := teller.TransferFrom(0, rlm, from, rlm.Address(), amount); err != nil {
 		return ufmt.Errorf("escrow GRC20 %s error: %v", denomKey, err)
 	}
-	addEscrowForClient(clientID, c)
+	addEscrowForClient(clientID, GRC20Alias(denomKey), amount)
 	return nil
 }
 
-func (transferStore) UnescrowGRC20(_ int, rlm realm, clientID, receiver string, c chain.Coin) error {
+func (transferStore) UnescrowGRC20(_ int, rlm realm, clientID, receiver, denom string, amount uint256) error {
 	assertProxyRealm(0, rlm)
-	return unescrowGRC20(0, rlm, clientID, receiver, c)
+	return unescrowGRC20(0, rlm, clientID, receiver, denom, amount)
 }
 
-func (transferStore) UnescrowNative(_ int, rlm realm, clientID, receiver string, c chain.Coin) error {
+func (transferStore) UnescrowNative(_ int, rlm realm, clientID, receiver, denom string, amount uint256) error {
 	assertProxyRealm(0, rlm)
-	return unescrowNative(0, rlm, clientID, receiver, c)
+	return unescrowNative(0, rlm, clientID, receiver, denom, amount)
 }
 
 func (transferStore) VoucherToken(ibcDenom string) *grc20.Token {
@@ -283,12 +299,12 @@ func (transferStore) Vouchers() bptree.ITree {
 	return readOnlyTree{t: voucherTokens, mapValue: func(v any) any { return v.(*voucher).token }}
 }
 
-func (transferStore) GetOrCreateVoucher(_ int, rlm realm, baseDenom, voucherDenom string) *grc20.Token {
+func (transferStore) GetOrCreateVoucher(_ int, rlm realm, baseDenom, voucherDenom string, decimals int) *grc20.Token {
 	assertProxyRealm(0, rlm)
-	return getOrCreateVoucher(0, rlm, baseDenom, voucherDenom).token
+	return getOrCreateVoucher(0, rlm, baseDenom, voucherDenom, decimals).token
 }
 
-func (transferStore) MintVoucher(_ int, rlm realm, ibcDenom string, to address, amount int64) error {
+func (transferStore) MintVoucher(_ int, rlm realm, ibcDenom string, to address, amount uint256) error {
 	assertProxyRealm(0, rlm)
 	inst := getVoucher(ibcDenom)
 	if inst == nil {
@@ -297,7 +313,7 @@ func (transferStore) MintVoucher(_ int, rlm realm, ibcDenom string, to address, 
 	return inst.ledger.Mint(to, amount)
 }
 
-func (transferStore) BurnVoucher(_ int, rlm realm, ibcDenom string, from address, amount int64) error {
+func (transferStore) BurnVoucher(_ int, rlm realm, ibcDenom string, from address, amount uint256) error {
 	assertProxyRealm(0, rlm)
 	inst := getVoucher(ibcDenom)
 	if inst == nil {
@@ -318,7 +334,7 @@ func (transferStore) PendingNativeEscrow() (chain.Coin, bool) {
 	return *pendingNativeEscrow, true
 }
 
-func (transferStore) SetPendingVoucherSend(_ int, rlm realm, sender, sourceClient, denom string, amount int64) {
+func (transferStore) SetPendingVoucherSend(_ int, rlm realm, sender, sourceClient, denom string, amount uint256) {
 	assertProxyRealm(0, rlm)
 	pendingVoucherSend = &PendingSend{Sender: sender, SourceClient: sourceClient, Denom: denom, Amount: amount}
 }
@@ -333,7 +349,7 @@ func (transferStore) ConsumePendingVoucherSend(_ int, rlm realm) (PendingSend, b
 	return ps, true
 }
 
-func (transferStore) SetPendingGRC20Send(_ int, rlm realm, sender, sourceClient, denom string, amount int64) {
+func (transferStore) SetPendingGRC20Send(_ int, rlm realm, sender, sourceClient, denom string, amount uint256) {
 	assertProxyRealm(0, rlm)
 	pendingGRC20Send = &PendingSend{Sender: sender, SourceClient: sourceClient, Denom: denom, Amount: amount}
 }
@@ -401,9 +417,29 @@ func (r readOnlyTree) ReverseIterateByOffset(offset, count int, cb bptree.IterCb
 func (readOnlyTree) Set(string, any) bool      { panic("transfer: read-only tree") }
 func (readOnlyTree) Remove(string) (any, bool) { panic("transfer: read-only tree") }
 
-// escrowForClient returns the per-client denom->coin tree, creating it on first
-// access. Escrow is accounted per (client, denom) so a malicious client cannot
-// release funds escrowed under a different client (see shared-escrow drain).
+// CoinAmount is a coin's amount as a uint256: the widening of a native coin
+// that landed at this realm. A coin never holds a negative amount.
+func CoinAmount(c chain.Coin) uint256 {
+	if c.Amount < 0 {
+		panic("transfer: a negative coin amount")
+	}
+	return uint256(c.Amount)
+}
+
+// coinOf is amount of denom as a coin: refused above math.MaxInt64, the most
+// a coin holds. A native denom's escrow is made of coins, so a release within
+// it always fits; the check keeps the conversion from ever truncating.
+func coinOf(denom string, amount uint256) (chain.Coin, error) {
+	if amount > math.MaxInt64 {
+		return chain.Coin{}, ufmt.Errorf("%s %s is above the chain's coin maximum", strconv.FormatUint256(amount, 10), denom)
+	}
+	return chain.NewCoin(denom, int64(amount)), nil
+}
+
+// escrowForClient returns the per-client denom->amount tree, creating it on
+// first access. Escrow is accounted per (client, denom) so a malicious client
+// cannot release funds escrowed under a different client (see shared-escrow
+// drain).
 func escrowForClient(clientID string) *bptree.BPTree {
 	t := getEscrowForClient(clientID)
 	if t == nil {
@@ -425,66 +461,75 @@ func getEscrowForClient(clientID string) *bptree.BPTree {
 	return v.(*bptree.BPTree)
 }
 
-// addEscrowForClient records coins escrowed under clientID. Used when this chain
-// sends tokens over clientID (OnSendPacket); the matching release can only come
-// back through the same client.
-func addEscrowForClient(clientID string, c chain.Coin) {
+// addEscrowForClient records amount of denom escrowed under clientID. Used
+// when this chain sends tokens over clientID (OnSendPacket); the matching
+// release can only come back through the same client.
+func addEscrowForClient(clientID, denom string, amount uint256) {
 	t := escrowForClient(clientID)
-	balance := c
-	if x := t.Get(c.Denom); x != nil {
-		balance = x.(chain.Coin).Add(c)
+	balance := amount
+	if x := t.Get(denom); x != nil {
+		s, ok := overflow.Addu256(x.(uint256), amount)
+		if !ok {
+			panic("transfer: the escrow accounting would overflow")
+		}
+		balance = s
 	}
-	t.Set(c.Denom, balance)
-	indexEscrow(clientID, balance, c.Amount)
+	t.Set(denom, balance)
+	indexEscrow(clientID, denom, balance, amount, true)
 }
 
-// checkEscrowForClient verifies clientID locked enough of c.Denom, without
+// checkEscrowForClient verifies clientID locked enough of denom, without
 // mutating the accounting. Read-only so callers can move tokens between the
 // check and the debit (see unescrowGRC20/unescrowNative).
-func checkEscrowForClient(clientID string, c chain.Coin) error {
-	t := getEscrowForClient(clientID)
-	if t == nil {
-		return ufmt.Errorf("insufficient escrow for client %s denom %s: have 0, want %d", clientID, c.Denom, c.Amount)
+func checkEscrowForClient(clientID, denom string, amount uint256) error {
+	var have uint256
+	if t := getEscrowForClient(clientID); t != nil {
+		if x := t.Get(denom); x != nil {
+			have = x.(uint256)
+		}
 	}
-	x := t.Get(c.Denom)
-	if x == nil {
-		return ufmt.Errorf("insufficient escrow for client %s denom %s: have 0, want %d", clientID, c.Denom, c.Amount)
-	}
-	have := x.(chain.Coin)
-	if have.Amount < c.Amount {
-		return ufmt.Errorf("insufficient escrow for client %s denom %s: have %d, want %d", clientID, c.Denom, have.Amount, c.Amount)
+	if have < amount {
+		return ufmt.Errorf("insufficient escrow for client %s denom %s: have %s, want %s", clientID, denom,
+			strconv.FormatUint256(have, 10), strconv.FormatUint256(amount, 10))
 	}
 	return nil
 }
 
-// debitEscrowForClient subtracts c from clientID's balance. Assumes
-// checkEscrowForClient already passed.
-func debitEscrowForClient(clientID string, c chain.Coin) {
+// debitEscrowForClient subtracts amount from clientID's balance of denom.
+// Assumes checkEscrowForClient already passed.
+func debitEscrowForClient(clientID, denom string, amount uint256) {
 	t := escrowForClient(clientID)
-	x := t.Get(c.Denom)
-	have := x.(chain.Coin)
-	balance := chain.NewCoin(c.Denom, have.Amount-c.Amount)
-	t.Set(c.Denom, balance)
-	indexEscrow(clientID, balance, -c.Amount)
+	balance := t.Get(denom).(uint256) - amount
+	t.Set(denom, balance)
+	indexEscrow(clientID, denom, balance, amount, false)
 }
 
-// indexEscrow mirrors clientID's new balance of a denom into escrowByDenom,
-// and adds delta to the denom's total in escrowTotals. Every change to the
-// per-client accounting goes through it.
-func indexEscrow(clientID string, balance chain.Coin, delta int64) {
+// indexEscrow mirrors clientID's new balance of denom into escrowByDenom,
+// and adds delta to (add) or subtracts it from the denom's total in
+// escrowTotals. Every change to the per-client accounting goes through it.
+func indexEscrow(clientID, denom string, balance, delta uint256, add bool) {
 	var byClient *bptree.BPTree
-	if v := escrowByDenom.Get(balance.Denom); v != nil {
+	if v := escrowByDenom.Get(denom); v != nil {
 		byClient = v.(*bptree.BPTree)
 	} else {
 		byClient = bptree.NewBPTree32()
-		escrowByDenom.Set(balance.Denom, byClient)
+		escrowByDenom.Set(denom, byClient)
 	}
 	byClient.Set(clientID, balance)
-	total := delta
-	if v := escrowTotals.Get(balance.Denom); v != nil {
-		total += v.(chain.Coin).Amount
+	var total uint256
+	if v := escrowTotals.Get(denom); v != nil {
+		total = v.(uint256)
 	}
-	escrowTotals.Set(balance.Denom, chain.NewCoin(balance.Denom, total))
+	if add {
+		s, ok := overflow.Addu256(total, delta)
+		if !ok {
+			panic("transfer: the escrow accounting would overflow")
+		}
+		total = s
+	} else {
+		total -= delta
+	}
+	escrowTotals.Set(denom, total)
 }
 
 // unescrowGRC20 returns escrowed GRC20 tokens to receiver. The check runs
@@ -492,20 +537,20 @@ func indexEscrow(clientID string, balance chain.Coin, delta int64) {
 // successful transfer: OnRecvPacket returning Failure does not roll back realm
 // store writes (IBCApp contract), so debiting first would lock the funds on a
 // transfer failure.
-func unescrowGRC20(_ int, rlm realm, clientID, receiver string, coin chain.Coin) error {
-	denomKey := ResolveGRC20Alias(coin.Denom)
+func unescrowGRC20(_ int, rlm realm, clientID, receiver, denom string, amount uint256) error {
+	denomKey := ResolveGRC20Alias(denom)
 	token := grc20reg.Get(denomKey)
 	if token == nil {
 		return ufmt.Errorf("GRC20 token %s not found in grc20reg", denomKey)
 	}
-	if err := checkEscrowForClient(clientID, coin); err != nil {
+	if err := checkEscrowForClient(clientID, denom, amount); err != nil {
 		return err
 	}
 	teller := token.RealmTeller(0, rlm)
-	if err := teller.Transfer(0, rlm, address(receiver), coin.Amount); err != nil {
+	if err := teller.Transfer(0, rlm, address(receiver), amount); err != nil {
 		return ufmt.Errorf("unescrow GRC20 %s error: %v", denomKey, err)
 	}
-	debitEscrowForClient(clientID, coin)
+	debitEscrowForClient(clientID, denom, amount)
 	return nil
 }
 
@@ -515,19 +560,22 @@ func unescrowGRC20(_ int, rlm realm, clientID, receiver string, coin chain.Coin)
 // changes. Per-client isolation is enforced by checkEscrowForClient's
 // accounting, not the banker, since the realm holds a single physical escrow
 // account (no per-client addresses in Gno).
-func unescrowNative(_ int, rlm realm, clientID, receiver string, coin chain.Coin) error {
-	if err := checkEscrowForClient(clientID, coin); err != nil {
+func unescrowNative(_ int, rlm realm, clientID, receiver, denom string, amount uint256) error {
+	if err := checkEscrowForClient(clientID, denom, amount); err != nil {
+		return err
+	}
+	coin, err := coinOf(denom, amount)
+	if err != nil {
 		return err
 	}
 	var (
 		// TODO no app/clientID specific escrow address ?
 		from   = rlm.Address()
 		to     = address(receiver)
-		amount = chain.NewCoins(coin)
 		banker = banker.NewBanker(banker.BankerTypeRealmSend, rlm)
 	)
-	banker.SendCoins(from, to, amount)
-	debitEscrowForClient(clientID, coin)
+	banker.SendCoins(from, to, chain.NewCoins(coin))
+	debitEscrowForClient(clientID, denom, amount)
 	return nil
 }
 
@@ -563,6 +611,17 @@ func VoucherSymbol(ibcDenom string) string {
 	return v.(*voucher).symbol
 }
 
+// VoucherDecimals returns the decimals of the voucher of an IBC denom, and
+// whether it has one yet. A voucher's decimals are fixed when it is created
+// (getOrCreateVoucher): a route's configuration naming others is refused.
+func VoucherDecimals(ibcDenom string) (int, bool) {
+	v := voucherTokens.Get(ibcDenom)
+	if v == nil {
+		return 0, false
+	}
+	return v.(*voucher).token.GetDecimals(), true
+}
+
 // voucherSymbolOf is the symbol of the voucher with grc20 id id.
 func voucherSymbolOf(id uint64) string {
 	sym := "IBC-" + strings.ToUpper(strconv.FormatUint(id, 36))
@@ -580,14 +639,17 @@ func voucherSymbolOf(id uint64) string {
 // The token's name is the base denom, its symbol is allocated from the
 // voucher ids (see VoucherSymbol), and its grc20reg slug is the full hash:
 // the registry key rlmpath.symbol is unique per voucher, so no denom,
-// whatever its hash, can take another's key.
-func getOrCreateVoucher(_ int, rlm realm, baseDenom, voucherDenom string) *voucher {
+// whatever its hash, can take another's key. Its decimals are the
+// implementation's to name (an ICS20 packet carries no token metadata: on an
+// Ethereum route the denom's governed configuration, 0 elsewhere), and
+// grc20 fixes them at creation: an existing voucher keeps its own.
+func getOrCreateVoucher(_ int, rlm realm, baseDenom, voucherDenom string, decimals int) *voucher {
 	if v := voucherTokens.Get(voucherDenom); v != nil {
 		return v.(*voucher)
 	}
 	id := nextVoucherID.Next()
 	sym := voucherSymbolOf(uint64(id))
-	token, ledger := grc20.NewToken(baseDenom, sym, 0, id, rlm)
+	token, ledger := grc20.NewToken(baseDenom, sym, decimals, id, rlm)
 	inst := &voucher{token: token, ledger: ledger, symbol: sym}
 	voucherTokens.Set(voucherDenom, inst)
 	grc20reg.Register(cross(rlm), token, voucherDenom[len("ibc/"):])
@@ -606,7 +668,7 @@ func getVoucher(ibcDenom string) *voucher {
 
 // VoucherBalanceOf returns the balance of a voucher token for a given address.
 // Returns 0 if the token does not exist.
-func VoucherBalanceOf(ibcDenom string, addr address) int64 {
+func VoucherBalanceOf(ibcDenom string, addr address) uint256 {
 	inst := getVoucher(ibcDenom)
 	if inst == nil {
 		return 0

@@ -20,7 +20,7 @@ func (g *lcg) next(n int64) int64 {
 // ceiling): the fractional remainder is carried.
 func TestMeterRefillSumsToRate(t *testing.T) {
 	g := &lcg{s: 7}
-	rates := []int64{1, 7, 86399, 86400, 86401, 1_000_000, 10_000_000_000, 123_456_789_123}
+	rates := []uint256{1, 7, 86399, 86400, 86401, 1_000_000, 10_000_000_000, 123_456_789_123}
 	for _, rate := range rates {
 		for trial := 0; trial < 20; trial++ {
 			m := NewMeter(1000, 0)
@@ -66,11 +66,6 @@ func TestMeterCeilingAndCatchUp(t *testing.T) {
 	if m.Level != 0 {
 		t.Fatalf("take: %d", m.Level)
 	}
-	// Negative rates and ceilings are treated as zero.
-	m.Refill(20*Day, -5, -5, 0, 0)
-	if m.Level != 0 {
-		t.Fatalf("negative: %d", m.Level)
-	}
 }
 
 // A new payouts epoch empties the meter as of the epoch's start: it refills
@@ -97,10 +92,13 @@ func TestMeterEpochEmpties(t *testing.T) {
 // window of a day.
 func TestMeterTwoCapsPerDay(t *testing.T) {
 	g := &lcg{s: 42}
-	const rate = int64(1_000_000)
+	const rate = uint256(1_000_000)
 	m := NewMeter(0, 0)
 	m.Refill(Day, rate, rate, 0, 0) // full at t = Day
-	type draw struct{ at, amount int64 }
+	type draw struct {
+		at     int64
+		amount uint256
+	}
 	var draws []draw
 	now := Day
 	for now < 6*Day {
@@ -114,7 +112,7 @@ func TestMeterTwoCapsPerDay(t *testing.T) {
 		draws = append(draws, draw{now, amt})
 	}
 	for i := range draws {
-		var sum int64
+		var sum uint256
 		for j := i; j < len(draws) && draws[j].at < draws[i].at+Day; j++ {
 			sum += draws[j].amount
 		}
@@ -124,11 +122,11 @@ func TestMeterTwoCapsPerDay(t *testing.T) {
 	}
 }
 
-// A cap near the int64 maximum never overflows a refill: a nearly full
+// A cap past the int64 maximum never overflows a refill: a nearly full
 // bucket, a partial refill and a long idle period all saturate at the cap
-// (Codex review #16).
+// (Codex review #16), and so does the largest cap of all.
 func TestMeterNearMaxCap(t *testing.T) {
-	const ceil = int64(6_000_000_000_000_000_000)
+	const ceil = uint256(60_000_000_000_000_000_000)
 	m := NewMeter(0, 0)
 	m.Level = ceil - 1
 	m.Refill(Day, ceil, ceil, 0, 0) // a full day on a nearly full bucket
@@ -144,11 +142,17 @@ func TestMeterNearMaxCap(t *testing.T) {
 	if m.Level != ceil {
 		t.Fatalf("idle: %d", m.Level)
 	}
-	// The largest positive rate and ceiling.
+	// The largest rate and ceiling: the whole days' refill would overflow,
+	// which fills the meter.
 	big := NewMeter(0, 0)
-	big.Level = maxInt64 - 5
-	big.Refill(Day, maxInt64, maxInt64, 0, 0)
-	if big.Level != maxInt64 {
+	big.Level = maxAmount - 5
+	big.Refill(Day, maxAmount, maxAmount, 0, 0)
+	if big.Level != maxAmount {
 		t.Fatalf("max: %d", big.Level)
+	}
+	big.Take(1000)
+	big.Refill(2*Day, maxAmount, maxAmount, 0, 0)
+	if big.Level != maxAmount {
+		t.Fatalf("max after a day: %d", big.Level)
 	}
 }

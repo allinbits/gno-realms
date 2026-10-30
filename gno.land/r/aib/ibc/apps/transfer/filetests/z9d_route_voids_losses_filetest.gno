@@ -70,7 +70,7 @@ func setupRoute(cur realm) string {
 
 // send transfers amount of ugnot from sender to an Ethereum receiver, sending
 // coins with the call (the coins land at the transfer realm first).
-func send(cur realm, route string, amount, coins int64, receiver string) uint64 {
+func send(cur realm, route string, amount uint256, coins int64, receiver string) uint64 {
 	testing.IssueCoins(chain.PackageAddress(transfer.PkgPath), chain.NewCoins(chain.NewCoin("ugnot", coins)))
 	testing.SetRealm(testing.NewUserRealm(sender))
 	testing.SetOriginSend(chain.NewCoins(chain.NewCoin("ugnot", coins)))
@@ -82,8 +82,8 @@ func send(cur realm, route string, amount, coins int64, receiver string) uint64 
 
 // recv delivers a packet from Ethereum to the transfer app as the core does
 // after verifying its proof.
-func recv(cur realm, route string, seq uint64, denom, receiver string, amount int64) types.RecvPacketResult {
-	data := ics20.NewFungibleTokenPacketData(denom, strconv.FormatInt(amount, 10), "0x5f67a5398d91087d1b37a8a43436196a7830867f", receiver, "")
+func recv(cur realm, route string, seq uint64, denom, receiver string, amount uint256) types.RecvPacketResult {
+	data := ics20.NewFungibleTokenPacketData(denom, strconv.FormatUint256(amount, 10), "0x5f67a5398d91087d1b37a8a43436196a7830867f", receiver, "")
 	bz, err := abi.Marshal(data)
 	if err != nil {
 		panic(err)
@@ -102,20 +102,20 @@ func ugnot(a address) int64 { return banker.NewReadonlyBanker().GetCoin(a, "ugno
 
 func state(route string, seq uint64) string {
 	c, _ := controlsView().Claim(route, controls.PacketKey(route, seq))
-	return c.State + " paid " + strconv.FormatInt(c.Paid, 10) + " of " + strconv.FormatInt(c.Amount, 10)
+	return c.State + " paid " + strconv.FormatUint256(c.Paid, 10) + " of " + strconv.FormatUint256(c.Amount, 10)
 }
 
 func totals(route string) string {
 	t, _ := controlsView().Totals(route, "ugnot")
-	return "owed " + strconv.FormatInt(t.Owed, 10) + " withheld " + strconv.FormatInt(t.Withheld, 10) +
-		" swept " + strconv.FormatInt(t.Swept, 10) + " lost " + strconv.FormatInt(t.Lost, 10) +
-		" unrecovered " + strconv.FormatInt(t.Unrecovered(), 10)
+	return "owed " + strconv.FormatUint256(t.Owed, 10) + " withheld " + strconv.FormatUint256(t.Withheld, 10) +
+		" swept " + strconv.FormatUint256(t.Swept, 10) + " lost " + strconv.FormatUint256(t.Lost, 10) +
+		" unrecovered " + strconv.FormatUint256(t.Unrecovered(), 10)
 }
 
-func recapitalize(cur realm, route string, id, amount int64) {
-	testing.IssueCoins(chain.PackageAddress(transfer.PkgPath), chain.NewCoins(chain.NewCoin("ugnot", amount)))
+func recapitalize(cur realm, route string, id int64, amount uint256) {
+	testing.IssueCoins(chain.PackageAddress(transfer.PkgPath), chain.NewCoins(chain.NewCoin("ugnot", int64(amount))))
 	testing.SetRealm(testing.NewUserRealm(funder))
-	testing.SetOriginSend(chain.NewCoins(chain.NewCoin("ugnot", amount)))
+	testing.SetOriginSend(chain.NewCoins(chain.NewCoin("ugnot", int64(amount))))
 	transfer.Recapitalize(cross(cur), route, id)
 	testing.SetOriginSend(nil)
 	testing.SetRealm(testing.NewCodeRealm("gno.land/r/aib/main"))
@@ -138,7 +138,7 @@ func decided(id int64) string {
 // recapitalization, a reduction or an accepted deficit is decided.
 func main(cur realm) {
 	route := setupRoute(cur)
-	execute(cur, govern(cur, ibcgov.NewSetDenomRequest(cross(cur), route, "ugnot", "unescrow", 10_000, 0, 20, 2, 25_000, 40, 10_000, "0x0000000000000000000000000000000000c0ffee")))
+	execute(cur, govern(cur, ibcgov.NewSetDenomRequest(cross(cur), route, "ugnot", "unescrow", 10_000, 0, 20, 2, 25_000, 40, 10_000, "0x0000000000000000000000000000000000c0ffee", 0)))
 	execute(cur, govern(cur, ibcgov.NewSetSeatsRequest(cross(cur), "0:"+string(guardian))))
 	send(cur, route, 20_000, 20_020, ethReceiver)
 
@@ -199,6 +199,20 @@ func main(cur realm) {
 	testing.SetOriginSend(nil)
 	testing.SetRealm(testing.NewCodeRealm("gno.land/r/aib/main"))
 
+	// A recapitalization in coins is paid as one coin, an int64: an amount
+	// above the chain's coin maximum is refused by the builder and, should
+	// a decision carry one, by the transfer realm (uint256 code review r1
+	// #1); a GRC20 one takes the whole uint256 range.
+	println("coins past the maximum:", revive(func() {
+		ibcgov.NewRecapitalizeRequest(cross(cur), route, "ugnot", 1<<63, "inc-1")
+	}))
+	grc20 := transfer.GRC20Alias("gno.land/r/demo/token.TOK")
+	ibcgov.NewRecapitalizeRequest(cross(cur), route, grc20, 1<<63, "inc-1")
+	testing.SetRealm(testing.NewCodeRealm(transfer.IBCGovPath))
+	println("decided anyway:", transfer.GovApply(cross(cur), controls.OpRecapitalize, controls.Params{Route: route, Denom: "ugnot", Amount: 1 << 63, Incident: "inc-1"}.Encode()))
+	println("grc20 past int64:", transfer.GovApply(cross(cur), controls.OpRecapitalize, controls.Params{Route: route, Denom: grc20, Amount: 1 << 63, Incident: "inc-1"}.Encode()))
+	testing.SetRealm(testing.NewCodeRealm("gno.land/r/aib/main"))
+
 	// An accepted deficit closes the rest; the route reopens.
 	execute(cur, govern(cur, ibcgov.NewAcceptDeficitRequest(cross(cur), route, "ugnot", 500, "inc-1")))
 	println(totals(route), "| closed:", controlsView().LossClosed(route))
@@ -247,7 +261,7 @@ func main(cur realm) {
 // alice: open paid 2500 of 3000 | bob: done paid 2000 of 2000 | carol: open paid 2500 of 4000
 // void named: applied - void
 // alice: forged paid 2500 of 3000 | owed 1500 withheld 0 swept 10 lost 2500 unrecovered 2500
-// {"entries":[{"key":"ethereum-1/00000000000000000001","direction":"recv","denom":"ugnot","amount":2500,"chain":"gno","incident":"inc-1","cause":"forged payout"}],"next":""}
+// {"entries":[{"key":"ethereum-1/00000000000000000001","direction":"recv","denom":"ugnot","amount":"2500","chain":"gno","incident":"inc-1","cause":"forged payout"}],"next":""}
 // restore forged: ibcgov: ethereum-1/00000000000000000001 is no withheld claim
 // payouts flagged: false | closed: true | claims paid: 0
 // void not named: pending - queued 7 days
@@ -258,9 +272,12 @@ func main(cur realm) {
 // recap: 1 2000 false
 // wrong amount: send exactly 2000ugnot in a direct call
 // recap paid: true true | owed 1500 withheld 0 swept 10 lost 2500 unrecovered 500
-// {"denom":"ugnot","amount":15000,"clients":[{"client":"ethereum-1","amount":15000}]}
+// {"denom":"ugnot","amount":"15000","clients":[{"client":"ethereum-1","amount":"15000"}]}
 // revoke: applied - revoke recap
 // stale payment: no unpaid recapitalization 2 on route ethereum-1
+// coins past the maximum: ibcgov: a recapitalization in coins is at most 9223372036854775807 ugnot: no coin can pay more
+// decided anyway: a recapitalization in coins is at most 9223372036854775807 ugnot: no coin can pay more
+// grc20 past int64: controls: denom gno.land:r:demo:token.TOK is not enabled on route ethereum-1
 // owed 1500 withheld 0 swept 10 lost 2500 unrecovered 500 | closed: false
 // owed 1500 withheld 0 swept 10 lost 2600 unrecovered 600
 // the voided receive's loss recorded again: spent - spent: controls: receive ethereum-1/00000000000000000001 is represented here: void it as forged or settle it (action 5) | owed 1500 withheld 0 swept 10 lost 2600 unrecovered 600

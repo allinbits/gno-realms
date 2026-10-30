@@ -3,6 +3,7 @@ package impl
 import (
 	"chain"
 	"chain/runtime/unsafe"
+	"strconv"
 	"strings"
 
 	"gno.land/p/aib/ibc/ics20/abi/v0"
@@ -12,7 +13,7 @@ import (
 	"gno.land/p/nt/ufmt/v0"
 	"gno.land/r/aib/ibc/apps/transfer"
 	"gno.land/r/aib/ibc/core"
-	"gno.land/r/nt/grc20reg/v0"
+	"gno.land/r/nt/grc20reg/v1"
 )
 
 // Transfer classifies the denom, records in the proxy's store the send it
@@ -21,7 +22,7 @@ import (
 // read the send envelope (sent), so sent describes coins that landed at the
 // proxy and unsafe.OriginCaller is the packet sender. The proxy clears the
 // recorded send on every exit path.
-func (l *logic) Transfer(_ int, rlm realm, sent []chain.Coin, clientID, receiver, denom string, amount int64, timeoutTimestamp uint64, memo string) (
+func (l *logic) Transfer(_ int, rlm realm, sent []chain.Coin, clientID, receiver, denom string, amount uint256, timeoutTimestamp uint64, memo string) (
 	packet types.MsgSendPacket, sequence uint64,
 ) {
 	sender := unsafe.OriginCaller().String()
@@ -63,14 +64,15 @@ func (l *logic) Transfer(_ int, rlm realm, sent []chain.Coin, clientID, receiver
 		panic(ufmt.Sprintf("GRC20 token %s not found in grc20reg", denom))
 	default:
 		// Native coin: the coins landed at the proxy (direct user call,
-		// checked by the proxy).
+		// checked by the proxy). A coin is an int64, so an amount above the
+		// chain's coin maximum can match no coin sent.
 		if len(sent) != 1 || sent[0].Amount == 0 {
 			panic("native transfer requires one non-zero coin to be sent")
 		}
-		if sent[0].Denom != denom || sent[0].Amount != amount {
+		if sent[0].Denom != denom || transfer.CoinAmount(sent[0]) != amount {
 			panic(ufmt.Sprintf(
-				"sent coin %s does not match transfer args (denom=%s, amount=%d)",
-				sent[0], denom, amount,
+				"sent coin %s does not match transfer args (denom=%s, amount=%s)",
+				sent[0], denom, strconv.FormatUint256(amount, 10),
 			))
 		}
 		// Hand the verified escrow off to OnSendPacket, which can no longer
@@ -82,7 +84,7 @@ func (l *logic) Transfer(_ int, rlm realm, sent []chain.Coin, clientID, receiver
 	// same value back to verify the packet Sender matches the signing EOA.
 	data := ics20.NewFungibleTokenPacketData(
 		denom,
-		ufmt.Sprintf("%d", amount),
+		strconv.FormatUint256(amount, 10),
 		sender,
 		receiver,
 		memo,

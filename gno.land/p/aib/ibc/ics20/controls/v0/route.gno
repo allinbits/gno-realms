@@ -55,8 +55,6 @@ const (
 	// MaxOpenRecaps is the most unpaid recapitalization authorizations an
 	// incident holds on a denom at once: a reduction revokes among them.
 	MaxOpenRecaps = 64
-
-	maxInt64 = int64(1<<63 - 1)
 )
 
 // Claim states.
@@ -351,7 +349,7 @@ func (rt *Route) hasUnresolved() bool { return rt.unresolvedDenoms > 0 }
 
 // noteUnresolved keeps the count of denoms with an unresolved loss after
 // d's unresolved balance changed from was.
-func (rt *Route) noteUnresolved(d *Denom, was int64) {
+func (rt *Route) noteUnresolved(d *Denom, was uint256) {
 	switch now := d.Totals.OpenUnresolved; {
 	case was == 0 && now > 0:
 		rt.unresolvedDenoms++
@@ -371,7 +369,7 @@ func (rt *Route) noteUnresolved(d *Denom, was int64) {
 // in bounded batches: the route opens when the last completes (see
 // ContinueReopen). It returns the deficit this batch accepted and whether the
 // route is open.
-func (rt *Route) Reopen() (int64, bool, error) {
+func (rt *Route) Reopen() (uint256, bool, error) {
 	if !rt.Closed {
 		return 0, false, errors.New("controls: route " + rt.Key + " is not closed")
 	}
@@ -424,7 +422,7 @@ func (rt *Route) reblock(client string) {
 // started (ADR pr6375 §5.4 kind 13: a permissionless continuation); the route
 // opens when the last batch completes. It returns the deficit it accepted and
 // whether the route is open.
-func (rt *Route) ContinueReopen() (int64, bool, error) {
+func (rt *Route) ContinueReopen() (uint256, bool, error) {
 	if !rt.Reopening {
 		return 0, false, errors.New("controls: route " + rt.Key + " is not reopening")
 	}
@@ -435,8 +433,8 @@ func (rt *Route) ContinueReopen() (int64, bool, error) {
 // ReopenBatch incidents, then revokes at most ReopenBatch unpaid
 // recapitalization authorizations, from where the last batch stopped; when
 // none is left the route opens.
-func (rt *Route) reopenBatch() (int64, bool, error) {
-	var accepted int64
+func (rt *Route) reopenBatch() (uint256, bool, error) {
+	var accepted uint256
 	n := 0
 	more := rt.incidents.Iterate(after(rt.reopenIncident), "", func(k string, v any) bool {
 		if n == ReopenBatch {
@@ -596,7 +594,7 @@ func (rt *Route) Refused() []string {
 type Denom struct {
 	Name           string // the escrow denom (KindUnescrow) or the voucher's IBC denom (KindMint)
 	Config         DenomConfig
-	LaunchCapFloor int64 // the cap floor it was enabled with: lowering never goes below it
+	LaunchCapFloor uint256 // the cap floor it was enabled with: lowering never goes below it
 
 	meter       Meter
 	queues      avl.Tree // recipient -> *queue
@@ -611,101 +609,56 @@ type Denom struct {
 }
 
 // Totals is a denom's accounting (ADR pr6375 §7.11's claim, refund and loss
-// terms, kept on chain so monitors read them at a pinned height).
+// terms, kept on chain so monitors read them at a pinned height). Every term
+// is an exact uint256 (see arith.gno): the reservation and loss totals that
+// used to need counters wider than an int64 are plain amounts now, and the
+// JSON shows them whole.
 type Totals struct {
-	Credited      int64 // booked as claims, by packets and votes
-	Owed          int64 // open claims' remainders
-	Withheld      int64 // withheld claims' remainders
-	Swept         int64 // live sweep entries
-	Paid          int64 // claim installments paid to recipients
-	Fees          int64 // claim fee installments paid to the collector
-	SweepPaid     int64 // sweep entries paid by decision
-	Outstanding   int64 // KindMint: vouchers this route has in circulation
-	Returning     int64 // KindMint: vouchers burned by sends not settled yet (in flight, or refund owed), what they still reserve
-	Parked        int64 // KindMint: refunds a settlement owes and could not mint yet (parked), reserved apart from Returning
-	ProvenOwed    int64 // refunds proven owed (refundable, or a collision) on sends a forged success released, reserved until their settlement
-	InFlight      int64 // what the open send records may still owe: their amounts less what was refunded
-	Sent          int64 // escrowed (KindUnescrow) or burned (KindMint) by recorded sends
-	SendFees      int64 // fees charged on sends
-	Refunded      int64 // refunds paid
-	QueuedRefunds int64 // refunds owed and not paid yet
+	Credited      uint256 // booked as claims, by packets and votes
+	Owed          uint256 // open claims' remainders
+	Withheld      uint256 // withheld claims' remainders
+	Swept         uint256 // live sweep entries
+	Paid          uint256 // claim installments paid to recipients
+	Fees          uint256 // claim fee installments paid to the collector
+	SweepPaid     uint256 // sweep entries paid by decision
+	Outstanding   uint256 // KindMint: vouchers this route has in circulation
+	Returning     uint256 // KindMint: vouchers burned by sends not settled yet (in flight, or refund owed), what they still reserve
+	ProvenOwed    uint256 // refunds proven owed (refundable, or a collision) on sends a forged success released, reserved until their settlement
+	InFlight      uint256 // what the open send records may still owe: their amounts less what was refunded
+	Sent          uint256 // escrowed (KindUnescrow) or burned (KindMint) by recorded sends
+	SendFees      uint256 // fees charged on sends
+	Refunded      uint256 // refunds paid
+	QueuedRefunds uint256 // refunds owed and not paid yet
 	// Lifetime statistics of the loss ledger: saturating, never read by a
 	// check.
-	Lost          int64
-	Recapitalized int64
-	Reduced       int64
-	Accepted      int64
+	Lost          uint256
+	Recapitalized uint256
+	Reduced       uint256
+	Accepted      uint256
 	// The outstanding balances: losses neither recapitalized nor reduced
 	// (OpenUnrecovered), and of those, the ones not accepted as a deficit
-	// either (OpenUnresolved). Kept exact beyond int64 (wide: refunds paid
-	// and forged can pass 2^63 in total), their int64 views saturating; a
-	// loss is never refused for them.
-	OpenUnrecovered int64
-	OpenUnresolved  int64
-
-	// The exact counters behind InFlight, Returning, QueuedRefunds, Parked,
-	// ProvenOwed, OpenUnrecovered and OpenUnresolved, whose int64 views
-	// saturate (see arith.gno).
-	w [7]wide
-}
-
-// The wide counters of Totals.
-const (
-	wInFlight = iota
-	wReturning
-	wQueued
-	wParked
-	wProven
-	wUnrec
-	wUnres
-)
-
-func (t *Totals) add(f int, x int64) { t.w[f].add(x); t.sync(f) }
-func (t *Totals) sub(f int, x int64) { t.w[f].sub(x); t.sync(f) }
-
-// minusSat is counter f less x, exact, as a saturated int64.
-func (t *Totals) minusSat(f int, x int64) int64 { return t.w[f].minusSat(x) }
-
-// minusWideSat is counter f less x, exact, as a saturated int64.
-func (t *Totals) minusWideSat(f int, x wide) int64 { return t.w[f].minusWideSat(x) }
-
-func (t *Totals) sync(f int) {
-	v := t.w[f].sat()
-	switch f {
-	case wInFlight:
-		t.InFlight = v
-	case wReturning:
-		t.Returning = v
-	case wQueued:
-		t.QueuedRefunds = v
-	case wParked:
-		t.Parked = v
-	case wProven:
-		t.ProvenOwed = v
-	case wUnrec:
-		t.OpenUnrecovered = v
-	case wUnres:
-		t.OpenUnresolved = v
-	}
+	// either (OpenUnresolved).
+	OpenUnrecovered uint256
+	OpenUnresolved  uint256
 }
 
 // Unrecovered is the loss ledger's economic open total, the term of the
 // supply identity (ADR pr6375 §7.11): losses neither recapitalized nor
 // reduced. An accepted deficit restores neither backing nor liabilities, so
 // it stays unrecovered.
-func (t Totals) Unrecovered() int64 { return t.OpenUnrecovered }
+func (t Totals) Unrecovered() uint256 { return t.OpenUnrecovered }
 
 // Unresolved is what of the losses still waits for a restoring decision
 // (ADR pr6375 §7.9): the unrecovered losses not accepted as a deficit
 // either. A route reopens only when it is zero.
-func (t Totals) Unresolved() int64 { return t.OpenUnresolved }
+func (t Totals) Unresolved() uint256 { return t.OpenUnresolved }
 
 // booked is what a minted denom counts against its supply cap (ADR pr6375
 // §6.8): the vouchers in circulation, the vouchers burned by sends that may
 // still be refunded (minted again), and every claim and sweep entry not paid
 // yet.
-func (t Totals) booked() int64 {
-	return boundAdd(boundAdd(boundAdd(boundAdd(boundAdd(boundAdd(t.Outstanding, t.Returning), t.Parked), t.ProvenOwed), t.Owed), t.Withheld), t.Swept)
+func (t Totals) booked() uint256 {
+	return boundAdd(boundAdd(boundAdd(boundAdd(boundAdd(t.Outstanding, t.Returning), t.ProvenOwed), t.Owed), t.Withheld), t.Swept)
 }
 
 // queue is one recipient's open claims, oldest first, and its meter.
@@ -721,7 +674,7 @@ type queue struct {
 // the route was controlled), counted against its supply cap from the start;
 // outstanding is ignored otherwise. The cap floor never goes below the one the
 // denom was enabled with, and a denom never changes accounting.
-func (rt *Route) SetDenom(name string, c DenomConfig, now, epoch, outstanding int64) error {
+func (rt *Route) SetDenom(name string, c DenomConfig, now, epoch int64, outstanding uint256) error {
 	if err := rt.checkSetDenom(name, c, outstanding); err != nil {
 		return err
 	}
@@ -742,12 +695,9 @@ func (rt *Route) SetDenom(name string, c DenomConfig, now, epoch, outstanding in
 }
 
 // checkSetDenom is why SetDenom(name, c, ..., outstanding) would fail, or nil.
-func (rt *Route) checkSetDenom(name string, c DenomConfig, outstanding int64) error {
+func (rt *Route) checkSetDenom(name string, c DenomConfig, outstanding uint256) error {
 	if name == "" {
 		return errors.New("controls: empty denom")
-	}
-	if outstanding < 0 {
-		return errors.New("controls: negative outstanding supply")
 	}
 	if err := c.Validate(); err != nil {
 		return err
@@ -757,7 +707,7 @@ func (rt *Route) checkSetDenom(name string, c DenomConfig, outstanding int64) er
 			return errors.New("controls: a denom never changes accounting")
 		}
 		if c.CapFloor < d.LaunchCapFloor {
-			return ufmt.Errorf("controls: the cap floor (%d) cannot go below its launch value (%d)", c.CapFloor, d.LaunchCapFloor)
+			return ufmt.Errorf("controls: the cap floor (%s) cannot go below its launch value (%s)", u(c.CapFloor), u(d.LaunchCapFloor))
 		}
 	}
 	return nil
@@ -771,7 +721,7 @@ func (rt *Route) checkSetDenom(name string, c DenomConfig, outstanding int64) er
 // same way). Recipient meters, one per recipient, are not walked: each
 // refills at the cap it last saw up to its next refill (Meter.Refill), which
 // can only grant less. Nothing changes when the change is refused.
-func (rt *Route) Reconfigure(name string, c DenomConfig, now, epoch, epochAt, outstanding, lock int64) error {
+func (rt *Route) Reconfigure(name string, c DenomConfig, now, epoch, epochAt int64, outstanding, lock uint256) error {
 	if err := rt.checkSetDenom(name, c, outstanding); err != nil {
 		return err
 	}
@@ -810,30 +760,30 @@ func (rt *Route) Denoms() []string {
 }
 
 // Unrecovered is the economic open loss total over the route's denoms,
-// saturating at the int64 maximum.
-func (rt *Route) Unrecovered() int64 {
-	var u int64
+// saturating at the maximum.
+func (rt *Route) Unrecovered() uint256 {
+	var total uint256
 	rt.denoms.Iterate("", "", func(_ string, v any) bool {
-		u = boundAdd(u, v.(*Denom).Totals.Unrecovered())
+		total = boundAdd(total, v.(*Denom).Totals.Unrecovered())
 		return false
 	})
-	return u
+	return total
 }
 
 // Unresolved is the loss total over the route's denoms that still waits for
-// a restoring decision, saturating at the int64 maximum.
-func (rt *Route) Unresolved() int64 {
-	var u int64
+// a restoring decision, saturating at the maximum.
+func (rt *Route) Unresolved() uint256 {
+	var total uint256
 	rt.denoms.Iterate("", "", func(_ string, v any) bool {
-		u = boundAdd(u, v.(*Denom).Totals.Unresolved())
+		total = boundAdd(total, v.(*Denom).Totals.Unresolved())
 		return false
 	})
-	return u
+	return total
 }
 
 // DayCap is the denom's day cap: max(CapFloor, lock/10) for an unescrowed
 // denom, CapFloor for a minted one.
-func (d *Denom) DayCap(lock int64) int64 {
+func (d *Denom) DayCap(lock uint256) uint256 {
 	if d.Config.Kind == KindMint {
 		return d.Config.CapFloor
 	}
@@ -848,28 +798,28 @@ func (d *Denom) DayCap(lock int64) int64 {
 // withheld claim remainders, and every queued (held or not) refund, so
 // voids, credits and payouts never spend it twice (ADR pr6375 §7.9, §7.12:
 // refund liabilities move with the backing).
-func (d *Denom) Reserved() int64 {
+func (d *Denom) Reserved() uint256 {
 	return boundAdd(boundAdd(boundAdd(d.Totals.Owed, d.Totals.Withheld), d.Totals.QueuedRefunds), d.Totals.ProvenOwed)
 }
 
 // liabilities is what the denom's claims and sweep entries owe, saturating.
-func (t Totals) liabilities() int64 { return boundAdd(boundAdd(t.Owed, t.Withheld), t.Swept) }
+func (t Totals) liabilities() uint256 { return boundAdd(boundAdd(t.Owed, t.Withheld), t.Swept) }
 
 // CheckSend is what a send of a gno-native token must satisfy (ADR pr6375
 // §7.8): between the minimum and the maximum. A minted denom's sends are
 // voucher returns and are never limited.
-func (d *Denom) CheckSend(amount int64) error {
+func (d *Denom) CheckSend(amount uint256) error {
 	if d.Config.Kind != KindUnescrow {
 		return nil
 	}
-	if amount <= 0 {
+	if amount == 0 {
 		return errors.New("controls: the amount must be positive")
 	}
 	if amount < d.Config.SendMin {
-		return ufmt.Errorf("controls: %d is below the minimum send of %d", amount, d.Config.SendMin)
+		return ufmt.Errorf("controls: %s is below the minimum send of %s", u(amount), u(d.Config.SendMin))
 	}
 	if amount > d.Config.SendMax {
-		return ufmt.Errorf("controls: %d is above the maximum send of %d", amount, d.Config.SendMax)
+		return ufmt.Errorf("controls: %s is above the maximum send of %s", u(amount), u(d.Config.SendMax))
 	}
 	return nil
 }
@@ -881,13 +831,13 @@ type Claim struct {
 	Key     string // the packet key (receiving client / sequence)
 	Denom   string
 	To      address
-	Amount  int64 // what it owes in all, after any reduction
-	Paid    int64 // fee included
-	Reduced int64 // cut by liability reductions
+	Amount  uint256 // what it owes in all, after any reduction
+	Paid    uint256 // fee included
+	Reduced uint256 // cut by liability reductions
 	// Fee is the denom's fee when the claim was credited, locked then: the
 	// claim's first installment and its later minimum installment are the
 	// lower of it and the denom's fee now (effectiveFee).
-	Fee    int64
+	Fee    uint256
 	At     int64 // credited at, unix time
 	Height int64 // credited at, block height
 	By     string
@@ -902,7 +852,7 @@ type Claim struct {
 // installment never exceed what the current configuration lets a recipient
 // meter (a quarter of a day cap at least the cap floor, the fee at most a
 // quarter of the cap floor) hold.
-func (c *Claim) effectiveFee(d *Denom) int64 {
+func (c *Claim) effectiveFee(d *Denom) uint256 {
 	if d.Config.Fee < c.Fee {
 		return d.Config.Fee
 	}
@@ -910,7 +860,7 @@ func (c *Claim) effectiveFee(d *Denom) int64 {
 }
 
 // Remaining is what the claim still owes.
-func (c *Claim) Remaining() int64 { return c.Amount - c.Paid }
+func (c *Claim) Remaining() uint256 { return mustSub(c.Amount, c.Paid) }
 
 // SweepEntry is a credit that pays nobody until a decision directs it (ADR
 // pr6375 §7.1): an amount below the fee, above the free lock, or to a bridge
@@ -919,9 +869,9 @@ type SweepEntry struct {
 	Key     string
 	Denom   string
 	To      string // the receiver the packet named
-	Amount  int64
+	Amount  uint256
 	Reason  string
-	Reduced int64 // cut by liability reductions
+	Reduced uint256 // cut by liability reductions
 	Height  int64
 	Voided  bool   // voided as forged
 	Paid    bool   // paid by a sweep decision, or replaced by a credit by vote
@@ -931,16 +881,16 @@ type SweepEntry struct {
 	// claim had paid out (fee included) before: part of what the receive
 	// paid out, should it prove forged.
 	FromClaim bool
-	ClaimPaid int64
+	ClaimPaid uint256
 }
 
 // paidOut is what the receive of a sweep entry paid out: what its claim paid
 // before it was moved here, and what a sweep decision paid (a credit by vote
 // replacing it pays through its claim instead).
-func (e *SweepEntry) paidOut() int64 {
+func (e *SweepEntry) paidOut() uint256 {
 	paid := e.ClaimPaid
 	if e.Paid && e.PaidTo != PaidByVote {
-		paid += e.Amount
+		paid = mustAdd(paid, e.Amount)
 	}
 	return paid
 }
@@ -952,8 +902,8 @@ type Payment struct {
 	Key    string
 	Denom  string
 	To     address
-	Amount int64
-	Fee    int64
+	Amount uint256
+	Fee    uint256
 }
 
 // Claim is the claim of a packet key, by value, and whether it exists.
@@ -995,12 +945,12 @@ func (rt *Route) sweep(key string) *SweepEntry {
 // positive and, for a minted denom, within its supply cap (§6.8). A refusal is
 // answered with an error acknowledgement, so the sender is refunded at the
 // source.
-func (rt *Route) CheckCredit(denom string, amount int64) error {
+func (rt *Route) CheckCredit(denom string, amount uint256) error {
 	d := rt.Denom(denom)
 	if d == nil {
 		return errors.New("controls: denom " + denom + " is not enabled on route " + rt.Key)
 	}
-	if amount <= 0 {
+	if amount == 0 {
 		return errors.New("controls: the amount must be positive")
 	}
 	// Credit's own checked addition, here too: a receive that would
@@ -1010,8 +960,8 @@ func (rt *Route) CheckCredit(denom string, amount int64) error {
 	}
 	if d.Config.Kind == KindMint {
 		booked := d.Totals.booked()
-		if amount > d.Config.SupplyCap-booked {
-			return ufmt.Errorf("controls: %d would take %s past its supply cap of %d (%d outstanding or booked)", amount, denom, d.Config.SupplyCap, booked)
+		if amount > sub0(d.Config.SupplyCap, booked) {
+			return ufmt.Errorf("controls: %s would take %s past its supply cap of %s (%s outstanding or booked)", u(amount), denom, u(d.Config.SupplyCap), u(booked))
 		}
 	}
 	return nil
@@ -1023,7 +973,7 @@ func (rt *Route) CheckCredit(denom string, amount int64) error {
 // the amount (a bridge realm receiver); otherwise an amount below the fee, or
 // for an unescrowed denom above the free lock (lock minus what claims reserve),
 // is swept. It returns whether it was swept. Run CheckCredit first.
-func (rt *Route) Credit(now, height, epoch int64, key, denom string, to address, amount int64, by, sweepReason string, lock int64) (bool, error) {
+func (rt *Route) Credit(now, height, epoch int64, key, denom string, to address, amount uint256, by, sweepReason string, lock uint256) (bool, error) {
 	if err := rt.CheckCredit(denom, amount); err != nil {
 		return false, err
 	}
@@ -1036,7 +986,7 @@ func (rt *Route) Credit(now, height, epoch int64, key, denom string, to address,
 		switch {
 		case amount < d.Config.Fee:
 			reason = "below the fee"
-		case d.Config.Kind == KindUnescrow && amount > lock-d.Reserved():
+		case d.Config.Kind == KindUnescrow && amount > sub0(lock, d.Reserved()):
 			reason = "above the free lock"
 		}
 	}
@@ -1052,7 +1002,7 @@ func (rt *Route) Credit(now, height, epoch int64, key, denom string, to address,
 	return false, nil
 }
 
-func (rt *Route) enqueue(d *Denom, now, height, epoch int64, key string, to address, amount int64, by string) *Claim {
+func (rt *Route) enqueue(d *Denom, now, height, epoch int64, key string, to address, amount uint256, by string) *Claim {
 	q := d.queue(to, now, epoch)
 	q.next++
 	c := &Claim{Key: key, Denom: d.Name, To: to, Amount: amount, Fee: d.Config.Fee, At: now, Height: height, By: by, State: Open, Seq: q.next}
@@ -1114,7 +1064,7 @@ func (d *Denom) nextRecipient() string {
 
 // MeterLevels refills and reads the bridge meter and a recipient's meter of
 // a denom under the payouts epoch (a recipient without a queue reads 0).
-func (rt *Route) MeterLevels(now, epoch, epochAt int64, denom string, to address, lock int64) (bridge, recipient int64) {
+func (rt *Route) MeterLevels(now, epoch, epochAt int64, denom string, to address, lock uint256) (bridge, recipient uint256) {
 	d := rt.Denom(denom)
 	if d == nil {
 		return 0, 0
@@ -1149,7 +1099,7 @@ func (rt *Route) MeterLevels(now, epoch, epochAt int64, denom string, to address
 // of it; both empty when the payouts epoch changes. It books every payment
 // and returns them for the caller to make; at most n claims are paid and at
 // most 4n recipients looked at.
-func (rt *Route) PayClaims(now, epoch, epochAt int64, denom string, n int, lock int64) ([]Payment, error) {
+func (rt *Route) PayClaims(now, epoch, epochAt int64, denom string, n int, lock uint256) ([]Payment, error) {
 	ps, _, err := rt.PayClaimsSweeping(now, epoch, epochAt, denom, n, lock, nil)
 	return ps, err
 }
@@ -1159,7 +1109,7 @@ func (rt *Route) PayClaims(now, epoch, epochAt int64, denom string, n int, lock 
 // one after the credit) is not paid but moved to the sweep queue, owed until
 // a decision directs it, and its key is returned with the moved ones. A move
 // takes the recipient's turn.
-func (rt *Route) PayClaimsSweeping(now, epoch, epochAt int64, denom string, n int, lock int64, sweep func(address) bool) ([]Payment, []string, error) {
+func (rt *Route) PayClaimsSweeping(now, epoch, epochAt int64, denom string, n int, lock uint256, sweep func(address) bool) ([]Payment, []string, error) {
 	d := rt.Denom(denom)
 	if d == nil {
 		return nil, nil, errors.New("controls: denom " + denom + " is not enabled on route " + rt.Key)
@@ -1195,25 +1145,20 @@ func (rt *Route) PayClaimsSweeping(now, epoch, epochAt int64, denom string, n in
 		}
 		// A claim payout never takes the escrow owed refunds reserve,
 		// queued or proven.
-		if owed := boundAdd(d.Totals.QueuedRefunds, d.Totals.ProvenOwed); d.Config.Kind == KindUnescrow && avail > lock-owed {
-			avail = lock - owed
-		}
-		// A minted payout never overflows the outstanding supply: capped to
-		// its headroom, the claim's entitlement kept for a later turn.
-		if room := maxInt64 - d.Totals.Outstanding; d.Config.Kind == KindMint && avail > room {
-			avail = room
+		if free := sub0(lock, boundAdd(d.Totals.QueuedRefunds, d.Totals.ProvenOwed)); d.Config.Kind == KindUnescrow && avail > free {
+			avail = free
 		}
 		rem := c.Remaining()
 		// A cut is kept for good: a later raise never brings it back up.
 		cfee := c.effectiveFee(d)
 		c.Fee = cfee
-		fee := int64(0)
+		var fee uint256
 		if c.Paid == 0 {
 			fee = cfee
 			if fee > rem {
 				fee = rem
 			}
-			if avail <= 0 || avail < fee {
+			if avail == 0 || avail < fee {
 				continue // dry: the fee is the first installment, whole
 			}
 		} else {
@@ -1221,10 +1166,11 @@ func (rt *Route) PayClaimsSweeping(now, epoch, epochAt int64, denom string, n in
 			if need > rem {
 				need = rem
 			}
-			if avail <= 0 || avail < need {
+			if avail == 0 || avail < need {
 				continue // no slivers
 			}
 		}
+		// fee is within rem and avail here, so neither subtraction wraps.
 		pay := rem - fee
 		if pay > avail-fee {
 			pay = avail - fee
@@ -1244,7 +1190,7 @@ func (rt *Route) PayClaimsSweeping(now, epoch, epochAt int64, denom string, n in
 		c.Paid += total // at most the claim's amount
 		d.meter.Take(total)
 		q.meter.Take(total)
-		d.Totals.Owed -= total
+		d.Totals.Owed = mustSub(d.Totals.Owed, total)
 		d.Totals.Paid = statAdd(d.Totals.Paid, pay)
 		d.Totals.Fees = statAdd(d.Totals.Fees, fee)
 		if d.Config.Kind == KindMint {
@@ -1269,7 +1215,7 @@ func (rt *Route) sweepClaim(d *Denom, c *Claim, q *queue, reason string) {
 	rem := c.Remaining()
 	rt.dequeue(d, c, q)
 	rt.claims.Remove(c.Key)
-	d.Totals.Owed -= rem
+	d.Totals.Owed = mustSub(d.Totals.Owed, rem)
 	d.Totals.Swept = mustAdd(d.Totals.Swept, rem) // within the liabilities already
 	rt.sweeps.Set(c.Key, &SweepEntry{Key: c.Key, Denom: c.Denom, To: string(c.To), Amount: rem, Reason: reason, Reduced: c.Reduced,
 		Height: c.Height, FromClaim: true, ClaimPaid: c.Paid})
