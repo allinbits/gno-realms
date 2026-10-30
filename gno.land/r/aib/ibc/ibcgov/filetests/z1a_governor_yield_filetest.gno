@@ -99,6 +99,8 @@ func main(cur realm) {
 	testing.SetRealm(testing.NewUserRealm(member))
 	println("GovDAO after the yield:", dao.ExecuteProposal(cross(cur), pid2), "paused:", core.Paused())
 	println(ibcgov.Render(""))
+	println(ibcgov.Render("decisions?from=5"))
+	println(ibcgov.Render("decisions?from=x") == ibcgov.Render("decisions"))
 }
 
 // Output:
@@ -122,7 +124,7 @@ func main(cur realm) {
 // # IBC governance
 //
 // - governor: gno.land/r/gov/dao since height 123 (g1d93xxem0wckkwmmkv4exummjta047h6lhqp9y5 yielded)
-// - clock factor 1 (1 on mainnet; a devnet build is compiled with 8): the 7-day delay is 604800 s and the 14-day deadline 1209600 s of block time
+// - clock factor 1 (1 on mainnet; a devnet build might be compiled with a larger value): the 7-day delay is 604800 s and the 14-day deadline 1209600 s of block time
 // - governance channel: not bound
 //
 // ## Seats
@@ -168,3 +170,7 @@ func main(cur realm) {
 //
 // executed:
 // - #1 applied: core: pause the packet path (recorded 1234567890, applied 1234567890) — core pause
+//
+//
+// {"entries":[{"id":5,"kind":"core unpause","text":"core: unpause the packet path","state":"applied","made":1237159890,"recorded":1237159890,"due":1237159890,"applied":1237159890,"cancelled":0,"note":"core unpaused"}],"next":0}
+// true
