@@ -19,6 +19,8 @@ PACKAGES=(
   "gno.land/p/aib/authority/v0:gno.land/p/aib/authority/v0"
   "gno.land/p/aib/encoding/wire/v0:gno.land/p/aib/encoding/wire/v0"
   "gno.land/p/aib/encoding/ethaddr/v0:gno.land/p/aib/encoding/ethaddr/v0"
+
+  # depends on authority, jsonmd
   "gno.land/p/aib/decisions/v0:gno.land/p/aib/decisions/v0"
 
   # depends on encoding/proto
