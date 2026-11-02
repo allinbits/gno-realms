@@ -325,20 +325,11 @@ func (rt *Route) recover(denom, incident string, amount int64) {
 	it.sub(iUnres, x)
 }
 
-// lossFits refuses a loss the ledger's outstanding balances (the denom's and
-// the incident's unrecovered losses, which bound the unresolved ones) could
-// not hold without overflowing. Lifetime statistics are not checked: a
-// resolved loss frees its capacity.
-func (rt *Route) lossFits(denom, incident string, amount int64) error {
-	d := rt.Denom(denom)
-	if d == nil || amount < 0 {
-		return errors.New("controls: a loss of " + denom + " is a positive amount of an enabled denom")
-	}
-	return nil // the outstanding balances are wide: a loss never overflows them
-}
-
-// addLoss books a loss its caller checked fits (lossFits); an addition that
-// would still overflow is a broken invariant and aborts.
+// addLoss books a loss. The outstanding balances it adds to (the denom's and
+// the incident's unrecovered and unresolved losses) are wide, so no loss
+// overflows them; lifetime statistics saturate (statAdd). Its panic guards
+// the booked-once rule: a packet's loss in a direction is booked once, which
+// every caller checks first, so a second booking is a broken invariant.
 func (rt *Route) addLoss(d *Denom, l Loss) {
 	it := rt.incident(l.Denom, l.Incident)
 	if l.Direction != DirRecv && l.Direction != DirSend || rt.losses.Has(lossID(l.Direction, l.Key)) {
@@ -590,9 +581,6 @@ func (rt *Route) RecordLoss(key, denom string, amount int64, chain, incident, ca
 	}
 	if rt.LossBooked(dir, key) {
 		return errors.New("controls: a loss of packet " + key + " is recorded already")
-	}
-	if err := rt.lossFits(denom, incident, amount); err != nil {
-		return err
 	}
 	if err := rt.checkIncidentKind(denom, incident, chain == ChainEthereum); err != nil {
 		return err
