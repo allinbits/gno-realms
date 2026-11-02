@@ -297,17 +297,6 @@ func copyPrefix(p [][]byte) [][]byte {
 	return out
 }
 
-// copyPacket deep-copies a packet (its payloads and their values).
-func copyPacket(p types.Packet) types.Packet {
-	out := p
-	out.Payloads = make([]types.Payload, len(p.Payloads))
-	for i, pl := range p.Payloads {
-		pl.Value = append([]byte{}, pl.Value...)
-		out.Payloads[i] = pl
-	}
-	return out
-}
-
 func (c *client) SetLightClient(_ int, rlm realm, convert func(lightclient.Interface) lightclient.Interface) {
 	assertProxyRealm(0, rlm)
 	if convert == nil {
@@ -483,7 +472,7 @@ func (c *client) SavePendingAsyncAck(_ int, rlm realm, packet types.Packet, appP
 		panic(ufmt.Sprintf("acknowledgement already written for sequence %d", sequence))
 	}
 	c.pendingAsyncAcksBySeq.Set(seqid.ID(sequence).Binary(), &pendingAsyncAck{
-		packet:     copyPacket(packet),
+		packet:     packet.Clone(),
 		appPkgPath: appPkgPath,
 		height:     runtime.ChainHeight(),
 	})

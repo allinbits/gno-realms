@@ -64,16 +64,6 @@ type SendRecord struct {
 	inFlight uint256 // what InFlight counts of it while it is open
 }
 
-func copyPacket(p types.Packet) types.Packet {
-	out := p
-	out.Payloads = make([]types.Payload, len(p.Payloads))
-	for i, pl := range p.Payloads {
-		pl.Value = append([]byte{}, pl.Value...)
-		out.Payloads[i] = pl
-	}
-	return out
-}
-
 // RecordSend writes a send's record and books the send: it escrowed the
 // amount (KindUnescrow) or burned it (KindMint, lowering the outstanding
 // vouchers). The packet and the commitment are copied, so the caller keeps no
@@ -96,7 +86,7 @@ func (rt *Route) RecordSend(rec SendRecord) error {
 		return errors.New("controls: invalid send amounts")
 	}
 	r := rec
-	r.Packet = copyPacket(rec.Packet)
+	r.Packet = rec.Packet.Clone()
 	r.Commitment = append([]byte{}, rec.Commitment...)
 	r.Outcome, r.ProcessedHeight, r.ProcessedAt, r.Payment, r.Refunded, r.Settlement, r.Incident = OutcomePending, 0, 0, PayNone, 0, 0, ""
 	r.Reservation = 0
@@ -260,7 +250,7 @@ func (rt *Route) Send(key string) (SendRecord, bool) {
 		return SendRecord{}, false
 	}
 	c := *r
-	c.Packet = copyPacket(r.Packet)
+	c.Packet = r.Packet.Clone()
 	c.Commitment = append([]byte{}, r.Commitment...)
 	return c, true
 }

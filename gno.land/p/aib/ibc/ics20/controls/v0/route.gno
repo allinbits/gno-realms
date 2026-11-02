@@ -223,11 +223,14 @@ func (r *Registry) Replace(key, newClient string, suspectFrom, height int64) err
 	if suspectFrom < 0 {
 		return errors.New("controls: a negative suspect height")
 	}
-	// A replacement replaces the route's current client, open or closed,
-	// as on Ethereum: each is an incident of its own covering the client it
-	// retires, and the earlier ones keep their records, suspect intervals
-	// and counters. A reopening under way is aborted: the route reopens only
-	// once every retired client is settled.
+	if newClient == "" || r.aliases.Has(newClient) || r.retired.Has(newClient) || r.routes.Has(newClient) {
+		return errors.New("controls: client " + newClient + " is a route's client already")
+	}
+	// No refusal from here. A replacement replaces the route's current
+	// client, open or closed, as on Ethereum: each is an incident of its own
+	// covering the client it retires, and the earlier ones keep their
+	// records, suspect intervals and counters. A reopening under way is
+	// aborted: the route reopens only once every retired client is settled.
 	if rt.Reopening {
 		rt.Reopening = false
 		rt.reopenIncident, rt.reopenRecap = "", ""
@@ -236,9 +239,6 @@ func (r *Registry) Replace(key, newClient string, suspectFrom, height int64) err
 	// interval never starts before it (records before were reconciled then).
 	if suspectFrom < rt.ReplacedAt {
 		suspectFrom = rt.ReplacedAt
-	}
-	if newClient == "" || r.aliases.Has(newClient) || r.retired.Has(newClient) || r.routes.Has(newClient) {
-		return errors.New("controls: client " + newClient + " is a route's client already")
 	}
 	old := rt.Client
 	r.aliases.Remove(old)
@@ -1060,23 +1060,6 @@ func (d *Denom) nextRecipient() string {
 		})
 	}
 	return next
-}
-
-// MeterLevels refills and reads the bridge meter and a recipient's meter of
-// a denom under the payouts epoch (a recipient without a queue reads 0).
-func (rt *Route) MeterLevels(now, epoch, epochAt int64, denom string, to address, lock uint256) (bridge, recipient uint256) {
-	d := rt.Denom(denom)
-	if d == nil {
-		return 0, 0
-	}
-	c := d.DayCap(lock)
-	d.meter.Refill(now, c, c, epoch, epochAt)
-	if v := d.queues.Get(string(to)); v != nil {
-		q := v.(*queue)
-		q.meter.Refill(now, c/4, c/4, epoch, epochAt)
-		recipient = q.meter.Level
-	}
-	return d.meter.Level, recipient
 }
 
 // PayClaims pays up to n claims of a denom (n ≤ MaxClaims), taking recipients
