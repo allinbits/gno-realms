@@ -930,7 +930,8 @@ func TestLossCapacityFreedByRecovery(t *testing.T) {
 
 // A replacement during a batched reopening aborts it (Codex round 13 #2):
 // the route stays closed, the new incident's client must be settled, and the
-// reopening starts again from a decision.
+// reopening starts again from a decision. A refused replacement aborts
+// nothing.
 func TestReplacementAbortsReopening(t *testing.T) {
 	r, rt := newRoute(t)
 	replaceReady(r, "ethereum-1", "ethereum-2", 0, 1000)
@@ -939,6 +940,11 @@ func TestReplacementAbortsReopening(t *testing.T) {
 	}
 	if _, done, err := rt.Reopen(); err != nil || done || !rt.Reopening {
 		t.Fatalf("%v %v", done, err)
+	}
+	// A refused replacement (its client is the route's already) changes
+	// nothing: the reopening goes on.
+	if err := r.Replace("ethereum-1", "ethereum-2", 0, 2000); err == nil || !rt.Reopening || rt.Client != "ethereum-2" {
+		t.Fatalf("a refused replacement: %v, reopening %v", err, rt.Reopening)
 	}
 	if err := replaceReady(r, "ethereum-1", "ethereum-3", 0, 2000); err != nil {
 		t.Fatal(err)
