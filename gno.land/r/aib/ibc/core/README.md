@@ -657,7 +657,7 @@ recovery's cut-off listed as untrusted; after a verifier replacement, the
 retired verifier's states are served one height at a time
 (`clients/{id}/consensus_states/{revision}/{height}`).
 
-Emitted event:
+Emitted event (a switch to a hypothetical later `impl/v1`):
 
 ```json
 {
