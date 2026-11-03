@@ -21,8 +21,7 @@ import (
 	"gno.land/r/aib/ibc/apps/transfer"
 	_ "gno.land/r/aib/ibc/apps/transfer/impl/v1"
 	"gno.land/r/aib/ibc/core"
-	_ "gno.land/r/aib/ibc/core/impl/v0"
-	implv1 "gno.land/r/aib/ibc/core/impl/v1"
+	coreimpl "gno.land/r/aib/ibc/core/impl/v0"
 	"gno.land/r/aib/ibc/ibcgov"
 )
 
@@ -180,7 +179,7 @@ func main(cur realm) {
 	// A core implementation compiling in the conversion to ShortVerifier.
 	testing.SetRealm(testing.NewCodeRealm(shortImpl))
 	core.RegisterImpl(cross(cur), func(s core.Store) core.Logic {
-		return implv1.NewWithConversions(s, "v1-short", []string{ethereum.Version}, []string{ethtesting.ShortVersion},
+		return coreimpl.NewWithConversions(s, "v1-short", []string{ethereum.Version}, []string{ethtesting.ShortVersion},
 			[]func(*ethereum.Retired) lightclient.Interface{ethtesting.ToShortVerifier})
 	}, "v1-short", []string{"v0", "v1"})
 	testing.SetRealm(testing.NewCodeRealm("gno.land/r/aib/main"))

@@ -21,8 +21,7 @@ import (
 	"gno.land/r/aib/ibc/apps/transfer"
 	_ "gno.land/r/aib/ibc/apps/transfer/impl/v1"
 	"gno.land/r/aib/ibc/core"
-	_ "gno.land/r/aib/ibc/core/impl/v0"
-	implv1 "gno.land/r/aib/ibc/core/impl/v1"
+	coreimpl "gno.land/r/aib/ibc/core/impl/v0"
 	"gno.land/r/aib/ibc/ibcgov"
 )
 
@@ -183,7 +182,7 @@ func main(cur realm) {
 	execute(cur, govern(cur, ibcgov.NewEnrollRouteRequest(cross(cur), client, string(collector), bridge)))
 	testing.SetRealm(testing.NewCodeRealm(brokenImpl))
 	core.RegisterImpl(cross(cur), func(s core.Store) core.Logic {
-		return implv1.NewWithConversions(s, "v1-broken",
+		return coreimpl.NewWithConversions(s, "v1-broken",
 			[]string{ethereum.Version, ethereum.Version, ethereum.Version, ethereum.Version, ethereum.Version},
 			[]string{ethtesting.NextVersion, ethtesting.PanicStatusVersion, ethtesting.PanicHeightVersion, ethtesting.TamperVersion, ethtesting.RouterRewriteVersion},
 			[]func(*ethereum.Retired) lightclient.Interface{ethtesting.ToNilVerifier, ethtesting.ToPanicStatusVerifier, ethtesting.ToPanicHeightVerifier, ethtesting.ToTamperingVerifier, ethtesting.ToRouterRewriter})

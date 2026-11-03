@@ -21,8 +21,7 @@ import (
 	"gno.land/r/aib/ibc/apps/transfer"
 	_ "gno.land/r/aib/ibc/apps/transfer/impl/v1"
 	"gno.land/r/aib/ibc/core"
-	_ "gno.land/r/aib/ibc/core/impl/v0"
-	implv1 "gno.land/r/aib/ibc/core/impl/v1"
+	coreimpl "gno.land/r/aib/ibc/core/impl/v0"
 	"gno.land/r/aib/ibc/ibcgov"
 )
 
@@ -175,7 +174,7 @@ func main(cur realm) {
 	core.RegisterCounterparty(cross(cur), client, [][]byte{{}}, "client-0")
 	testing.SetRealm(testing.NewCodeRealm(opaqueImpl))
 	core.RegisterImpl(cross(cur), func(s core.Store) core.Logic {
-		return implv1.NewWithConversions(s, "v1-opaque",
+		return coreimpl.NewWithConversions(s, "v1-opaque",
 			[]string{ethereum.Version, ethtesting.OpaqueVersion},
 			[]string{ethtesting.OpaqueVersion, ethtesting.NextVersion},
 			[]func(*ethereum.Retired) lightclient.Interface{ethtesting.ToOpaqueVerifier, ethtesting.ToNextVerifier})

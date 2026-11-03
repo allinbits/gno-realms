@@ -12,16 +12,14 @@ import (
 const evilPath = "gno.land/r/aib/ibc/core/impl/v66"
 
 var (
-	target string     // the client the candidate goes after
-	calls  int        // how many times its constructor ran
-	stash  core.Store // what it kept of the store
+	target string // the client the candidate goes after
+	calls  int    // how many times its constructor ran
 )
 
-// evil is a malicious candidate: its constructor keeps the store and tries
-// to replace an existing client's trusted state with its own.
+// evil is a malicious candidate: its constructor tries to replace an
+// existing client's trusted state with its own.
 func evil(s core.Store) core.Logic {
 	calls++
-	stash = s
 	cs, cons := ethtesting.ClientState(), ethtesting.ConsensusState()
 	cs.LatestSlot, cons.Slot = 999_999, 999_999
 	if c := s.Client(target); c != nil {
@@ -30,12 +28,11 @@ func evil(s core.Store) core.Logic {
 	return implv0.New(s)
 }
 
-// The preflight of an implementation switch never hands candidate code the
-// live store (Codex rounds 17, 29): CheckUpdateImpl builds the candidate
-// against a fresh, empty store, so a malicious constructor finds no client
-// there and cannot touch a stored one; the candidate it builds (v0's logic
-// under a manifest declaring v66) is refused for disagreeing with its
-// manifest.
+// The preflight of an implementation switch never runs candidate code
+// (Codex rounds 17, 29; review of #91): CheckUpdateImpl reads the manifest
+// alone, so a malicious constructor is not called and cannot touch a stored
+// client. Its code runs only in an authorized installation, which checks
+// what it builds against the manifest.
 func main(cur realm) {
 	target = core.CreateClient(cross(cur), ethtesting.ClientState(), ethtesting.ConsensusState())
 	height, gen := core.ClientLatestHeight(target), core.ClientTrustGeneration(target)
@@ -44,14 +41,14 @@ func main(cur realm) {
 	core.RegisterImpl(cross(cur), evil, "v66", nil)
 	testing.SetRealm(testing.NewCodeRealm("gno.land/r/aib/main"))
 
-	println("check:", core.CheckUpdateImpl(evilPath))
-	println("constructor runs:", calls, "| the store it got holds the client:", stash.Client(target) != nil)
+	println("check:", core.CheckUpdateImpl(evilPath) == "")
+	println("constructor runs:", calls)
 	println("trusted state unchanged:", core.ClientLatestHeight(target) == height, "| trust generation unchanged:", core.ClientTrustGeneration(target) == gen)
 	println("active:", core.ImplVersion())
 }
 
 // Output:
-// check: implementation gno.land/r/aib/ibc/core/impl/v66 declared version v66 but builds version v0
-// constructor runs: 1 | the store it got holds the client: false
+// check: true
+// constructor runs: 0
 // trusted state unchanged: true | trust generation unchanged: true
 // active: v0

@@ -121,12 +121,11 @@ var (
 )
 
 // manifest is what an implementation declares about itself when it
-// registers, as plain values. KeepsControls answers from it alone;
-// CheckUpdateImpl checks it, then builds the candidate against the empty
-// sandboxStore (never the live store) and checks the built version and
-// controls answer against it: candidate code runs in the preflight, but
-// nothing is handed the live store before a governed installation. The
-// installation checks the built implementation against it again.
+// registers, as plain values. The preflight (CheckUpdateImpl) reads it alone
+// and never builds the candidate: candidate code runs once, in the authorized
+// installation, which enforces the manifest again and checks the built
+// implementation against it (its version, and the route controls by a type
+// assertion).
 type manifest struct {
 	// Version is the Version() the implementation reports.
 	Version string
@@ -150,6 +149,15 @@ func (m manifest) accepts(prev string) bool {
 		}
 	}
 	return false
+}
+
+// refusal is why m does not install over an active implementation of
+// version prev, or "".
+func (m manifest) refusal(prev string) string {
+	if m.accepts(prev) {
+		return ""
+	}
+	return ufmt.Sprintf("transfer impl %s cannot install over version %s", m.Version, prev)
 }
 
 // newManifest builds a manifest in this realm's storage: the caller's slice
@@ -232,11 +240,15 @@ func install(_ int, rlm realm, path string) {
 		panic(ufmt.Sprintf("implementation %s returned a nil Logic", path))
 	}
 	m := implManifests.Get(path).(manifest)
+	if refusal := m.refusal(implVersion); refusal != "" {
+		panic(refusal)
+	}
 	if mismatch := manifestMismatch(path, m, l); mismatch != "" {
 		panic(mismatch)
 	}
-	// l keeps the controls exactly when its manifest says so.
-	if refusal := controlsContinuity(m.KeepsControls); refusal != "" {
+	// What l is, not what it declared: the type assertion decides.
+	_, keeps := l.(ControlsLogic)
+	if refusal := controlsContinuity(keeps); refusal != "" {
 		panic(refusal)
 	}
 	// A panic in the hook unwinds the transaction: nothing below runs and
@@ -265,24 +277,14 @@ func manifestMismatch(path string, m manifest, l Logic) string {
 		path, m.Version, m.KeepsControls, l.Version(), keeps)
 }
 
-// InstallChecker is implemented by an implementation whose OnInstall
-// refuses some predecessors: CheckInstall is why it would, or nil, as a
-// pure function of the plain values the proxy passes (the active
-// implementation's path and version), so the preflight evaluates exactly
-// what OnInstall will.
-type InstallChecker interface {
-	CheckInstall(prevPath, prevVersion string) error
-}
-
 // CheckUpdateImpl is why UpdateImpl(path) would fail now, or "", with no
-// change: path is not registered, its manifest does not install over the
-// active version, it drops the route controls, or the implementation its
-// constructor builds disagrees with its manifest or refuses the active
-// implementation (InstallChecker). A governed switch that would fail is
-// refused (and its decision spent) instead of aborting and staying pending.
-// The candidate is built against an empty sandbox store (sandboxStore),
-// never the live one: the live store reaches candidate code only in an
-// authorized installation.
+// change, from the registration's manifest alone: path is not registered,
+// its manifest does not install over the active version, or it declares no
+// route controls once a route has them. A governed switch that would fail on
+// them is refused (and its decision spent) instead of aborting and staying
+// pending. Nothing is built: an implementation that disagrees with its own
+// manifest, or whose OnInstall refuses, aborts the installation, which rolls
+// back, and the decision stays pending until cancelled.
 func CheckUpdateImpl(path string) string {
 	v := implManifests.Get(path)
 	if v == nil {
@@ -292,22 +294,7 @@ func CheckUpdateImpl(path string) string {
 	if refusal := controlsContinuity(m.KeepsControls); refusal != "" {
 		return refusal
 	}
-	if !m.accepts(implVersion) {
-		return ufmt.Sprintf("transfer impl %s cannot install over version %s", m.Version, implVersion)
-	}
-	l := implCtors.Get(path).(func(Store) Logic)(sandboxStore{})
-	if l == nil {
-		return "implementation " + path + " returned a nil Logic"
-	}
-	if mismatch := manifestMismatch(path, m, l); mismatch != "" {
-		return mismatch
-	}
-	if ic, ok := l.(InstallChecker); ok {
-		if err := ic.CheckInstall(implPath, implVersion); err != nil {
-			return err.Error()
-		}
-	}
-	return ""
+	return m.refusal(implVersion)
 }
 
 // controlsContinuity refuses an implementation without the route controls
@@ -323,14 +310,6 @@ func controlsContinuity(keepsControls bool) string {
 		return "transfer: an implementation without the route controls cannot replace them once a route has them"
 	}
 	return ""
-}
-
-// KeepsControls reports whether the implementation registered at path
-// declared it keeps the route controls (ControlsLogic), from its manifest:
-// nothing is built. The installation checks the declaration.
-func KeepsControls(path string) bool {
-	v := implManifests.Get(path)
-	return v != nil && v.(manifest).KeepsControls
 }
 
 // ImplPath returns the realm path of the active implementation, "" if none.

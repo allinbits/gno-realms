@@ -306,8 +306,9 @@ func (c *client) SetLightClient(_ int, rlm realm, convert func(lightclient.Inter
 	if lc == nil {
 		panic("SetLightClient: nil light client")
 	}
+	// The trust generation is the core's to start (core.MigrateClient), not
+	// the implementation's, which an upgrade replaces.
 	c.lightClient = lc
-	c.trustGen++
 }
 
 // TrustGeneration is the verifier's trust generation (see client.trustGen).

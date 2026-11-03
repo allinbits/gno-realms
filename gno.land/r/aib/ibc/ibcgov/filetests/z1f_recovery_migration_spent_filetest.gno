@@ -10,7 +10,6 @@ import (
 	"gno.land/p/aib/ibc/lightclient/ethereum/v0"
 	"gno.land/r/aib/ibc/core"
 	_ "gno.land/r/aib/ibc/core/impl/v0"
-	_ "gno.land/r/aib/ibc/core/impl/v1"
 	"gno.land/r/aib/ibc/ibcgov"
 )
 
@@ -61,7 +60,6 @@ func main(cur realm) {
 		advance(7*24*time.Hour + time.Second)
 		ibcgov.Execute(cross(cur), d)
 	}
-	execute(govern(cur, ibcgov.NewCoreUpdateImplRequest(cross(cur), "gno.land/r/aib/ibc/core/impl/v1")))
 	same := hex.EncodeToString(ethereum.EncodeForkParameters(ethtesting.ClientState().ForkParameters))
 	migrate := govern(cur, ibcgov.NewMigrateClientRequest(cross(cur), id, "ethereum-fork-schedule", same))
 	execute(migrate)
@@ -92,5 +90,5 @@ func main(cur realm) {
 // subject Expired | substitute Active
 // recovery: spent - spent: substitute client tracks a different chain or router
 // matching substitute: Active | check: true
-// retry: ibcgov: decision 3 is spent, not pending
+// retry: ibcgov: decision 2 is spent, not pending
 // subject still Expired

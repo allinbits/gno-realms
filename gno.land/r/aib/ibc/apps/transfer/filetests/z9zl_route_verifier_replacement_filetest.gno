@@ -23,8 +23,7 @@ import (
 	"gno.land/r/aib/ibc/apps/transfer"
 	_ "gno.land/r/aib/ibc/apps/transfer/impl/v1"
 	"gno.land/r/aib/ibc/core"
-	_ "gno.land/r/aib/ibc/core/impl/v0"
-	implv1 "gno.land/r/aib/ibc/core/impl/v1"
+	coreimpl "gno.land/r/aib/ibc/core/impl/v0"
 	"gno.land/r/aib/ibc/ibcgov"
 )
 
@@ -175,7 +174,7 @@ const nextImpl = "gno.land/r/aib/ibc/core/impl/v1next"
 func installNext(cur realm) {
 	testing.SetRealm(testing.NewCodeRealm(nextImpl))
 	core.RegisterImpl(cross(cur), func(s core.Store) core.Logic {
-		return implv1.NewWithConversions(s, "v1-next", []string{ethereum.Version}, []string{ethtesting.NextVersion},
+		return coreimpl.NewWithConversions(s, "v1-next", []string{ethereum.Version}, []string{ethtesting.NextVersion},
 			[]func(*ethereum.Retired) lightclient.Interface{ethtesting.ToNextVerifier})
 	}, "v1-next", []string{"v0", "v1"})
 	testing.SetRealm(testing.NewCodeRealm("gno.land/r/aib/main"))
@@ -196,7 +195,6 @@ func main(cur realm) {
 	client := core.CreateClient(cross(cur), ethtesting.ClientState(), ethtesting.ConsensusStateWithRoot(router.StateRoot()))
 	core.RegisterCounterparty(cross(cur), client, [][]byte{{}}, "client-0")
 	execute(cur, govern(cur, ibcgov.NewEnrollRouteRequest(cross(cur), client, string(collector), bridge)))
-	execute(cur, govern(cur, ibcgov.NewCoreUpdateImplRequest(cross(cur), "gno.land/r/aib/ibc/core/impl/v1")))
 
 	key := host.PacketReceiptKey(packet.DestinationClient, packet.Sequence)
 	proves := func() bool {
@@ -209,7 +207,7 @@ func main(cur realm) {
 	// impl/v1 compiles no conversion in: the replacement is spent.
 	none := govern(cur, ibcgov.NewReplaceVerifierRequest(cross(cur), client, ethtesting.NextVersion))
 	execute(cur, none)
-	println("under impl/v1:", decided(none), "| verifier", core.VerifierVersion(client))
+	println("under impl/v0:", decided(none), "| verifier", core.VerifierVersion(client))
 
 	installNext(cur)
 	replace := govern(cur, ibcgov.NewReplaceVerifierRequest(cross(cur), client, ethtesting.NextVersion))
@@ -259,7 +257,7 @@ func main(cur realm) {
 
 // Output:
 // before: verifier ethereum/v0 | proves the receipt: true
-// under impl/v1: spent - spent: core impl v1 converts no ethereum/v0 verifier to ethereum/testing-next | verifier ethereum/v0
+// under impl/v0: spent - spent: core impl v0 converts no ethereum/v0 verifier to ethereum/testing-next | verifier ethereum/v0
 // under v1-next: applied - core migrate client: route ethereum-1's meters emptied
 // after: verifier ethereum/testing-next | same client: ethereum | status Active | trust generation advanced: true | payouts epoch 0 -> 1
 // proves the receipt at the pre-replacement height: true | renders its state: true

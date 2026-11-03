@@ -171,12 +171,10 @@ The tendermint rules above do not apply to `ethereum` clients; see ADR 0003.
   authenticate the substitute's state and vet its schedule before recovering
   from it; see ADR 0003.
 - Only a Frozen or Expired subject is recovered. An Active client facing a
-  fork its schedule lacks is not waited out: with core `impl/v1`, it is
-  migrated in place by a governed fork-schedule migration
+  fork its schedule lacks is not waited out: core `impl/v0` migrates it in
+  place by a governed fork-schedule migration
   (`ibcgov.NewMigrateClientRequest(cur, clientID, "ethereum-fork-schedule",
-  ...)`), before or after the fork activates (core README). Only with
-  `impl/v0` alone would such a client have to expire first (8 sync
-  committee periods after its latest slot, about 9.1 days on mainnet). A client that merely fell
+  ...)`), before or after the fork activates (core README). A client that merely fell
   behind needs no recovery: until it expires, a relayer catches it up by
   replaying each missed period's update.
 

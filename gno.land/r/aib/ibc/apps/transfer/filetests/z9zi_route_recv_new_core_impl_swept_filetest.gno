@@ -192,7 +192,7 @@ func main(cur realm) {
 // a claim: true
 // claim an hour later: 1 | v99 holds 84
 // claim 1: 104 of 200 open
-// registered: slice[("gno.land/r/aib/ibc/core/impl/v0" string),("gno.land/r/aib/ibc/core/impl/v1" string),("gno.land/r/aib/ibc/core/impl/v99" string)]
+// registered: slice[("gno.land/r/aib/ibc/core/impl/v0" string),("gno.land/r/aib/ibc/core/impl/v99" string)]
 // ugnot 300 to v99: success ack
 // swept at receipt: true 300 bridge realm
 // a claim: false

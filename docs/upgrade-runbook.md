@@ -40,24 +40,19 @@ the proxies and stay provable across the switch.
   is a transfer route's fee collector (it would become a realm of the
   bridge): change that route's collector first
   (`NewSetFeeCollectorRequest`, 7 days), then deploy or enable the
-  implementation. The governed preflight (`CheckUpdateImpl`) checks the manifest, then runs the
-  candidate's constructor against a fresh, empty store (never the live
-  one), checks the version it builds (and, for transfer, whether it keeps
-  the controls) against the manifest, and evaluates its declared install
-  condition (`CheckInstall`): candidate code runs during the preflight. The
-  installation checks the built candidate against its manifest again and
-  panics on a difference.
+  implementation. The governed preflight (`CheckUpdateImpl`) reads the
+  manifest alone and never runs candidate code. The installation enforces
+  the manifest again, then checks what the constructor built against it
+  (its version, and for transfer whether it keeps the controls) and panics
+  on a difference.
 - `OnInstall` is the migration hook. It runs inside `UpdateImpl` before the
   switch, and `prevVersion` tells it which implementation was active, which
   is also the layout of the data as long as versions activate in sequence.
   Which predecessors a candidate installs over is declared by its manifest
-  (`over`, enforced by the governed preflight, `CheckUpdateImpl`, only: the
-  installation re-checks the built version and controls against the
-  manifest, not `over`; a hook that needs its own predecessor check makes
-  it in `OnInstall`) and, where it
-  needs more, by its hook (`CheckInstall`/`OnInstall`). The shipped hooks:
-  core `impl/v0`'s is empty (its manifest accepts any predecessor); core
-  `impl/v1`'s accepts `""`, `v0` and itself and refuses any other; transfer
+  (`over`, checked by the governed preflight, `CheckUpdateImpl`, and
+  enforced again by the installation) and, where it needs more, by its
+  hook (`OnInstall`, which panics to refuse). The shipped hooks: core
+  `impl/v0`'s is empty (its manifest accepts any predecessor); transfer
   `impl/v1`'s accepts any predecessor and initializes the route controls'
   extension, idempotently (`InitExt`, a no-op once it exists). A new hook
   should do nothing on a re-install, migrate from the version it follows,
@@ -175,30 +170,29 @@ The transfer app is the same with `NewTransferUpdateImplRequest`.
 The proxy then builds the candidate against its store, runs `OnInstall`,
 switches, and emits `impl_updated{old_path,new_path,version}`. The builder
 refuses a path that is not registered yet. When the decision executes,
-ibcgov first runs the proxy's `CheckUpdateImpl(path)`. It reads the
-registered manifest and builds the candidate against a fresh, empty store
-(never the live one), then refuses: a path not registered, a manifest that
-does not install over the active version, a candidate that builds another
-version than its manifest (or, for transfer, answers otherwise whether it
-keeps the controls), an install hook that refuses the active implementation
-(declared as `CheckInstall(prevPath, prevVersion)`, a pure check the proxy
-evaluates), or, for the transfer app, an implementation that does not keep
-the route controls once any route exists. Each spends the decision instead
-of leaving it pending. Only what the preflight cannot evaluate still rolls
-back the whole `Execute` transaction and leaves the decision pending: a
-panic in candidate code (the constructor or `OnInstall`), a constructor
-whose result depends on the store it is handed, or a hook refusing on a
-condition it does not declare through `CheckInstall`.
+ibcgov first runs the proxy's `CheckUpdateImpl(path)`, which reads the
+registered manifest alone and refuses: a path not registered, a manifest
+that does not install over the active version, or, for the transfer app, a
+manifest declaring no route controls once any route exists. Each spends the
+decision instead of leaving it pending. What only the candidate's code can
+tell rolls back the whole `Execute` transaction and leaves the decision
+pending: a candidate that builds another version than its manifest (or,
+for transfer, disagrees with it about the controls), or a panic in its
+constructor or `OnInstall`. Such a decision keeps its approval, so cancel
+it (`ibcgov.NewCancelRequest`) unless it is still wanted: an `Execute`
+after the state changed could install the candidate then.
 
 ### When a migration fails
 
-- A version mismatch or a declared hook refusal is caught by the preflight
-  and spends the decision. A panic in the constructor or in `OnInstall`
-  aborts the whole transaction: the switch does not happen, nothing the hook
-  wrote persists, the previous implementation stays active, the candidate
-  stays registered and the ibcgov decision stays pending. Executing it again
-  later merely retries; declare a hook's conditions in `CheckInstall` so
-  they are refused instead.
+- A manifest that does not install over the active version is caught by
+  the preflight and spends the decision. A candidate disagreeing with its
+  manifest, or a panic in its constructor or `OnInstall`, aborts the whole
+  transaction: the switch does not happen, nothing the hook wrote persists,
+  the previous implementation stays active, the candidate stays registered
+  and the ibcgov decision stays pending. Executing it again later retries
+  it; cancel it (`NewCancelRequest`) when it is not wanted any more. Put a
+  candidate's predecessor conditions in its manifest (`over`) so they are
+  refused instead.
 - A realm path cannot be redeployed, so a fix ships as the next version. Its
   hook is installed over the implementation that is still active, not over
   the failed one: a `v2` written after a failed `v1` carries the migration
@@ -229,8 +223,7 @@ An empty string means it would apply; otherwise the reason is the one the
 decision would be spent with:
 
 - the previous implementation's manifest must install over the version now
-  active (its `over` list; core `impl/v0` declares `nil`, any; core `impl/v1`
-  declares `""` and `v0`);
+  active (its `over` list; core `impl/v0` declares `nil`, any);
 - for the transfer app, once any Ethereum route exists, the implementation
   must keep the route controls (its manifest's `keepsControls`): the
   controls are never rolled back. The rehearsal candidate
@@ -246,13 +239,12 @@ non-Ethereum client as `impl/v0` does, and puts every Ethereum client under
 the route controls (ADR 0004). There is no migration from `impl/v0`: an
 Ethereum client carries nothing until a decision makes it a route.
 
-Before deploying ibcgov (it is immutable, so this is fixed for good),
-choose its authority mode and set `LaunchGovernor` in
-`gno.land/r/aib/ibc/ibcgov/ibcgov.gno` accordingly: a verified production
-governor key, which decides with `Govern` until it yields to GovDAO, or
-`""`, which makes GovDAO's proposals the only way to decide from the first
-block (`Govern` and `Yield` refused). The source ships a placeholder test
-address; deploying it unchanged hands governance to a key nobody holds.
+ibcgov's governor is the account that deploys it: its `init` records the
+deployer (on an inert chain, the creator stamped at submission, which
+`EnablePackage` runs `init` as). Deploy ibcgov from the governor's own
+account, which decides with `Govern` until it yields to GovDAO; check
+`ibcgov.Governor()` on its page before relying on it. For GovDAO to decide
+from the first block, the governor yields right after the deployment.
 
 0. **Authenticate the client's initial state independently (mandatory).**
    `CreateClient` stores the Ethereum client state and the initial consensus
