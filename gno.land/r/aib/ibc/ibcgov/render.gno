@@ -56,7 +56,7 @@ func fromOf(path string) int64 {
 func home() string {
 	var b strings.Builder
 	b.WriteString("# IBC governance\n\n")
-	b.WriteString("- " + decisions.GovernorLine(LaunchGovernor, yielded) + "\n")
+	b.WriteString("- " + governorLine() + "\n")
 	b.WriteString("- " + decisions.Clocks() + "\n")
 	if epoch == 0 {
 		b.WriteString("- governance channel: not bound\n")

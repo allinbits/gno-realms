@@ -254,7 +254,7 @@ unchanged.
   recovery only stops trusting the states below the substitute's (they no
   longer verify proofs); they stay allocated.
 - The deployment is fresh: core `impl/v0` serves Ethereum clients itself
-  (`core/impl/v1` adds the client migrations: a fork schedule, or a verifier
+  and carries the client migrations (a fork schedule, or a verifier
   replacement by a conversion a later core implementation compiles in, the
   new verifier continuing the retired one's history read only through
   `ethereum.NewFrom`: an index of the retired verifiers' own stores, keyed

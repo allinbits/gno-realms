@@ -14,24 +14,21 @@ import (
 const evilPath = "gno.land/r/aib/ibc/apps/transfer/impl/v66"
 
 var (
-	target string         // a core client, which stays untouched
-	calls  int            // how many times its constructor ran
-	stash  transfer.Store // what it kept of the store
+	target string // a core client, which stays untouched
+	calls  int    // how many times its constructor ran
 )
 
-// evil is a malicious transfer candidate: its constructor keeps the store
-// it is handed and looks for denoms and escrow in it.
+// evil is a malicious transfer candidate: its constructor would look for
+// denoms and escrow in the store it is handed.
 func evil(s transfer.Store) transfer.Logic {
 	calls++
-	stash = s
 	return nil
 }
 
-// The transfer preflight never hands candidate code the live store either
-// (Codex rounds 17, 29): KeepsControls answers from the manifest, and
-// CheckUpdateImpl builds the candidate against an empty sandbox store (which
-// holds nothing and refuses every write); a candidate that builds nothing is
-// refused.
+// The transfer preflight never runs candidate code either (Codex rounds 17,
+// 29; review of #91): CheckUpdateImpl reads the manifest alone. A candidate
+// that builds nothing is refused by its installation, the one place its
+// code runs.
 func main(cur realm) {
 	target = core.CreateClient(cross(cur), ethtesting.ClientState(), ethtesting.ConsensusState())
 	height := core.ClientLatestHeight(target)
@@ -40,14 +37,14 @@ func main(cur realm) {
 	transfer.RegisterImpl(cross(cur), evil, "v66", nil, true)
 	testing.SetRealm(testing.NewCodeRealm("gno.land/r/aib/main"))
 
-	println("check:", transfer.CheckUpdateImpl(evilPath), "| keeps controls:", transfer.KeepsControls(evilPath))
-	println("constructor runs:", calls, "| the store it got has denoms:", stash.Denoms().Size() > 0, "| escrow:", stash.Escrowed(target, "ugnot"))
+	println("check:", transfer.CheckUpdateImpl(evilPath) == "")
+	println("constructor runs:", calls)
 	println("trusted state unchanged:", core.ClientLatestHeight(target) == height)
 	println("active:", transfer.ImplVersion())
 }
 
 // Output:
-// check: implementation gno.land/r/aib/ibc/apps/transfer/impl/v66 returned a nil Logic | keeps controls: true
-// constructor runs: 1 | the store it got has denoms: false | escrow: 0
+// check: true
+// constructor runs: 0
 // trusted state unchanged: true
 // active: v0

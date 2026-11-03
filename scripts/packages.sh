@@ -90,8 +90,4 @@ PACKAGES=(
   # ics20/controls, lightclient/ethereum, r/aib/ibc/core,
   # r/aib/ibc/apps/transfer, r/gov/dao; registers port gov at init
   "gno.land/r/aib/ibc/ibcgov:gno.land/r/aib/ibc/ibcgov"
-
-  # core impl/v1 (client migration), a candidate activated by an ibcgov
-  # decision (UpdateImpl, 7 days)
-  "gno.land/r/aib/ibc/core/impl/v1:gno.land/r/aib/ibc/core/impl/v1"
 )

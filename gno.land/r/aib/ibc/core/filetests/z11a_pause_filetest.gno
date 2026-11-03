@@ -34,7 +34,6 @@ func main(cur realm) {
 // - **Implementation**: [`gno.land/r/aib/ibc/core/impl/v0`](/r/aib/ibc/core/impl/v0) (version v0)
 // - **Registered implementations**:
 //   - [`gno.land/r/aib/ibc/core/impl/v0`](/r/aib/ibc/core/impl/v0)
-//   - [`gno.land/r/aib/ibc/core/impl/v1`](/r/aib/ibc/core/impl/v1)
 // - **Relayers**: any (whitelist empty)
 //
 // paused: false

@@ -22,7 +22,10 @@ cd /aibgno
 # package it has not loaded yet, which resets the chain under the relayer and
 # invalidates the light client AtomOne keeps of it. r/gov/dao/init/v0 is what
 # the GovDAO seeding used; gno.land/r/aib/ibc/ibcgov decides every upgrade.
+# The packages are deployed by the test key, which makes it ibcgov's governor
+# (its init records the deployer).
 exec gnodev local \
+    -deploy-key "${TEST_ADDR}" \
     -node-rpc-listener 0.0.0.0:26657 \
     -web-listener 0.0.0.0:8888 \
     -web-help-remote http://127.0.0.1:26657 \
