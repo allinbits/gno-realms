@@ -49,7 +49,7 @@ func execute(cur realm, id int64) {
 	ibcgov.Execute(cross(cur), id)
 }
 
-// setupRoute creates an Ethereum client, installs transfer impl/v1 and
+// setupRoute creates an Ethereum client, installs transfer impl/v0 and
 // enrolls the client as a route, every step a governor decision.
 func setupRoute(cur realm) string {
 	clientID := core.CreateClient(cross(cur), ethtesting.ClientState(), ethtesting.ConsensusState())

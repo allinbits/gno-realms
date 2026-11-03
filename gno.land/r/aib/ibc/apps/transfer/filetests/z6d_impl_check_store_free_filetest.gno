@@ -6,7 +6,7 @@ import (
 
 	ethtesting "gno.land/p/aib/ibc/lightclient/ethereum/testing/v0"
 	"gno.land/r/aib/ibc/apps/transfer"
-	_ "gno.land/r/aib/ibc/apps/transfer/impl/v1"
+	_ "gno.land/r/aib/ibc/apps/transfer/impl/v0"
 	"gno.land/r/aib/ibc/core"
 	_ "gno.land/r/aib/ibc/core/impl/v0"
 )
@@ -47,4 +47,4 @@ func main(cur realm) {
 // check: true
 // constructor runs: 0
 // trusted state unchanged: true
-// active: v1
+// active: v0

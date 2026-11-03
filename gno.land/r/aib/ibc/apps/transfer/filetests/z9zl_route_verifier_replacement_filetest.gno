@@ -21,7 +21,7 @@ import (
 	"gno.land/p/aib/ibc/types/v0"
 	"gno.land/p/nt/testutils/v0"
 	"gno.land/r/aib/ibc/apps/transfer"
-	_ "gno.land/r/aib/ibc/apps/transfer/impl/v1"
+	_ "gno.land/r/aib/ibc/apps/transfer/impl/v0"
 	"gno.land/r/aib/ibc/core"
 	coreimpl "gno.land/r/aib/ibc/core/impl/v0"
 	"gno.land/r/aib/ibc/ibcgov"
@@ -64,7 +64,7 @@ func execute(cur realm, id int64) {
 	ibcgov.Execute(cross(cur), id)
 }
 
-// setupRoute creates an Ethereum client, installs transfer impl/v1 and
+// setupRoute creates an Ethereum client, installs transfer impl/v0 and
 // enrolls the client as a route, every step a governor decision.
 func setupRoute(cur realm) string {
 	clientID := core.CreateClient(cross(cur), ethtesting.ClientState(), ethtesting.ConsensusState())
@@ -204,7 +204,7 @@ func main(cur realm) {
 	gen := core.ClientTrustGeneration(client)
 	epoch, _ := ibcgov.PayoutsEpoch(client)
 	println("before: verifier", core.VerifierVersion(client), "| proves the receipt:", proves())
-	// impl/v1 compiles no conversion in: the replacement is spent.
+	// Core impl/v0 compiles no conversion in: the replacement is spent.
 	none := govern(cur, ibcgov.NewReplaceVerifierRequest(cross(cur), client, ethtesting.NextVersion))
 	execute(cur, none)
 	println("under impl/v0:", decided(none), "| verifier", core.VerifierVersion(client))

@@ -80,10 +80,6 @@ PACKAGES=(
   # ibc/types, ics23, jsonpage, grc20test (filetest), r/aib/ibc/core
   "gno.land/r/aib/ibc/apps/transfer:gno.land/r/aib/ibc/apps/transfer"
 
-  # depends on r/aib/ibc/apps/transfer: the ICS-20 logic of non-Ethereum
-  # clients, which transfer impl/v1 embeds; it registers nothing
-  "gno.land/r/aib/ibc/apps/transfer/impl/v0:gno.land/r/aib/ibc/apps/transfer/impl/v0"
-
   # depends on r/aib/ibc/core, lightclient/ethereum, encoding/wire, extproof
   "gno.land/r/aib/ibc/ethrelay:gno.land/r/aib/ibc/ethrelay"
 
@@ -92,8 +88,8 @@ PACKAGES=(
   # r/aib/ibc/apps/transfer, r/gov/dao; registers port gov at init
   "gno.land/r/aib/ibc/ibcgov:gno.land/r/aib/ibc/ibcgov"
 
-  # transfer impl/v1 (route controls; depends on impl/v0 and ibcgov): the
-  # transfer app's first registration, so its initial implementation on a
-  # fresh deployment. The proxy carries no transfer until it is deployed.
-  "gno.land/r/aib/ibc/apps/transfer/impl/v1:gno.land/r/aib/ibc/apps/transfer/impl/v1"
+  # transfer impl/v0 (the ICS-20 logic and the route controls; depends on
+  # ibcgov): the transfer app's first registration, so its initial
+  # implementation. The proxy carries no transfer until it is deployed.
+  "gno.land/r/aib/ibc/apps/transfer/impl/v0:gno.land/r/aib/ibc/apps/transfer/impl/v0"
 )

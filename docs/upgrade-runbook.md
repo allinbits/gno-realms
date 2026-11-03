@@ -53,7 +53,7 @@ the proxies and stay provable across the switch.
   enforced again by the installation) and, where it needs more, by its
   hook (`OnInstall`, which panics to refuse). The shipped hooks: core
   `impl/v0`'s is empty (its manifest accepts any predecessor); transfer
-  `impl/v1`'s accepts any predecessor and initializes the route controls'
+  `impl/v0`'s accepts any predecessor and initializes the route controls'
   extension, idempotently (`InitExt`, a no-op once it exists). A new hook
   should do nothing on a re-install, migrate from the version it follows,
   and refuse the rest. Keep the migration bounded: constant work, whatever the number
@@ -86,9 +86,8 @@ the proxies and stay provable across the switch.
 One `MsgAddPackage`, from any account that may deploy under the `aib`
 namespace, usually the AIB multisig. List the candidate in
 `scripts/packages.sh` after the current implementation, so that on a fresh
-chain the current one registers first and bootstraps: for the core that is
-`impl/v0`; for the transfer app it is `impl/v1` (transfer `impl/v0`
-registers nothing; it is the logic `impl/v1` embeds). Then:
+chain the current one registers first and bootstraps: `impl/v0` for both
+proxies. Then:
 
 ```
 ONLY=gno.land/r/aib/ibc/core/impl/vN ./scripts/make-deploy-tx.sh   # unsigned tx for the multisig
@@ -229,15 +228,14 @@ decision would be spent with:
   controls are never rolled back. The rehearsal candidate
   `e2e/gno/rehearsal/transfer-v99` declares it does not keep them, so it can
   be activated, and rolled back from, only before any route is enrolled.
-  Transfer `impl/v0` is no rollback target at all: it never registers.
 
-## 7. Ethereum routes on a fresh deployment (transfer impl/v1)
+## 7. Ethereum routes on a fresh deployment
 
-The transfer app is deployed fresh with `impl/v1` as its initial
+The transfer app is deployed fresh with `impl/v0` as its initial
 implementation: it registers first (see `scripts/packages.sh`), serves every
-non-Ethereum client as `impl/v0` does, and puts every Ethereum client under
-the route controls (ADR 0004). There is no migration from `impl/v0`: an
-Ethereum client carries nothing until a decision makes it a route.
+non-Ethereum client with the plain ICS-20 logic, and puts every Ethereum
+client under the route controls (ADR 0004). An Ethereum client carries
+nothing until a decision makes it a route.
 
 ibcgov's governor is the account that deploys it: its `init` records the
 deployer (on an inert chain, the creator stamped at submission, which
@@ -505,7 +503,7 @@ from the first block, the governor yields right after the deployment.
    same.
 7. A client's verifier is replaced by another verifier version (ADR pr6375
    R16) in two governed steps: first a core implementation that compiles the
-   conversion in (`implv1.NewWithConversions`: from version, to version,
+   conversion in (core impl/v0's `NewWithConversions`: from version, to version,
    the new verifier package's conversion) is registered under
    `gno.land/r/aib/ibc/core/impl/` and installed with
    `NewCoreUpdateImplRequest` (7 days); then `NewReplaceVerifierRequest(

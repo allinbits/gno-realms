@@ -23,7 +23,7 @@ import (
 // Render serves every path of the transfer realm: the proxy forwards its
 // Render here (see transfer.Render). Escrow is tracked per (client, denom);
 // the routes aggregate across all clients for display.
-func (l *logic) Render(path string) string {
+func (l *base) Render(path string) string {
 	router := mux.NewRouter()
 	NewRenderer(l.store).Register(router)
 	return router.Render(path)
@@ -69,7 +69,7 @@ func (rd *Renderer) Register(router *mux.Router) {
 const homeListLimit = 100
 
 // HomeListLimit is homeListLimit, for implementations that rewrite the home
-// page (impl/v1 rewrites the send-back links of the listed vouchers).
+// page (logic rewrites the send-back links of the listed vouchers).
 const HomeListLimit = homeListLimit
 
 func (rd *Renderer) Home(w *mux.ResponseWriter, r *mux.Request) {

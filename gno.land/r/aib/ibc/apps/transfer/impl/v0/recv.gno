@@ -8,7 +8,6 @@ import (
 	"gno.land/p/aib/ibc/types/v0"
 	"gno.land/p/nt/ufmt/v0"
 	"gno.land/r/aib/ibc/apps/transfer"
-	implv0 "gno.land/r/aib/ibc/apps/transfer/impl/v0"
 	"gno.land/r/aib/ibc/ibcgov"
 )
 
@@ -69,15 +68,15 @@ func (l *logic) OnRecvPacket(_ int, rlm realm, sourceClient, destinationClient s
 	if rt.ExposureClosed() {
 		return refuse(ufmt.Errorf("route %s is closed (a replacement awaiting its reopening, or a loss without a restoring decision)", rt.Key))
 	}
-	if err := validatePayload(destinationClient, sourceClient, payload); err != nil {
+	if err := validateRouterPayload(destinationClient, sourceClient, payload); err != nil {
 		return refuse(err)
 	}
 	var err error
-	data, token, err = unmarshalPayload(sourceClient, payload)
+	data, token, err = unmarshalRouterPayload(sourceClient, payload)
 	if err != nil {
 		return refuse(err)
 	}
-	if err := implv0.ValidateBaseDenomNoSlash(token); err != nil {
+	if err := ValidateBaseDenomNoSlash(token); err != nil {
 		return refuse(err)
 	}
 	if ibcgov.Flagged(rt.Key, ibcgov.FnCredits) {

@@ -129,7 +129,7 @@ func main(cur realm) {
 //
 // ICS-20 style transfer state and voucher token queries.
 //
-// **Upgradeable realm**: the ICS-20 logic runs in the implementation [`gno.land/r/aib/ibc/apps/transfer/impl/v1`](/r/aib/ibc/apps/transfer/impl/v1) (version v1), replaceable by the authority with `UpdateImpl` (see [`admin`](/r/aib/ibc/apps/transfer:admin)).
+// **Upgradeable realm**: the ICS-20 logic runs in the implementation [`gno.land/r/aib/ibc/apps/transfer/impl/v0`](/r/aib/ibc/apps/transfer/impl/v0) (version v0), replaceable by the authority with `UpdateImpl` (see [`admin`](/r/aib/ibc/apps/transfer:admin)).
 //
 // ## Transfer
 //

@@ -7,7 +7,6 @@ import (
 
 	"gno.land/p/nt/mux/v0"
 	"gno.land/p/nt/ufmt/v0"
-	implv0 "gno.land/r/aib/ibc/apps/transfer/impl/v0"
 )
 
 // Render serves impl/v0's routes and the route controls' JSON for monitors
@@ -44,7 +43,7 @@ func (l *logic) Render(path string) string {
 	router.HandleFunc("routes/{route}/losses", func(w *mux.ResponseWriter, r *mux.Request) {
 		w.Write(jsonmd.Inert(l.reader().LossesJSON(r.GetVar("route"), r.Query.Get("from"))))
 	})
-	implv0.NewRenderer(l.store).Register(router)
+	NewRenderer(l.store).Register(router)
 	return router.Render(path)
 }
 
@@ -52,7 +51,7 @@ func (l *logic) Render(path string) string {
 func (l *logic) home(w *mux.ResponseWriter, r *mux.Request) {
 	var out strings.Builder
 	v0 := mux.NewRouter()
-	rd := implv0.NewRenderer(l.store)
+	rd := NewRenderer(l.store)
 	rd.Register(v0)
 	out.WriteString(l.routeLinks(rd, v0.Render("")))
 	out.WriteString("\n## Ethereum routes\n\n")
@@ -75,17 +74,17 @@ func (l *logic) home(w *mux.ResponseWriter, r *mux.Request) {
 // names the retired client. They go through the route's current client
 // instead, a closed route's too: a voucher return is exit only, taken while
 // the route awaits its reopening (ADR pr6375 §7.12).
-func (l *logic) routeLinks(rd *implv0.Renderer, page string) string {
+func (l *logic) routeLinks(rd *Renderer, page string) string {
 	rdr := l.reader()
-	for _, d := range rd.DenomsByClientOrder(implv0.HomeListLimit) {
+	for _, d := range rd.DenomsByClientOrder(HomeListLimit) {
 		key := d.Trace[0].ClientId
 		current := rdr.Client(key)
 		if current == "" || current == key {
 			continue
 		}
 		ibcDenom := d.IBCDenom()
-		old := ufmt.Sprintf("[send back](%s) via `%s`", implv0.NewTransferLink(key, "", ibcDenom).URL(), key)
-		repl := ufmt.Sprintf("[send back](%s) via `%s`", implv0.NewTransferLink(current, "", ibcDenom).URL(), current)
+		old := ufmt.Sprintf("[send back](%s) via `%s`", NewTransferLink(key, "", ibcDenom).URL(), key)
+		repl := ufmt.Sprintf("[send back](%s) via `%s`", NewTransferLink(current, "", ibcDenom).URL(), current)
 		page = strings.ReplaceAll(page, old, repl)
 	}
 	return page

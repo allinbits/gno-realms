@@ -67,7 +67,7 @@ type Logic interface {
 }
 
 // ControlsLogic is implemented by an implementation that keeps the Ethereum
-// route controls of ADR pr6375 §7 (impl/v1): the permissionless payouts of
+// route controls of ADR pr6375 §7 (impl/v0): the permissionless payouts of
 // the claim queue and of the queued refunds, the recapitalization of a route's escrow, and the
 // governance operations ibcgov decides. The proxy's entry points Claim,
 // ClaimRefunds, ProveOutcome, ContinueReopen, PrepareReplacement, Recapitalize and GovApply forward to it
