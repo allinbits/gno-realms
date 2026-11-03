@@ -42,7 +42,7 @@ func fromOf(path string) int64 {
 func home() string {
 	var b strings.Builder
 	b.WriteString("# IBC governance\n\n")
-	b.WriteString("- " + decisions.GovernorLine(LaunchGovernor, yielded) + "\n")
+	b.WriteString("- " + governorLine() + "\n")
 	b.WriteString("- " + decisions.Clocks() + "\n")
 	b.WriteString("\n## Decisions\n\n")
 	b.WriteString(ledger.Page())

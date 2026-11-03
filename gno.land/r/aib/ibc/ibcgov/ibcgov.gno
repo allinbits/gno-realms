@@ -6,9 +6,9 @@
 //     text (the parameters are the record), recorded with a number and either
 //     applied at once (tightening, removals, cancels, unpauses) or queued for
 //     7 days (every loosening change), then applied by anyone with Execute;
-//   - the governor: a compiled key decides through the same builders, checks
-//     and delays (Govern) until it calls Yield once, after which only GovDAO's
-//     proposals decide;
+//   - the governor: the key that deployed this realm decides through the same
+//     builders, checks and delays (Govern) until it calls Yield once, after
+//     which only GovDAO's proposals decide;
 //   - the sole holder of the loosening powers over the IBC core and the
 //     transfer app (core.IBCGovPath, transfer.IBCGovPath).
 //
@@ -42,21 +42,41 @@ const (
 	CorePath     = "gno.land/r/aib/ibc/core"
 	TransferPath = "gno.land/r/aib/ibc/apps/transfer"
 
-	// LaunchGovernor is the governor key (ADR pr6375 §7.7). PLACEHOLDER: a
-	// test address (testutils.TestAddress("ibcgov-governor")); the deployed
-	// source carries the real key, which members read before the launch. ""
-	// would mean GovDAO decides from the first block.
-	LaunchGovernor = address("g1d93xxem0wckkwmmkv4exummjta047h6lhqp9y5")
-
 	titlePrefix = "gno.land/r/aib/ibc/ibcgov: "
+
+	// harnessGovernor is the governor when the deployer is empty, which
+	// happens only under gno test (it initializes imported realms with no
+	// caller): testutils.TestAddress("ibcgov-governor"). Unreachable on
+	// chain, where every MsgAddPackage has a creator.
+	harnessGovernor = address("g1d93xxem0wckkwmmkv4exummjta047h6lhqp9y5")
 )
 
 var (
+	// governor is the governor key (ADR pr6375 §7.7): the account that
+	// deployed this realm, recorded by init. Its only power is the
+	// governor's seat (Govern, Yield), which it gives up for good by Yield;
+	// members read it on the realm's page before relying on it.
+	governor address
 	// yielded is the block height of the governor's yield, 0 before.
 	yielded int64
 	// ledger numbers every decision.
 	ledger decisions.Ledger
 )
+
+// init records the deployer as the governor. A realm package's
+// initialization is the only time the deployer is known (cur.Previous() is
+// its user realm), so there is no source constant to replace before a
+// deployment, and none to forget.
+func init(cur realm) {
+	prev := cur.Previous()
+	if !prev.IsUserCall() {
+		panic("ibcgov: deploy this realm from the governor's own account (MsgAddPackage)")
+	}
+	governor = prev.Address()
+	if governor == "" {
+		governor = harnessGovernor
+	}
+}
 
 func now() int64 { return time.Now().Unix() }
 
