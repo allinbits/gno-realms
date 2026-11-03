@@ -15,7 +15,7 @@ import (
 	"gno.land/p/aib/ibc/types/v0"
 	"gno.land/p/nt/testutils/v0"
 	"gno.land/r/aib/ibc/apps/transfer"
-	_ "gno.land/r/aib/ibc/apps/transfer/impl/v1"
+	_ "gno.land/r/aib/ibc/apps/transfer/impl/v0"
 	"gno.land/r/aib/ibc/core"
 	implv0 "gno.land/r/aib/ibc/core/impl/v0"
 	"gno.land/r/aib/ibc/ibcgov"
@@ -70,7 +70,7 @@ func execute(cur realm, id int64) {
 	ibcgov.Execute(cross(cur), id)
 }
 
-// setupRoute creates an Ethereum client, installs transfer impl/v1 and
+// setupRoute creates an Ethereum client, installs transfer impl/v0 and
 // enrolls the client as a route, every step a governor decision.
 func setupRoute(cur realm) string {
 	clientID := core.CreateClient(cross(cur), ethtesting.ClientState(), ethtesting.ConsensusState())
@@ -192,7 +192,7 @@ func main(cur realm) {
 // a claim: true
 // claim an hour later: 1 | v99 holds 84
 // claim 1: 104 of 200 open
-// registered: slice[("gno.land/r/aib/ibc/core/impl/v0" string),("gno.land/r/aib/ibc/core/impl/v1" string),("gno.land/r/aib/ibc/core/impl/v99" string)]
+// registered: slice[("gno.land/r/aib/ibc/core/impl/v0" string),("gno.land/r/aib/ibc/core/impl/v99" string)]
 // ugnot 300 to v99: success ack
 // swept at receipt: true 300 bridge realm
 // a claim: false

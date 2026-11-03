@@ -38,7 +38,7 @@ func validatePayload(sourceClient, destinationClient string, payload types.Paylo
 	return nil
 }
 
-func (l *logic) OnSendPacket(_ int, rlm realm, sourceClient, destinationClient string, sequence uint64, payload types.Payload) error {
+func (l *base) OnSendPacket(_ int, rlm realm, sourceClient, destinationClient string, sequence uint64, payload types.Payload) error {
 	if err := validatePayload(sourceClient, destinationClient, payload); err != nil {
 		return err
 	}
@@ -152,7 +152,7 @@ func ValidatePendingSend(expected transfer.PendingSend, sender, sourceClient, de
 	return nil
 }
 
-func (l *logic) OnRecvPacket(_ int, rlm realm, sourceClient, destinationClient string, sequence uint64, payload types.Payload) types.RecvPacketResult {
+func (l *base) OnRecvPacket(_ int, rlm realm, sourceClient, destinationClient string, sequence uint64, payload types.Payload) types.RecvPacketResult {
 	if err := validatePayload(sourceClient, destinationClient, payload); err != nil {
 		return types.RecvPacketResult{Status: types.PacketStatus_Failure}
 	}
@@ -296,7 +296,7 @@ func ValidateBaseDenomNoSlash(token ics20.Token) error {
 //
 // If the acknowledgement was a success then nothing occurs. Otherwise,
 // if the acknowledgement failed, then the sender is refunded their tokens.
-func (l *logic) OnAcknowledgementPacket(_ int, rlm realm, sourceClient, destinationClient string, sequence uint64, acknowledgement []byte, payload types.Payload) error {
+func (l *base) OnAcknowledgementPacket(_ int, rlm realm, sourceClient, destinationClient string, sequence uint64, acknowledgement []byte, payload types.Payload) error {
 	var ack types.AppAcknowledgement
 	// Construct an error acknowledgement if the acknowledgement bytes are the
 	// sentinel error acknowledgement so we can use the shared transfer logic
@@ -349,7 +349,7 @@ func (l *logic) OnAcknowledgementPacket(_ int, rlm realm, sourceClient, destinat
 
 // OnTimeoutPacket processes a transfer packet timeout by refunding the tokens
 // to the sender.
-func (l *logic) OnTimeoutPacket(_ int, rlm realm, sourceClient, destinationClient string, sequence uint64, payload types.Payload) error {
+func (l *base) OnTimeoutPacket(_ int, rlm realm, sourceClient, destinationClient string, sequence uint64, payload types.Payload) error {
 	data, token, err := unmarshalPayload(payload)
 	if err != nil {
 		return err
@@ -363,7 +363,7 @@ func (l *logic) OnTimeoutPacket(_ int, rlm realm, sourceClient, destinationClien
 
 // refundPacketToken returns to sender what OnSendPacket took: it re-mints
 // burnt vouchers, or releases the escrow recorded under sourceClient.
-func (l *logic) refundPacketToken(_ int, rlm realm, sourcePort, sourceClient, sender string, token ics20.Token) error {
+func (l *base) refundPacketToken(_ int, rlm realm, sourcePort, sourceClient, sender string, token ics20.Token) error {
 	amount, err := token.AmountUint256()
 	if err != nil {
 		return err

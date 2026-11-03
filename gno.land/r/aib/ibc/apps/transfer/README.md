@@ -167,10 +167,10 @@ All of these are `MsgCall`-compatible and emit `block` / `unblock` /
 
 ## Ethereum route controls
 
-With `impl/v1` active (on a fresh deployment it is the transfer app's first
-registered implementation, so it bootstraps with no decision; `impl/v0`
-registers nothing), every Ethereum client is under the controls of ADR pr6375 §7; every other client keeps `impl/v0`'s
-behaviour. The state lives in this realm (`InitExt("controls")`, the
+With `impl/v0` active (on a fresh deployment it is the transfer app's first
+registered implementation, so it bootstraps with no decision), every Ethereum
+client is under the controls of ADR pr6375 §7; every other client keeps the
+plain ICS-20 behaviour. The state lives in this realm (`InitExt("controls")`, the
 `gno.land/p/aib/ibc/ics20/controls/v0` registry); the flags and holds live in
 `gno.land/r/aib/ibc/ibcgov`, which also decides every change. Design and rule
 mapping: [ADR 0004](../../../../../../docs/adrs/0004-ethereum-route-controls.md).
@@ -195,9 +195,9 @@ mapping: [ADR 0004](../../../../../../docs/adrs/0004-ethereum-route-controls.md)
   (the voucher's base denom). Every send writes an immutable send record (full packet, commitment,
   sender, amounts, height) in the same transaction; a minted denom keeps the
   returned vouchers counted against its supply cap until the send settles.
-- **Deployment.** The transfer app is deployed fresh with impl/v1 as its
+- **Deployment.** The transfer app is deployed fresh with impl/v0 as its
   initial implementation; an Ethereum client carries nothing until ibcgov
-  enrolls it as a route (there is no migration from impl/v0).
+  enrolls it as a route.
 - **Receives** are refused with an error acknowledgement, before any state
   change, under a `credits` flag, on a closed route, for a denom not enabled,
   past a minted denom's supply cap (what is booked against it,
@@ -645,8 +645,8 @@ it holds the escrow, the voucher tokens with their ledgers and the known
 denominations, and forwards `Transfer`, the four IBC callbacks and `Render` to
 an implementation realm that holds the ICS-20 logic. On a fresh deployment
 the first, and so the bootstrapping, registration is
-`gno.land/r/aib/ibc/apps/transfer/impl/v1`; `impl/v0` holds the ICS-20 logic
-`impl/v1` embeds for non-Ethereum clients and registers nothing. The lifecycle is the core's
+`gno.land/r/aib/ibc/apps/transfer/impl/v0`, which holds the ICS-20 logic and
+the route controls. The lifecycle is the core's
 (`RegisterImpl(ctor, version, over, keepsControls)` from the implementation's
 `init`, `UpdateImpl` by an ibcgov decision, `ImplPath` and `ImplVersion`); see
 the core README's Upgrades section. Here the manifest also declares whether

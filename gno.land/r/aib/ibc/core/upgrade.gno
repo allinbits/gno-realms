@@ -95,11 +95,10 @@ var (
 )
 
 // manifest is what an implementation declares about itself when it
-// registers, as plain values. CheckUpdateImpl checks it, then builds the
-// candidate against a fresh, empty store (never the live one) and checks the
-// built version against it: candidate code runs in the preflight, but nothing
-// is handed the live store before a governed installation. The installation
-// checks the built implementation against it again.
+// registers, as plain values. The preflight (CheckUpdateImpl) reads it alone
+// and never builds the candidate: candidate code runs once, in the authorized
+// installation, which enforces the manifest again and checks the built
+// implementation against it.
 type manifest struct {
 	// Version is the Version() the implementation reports.
 	Version string
@@ -121,6 +120,15 @@ func (m manifest) accepts(prev string) bool {
 		}
 	}
 	return false
+}
+
+// refusal is why m does not install over an active implementation of
+// version prev, or "".
+func (m manifest) refusal(prev string) string {
+	if m.accepts(prev) {
+		return ""
+	}
+	return ufmt.Sprintf("core impl %s cannot install over version %s", m.Version, prev)
 }
 
 // newManifest builds a manifest in this realm's storage: the caller's slice
@@ -145,7 +153,7 @@ func assertProxyRealm(_ int, rlm realm) {
 }
 
 // RegisterImpl records an implementation constructor. It must be called from
-// a realm under corePkgPath + "/impl/" (e.g. gno.land/r/aib/ibc/core/impl/v1),
+// a realm under corePkgPath + "/impl/" (e.g. gno.land/r/aib/ibc/core/impl/v0),
 // normally from that realm's init, so the set of installable implementations
 // is confined to this realm's own namespace, which only the owner of the aib
 // namespace can deploy under. Registration alone activates nothing, except
@@ -202,7 +210,11 @@ func install(_ int, rlm realm, path string) {
 	if l == nil {
 		panic(ufmt.Sprintf("implementation %s returned a nil Logic", path))
 	}
-	if m := implManifests.Get(path).(manifest); l.Version() != m.Version {
+	m := implManifests.Get(path).(manifest)
+	if refusal := m.refusal(implVersion); refusal != "" {
+		panic(refusal)
+	}
+	if l.Version() != m.Version {
 		panic(ufmt.Sprintf("implementation %s declared version %s, not %s", path, m.Version, l.Version()))
 	}
 	// A panic in the hook unwinds the transaction: nothing below runs and
@@ -219,46 +231,20 @@ func install(_ int, rlm realm, path string) {
 	)
 }
 
-// InstallChecker is implemented by an implementation whose OnInstall
-// refuses some predecessors: CheckInstall is why it would, or nil, as a
-// pure function of the plain values the proxy passes (the active
-// implementation's path and version), so the preflight evaluates exactly
-// what OnInstall will.
-type InstallChecker interface {
-	CheckInstall(prevPath, prevVersion string) error
-}
-
 // CheckUpdateImpl is why UpdateImpl(path) would fail now, or "", with no
-// change: path is not registered, its manifest does not install over the
-// active version, or the implementation its constructor builds disagrees
-// with its manifest or refuses the active implementation (InstallChecker).
-// A governed switch that would fail is refused (and its decision spent)
-// instead of aborting and staying pending. The candidate is built against a
-// fresh, empty store (newStore), holding no live object and no reference to
-// this realm's store: the live store reaches candidate code only in an
-// authorized installation.
+// change, from the registration's manifest alone: path is not registered, or
+// its manifest does not install over the active version. A governed switch
+// that would fail on them is refused (and its decision spent) instead of
+// aborting and staying pending. Nothing is built: an implementation that
+// disagrees with its own manifest, or whose OnInstall refuses, aborts the
+// installation, which rolls back, and the decision stays pending until
+// cancelled.
 func CheckUpdateImpl(path string) string {
 	v := implManifests.Get(path)
 	if v == nil {
 		return "no implementation registered at " + path
 	}
-	m := v.(manifest)
-	if !m.accepts(implVersion) {
-		return ufmt.Sprintf("core impl %s cannot install over version %s", m.Version, implVersion)
-	}
-	l := implCtors.Get(path).(func(Store) Logic)(newStore())
-	if l == nil {
-		return "implementation " + path + " returned a nil Logic"
-	}
-	if l.Version() != m.Version {
-		return ufmt.Sprintf("implementation %s declared version %s but builds version %s", path, m.Version, l.Version())
-	}
-	if ic, ok := l.(InstallChecker); ok {
-		if err := ic.CheckInstall(implPath, implVersion); err != nil {
-			return err.Error()
-		}
-	}
-	return ""
+	return v.(manifest).refusal(implVersion)
 }
 
 // ImplPath returns the realm path of the active implementation, "" if none.

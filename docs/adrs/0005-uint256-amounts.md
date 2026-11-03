@@ -159,9 +159,9 @@ the only party that knows the counterparty's is governance.
   honest rather than silently ignoring it.
 - The first receive of a minted denom on a route creates the voucher with
   the configured decimals (`Store.GetOrCreateVoucher` takes them;
-  `impl/v1`'s `OnRecvPacket` reads the denom's configuration, which the
+  the controls' `OnRecvPacket` reads the denom's configuration, which the
   default-deny `CheckCredit` guarantees exists). A client the controls do
-  not cover (`impl/v0`, a Tendermint route) has no configuration and keeps
+  not cover (transfer `impl/v0`'s `base`, a Tendermint route) has no configuration and keeps
   0. Amounts are base units whatever the decimals: the packet's amount is
   the amount minted, as before.
 - Decimals are fixed once the voucher exists, as on Ethereum, where
@@ -204,9 +204,9 @@ the only party that knows the counterparty's is governance.
   `uint256` per (client, denom); vouchers are `grc20/v1` tokens registered
   in `grc20reg/v1`. The proxy is not deployed yet (ADR 0002, 0004), so its
   surface may still change.
-- `impl/v0` (Tendermint routes): the same logic over `uint256`, converting
+- transfer `impl/v0`'s `base` (Tendermint routes): the same logic over `uint256`, converting
   to a coin only on the native paths.
-- `impl/v1` (Ethereum routes): the bound above on `Transfer` and
+- transfer `impl/v0`'s route controls (Ethereum routes): the bound above on `Transfer` and
   `OnRecvPacket`; `payable` checks a voucher's supply against `2^256 - 1`
   and a native payment against `math.MaxInt64`; `GovApply` reads
   `Params.ID` for a revocation and refuses a recapitalization in coins

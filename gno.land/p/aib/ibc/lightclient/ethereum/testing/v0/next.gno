@@ -13,7 +13,7 @@ import (
 // verifier continuing the retired one (ethereum.NewFrom) under another
 // package and type, so a replacement visibly changes the stored verifier
 // while every consensus state and proof keeps verifying. A test core
-// implementation compiles its conversion in (implv1.NewWithConversions).
+// implementation compiles its conversion in (core impl/v0's NewWithConversions).
 const NextVersion = "ethereum/testing-next"
 
 // NextVerifier is the v0 verifier converted to the next version.

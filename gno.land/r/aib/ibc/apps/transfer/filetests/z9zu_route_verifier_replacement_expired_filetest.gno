@@ -9,10 +9,9 @@ import (
 	"gno.land/p/aib/ibc/lightclient/ethereum/v0"
 	"gno.land/p/aib/ibc/lightclient/v0"
 	"gno.land/p/nt/testutils/v0"
-	_ "gno.land/r/aib/ibc/apps/transfer/impl/v1"
+	_ "gno.land/r/aib/ibc/apps/transfer/impl/v0"
 	"gno.land/r/aib/ibc/core"
-	_ "gno.land/r/aib/ibc/core/impl/v0"
-	implv1 "gno.land/r/aib/ibc/core/impl/v1"
+	coreimpl "gno.land/r/aib/ibc/core/impl/v0"
 	"gno.land/r/aib/ibc/ibcgov"
 )
 
@@ -70,7 +69,7 @@ func main(cur realm) {
 	frozen := client(cur, ethtesting.ClientState(), ethtesting.ConsensusState())
 	testing.SetRealm(testing.NewCodeRealm(nextImpl))
 	core.RegisterImpl(cross(cur), func(s core.Store) core.Logic {
-		return implv1.NewWithConversions(s, "v1-next",
+		return coreimpl.NewWithConversions(s, "v1-next",
 			[]string{ethereum.Version, ethereum.Version, ethtesting.FreezingVersion},
 			[]string{ethtesting.NextVersion, ethtesting.FreezingVersion, ethtesting.NextVersion},
 			[]func(*ethereum.Retired) lightclient.Interface{ethtesting.ToNextVerifier, ethtesting.ToFreezingVerifier, ethtesting.ToNextVerifier})

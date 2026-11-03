@@ -28,7 +28,7 @@ import (
 func view() controls.Reader {
 	rd, ok := transfer.ExtView("controls").(controls.Reader)
 	if !ok {
-		panic("ibcgov: the transfer app keeps no route controls (install transfer impl/v1 first)")
+		panic("ibcgov: the transfer app keeps no route controls (install transfer impl/v0 first)")
 	}
 	return rd
 }
@@ -301,9 +301,6 @@ var bridgeRealms = []string{
 	TransferPath,
 	PkgPath,
 	"gno.land/r/aib/ibc/ethrelay",
-	// Kept as a library and never registered (a fresh deployment starts
-	// with impl/v1), so no registry lists it.
-	"gno.land/r/aib/ibc/apps/transfer/impl/v0",
 }
 
 // BridgeRealm is which realm of the bridge a is, or "" for none: its path,

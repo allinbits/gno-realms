@@ -18,10 +18,9 @@ import (
 	"gno.land/p/aib/ibc/types/v0"
 	"gno.land/p/nt/testutils/v0"
 	"gno.land/r/aib/ibc/apps/transfer"
-	_ "gno.land/r/aib/ibc/apps/transfer/impl/v1"
+	_ "gno.land/r/aib/ibc/apps/transfer/impl/v0"
 	"gno.land/r/aib/ibc/core"
 	_ "gno.land/r/aib/ibc/core/impl/v0"
-	_ "gno.land/r/aib/ibc/core/impl/v1"
 	"gno.land/r/aib/ibc/ibcgov"
 )
 
@@ -62,7 +61,7 @@ func execute(cur realm, id int64) {
 	ibcgov.Execute(cross(cur), id)
 }
 
-// setupRoute creates an Ethereum client, installs transfer impl/v1 and
+// setupRoute creates an Ethereum client, installs transfer impl/v0 and
 // enrolls the client as a route, every step a governor decision.
 func setupRoute(cur realm) string {
 	clientID := core.CreateClient(cross(cur), ethtesting.ClientState(), ethtesting.ConsensusState())
@@ -171,7 +170,6 @@ func setTime(t time.Time) {
 func main(cur realm) {
 	route := setupRoute(cur)
 	execute(cur, govern(cur, ibcgov.NewSetDenomRequest(cross(cur), route, "ugnot", "unescrow", 10_000, 0, 20, 2, 25_000, 40, 10_000, "0x0000000000000000000000000000000000c0ffee", 0)))
-	execute(cur, govern(cur, ibcgov.NewCoreUpdateImplRequest(cross(cur), "gno.land/r/aib/ibc/core/impl/v1")))
 	send(cur, route, 5_000, 5_020, ethReceiver)
 	recv(cur, route, 1, "transfer/client-0/ugnot", bob.String(), 3_000) // bob's queue
 	advance(24 * time.Hour)

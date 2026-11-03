@@ -12,7 +12,7 @@ import (
 // id in the {string}-{number} format and the Ethereum router's client id in
 // its own grammar (types.IsValidRouterClientID: "client-N" or a custom id
 // such as "gnoland"), the ICS20 version and a known encoding.
-func validatePayload(localClient, routerClient string, payload types.Payload) error {
+func validateRouterPayload(localClient, routerClient string, payload types.Payload) error {
 	if payload.SourcePort != transfer.PortID || payload.DestinationPort != transfer.PortID {
 		return ufmt.Errorf("payload port ID is invalid: expected %s, got sourcePort: %s destPort: %s", transfer.PortID, payload.SourcePort, payload.DestinationPort)
 	}
@@ -34,7 +34,7 @@ func validatePayload(localClient, routerClient string, payload types.Payload) er
 // unmarshalPayload decodes the packet data of payload, sent or received on
 // an Ethereum route whose router names gno.land's client routerClient, in
 // its encoding.
-func unmarshalPayload(routerClient string, payload types.Payload) (ics20.FungibleTokenPacketData, ics20.Token, error) {
+func unmarshalRouterPayload(routerClient string, payload types.Payload) (ics20.FungibleTokenPacketData, ics20.Token, error) {
 	var (
 		data ics20.FungibleTokenPacketData
 		err  error

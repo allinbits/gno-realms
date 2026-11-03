@@ -16,7 +16,6 @@ import (
 	"gno.land/p/aib/ibc/types/v0"
 	"gno.land/p/nt/ufmt/v0"
 	"gno.land/r/aib/ibc/apps/transfer"
-	implv0 "gno.land/r/aib/ibc/apps/transfer/impl/v0"
 	"gno.land/r/aib/ibc/core"
 	"gno.land/r/aib/ibc/ibcgov"
 	"gno.land/r/nt/grc20reg/v1"
@@ -256,10 +255,10 @@ func (l *logic) OnSendPacket(_ int, rlm realm, sourceClient, destinationClient s
 	if rt == nil {
 		return ufmt.Errorf("client %s is an Ethereum client of no enrolled route", sourceClient)
 	}
-	if err := validatePayload(sourceClient, destinationClient, payload); err != nil {
+	if err := validateRouterPayload(sourceClient, destinationClient, payload); err != nil {
 		return err
 	}
-	data, token, err := unmarshalPayload(destinationClient, payload)
+	data, token, err := unmarshalRouterPayload(destinationClient, payload)
 	if err != nil {
 		return err
 	}
@@ -270,7 +269,7 @@ func (l *logic) OnSendPacket(_ int, rlm realm, sourceClient, destinationClient s
 	if transfer.IsBlocked(address(data.Sender)) {
 		return ufmt.Errorf("sender %s is blocked", data.Sender)
 	}
-	if err := implv0.ValidateBaseDenomNoSlash(token); err != nil {
+	if err := ValidateBaseDenomNoSlash(token); err != nil {
 		return err
 	}
 	amount, err := token.AmountUint256()
@@ -283,7 +282,7 @@ func (l *logic) OnSendPacket(_ int, rlm realm, sourceClient, destinationClient s
 		if !ok {
 			return ufmt.Errorf("voucher packet must be initiated through transfer.Transfer")
 		}
-		if err := implv0.ValidatePendingSend(expected, data.Sender, sourceClient, token.Denom.Path(), amount); err != nil {
+		if err := ValidatePendingSend(expected, data.Sender, sourceClient, token.Denom.Path(), amount); err != nil {
 			return ufmt.Errorf("voucher packet %v", err)
 		}
 		internal := toInternal(token.Denom, rt).IBCDenom()
@@ -295,7 +294,7 @@ func (l *logic) OnSendPacket(_ int, rlm realm, sourceClient, destinationClient s
 		if !ok {
 			return ufmt.Errorf("GRC20 packet must be initiated through transfer.Transfer")
 		}
-		if err := implv0.ValidatePendingSend(expected, data.Sender, sourceClient, token.Denom.Path(), amount); err != nil {
+		if err := ValidatePendingSend(expected, data.Sender, sourceClient, token.Denom.Path(), amount); err != nil {
 			return ufmt.Errorf("GRC20 packet %v", err)
 		}
 		denomKey := transfer.ResolveGRC20Alias(token.Denom.Base)

@@ -78,11 +78,9 @@ gno.land/
     jsonpage/v0/              # AVL tree JSON pagination
   r/aib/ibc/                  # Realms (stateful contracts)
     core/                     # IBC v2 core proxy: entry points, store, gates, admin (ADR 0001)
-    core/impl/v0/             # Core lifecycle logic (CreateClient, SendPacket, RecvPacket, ...)
-    core/impl/v1/             # v0 + governed client migration (Ethereum fork schedule)
+    core/impl/v0/             # Core lifecycle logic (CreateClient, SendPacket, RecvPacket, ...) + governed client migration
     apps/transfer/            # Token transfer app proxy: entry points, store, value moves, admin (ADR 0002)
-    apps/transfer/impl/v0/    # ICS-20 logic (Transfer classification, callbacks, refunds)
-    apps/transfer/impl/v1/    # v0 + the Ethereum route controls (ADR 0004)
+    apps/transfer/impl/v0/    # ICS-20 logic (Transfer classification, callbacks, refunds) + the Ethereum route controls (ADR 0004)
     ibcgov/                   # Governance: decision ledger, governor/yield, guardians, gov port sender (ADR 0004)
     ethrelay/                 # MsgCall wire entry points for relaying with Ethereum
     apps/testing/             # Mock IBCApp for tests

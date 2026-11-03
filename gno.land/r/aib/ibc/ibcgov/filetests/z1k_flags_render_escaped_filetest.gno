@@ -8,7 +8,7 @@ import (
 
 	ethtesting "gno.land/p/aib/ibc/lightclient/ethereum/testing/v0"
 	"gno.land/p/nt/testutils/v0"
-	_ "gno.land/r/aib/ibc/apps/transfer/impl/v1"
+	_ "gno.land/r/aib/ibc/apps/transfer/impl/v0"
 	"gno.land/r/aib/ibc/core"
 	_ "gno.land/r/aib/ibc/core/impl/v0"
 	"gno.land/r/aib/ibc/ibcgov"
@@ -50,7 +50,7 @@ func execute(cur realm, id int64) {
 	ibcgov.Execute(cross(cur), id)
 }
 
-// setupRoute creates an Ethereum client, installs transfer impl/v1 and
+// setupRoute creates an Ethereum client, installs transfer impl/v0 and
 // enrolls the client as a route, every step a governor decision.
 func setupRoute(cur realm) string {
 	clientID := core.CreateClient(cross(cur), ethtesting.ClientState(), ethtesting.ConsensusState())

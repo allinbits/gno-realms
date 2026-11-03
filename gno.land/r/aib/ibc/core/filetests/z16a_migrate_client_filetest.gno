@@ -7,8 +7,7 @@ import (
 
 	"gno.land/p/aib/ibc/lightclient/ethereum/v0"
 	"gno.land/r/aib/ibc/core"
-	_ "gno.land/r/aib/ibc/core/impl/v0"
-	implv1 "gno.land/r/aib/ibc/core/impl/v1"
+	implv0 "gno.land/r/aib/ibc/core/impl/v0"
 )
 
 func h(s string) []byte {
@@ -59,10 +58,9 @@ func newEthereumClient(cur realm) string {
 
 // ADR pr6375 R16: a governed migration replaces the fork schedule of a live
 // Ethereum client, keeping its id and consensus states. It needs an
-// implementation that migrates (impl/v1, installed by a governance decision)
-// and a decision of ibcgov; the new schedule must pass a created client's
-// checks and keep the genesis fork (see ethereum's
-// TestMigrateForkParametersRefusals).
+// implementation that migrates (impl/v0 does) and a decision of ibcgov;
+// the new schedule must pass a created client's checks and keep the genesis
+// fork (see ethereum's TestMigrateForkParametersRefusals).
 func main(cur realm) {
 	id := newEthereumClient(cur)
 	cs := core.ClientStatus(id)
@@ -76,23 +74,16 @@ func main(cur realm) {
 	}
 	params := ethereum.EncodeForkParameters(fp)
 
-	// v0 cannot migrate.
 	testing.SetRealm(testing.NewCodeRealm(core.IBCGovPath))
-	println("v0:", revive(func() {
-		core.MigrateClient(cross(cur), id, implv1.MigrationEthereumForkSchedule, params)
-	}))
-
-	core.UpdateImpl(cross(cur), "gno.land/r/aib/ibc/core/impl/v1")
-	println("impl:", core.ImplVersion())
 
 	// An unknown migration, and a schedule scheduling a fork without a
 	// version. A refusal is returned, nothing changed.
 	println("unknown:", core.MigrateClient(cross(cur), id, "nope", params))
 	bad := fp
 	bad.Gloas = ethereum.Fork{Epoch: 20}
-	println("invalid schedule:", core.MigrateClient(cross(cur), id, implv1.MigrationEthereumForkSchedule, ethereum.EncodeForkParameters(bad)))
+	println("invalid schedule:", core.MigrateClient(cross(cur), id, implv0.MigrationEthereumForkSchedule, ethereum.EncodeForkParameters(bad)))
 
-	core.MigrateClient(cross(cur), id, implv1.MigrationEthereumForkSchedule, params)
+	core.MigrateClient(cross(cur), id, implv0.MigrationEthereumForkSchedule, params)
 	println("after:", core.ClientStatus(id), core.ClientLatestHeight(id), "trust generation", core.ClientTrustGeneration(id))
 	println(core.Render("clients/" + id + "/consensus_states/0/72"))
 	println(core.Render("clients/" + id))
@@ -100,14 +91,12 @@ func main(cur realm) {
 	// Not the governance realm: refused.
 	testing.SetRealm(testing.NewCodeRealm("gno.land/r/aib/main"))
 	println("not governance:", revive(func() {
-		core.MigrateClient(cross(cur), id, implv1.MigrationEthereumForkSchedule, params)
+		core.MigrateClient(cross(cur), id, implv0.MigrationEthereumForkSchedule, params)
 	}))
 }
 
 // Output:
 // ethereum-1 Active
-// v0: core: the active implementation v0 cannot migrate clients
-// impl: v1
 // unknown: unknown client migration "nope"
 // invalid schedule: gloas fork is scheduled at epoch 20 without a version
 // after: Active 0/72 trust generation 1

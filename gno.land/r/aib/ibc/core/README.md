@@ -406,8 +406,7 @@ func main(cur realm) {
 gnokey maketx run ... <governor-key> add-relayer.gno
 ```
 
-After the yield (or from the first block when ibcgov was deployed with no
-`LaunchGovernor`), a GovDAO member proposes the same request instead, members
+After the yield, a GovDAO member proposes the same request instead, members
 vote and anyone executes the proposal, which records the decision:
 
 ```gno
@@ -526,19 +525,19 @@ A different packet at a received sequence is refused.
 
 `MigrateClient(clientID, migration, params)` migrates a live client while
 keeping its id, consensus states and packet state, through an implementation
-that implements `core.ClientMigrator` (ADR pr6375 R16). `impl/v1` has two
+that implements `core.ClientMigrator` (ADR pr6375 R16). `impl/v0` has two
 migrations.
 
 `ethereum-verifier` (params: the target verifier version; ibcgov
 `NewReplaceVerifierRequest(clientID, toVersion)`) replaces the client's
 verifier by another verifier version. The conversion is code of a core
 implementation: a later implementation compiles it in and declares it as
-plain values (`implv1.NewWithConversions(store, version, from, to,
+plain values (`implv0.NewWithConversions(store, version, from, to,
 convert)`, each `convert` a function of the new verifier's /p/ package
 receiving a read-only view of the live verifier, `ethereum.Retired`, so it
 cannot write to it), and
 is installed by the governed, manifest-checked implementation upgrade;
-`impl/v1` itself declares none. No other code converts a verifier. The
+`impl/v0` itself declares none. No other code converts a verifier. The
 active implementation's preflight reads its declared pairs and the client's
 state (an Ethereum client, Active or Expired, never Frozen, its
 `VerifierVersion` the declared source, and a verifier exposing its ethereum/v0 state through
@@ -658,7 +657,7 @@ recovery's cut-off listed as untrusted; after a verifier replacement, the
 retired verifier's states are served one height at a time
 (`clients/{id}/consensus_states/{revision}/{height}`).
 
-Emitted event:
+Emitted event (a switch to a hypothetical later `impl/v1`):
 
 ```json
 {

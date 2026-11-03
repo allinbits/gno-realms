@@ -254,7 +254,7 @@ unchanged.
   recovery only stops trusting the states below the substitute's (they no
   longer verify proofs); they stay allocated.
 - The deployment is fresh: core `impl/v0` serves Ethereum clients itself
-  (`core/impl/v1` adds the client migrations: a fork schedule, or a verifier
+  and carries the client migrations (a fork schedule, or a verifier
   replacement by a conversion a later core implementation compiles in, the
   new verifier continuing the retired one's history read only through
   `ethereum.NewFrom`: an index of the retired verifiers' own stores, keyed
@@ -265,8 +265,8 @@ unchanged.
   holds at or below that key (a rewritten head, a next committee learned
   there) goes into a persistent override tree read first; a conversion
   copies no consensus-state history and costs O(log previous stores)), and the
-  transfer
-  app starts with `impl/v1`, the first implementation its proxy registers;
+  transfer app starts with `impl/v0`, the first implementation its proxy
+  registers, which carries the route controls;
   the new `p/` packages deploy beside them.
 - Tests replay the four recorded devnet runs of the eureka client (11 updates,
   6 storage proofs), a live Sepolia snapshot on Gloas, and tamper cases. A

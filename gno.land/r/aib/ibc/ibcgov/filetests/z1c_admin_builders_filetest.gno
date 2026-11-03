@@ -13,7 +13,6 @@ import (
 	"gno.land/r/aib/ibc/apps/transfer"
 	"gno.land/r/aib/ibc/core"
 	_ "gno.land/r/aib/ibc/core/impl/v0"
-	_ "gno.land/r/aib/ibc/core/impl/v1"
 	"gno.land/r/aib/ibc/ibcgov"
 )
 
@@ -50,7 +49,7 @@ func execute(cur realm, id int64) {
 	ibcgov.Execute(cross(cur), id)
 }
 
-// setupRoute creates an Ethereum client, installs transfer impl/v1 and
+// setupRoute creates an Ethereum client, installs transfer impl/v0 and
 // enrolls the client as a route, every step a governor decision.
 func setupRoute(cur realm) string {
 	clientID := core.CreateClient(cross(cur), ethtesting.ClientState(), ethtesting.ConsensusState())
@@ -126,7 +125,6 @@ func main(cur realm) {
 
 	// A client migration: the decision spells out the fork schedule.
 	client := core.CreateClient(cross(cur), ethtesting.ClientState(), ethtesting.ConsensusState())
-	execute(cur, govern(cur, ibcgov.NewCoreUpdateImplRequest(cross(cur), "gno.land/r/aib/ibc/core/impl/v1")))
 	fp := ethtesting.ClientState().ForkParameters
 	fp.Gloas = ethereum.Fork{Version: [4]byte{0x80, 0, 0, 0x38}, Epoch: 1_000_000}
 	mig := govern(cur, ibcgov.NewMigrateClientRequest(cross(cur), client, "ethereum-fork-schedule", hex.EncodeToString(ethereum.EncodeForkParameters(fp))))

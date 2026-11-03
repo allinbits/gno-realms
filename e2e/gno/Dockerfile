@@ -36,15 +36,13 @@ RUN cd gnovm/cmd/gno && go build -o /usr/local/bin/gno .
 # Copy IBC realms/packages and download dependencies from local gnodev.
 COPY gnowork.toml /aibgno/gnowork.toml
 COPY gno.land /aibgno/gno.land
-# The devnet build of gno.land/r/aib/ibc/ibcgov (ADR pr6375 §7.7): the launch
-# governor is the e2e test key (TEST_MNEMONIC, g1z437…), so the tests decide
-# through ibcgov as the launch governor would, and the decision delays are
-# divided by 60480 (a 7-day delay is 10 s of block time). The mainnet build
-# keeps factor 1 and the real governor key.
+# The devnet build of the decision delays (ADR pr6375 §7.7): divided by 60480
+# (a 7-day delay is 10 s of block time). The mainnet build keeps factor 1. The
+# ibcgov governor is its deployer: the entrypoint deploys with the e2e test
+# key (TEST_MNEMONIC, g1z437…), so the tests decide through ibcgov as the
+# governor would.
 RUN sed -i 's/^\tFactor = int64(1)$/\tFactor = int64(60480)/' /aibgno/gno.land/p/aib/decisions/v0/decisions.gno && \
-    sed -i 's/LaunchGovernor = address("g1[0-9a-z]*")/LaunchGovernor = address("g1z437dpuh5s4p64vtq09dulg6jzxpr2hd4q8r5x")/' /aibgno/gno.land/r/aib/ibc/ibcgov/ibcgov.gno && \
-    grep -q 'Factor = int64(60480)' /aibgno/gno.land/p/aib/decisions/v0/decisions.gno && \
-    grep -q 'g1z437dpuh5s4p64vtq09dulg6jzxpr2hd4q8r5x' /aibgno/gno.land/r/aib/ibc/ibcgov/ibcgov.gno
+    grep -q 'Factor = int64(60480)' /aibgno/gno.land/p/aib/decisions/v0/decisions.gno
 ENV GNOROOT=/src/gno
 # gnodev answers RPC before every package it serves is queryable, so the
 # download is retried; gnodev's log is printed if it never succeeds.

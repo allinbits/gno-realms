@@ -9,7 +9,7 @@
 #   OUT=/tmp/tx.json ./scripts/make-deploy-tx.sh
 #   CREATOR=g1... ./scripts/make-deploy-tx.sh                 # another creator (address or local key name)
 #   KEEP_TESTS=1 ./scripts/make-deploy-tx.sh                  # keep filetests/ and *_test.gno
-#   ONLY=gno.land/r/aib/ibc/core/impl/v1 ./scripts/make-deploy-tx.sh   # a subset of packages.sh (comma-separated), e.g. one implementation
+#   ONLY=gno.land/r/aib/ibc/core/impl/v0 ./scripts/make-deploy-tx.sh   # a subset of packages.sh (comma-separated), e.g. one implementation
 #   RELAYERS=g1...,g1... ./scripts/make-deploy-tx.sh          # also write the ibcgov MsgRun adding these relayers
 #
 # RELAYERS (comma-separated addresses) also writes RELAYERS_OUT (default
@@ -18,7 +18,9 @@
 # see gno.land/r/aib/ibc/core/README.md, "Relayer whitelist").
 #
 # CREATOR is the account that submits and pays, by default MULTISIG_ADDR from
-# env.sh. It does not need to be in the local keybase or unlocked: gnokey only
+# env.sh. It also becomes the ibcgov governor: ibcgov's init records its
+# deployer (on an inert chain, the creator stamped at submission), the one
+# account that decides by Govern until it yields to GovDAO. It does not need to be in the local keybase or unlocked: gnokey only
 # reads the address to compose the messages. It must own the `aib` namespace on
 # the target chain (r/sys/names), or every message is rejected.
 #
@@ -213,11 +215,11 @@ cat <<EOT
   5. Once core and ibcgov are live, governance adds the relayers: until the first add-relayer
      decision executes the whitelist is empty and any address may create clients and relay (see
      gno.land/r/aib/ibc/core/README.md, "Relayer whitelist"). core.AddRelayer accepts ibcgov only,
-     so a direct call panics. The ibcgov governor (LaunchGovernor, before its yield) records the
+     so a direct call panics. The ibcgov governor (the creator $creator_addr, before its yield) records the
      decisions with a MsgRun${RELAYERS_HINT}:
        gnokey maketx run -gas-fee ... -gas-wanted ... -broadcast -chainid $CHAIN_ID -remote $REMOTE \\
            <governor-key> ${RELAYERS_FILE}
-     After the yield (or with no LaunchGovernor) a GovDAO proposal of the same requests replaces it.
+     After the yield a GovDAO proposal of the same requests replaces it.
      Each decision is queued for 7 days (production); then anyone applies it with its number
      (gno.land/r/aib/ibc/ibcgov:decisions):
        gnokey maketx call -pkgpath gno.land/r/aib/ibc/ibcgov -func Execute -args <decision> ... <any-key>

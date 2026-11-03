@@ -8,8 +8,7 @@ import (
 	ethtesting "gno.land/p/aib/ibc/lightclient/ethereum/testing/v0"
 	"gno.land/p/aib/ibc/lightclient/ethereum/v0"
 	"gno.land/r/aib/ibc/core"
-	_ "gno.land/r/aib/ibc/core/impl/v0"
-	implv1 "gno.land/r/aib/ibc/core/impl/v1"
+	implv0 "gno.land/r/aib/ibc/core/impl/v0"
 )
 
 // atSlot sets the block time to the fixture chain's slot.
@@ -32,14 +31,13 @@ func main(cur realm) {
 	println("updated:", core.ClientStatus(id), core.ClientLatestHeight(id))
 
 	testing.SetRealm(testing.NewCodeRealm(core.IBCGovPath))
-	core.UpdateImpl(cross(cur), "gno.land/r/aib/ibc/core/impl/v1")
 	atSlot(300)
 	genesis := cs.ForkParameters
 	genesis.GenesisForkVersion[0]++
-	println("genesis fork:", core.MigrateClient(cross(cur), id, implv1.MigrationEthereumForkSchedule, ethereum.EncodeForkParameters(genesis)))
+	println("genesis fork:", core.MigrateClient(cross(cur), id, implv0.MigrationEthereumForkSchedule, ethereum.EncodeForkParameters(genesis)))
 	fp := cs.ForkParameters
 	fp.Gloas = ethereum.Fork{Version: [4]byte{0x80, 0, 0, 0x38}, Epoch: 30}
-	if refusal := core.MigrateClient(cross(cur), id, implv1.MigrationEthereumForkSchedule, ethereum.EncodeForkParameters(fp)); refusal == "" {
+	if refusal := core.MigrateClient(cross(cur), id, implv0.MigrationEthereumForkSchedule, ethereum.EncodeForkParameters(fp)); refusal == "" {
 		println("gloas at epoch 30: migrated")
 	}
 	testing.SetRealm(testing.NewCodeRealm("gno.land/r/aib/main"))
