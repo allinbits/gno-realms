@@ -169,8 +169,9 @@ of solidity-ibc-eureka (client type `ethereum`):
   replacement's result either: both must pass the creation checks
   (`CheckForkParameters`, `Retired.CheckSuccessor`, ADR 0004 R16), keep the
   genesis fork, and, for a replacement, the chain and router. Once a client
-  exists, its schedule changes only on governed paths (recovery, and on later core implementations a fork migration or a
-  verifier conversion), and governance already has full power over a client
+  exists, its schedule changes only on governed paths (recovery, a fork
+  migration, and a verifier conversion a later core implementation compiles
+  in), and governance already has full power over a client
   through recovery from a substitute it created from a trusted bootstrap,
   so a comparison adds no safety against governance. A new client's
   schedule, like the rest of its initial state, is trusted from its creator:
