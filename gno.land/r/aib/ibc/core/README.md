@@ -406,8 +406,7 @@ func main(cur realm) {
 gnokey maketx run ... <governor-key> add-relayer.gno
 ```
 
-After the yield (or from the first block when ibcgov was deployed with no
-`LaunchGovernor`), a GovDAO member proposes the same request instead, members
+After the yield, a GovDAO member proposes the same request instead, members
 vote and anyone executes the proposal, which records the decision:
 
 ```gno
