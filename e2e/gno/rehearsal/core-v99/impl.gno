@@ -22,5 +22,5 @@ func New(s core.Store) core.Logic {
 }
 
 func init(cur realm) {
-	core.RegisterImpl(cross(cur), New)
+	core.RegisterImpl(cross(cur), New, "v99", nil)
 }

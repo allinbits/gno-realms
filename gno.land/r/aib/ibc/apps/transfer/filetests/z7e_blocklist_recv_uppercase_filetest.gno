@@ -43,8 +43,9 @@ func main(cur realm) {
 	core.RegisterCounterparty(cross(cur), clientID, [][]byte{[]byte("iavlStoreKey"), []byte("prefix2")}, counterpartyID)
 
 	receiver := testutils.TestAddress("receiver")
-	transfer.AddAuthorityMember(cross(cur), cur.Address())
+	testing.SetRealm(testing.NewCodeRealm(transfer.IBCGovPath)) // decided by the governance realm
 	transfer.BlockAddress(cross(cur), receiver)
+	testing.SetRealm(testing.NewCodeRealm("gno.land/r/aib/main"))
 
 	// Step 1: a real native Transfer escrows 100ugnot under clientID. This is
 	// what establishes the per-client escrow that RecvPacket will release.
@@ -192,16 +193,6 @@ func main(cur realm) {
 //       }
 //     ],
 //     "pkg_path": "gno.land/r/aib/ibc/core"
-//   },
-//   {
-//     "type": "authority_member_added",
-//     "attrs": [
-//       {
-//         "key": "address",
-//         "value": "g1gjs8nfdrd55z3xu9gjcatnj29vkwuyx4ffqxd9"
-//       }
-//     ],
-//     "pkg_path": "gno.land/r/aib/ibc/apps/transfer"
 //   },
 //   {
 //     "type": "block",

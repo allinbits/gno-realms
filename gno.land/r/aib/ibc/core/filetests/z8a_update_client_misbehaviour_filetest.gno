@@ -113,7 +113,10 @@ func main(cur realm) {
 		Header2: header2,
 	}
 
+	println("trust generation before:", core.ClientTrustGeneration(clientID))
 	core.UpdateClient(cross(cur), clientID, msg)
+	// The freeze ends the verifier's trust generation (Codex round 6 #2).
+	println("trust generation after the freeze:", core.ClientTrustGeneration(clientID), core.ClientStatus(clientID))
 
 	println("----------- assert render clients")
 	println(core.Render("clients"))
@@ -124,6 +127,8 @@ func main(cur realm) {
 }
 
 // Output:
+// trust generation before: 0
+// trust generation after the freeze: 1 Frozen
 // ----------- assert render clients
 // {"items":[{"id":"07-tendermint-1","type":"07-tendermint","creator":"g1wymu47drhr0kuq2098m792lytgtj2nyx77yrsm","status":"Frozen","counterparty_client_id":"07-tendermint-2","counterparty_merke_prefix":["iavlStoreKey","prefix2"],"client_state":{"chain_id":"atomone-1","latest_height":{"revision_number":1,"revision_height":2},"frozen_height":{"revision_number":0,"revision_height":1},"trust_level":{"numerator":1,"denominator":3},"trusting_period":3600,"unbonding_period":10800,"max_clock_drift":3600,"upgrade_path":[]},"last_consensus_state":{"height":{"revision_number":1,"revision_height":2},"timestamp":1234567890,"root":"YAdxKyKDg+tUQc5Dli2fYkJ2imznqbJ+UDfQ7y0QNlM=","next_validators_hash":"OJfJuH6dfiZI2d0uAxqamqfIVqV4c4oEAZigvJ8UqFQ="}}],"page":1,"total":1}
 // ----------- assert render clients/07-tendermint-1/consensus_states

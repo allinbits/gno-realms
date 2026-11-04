@@ -2,6 +2,8 @@
 package main
 
 import (
+	"testing"
+
 	"encoding/hex"
 	"time"
 
@@ -30,8 +32,9 @@ func main(cur realm) {
 
 	// The sender is the signing EOA (OriginCaller), also made admin here.
 	sender := cur.Previous().Address()
-	transfer.AddAuthorityMember(cross(cur), cur.Address())
+	testing.SetRealm(testing.NewCodeRealm(transfer.IBCGovPath)) // decided by the governance realm
 	transfer.BlockAddress(cross(cur), sender)
+	testing.SetRealm(testing.NewCodeRealm("gno.land/r/aib/main"))
 
 	data := ics20.NewFungibleTokenPacketData("ugnot", "100", sender.String(), "atone1user", "")
 	msg := types.MsgSendPacket{

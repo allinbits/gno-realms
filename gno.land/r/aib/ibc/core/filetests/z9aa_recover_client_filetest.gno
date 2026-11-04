@@ -15,7 +15,6 @@ import (
 // Active substitute. Expiry is simulated by advancing block time past the
 // subject's TrustingPeriod via testing.SetContext.
 func main(cur realm) {
-	core.AddAuthorityMember(cross(cur), cur.Address())
 
 	var (
 		chainID        = "chain-id-2"
@@ -42,7 +41,9 @@ func main(cur realm) {
 	println("----------- before recover: substitute status")
 	println(core.Render("clients/" + substituteID + "/status"))
 
+	testing.SetRealm(testing.NewCodeRealm(core.IBCGovPath)) // decided by the governance realm
 	core.RecoverClient(cross(cur), subjectID, substituteID)
+	testing.SetRealm(testing.NewCodeRealm("gno.land/r/aib/main"))
 
 	println("----------- after recover: subject status")
 	println(core.Render("clients/" + subjectID + "/status"))
@@ -58,16 +59,6 @@ func main(cur realm) {
 
 // Events:
 // [
-//   {
-//     "type": "authority_member_added",
-//     "attrs": [
-//       {
-//         "key": "address",
-//         "value": "g1gjs8nfdrd55z3xu9gjcatnj29vkwuyx4ffqxd9"
-//       }
-//     ],
-//     "pkg_path": "gno.land/r/aib/ibc/core"
-//   },
 //   {
 //     "type": "create_client",
 //     "attrs": [

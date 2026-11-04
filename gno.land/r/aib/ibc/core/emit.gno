@@ -60,6 +60,18 @@ func EmitRecoverClient(_ int, rlm realm, subjectClientID, substituteClientID, cl
 	)
 }
 
+// EventTypeMigrateClient is the event of a client migration (MigrateClient).
+const EventTypeMigrateClient = "migrate_client"
+
+func EmitMigrateClient(_ int, rlm realm, clientID, clientType, migration string) {
+	assertProxyRealm(0, rlm)
+	chain.Emit(EventTypeMigrateClient,
+		types.AttributeKeyClientID, clientID,
+		types.AttributeKeyClientType, clientType,
+		"migration", migration,
+	)
+}
+
 func EmitSendPacket(_ int, rlm realm, packet types.Packet) {
 	assertProxyRealm(0, rlm)
 	emitPacketEvent(types.EventTypeSendPacket, packet)

@@ -20,7 +20,7 @@ func newV99(s transfer.Store) transfer.Logic { return v99{Logic: implv0.New(s)} 
 // RegisterImpl refuses a realm outside the proxy's impl namespace.
 func main(cur realm) {
 	_ = testing.SetRealm
-	transfer.RegisterImpl(cross(cur), newV99)
+	transfer.RegisterImpl(cross(cur), newV99, "v99", nil, false)
 }
 
 // Error:

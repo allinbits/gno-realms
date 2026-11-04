@@ -2,6 +2,8 @@
 package main
 
 import (
+	"testing"
+
 	"time"
 
 	tmtesting "gno.land/p/aib/ibc/lightclient/tendermint/testing/v0"
@@ -15,7 +17,6 @@ import (
 // Both subject and substitute are created with the same initial state, then
 // frozen via the same misbehaviour message.
 func main(cur realm) {
-	core.AddAuthorityMember(cross(cur), cur.Address())
 	var (
 		chainID     = "atomone-1"
 		height      = uint64(2)
@@ -35,7 +36,9 @@ func main(cur realm) {
 	core.UpdateClient(cross(cur), subjectID, misbehaviour)
 	core.UpdateClient(cross(cur), substituteID, misbehaviour)
 
+	testing.SetRealm(testing.NewCodeRealm(core.IBCGovPath)) // decided by the governance realm
 	core.RecoverClient(cross(cur), subjectID, substituteID)
+	testing.SetRealm(testing.NewCodeRealm("gno.land/r/aib/main"))
 }
 
 func buildMisbehaviour(chainID string, trustedHeight types.Height,

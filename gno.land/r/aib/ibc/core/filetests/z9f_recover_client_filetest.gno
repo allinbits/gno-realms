@@ -12,8 +12,7 @@ import (
 
 // RecoverClient failure: caller is not the admin.
 func main(cur realm) {
-	// Admin is set to a different address than the test caller.
-	core.AddAuthorityMember(cross(cur), "g1somebodyelse00000000000000000000000000")
+	// The test caller is not the governance realm.
 	var (
 		clientState    = tmtesting.NewClientState("chain-id-2", types.NewHeight(2, 2))
 		trustedValset  = tmtesting.GenValset()
@@ -26,4 +25,4 @@ func main(cur realm) {
 }
 
 // Error:
-// recover_client: caller g1gjs8nfdrd55z3xu9gjcatnj29vkwuyx4ffqxd9 is not a member of the authority
+// recover_client: only gno.land/r/aib/ibc/ibcgov decides this, not gno.land/r/aib/main

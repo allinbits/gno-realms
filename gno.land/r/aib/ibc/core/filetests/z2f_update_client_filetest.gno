@@ -2,30 +2,18 @@
 package main
 
 import (
-	"errors"
 	"time"
 
 	tmtesting "gno.land/p/aib/ibc/lightclient/tendermint/testing/v0"
-	"gno.land/p/aib/ibc/lightclient/v0"
+	"gno.land/p/aib/ibc/lightclient/tendermint/v0"
 	"gno.land/p/aib/ibc/types/v0"
 	"gno.land/r/aib/ibc/core"
 	_ "gno.land/r/aib/ibc/core/impl/v0"
 )
 
-// validateError implements ClientMessage in order to returns an error when
-// ValidateBasic() is invoked.
-type validateError struct{}
-
-func (validateError) ValidateBasic() error {
-	return errors.New("validate error")
-}
-
-func (validateError) ClientType() string {
-	return lightclient.Tendermint
-}
-
 // UpdateClient assert
-// Assert calls to clientMessage.ValidateBasic
+// Assert calls to clientMessage.ValidateBasic, with a real Tendermint header
+// message that fails it.
 // NOTE: We don't want to test ValidateBasic() checks in filetest because it
 // has too many cases, hence ValidateBasic is tested in unittests and we only
 // ensure that the ValidateBasic() method are properly invoked.
@@ -45,9 +33,9 @@ func main(cur realm) {
 	println("clientMessage.ValidateBasic():",
 		// NOTE: panics in explicit cross realm can only be caught by revive.
 		revive(func() {
-			core.UpdateClient(cross(cur), clientID, validateError{})
+			core.UpdateClient(cross(cur), clientID, &tendermint.MsgHeader{})
 		}))
 }
 
 // Output:
-// clientMessage.ValidateBasic(): validate error
+// clientMessage.ValidateBasic(): missing header

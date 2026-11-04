@@ -10,7 +10,6 @@ import (
 // PauseApp is for authority members only.
 func main(cur realm) {
 	core.RegisterApp(cross(cur), "app1", appstesting.NewApp(cross(cur)))
-	core.AddAuthorityMember(cross(cur), "g1someother00000000000000000000000000")
 	core.PauseApp(cross(cur), "app1")
 }
 
