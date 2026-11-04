@@ -14,7 +14,8 @@ import (
 // pr6375 R14). Both realms gate every loosening power on a call from this
 // realm, so each power waits for its decision's delay here: upgrades,
 // relayers, recovery, approvals, client migration and membership 7 days;
-// tightening (pause, block, reject, remove) at once; unpauses at once.
+// tightening (pause, block, reject, remove) at once; unpauses at once, spent
+// under a guardian hold.
 
 // adminParams is a decision that makes one administrative call.
 type adminParams struct {
@@ -119,6 +120,18 @@ func contains(list []string, s string) bool {
 	return false
 }
 
+// emptyRouteMeters starts a new payouts epoch of client's route, if it has
+// one, and says so: a recovered or migrated verifier is a new trust, so the
+// route's meters start empty, as after a replacement (ADR pr6375 §7.1).
+func emptyRouteMeters(client string, t int64) string {
+	route := routeKeyOf(client)
+	if !routes.Has(route) {
+		return ""
+	}
+	bumpPayoutsEpoch(route, t)
+	return ": route " + route + "'s meters emptied"
+}
+
 func (p *adminParams) apply(cur realm, t int64) (string, string) {
 	if refusal := p.check(); refusal != "" {
 		return "", refusal
@@ -133,6 +146,10 @@ func (p *adminParams) apply(cur realm, t int64) (string, string) {
 		core.RemoveRelayer(cross(cur), address(a[0]))
 	case "core recover client":
 		core.RecoverClient(cross(cur), a[0], a[1])
+		// The substitute's state is a new trust, as a migrated verifier is.
+		if note := emptyRouteMeters(a[0], t); note != "" {
+			return p.op + note, ""
+		}
 	case "core approve app":
 		core.ApproveApp(cross(cur), a[0], a[1])
 	case "core reject app":
@@ -150,6 +167,9 @@ func (p *adminParams) apply(cur realm, t int64) (string, string) {
 		if refusal := core.MigrateClient(cross(cur), a[0], a[1], bz); refusal != "" {
 			return "", refusal
 		}
+		if note := emptyRouteMeters(a[0], t); note != "" {
+			return p.op + note, ""
+		}
 	case "transfer update impl":
 		transfer.UpdateImpl(cross(cur), a[0])
 	case "transfer block":
@@ -166,8 +186,11 @@ func (p *adminParams) apply(cur realm, t int64) (string, string) {
 	return p.op, ""
 }
 
-// unpauseAdminParams is an unpause of the core or of an app: at once.
+// unpauseAdminParams is an unpause of the core or of an app: at once, spent
+// under a guardian hold.
 type unpauseAdminParams struct{ port string }
+
+func (*unpauseAdminParams) unpause() {}
 
 func (p *unpauseAdminParams) apply(cur realm, t int64) (string, string) {
 	if p.port == "" {
@@ -289,7 +312,8 @@ func NewCorePauseRequest(cur realm) Request {
 	return adminRequest(cur, "core pause", "core: pause the packet path", false)
 }
 
-// NewCoreUnpauseRequest resumes the core's packet path at once.
+// NewCoreUnpauseRequest resumes the core's packet path at once; spent under
+// a guardian hold.
 func NewCoreUnpauseRequest(cur realm) Request {
 	text := "core: unpause the packet path"
 	p := &unpauseAdminParams{}
@@ -306,7 +330,8 @@ func NewCorePauseAppRequest(cur realm, portID string) Request {
 	return adminRequest(cur, "core pause app", "core: pause the app on port "+portID, false, portID)
 }
 
-// NewCoreUnpauseAppRequest resumes the app on portID at once.
+// NewCoreUnpauseAppRequest resumes the app on portID at once; spent under a
+// guardian hold.
 func NewCoreUnpauseAppRequest(cur realm, portID string) Request {
 	if core.AppPkgPath(portID) == "" {
 		panic("ibcgov: no app on port " + portID)
@@ -382,11 +407,11 @@ func NewMigrateClientRequest(cur realm, clientID, migration, paramsHex string) R
 // pr6375 R16, §6.12), with the conversion the active core implementation
 // compiles in (installed beforehand by a governed implementation upgrade).
 // The client keeps its id, every trusted consensus state and its packet
-// state; its trust generation advances. An Expired client is converted too
-// and stays Expired (an ordinary governed recovery follows). When it
-// executes, a conversion the active implementation does not declare, a client
-// neither Active nor Expired (Frozen), or a converted verifier failing its
-// checks spends the decision.
+// state; its trust generation advances and its route's payout meters start
+// empty. An Expired client is converted too and stays Expired (an ordinary
+// governed recovery follows). When it executes, a conversion the active
+// implementation does not declare, a client neither Active nor Expired
+// (Frozen), or a converted verifier failing its checks spends the decision.
 func NewReplaceVerifierRequest(cur realm, clientID, toVersion string) Request {
 	return NewMigrateClientRequest(cur, clientID, "ethereum-verifier", hex.EncodeToString([]byte(toVersion)))
 }
