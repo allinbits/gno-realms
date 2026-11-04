@@ -26,7 +26,7 @@ type payout struct {
 // for a GRC20, its registered token, the route's escrow accounting and this
 // realm's token balance; for a native coin, the escrow accounting and this
 // realm's bank balance.
-func (l *logic) payable(rt *controls.Route, ps []payout) string {
+func (l *routes) payable(rt *controls.Route, ps []payout) string {
 	self := chain.PackageAddress(transfer.PkgPath)
 	totals := map[string]int64{}
 	var order []string
@@ -80,7 +80,7 @@ func (l *logic) payable(rt *controls.Route, ps []payout) string {
 
 // mintRoom is how much of a minted denom its voucher token can still mint
 // under int64 (0 with no token: nothing is minted).
-func (l *logic) mintRoom(denom string) int64 {
+func (l *routes) mintRoom(denom string) int64 {
 	tok := l.store.VoucherToken(denom)
 	if tok == nil {
 		return 0

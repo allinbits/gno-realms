@@ -49,7 +49,7 @@ func execute(cur realm, id int64) {
 	ibcgov.Execute(cross(cur), id)
 }
 
-// setupRoute creates an Ethereum client, installs transfer impl/v0 and
+// setupRoute creates an Ethereum client, installs transfer impl/controls/v0 and
 // enrolls the client as a route, every step a governor decision.
 func setupRoute(cur realm) string {
 	clientID := core.CreateClient(cross(cur), ethtesting.ClientState(), ethtesting.ConsensusState())
@@ -120,7 +120,7 @@ func main(cur realm) {
 		govern(cur, ibcgov.NewCoreUpdateImplRequest(cross(cur), "gno.land/r/aib/ibc/core/impl/v9"))
 	}))
 	println("wrong namespace:", revive(func() {
-		govern(cur, ibcgov.NewCoreUpdateImplRequest(cross(cur), "gno.land/r/aib/ibc/apps/transfer/impl/v0"))
+		govern(cur, ibcgov.NewCoreUpdateImplRequest(cross(cur), "gno.land/r/aib/ibc/apps/transfer/impl/controls/v0"))
 	}))
 
 	// A client migration: the decision spells out the fork schedule.
@@ -156,7 +156,7 @@ func main(cur realm) {
 // transfer member: true
 // transfer member: false
 // unregistered: ibcgov: no implementation is registered at gno.land/r/aib/ibc/core/impl/v9
-// wrong namespace: ibcgov: an implementation lives under gno.land/r/aib/ibc/core/impl/v<N>, not gno.land/r/aib/ibc/apps/transfer/impl/v0
+// wrong namespace: ibcgov: an implementation lives under gno.land/r/aib/ibc/core/impl/, not gno.land/r/aib/ibc/apps/transfer/impl/controls/v0
 // core: migrate client ethereum-1 to the fork schedule genesis=10000038@slot0,altair=20000038@0,bellatrix=30000038@0,capella=40000038@0,deneb=50000038@0,electra=60000038@0,fulu=70000038@1,gloas=80000038@1000000
 // core migrate client: applied
 // unknown migration: ibcgov: unknown migration nope

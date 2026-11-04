@@ -8,6 +8,7 @@ import (
 	"gno.land/p/aib/ibc/types/v0"
 	"gno.land/p/nt/ufmt/v0"
 	"gno.land/r/aib/ibc/apps/transfer"
+	ics20impl "gno.land/r/aib/ibc/apps/transfer/impl/ics20/v0"
 	"gno.land/r/aib/ibc/ibcgov"
 )
 
@@ -29,19 +30,26 @@ func receivedDenom(rt *controls.Route, sourceClient string, payload types.Payloa
 	return denom, denom.IBCDenom(), controls.KindMint
 }
 
-// OnRecvPacket is impl/v0's for clients the controls do not cover. On a route
-// it books the transfer as a claim keyed by the packet (or a sweep entry) in
+// ensureVoucher records a minted denom's trace and creates its voucher, so a
+// claim of it can be minted: before a receive books a credit of the denom, or
+// a credit by vote completes a pending acknowledgement of it.
+func (l *routes) ensureVoucher(_ int, rlm realm, denom ics20.Denom, accDenom string) {
+	if !l.store.HasDenom(accDenom) {
+		l.store.SetDenom(0, rlm, denom)
+	}
+	transfer.EmitDenom(0, rlm, denom.HashHex(), string(denom.MarshalJSON()))
+	l.store.GetOrCreateVoucher(0, rlm, denom.Base, accDenom)
+}
+
+// OnRecvPacket, on a route, books the transfer as a claim keyed by the packet (or a sweep entry) in
 // the transaction of the receipt, and answers a success acknowledgement; the
 // claim is paid later by Claim. Every refusal answers an error acknowledgement
 // before any state change, so the sender is refunded on Ethereum: a credits
 // flag, a closed route, an Ethereum client of no route, a blocked receiver, a
 // denom not enabled on the route, a minted denom past its supply cap. An
 // undecodable receiver is no refusal: it is swept, owed to a decision.
-func (l *logic) OnRecvPacket(_ int, rlm realm, sourceClient, destinationClient string, sequence uint64, payload types.Payload) types.RecvPacketResult {
-	rt, covered := l.routeOf(0, rlm, destinationClient)
-	if !covered {
-		return l.Logic.OnRecvPacket(0, rlm, sourceClient, destinationClient, sequence, payload)
-	}
+func (l *routes) OnRecvPacket(_ int, rlm realm, sourceClient, destinationClient string, sequence uint64, payload types.Payload) types.RecvPacketResult {
+	rt := l.routeOf(0, rlm, destinationClient)
 	var (
 		data   ics20.FungibleTokenPacketData
 		token  ics20.Token
@@ -76,7 +84,7 @@ func (l *logic) OnRecvPacket(_ int, rlm realm, sourceClient, destinationClient s
 	if err != nil {
 		return refuse(err)
 	}
-	if err := ValidateBaseDenomNoSlash(token); err != nil {
+	if err := ics20impl.ValidateBaseDenomNoSlash(token); err != nil {
 		return refuse(err)
 	}
 	if ibcgov.Flagged(rt.Key, ibcgov.FnCredits) {
@@ -107,11 +115,7 @@ func (l *logic) OnRecvPacket(_ int, rlm realm, sourceClient, destinationClient s
 
 	// No refusal from here: book the credit.
 	if kind == controls.KindMint {
-		if !l.store.HasDenom(accDenom) {
-			l.store.SetDenom(0, rlm, denom)
-		}
-		transfer.EmitDenom(0, rlm, denom.HashHex(), string(denom.MarshalJSON()))
-		l.store.GetOrCreateVoucher(0, rlm, denom.Base, accDenom)
+		l.ensureVoucher(0, rlm, denom, accDenom)
 	}
 	if reason == "" && isBridgeRealm(receiver) {
 		reason = "bridge realm"

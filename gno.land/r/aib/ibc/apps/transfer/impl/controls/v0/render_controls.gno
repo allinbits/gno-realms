@@ -7,9 +7,10 @@ import (
 
 	"gno.land/p/nt/mux/v0"
 	"gno.land/p/nt/ufmt/v0"
+	ics20impl "gno.land/r/aib/ibc/apps/transfer/impl/ics20/v0"
 )
 
-// Render serves impl/v0's routes and the route controls' JSON for monitors
+// Render serves the plain app's routes and the route controls' JSON for monitors
 // and tooling (ADR pr6375 §7.11), every JSON page inert in Markdown
 // (jsonmd.Inert: an owed sweep entry keeps a raw, attacker-chosen receiver):
 //
@@ -24,7 +25,7 @@ import (
 //
 // Each of the last four is a page {"entries":[...],"next":<cursor>}: pass
 // next as ?from= for the following page ("" when there is none).
-func (l *logic) Render(path string) string {
+func (l *routes) Render(path string) string {
 	router := mux.NewRouter()
 	router.HandleFunc("", l.home)
 	router.HandleFunc("routes", func(w *mux.ResponseWriter, r *mux.Request) { w.Write(l.reader().RoutesJSON()) })
@@ -43,17 +44,17 @@ func (l *logic) Render(path string) string {
 	router.HandleFunc("routes/{route}/losses", func(w *mux.ResponseWriter, r *mux.Request) {
 		w.Write(jsonmd.Inert(l.reader().LossesJSON(r.GetVar("route"), r.Query.Get("from"))))
 	})
-	NewRenderer(l.store).Register(router)
+	l.renderer().Register(router)
 	return router.Render(path)
 }
 
-// home is impl/v0's home page with the routes under control.
-func (l *logic) home(w *mux.ResponseWriter, r *mux.Request) {
+// home is the plain app's home page, each voucher of a route sent back
+// through the route's current client, with the routes under control.
+func (l *routes) home(w *mux.ResponseWriter, r *mux.Request) {
 	var out strings.Builder
 	v0 := mux.NewRouter()
-	rd := NewRenderer(l.store)
-	rd.Register(v0)
-	out.WriteString(l.routeLinks(rd, v0.Render("")))
+	l.renderer().Register(v0)
+	out.WriteString(v0.Render(""))
 	out.WriteString("\n## Ethereum routes\n\n")
 	keys := l.reader().Routes()
 	if len(keys) == 0 {
@@ -68,24 +69,13 @@ func (l *logic) home(w *mux.ResponseWriter, r *mux.Request) {
 	w.Write(out.String())
 }
 
-// routeLinks rewrites impl/v0's "send back" links of the vouchers of a route
-// whose client a replacement retired (ADR pr6375 §7.12, Codex review #18):
-// v0 builds them from the voucher's first trace hop, the route key, which
-// names the retired client. They go through the route's current client
-// instead, a closed route's too: a voucher return is exit only, taken while
-// the route awaits its reopening (ADR pr6375 §7.12).
-func (l *logic) routeLinks(rd *Renderer, page string) string {
+// renderer is the plain app's Renderer, its "send back" link of a voucher of
+// a route whose client a replacement retired (ADR pr6375 §7.12, Codex review
+// #18) going through the route's current client: the voucher's first trace
+// hop is the route key, which names the retired client. A closed route's
+// too: a voucher return is exit only, taken while the route awaits its
+// reopening (ADR pr6375 §7.12).
+func (l *routes) renderer() *ics20impl.Renderer {
 	rdr := l.reader()
-	for _, d := range rd.DenomsByClientOrder(HomeListLimit) {
-		key := d.Trace[0].ClientId
-		current := rdr.Client(key)
-		if current == "" || current == key {
-			continue
-		}
-		ibcDenom := d.IBCDenom()
-		old := ufmt.Sprintf("[send back](%s) via `%s`", NewTransferLink(key, "", ibcDenom).URL(), key)
-		repl := ufmt.Sprintf("[send back](%s) via `%s`", NewTransferLink(current, "", ibcDenom).URL(), current)
-		page = strings.ReplaceAll(page, old, repl)
-	}
-	return page
+	return ics20impl.NewRendererVia(l.store, func(firstHop string) string { return rdr.Client(firstHop) })
 }

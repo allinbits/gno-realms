@@ -14,6 +14,7 @@ import (
 	"gno.land/p/aib/ibc/types/v0"
 	"gno.land/p/nt/ufmt/v0"
 	"gno.land/r/aib/ibc/apps/transfer"
+	ics20impl "gno.land/r/aib/ibc/apps/transfer/impl/ics20/v0"
 	"gno.land/r/aib/ibc/core"
 	"gno.land/r/aib/ibc/ibcgov"
 	"gno.land/r/nt/grc20reg/v0"
@@ -25,15 +26,12 @@ func isEthereum(clientID string) bool {
 	return core.ClientType(clientID) == ethereum.ClientType
 }
 
-// routeOf resolves a client: covered is false for a client the controls do
-// not cover (impl/v0's path); otherwise rt is the route whose current client
-// it is, or nil for an Ethereum client no enrolled route has as its current
-// client, which carries no transfer.
-func (l *logic) routeOf(_ int, rlm realm, clientID string) (rt *controls.Route, covered bool) {
-	if !isEthereum(clientID) {
-		return nil, false
-	}
-	return l.registry(0, rlm).RouteOf(clientID), true
+// routeOf resolves an Ethereum client (the only clients routes serves, see
+// handler): the route whose current client it is, or nil for an Ethereum
+// client no enrolled route has as its current client, which carries no
+// transfer.
+func (l *routes) routeOf(_ int, rlm realm, clientID string) *controls.Route {
+	return l.registry(0, rlm).RouteOf(clientID)
 }
 
 func mustRoute(rt *controls.Route, clientID string) *controls.Route {
@@ -84,16 +82,12 @@ func checkRecipient(rt *controls.Route, receiver, token string) {
 	}
 }
 
-// Transfer is impl/v0's Transfer for clients the controls do not cover. On a
-// route it applies the send-side controls, builds an ABI packet, sends it and
+// Transfer, on a route, applies the send-side controls, builds an ABI packet, sends it and
 // writes the send record.
-func (l *logic) Transfer(_ int, rlm realm, sent []chain.Coin, clientID, receiver, denom string, amount int64, timeoutTimestamp uint64, memo string) (
+func (l *routes) Transfer(_ int, rlm realm, sent []chain.Coin, clientID, receiver, denom string, amount int64, timeoutTimestamp uint64, memo string) (
 	packet types.MsgSendPacket, sequence uint64,
 ) {
-	rt, covered := l.routeOf(0, rlm, clientID)
-	if !covered {
-		return l.Logic.Transfer(0, rlm, sent, clientID, receiver, denom, amount, timeoutTimestamp, memo)
-	}
+	rt := l.routeOf(0, rlm, clientID)
 	rt = mustRoute(rt, clientID)
 	sender := unsafe.OriginCaller()
 	var (
@@ -207,7 +201,7 @@ func (l *logic) Transfer(_ int, rlm realm, sent []chain.Coin, clientID, receiver
 
 // mustSendable is the accounting of a gno-native denom a send may carry on
 // rt: enabled, not paused by a sends flag, within the send limits.
-func (l *logic) mustSendable(rt *controls.Route, denom string, amount int64) *controls.Denom {
+func (l *routes) mustSendable(rt *controls.Route, denom string, amount int64) *controls.Denom {
 	acc := rt.Denom(denom)
 	if acc == nil || acc.Config.Kind != controls.KindUnescrow {
 		panic(ufmt.Sprintf("denom %s is not enabled for sends on route %s", denom, rt.Key))
@@ -230,15 +224,11 @@ func (l *logic) mustSendable(rt *controls.Route, denom string, amount int64) *co
 	return acc
 }
 
-// OnSendPacket is impl/v0's for clients the controls do not cover. On a route
-// it takes what Transfer authorized: it burns a returning voucher (its
+// OnSendPacket, on a route, takes what Transfer authorized: it burns a returning voucher (its
 // internal denom keyed by the route key) or escrows a gno-native token under
 // the route key.
-func (l *logic) OnSendPacket(_ int, rlm realm, sourceClient, destinationClient string, sequence uint64, payload types.Payload) error {
-	rt, covered := l.routeOf(0, rlm, sourceClient)
-	if !covered {
-		return l.Logic.OnSendPacket(0, rlm, sourceClient, destinationClient, sequence, payload)
-	}
+func (l *routes) OnSendPacket(_ int, rlm realm, sourceClient, destinationClient string, sequence uint64, payload types.Payload) error {
+	rt := l.routeOf(0, rlm, sourceClient)
 	if rt == nil {
 		return ufmt.Errorf("client %s is an Ethereum client of no enrolled route", sourceClient)
 	}
@@ -256,7 +246,7 @@ func (l *logic) OnSendPacket(_ int, rlm realm, sourceClient, destinationClient s
 	if transfer.IsBlocked(address(data.Sender)) {
 		return ufmt.Errorf("sender %s is blocked", data.Sender)
 	}
-	if err := ValidateBaseDenomNoSlash(token); err != nil {
+	if err := ics20impl.ValidateBaseDenomNoSlash(token); err != nil {
 		return err
 	}
 	coin, err := token.ToCoin()
@@ -269,7 +259,7 @@ func (l *logic) OnSendPacket(_ int, rlm realm, sourceClient, destinationClient s
 		if !ok {
 			return ufmt.Errorf("voucher packet must be initiated through transfer.Transfer")
 		}
-		if err := ValidatePendingSend(expected, data.Sender, sourceClient, token.Denom.Path(), coin.Amount); err != nil {
+		if err := ics20impl.ValidatePendingSend(expected, data.Sender, sourceClient, token.Denom.Path(), coin.Amount); err != nil {
 			return ufmt.Errorf("voucher packet %v", err)
 		}
 		internal := toInternal(token.Denom, rt).IBCDenom()
@@ -281,7 +271,7 @@ func (l *logic) OnSendPacket(_ int, rlm realm, sourceClient, destinationClient s
 		if !ok {
 			return ufmt.Errorf("GRC20 packet must be initiated through transfer.Transfer")
 		}
-		if err := ValidatePendingSend(expected, data.Sender, sourceClient, token.Denom.Path(), coin.Amount); err != nil {
+		if err := ics20impl.ValidatePendingSend(expected, data.Sender, sourceClient, token.Denom.Path(), coin.Amount); err != nil {
 			return ufmt.Errorf("GRC20 packet %v", err)
 		}
 		denomKey := transfer.ResolveGRC20Alias(token.Denom.Base)

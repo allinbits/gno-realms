@@ -33,4 +33,4 @@ exec gnodev local \
     -no-watch \
     -add-account "${TEST_ADDR}=10000000000ugnot" \
     -add-account "${RELAYER_ADDR}=10000000000ugnot" \
-    -paths "gno.land/r/aib/ibc/core,gno.land/r/aib/ibc/core/impl/v0,gno.land/r/aib/ibc/apps/transfer,gno.land/r/aib/ibc/apps/transfer/impl/v0,gno.land/r/aib/ibc/ibcgov,gno.land/r/aib/ibc/apps/testing/grc20test,gno.land/r/gov/dao/init/v0"
+    -paths "gno.land/r/aib/ibc/core,gno.land/r/aib/ibc/core/impl/v0,gno.land/r/aib/ibc/apps/transfer,gno.land/r/aib/ibc/apps/transfer/impl/ics20/v0,gno.land/r/aib/ibc/apps/transfer/impl/controls/v0,gno.land/r/aib/ibc/ibcgov,gno.land/r/aib/ibc/apps/testing/grc20test,gno.land/r/gov/dao/init/v0"

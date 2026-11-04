@@ -23,7 +23,7 @@ import (
 // Render serves every path of the transfer realm: the proxy forwards its
 // Render here (see transfer.Render). Escrow is tracked per (client, denom);
 // the routes aggregate across all clients for display.
-func (l *base) Render(path string) string {
+func (l *logic) Render(path string) string {
 	router := mux.NewRouter()
 	NewRenderer(l.store).Register(router)
 	return router.Render(path)
@@ -33,7 +33,7 @@ func (l *base) Render(path string) string {
 // exported, with its handlers and the helpers below, so a later implementation
 // can reuse what it does not change:
 //
-//	rd := implv0.NewRenderer(store)
+//	rd := ics20impl.NewRenderer(store)
 //	router.HandleFunc("", myHome) // overrides first: mux matches in registration order
 //	rd.Register(router)
 //
@@ -41,11 +41,21 @@ func (l *base) Render(path string) string {
 // construct another realm's types), hence NewRenderer.
 type Renderer struct {
 	store transfer.Store
+	via   func(firstHop string) string
 }
 
 // NewRenderer returns a Renderer reading from s.
 func NewRenderer(s transfer.Store) *Renderer {
 	return &Renderer{store: s}
+}
+
+// NewRendererVia returns a Renderer reading from s whose "send back" link of
+// a voucher goes through via(first hop), the client the voucher returns
+// through, instead of its first trace hop: the route controls pass a route's
+// current client, the first hop naming the route key (a retired client after
+// a replacement). An empty answer keeps the first hop.
+func NewRendererVia(s transfer.Store, via func(firstHop string) string) *Renderer {
+	return &Renderer{store: s, via: via}
 }
 
 // Register installs every route of this implementation on router. Routes
@@ -110,6 +120,11 @@ func (rd *Renderer) Home(w *mux.ResponseWriter, r *mux.Request) {
 			// only fills the counterparty and amount (and timeout for the IBC
 			// send) in their wallet.
 			sourceClient := d.Trace[0].ClientId
+			if rd.via != nil {
+				if c := rd.via(sourceClient); c != "" {
+					sourceClient = c
+				}
+			}
 			actions := ufmt.Sprintf(
 				"[send back](%s) via `%s` — [send](%s) — [approve](%s)",
 				NewTransferLink(sourceClient, "", ibcDenom).URL(),

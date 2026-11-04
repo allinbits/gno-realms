@@ -190,7 +190,7 @@ func TestCreditByVote(t *testing.T) {
 	checkClaimTotals(t, rt, "ugnot")
 }
 
-// A receive these controls never booked was paid at once by impl/v0 (it
+// A receive these controls never booked was paid at once by the plain ICS-20 app (it
 // predates the activation): a credit by vote of it would pay it twice
 // (Codex review #2).
 func TestCreditByVoteOnlyAfterActivation(t *testing.T) {

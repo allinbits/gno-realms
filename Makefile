@@ -11,7 +11,7 @@ endif
 # --- Development ---
 
 gnodev:
-	go tool gnodev -empty-blocks -paths gno.land/r/aib/ibc/core,gno.land/r/aib/ibc/core/impl/v0,gno.land/r/aib/ibc/apps/transfer,gno.land/r/aib/ibc/apps/transfer/impl/v0
+	go tool gnodev -empty-blocks -paths gno.land/r/aib/ibc/core,gno.land/r/aib/ibc/core/impl/v0,gno.land/r/aib/ibc/apps/transfer,gno.land/r/aib/ibc/apps/transfer/impl/ics20/v0,gno.land/r/aib/ibc/apps/transfer/impl/controls/v0
 
 # --- Unit tests ---
 

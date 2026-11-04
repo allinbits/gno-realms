@@ -19,7 +19,7 @@ import (
 // routeFor is the route a permissionless call names (Claim, ClaimRefunds,
 // ContinueReopen, Recapitalize): by its current client id, or by its route
 // key.
-func (l *logic) routeFor(_ int, rlm realm, clientOrRoute string) *controls.Route {
+func (l *routes) routeFor(_ int, rlm realm, clientOrRoute string) *controls.Route {
 	reg := l.registry(0, rlm)
 	if rt := reg.RouteOf(clientOrRoute); rt != nil {
 		return rt
@@ -32,7 +32,7 @@ func (l *logic) routeFor(_ int, rlm realm, clientOrRoute string) *controls.Route
 
 // lockOf is the escrow a gno-native denom of the route holds (its lock), 0
 // for a minted denom.
-func (l *logic) lockOf(rt *controls.Route, denom string) int64 {
+func (l *routes) lockOf(rt *controls.Route, denom string) int64 {
 	if acc := rt.Denom(denom); acc == nil || acc.Config.Kind == controls.KindMint {
 		return 0
 	}
@@ -43,7 +43,7 @@ func (l *logic) lockOf(rt *controls.Route, denom string) int64 {
 // whose recipient has become a bridge realm is swept instead. Under a
 // payouts flag, on a closed route, or while a loss has no restoring decision,
 // it pays nothing.
-func (l *logic) Claim(_ int, rlm realm, clientID, denom string, n int) int {
+func (l *routes) Claim(_ int, rlm realm, clientID, denom string, n int) int {
 	rt := l.routeFor(0, rlm, clientID)
 	if ibcgov.Flagged(rt.Key, ibcgov.FnPayouts) || rt.ExposureClosed() {
 		return 0
@@ -71,7 +71,7 @@ func (l *logic) Claim(_ int, rlm realm, clientID, denom string, n int) int {
 // ClaimRefunds pays up to n queued refunds of denom on the route (ADR pr6375
 // §7.13). Under a refunds hold, or on a route a replacement closed, it pays
 // nothing; a loss does not hold refunds.
-func (l *logic) ClaimRefunds(_ int, rlm realm, clientID, denom string, n int) int {
+func (l *routes) ClaimRefunds(_ int, rlm realm, clientID, denom string, n int) int {
 	rt := l.routeFor(0, rlm, clientID)
 	hold := ibcgov.Flagged(rt.Key, ibcgov.FnRefunds) || rt.IsClosed()
 	ps, err := rt.PayRefunds(now(), denom, n, hold, l.lockOf(rt, denom))
@@ -92,7 +92,7 @@ func (l *logic) ClaimRefunds(_ int, rlm realm, clientID, denom string, n int) in
 // receipt with an error acknowledgement, is refundable; the packet's receipt
 // with a success acknowledgement is delivered; another packet's receipt is a
 // collision. The router's receipt is keccak256(abi.encode(packet)).
-func (l *logic) ProveOutcome(_ int, rlm realm, packet types.Packet, proofHeight types.Height, receiptProof, ackProof any) {
+func (l *routes) ProveOutcome(_ int, rlm realm, packet types.Packet, proofHeight types.Height, receiptProof, ackProof any) {
 	reg := l.registry(0, rlm)
 	k := reg.RetiredRouteOf(packet.SourceClient)
 	if k == "" {
@@ -166,7 +166,7 @@ func isZero(b []byte) bool {
 
 // ContinueReopen runs the next bounded batch of a route's reopening (ADR
 // pr6375 §5.4 kind 13); anyone may.
-func (l *logic) ContinueReopen(_ int, rlm realm, route string) bool {
+func (l *routes) ContinueReopen(_ int, rlm realm, route string) bool {
 	rt := l.routeFor(0, rlm, route)
 	accepted, done, err := rt.ContinueReopen()
 	if err != nil {
@@ -178,7 +178,7 @@ func (l *logic) ContinueReopen(_ int, rlm realm, route string) bool {
 
 // PrepareReplacement walks the next batch of a replaced route's retired
 // records (ADR pr6375 §7.12); anyone may.
-func (l *logic) PrepareReplacement(_ int, rlm realm, route string, n int) bool {
+func (l *routes) PrepareReplacement(_ int, rlm realm, route string, n int) bool {
 	rt := l.routeFor(0, rlm, route)
 	reserved, done, err := rt.PrepareReplacement(n)
 	if err != nil {
@@ -192,7 +192,7 @@ func (l *logic) PrepareReplacement(_ int, rlm realm, route string, n int) bool {
 // (ADR pr6375 §7.9): exactly its amount, credited to the accounted backing
 // and debited from the unrecovered losses. A plain transfer to the escrow
 // address stays surplus and repairs nothing.
-func (l *logic) Recapitalize(_ int, rlm realm, sent []chain.Coin, route string, id int64) {
+func (l *routes) Recapitalize(_ int, rlm realm, sent []chain.Coin, route string, id int64) {
 	rt := l.routeFor(0, rlm, route)
 	r, ok := rt.Recap(id)
 	if !ok || r.Paid || r.Revoked {
@@ -232,7 +232,7 @@ func successAckCommitment() []byte {
 // (ADR pr6375 §7.9), so it can never be refunded at its source; on a retired
 // client too, which the core allows for a receipt it holds. It returns why it
 // refuses, before any change.
-func (l *logic) creditPending(_ int, rlm realm, rt *controls.Route, p controls.Params, pkt types.Packet, height, epoch int64) string {
+func (l *routes) creditPending(_ int, rlm realm, rt *controls.Route, p controls.Params, pkt types.Packet, height, epoch int64) string {
 	if height < rt.Activated {
 		return "packet " + p.Key + " was received before the route's activation"
 	}
@@ -246,7 +246,7 @@ func (l *logic) creditPending(_ int, rlm realm, rt *controls.Route, p controls.P
 	if err != nil {
 		return err.Error()
 	}
-	_, accDenom, _ := receivedDenom(rt, pkt.SourceClient, pkt.Payloads[0], token)
+	denom, accDenom, kind := receivedDenom(rt, pkt.SourceClient, pkt.Payloads[0], token)
 	carried, err := token.AmountInt64()
 	if err != nil {
 		return err.Error()
@@ -257,6 +257,12 @@ func (l *logic) creditPending(_ int, rlm realm, rt *controls.Route, p controls.P
 	if err := rt.CreditPending(now(), chainHeight(), epoch, p.Key, p.Denom, p.To, p.Amount, carried, l.lockOf(rt, p.Denom)); err != nil {
 		return err.Error()
 	}
+	// As the receive books it (OnRecvPacket): a minted denom's trace and its
+	// voucher exist before the claim, which Claim mints, is payable (review of
+	// #93: the packet may be its denom's first).
+	if kind == controls.KindMint {
+		l.ensureVoucher(0, rlm, denom, accDenom)
+	}
 	ack := types.NewResultAppAcknowledgement([]byte{byte(1)})
 	client, seq, _ := controls.ParsePacketKey(p.Key)
 	core.WriteAcknowledgement(cross(rlm), client, seq, types.Acknowledgement{AppAcknowledgements: [][]byte{ack.MarshalJSON()}})
@@ -266,7 +272,7 @@ func (l *logic) creditPending(_ int, rlm realm, rt *controls.Route, p controls.P
 // GovApply applies a governance operation decided by ibcgov (the proxy
 // checked the caller). It re-checks the parameters against the live state and
 // returns why it refuses, which spends the decision; nothing changes then.
-func (l *logic) GovApply(_ int, rlm realm, op string, params []byte) string {
+func (l *routes) GovApply(_ int, rlm realm, op string, params []byte) string {
 	p, err := controls.DecodeParams(params)
 	if err != nil {
 		return err.Error()
@@ -326,7 +332,7 @@ func (l *logic) GovApply(_ int, rlm realm, op string, params []byte) string {
 			return "a minted denom is a voucher's ibc/ denom, an unescrowed one is not"
 		}
 		// A minted denom's vouchers already in circulation (minted by
-		// impl/v0) count against its supply cap from the start.
+		// the plain app) count against its supply cap from the start.
 		var outstanding int64
 		if tok := l.store.VoucherToken(p.Denom); minted && tok != nil {
 			outstanding = tok.TotalSupply()

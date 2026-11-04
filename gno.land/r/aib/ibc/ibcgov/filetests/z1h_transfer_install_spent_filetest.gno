@@ -8,7 +8,8 @@ import (
 	ethtesting "gno.land/p/aib/ibc/lightclient/ethereum/testing/v0"
 	"gno.land/p/nt/testutils/v0"
 	"gno.land/r/aib/ibc/apps/transfer"
-	implv0 "gno.land/r/aib/ibc/apps/transfer/impl/v0"
+	ics20impl "gno.land/r/aib/ibc/apps/transfer/impl/ics20/v0"
+	_ "gno.land/r/aib/ibc/apps/transfer/impl/controls/v0"
 	"gno.land/r/aib/ibc/core"
 	"gno.land/r/aib/ibc/ibcgov"
 )
@@ -19,14 +20,16 @@ const bridge = "0x1d95d544586eacb63b6154e9e45122b32ded11aa 0x0000000000000000000
 
 const self = "gno.land/r/aib/ibc/apps/transfer/impl/v99"
 
-// logic is a rehearsal implementation: impl/v0's logic, without the route
+// logic is a rehearsal implementation: the plain ICS-20 logic of
+// impl/ics20/v0, without the route
 // controls, under version v99; its manifest declares it installs over v98
-// only, so it refuses impl/v0 as its predecessor.
+// only, so it refuses impl/controls/v0 (version v0) as
+// its predecessor.
 type logic struct{ transfer.Logic }
 
 func (logic) Version() string { return "v99" }
 
-func New(s transfer.Store) transfer.Logic { return logic{Logic: implv0.New(s)} }
+func New(s transfer.Store) transfer.Logic { return logic{Logic: ics20impl.New(s)} }
 
 func init(cur realm) {
 	transfer.RegisterImpl(cross(cur), New, "v99", []string{"v98"}, false)
@@ -50,7 +53,7 @@ func decided(id int64) string {
 	return d.State() + " - " + d.Note
 }
 
-// The transfer app starts with impl/v0 (a fresh deployment). A switch whose
+// The transfer app starts with impl/controls/v0 (a fresh deployment). A switch whose
 // candidate refuses the active implementation as its predecessor is refused
 // and spent when it executes (Codex round 4 #6, class B), never retried.
 // Once an Ethereum route exists, an implementation without the route
@@ -72,7 +75,7 @@ func main(cur realm) {
 	advance()
 	ibcgov.Execute(cross(cur), again)
 	println("v99 once a route exists:", decided(again), "| active:", transfer.ImplVersion())
-	same := govern(cur, ibcgov.NewTransferUpdateImplRequest(cross(cur), "gno.land/r/aib/ibc/apps/transfer/impl/v0"))
+	same := govern(cur, ibcgov.NewTransferUpdateImplRequest(cross(cur), "gno.land/r/aib/ibc/apps/transfer/impl/controls/v0"))
 	advance()
 	ibcgov.Execute(cross(cur), same)
 	println("v0 reinstalled:", decided(same))

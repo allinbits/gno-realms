@@ -88,8 +88,13 @@ PACKAGES=(
   # r/aib/ibc/apps/transfer, r/gov/dao; registers port gov at init
   "gno.land/r/aib/ibc/ibcgov:gno.land/r/aib/ibc/ibcgov"
 
-  # transfer impl/v0 (the ICS-20 logic and the route controls; depends on
-  # ibcgov): the transfer app's first registration, so its initial
-  # implementation. The proxy carries no transfer until it is deployed.
-  "gno.land/r/aib/ibc/apps/transfer/impl/v0:gno.land/r/aib/ibc/apps/transfer/impl/v0"
+  # transfer impl/ics20/v0, the plain ICS-20 logic: registers nothing, the
+  # route controls below wrap it
+  "gno.land/r/aib/ibc/apps/transfer/impl/ics20/v0:gno.land/r/aib/ibc/apps/transfer/impl/ics20/v0"
+
+  # transfer impl/controls/v0 (the route controls around impl/ics20/v0;
+  # depends on ibcgov): the transfer app's first registration, so its
+  # initial implementation. The proxy carries no transfer until it is
+  # deployed.
+  "gno.land/r/aib/ibc/apps/transfer/impl/controls/v0:gno.land/r/aib/ibc/apps/transfer/impl/controls/v0"
 )
