@@ -299,3 +299,33 @@ func TestImplAddressIndex(cur realm, t *testing.T) {
 	uassert.False(t, IsImplAddress(chain.PackageAddress(implPathPrefix+"v9999")))
 	uassert.False(t, IsRegisteredImpl(implPathPrefix+"v9999"))
 }
+
+// substitutingLogic converts one client's verifier when it is installed,
+// the installation-hook conversion ADR 0001 describes.
+type substitutingLogic struct {
+	upgradeTestLogic
+	client string
+}
+
+func (l *substitutingLogic) OnInstall(_ int, rlm realm, prevPath, prevVersion string) {
+	l.store.Client(l.client).SetLightClient(0, rlm, func(lightclient.Interface) lightclient.Interface { return tendermint.NewTMLightClient() })
+}
+
+// A verifier substituted outside a governed migration, here by an
+// installation hook, starts a new trust generation all the same: the store
+// starts it, so an outcome proven under the old verifier is never settled
+// on (review of #91, round 2).
+func TestSubstitutionStartsTrustGeneration(cur realm, t *testing.T) {
+	resetUpgradeState()
+	defer resetUpgradeState()
+
+	registerAs(cur, upgradeTestImplPath, newUpgradeTestLogic)
+	seeded := store.addClient(lightclient.Tendermint, address("g1jg8mtutu9khhfwc4nxmuhcpftf0pajdhfvsqf5"), tendermint.NewTMLightClient())
+	gen := ClientTrustGeneration(seeded.id)
+	registerAs(cur, upgradeTestImplPath2, func(s Store) Logic {
+		return &substitutingLogic{upgradeTestLogic{store: s, version: "vtest2"}, seeded.id}
+	})
+	testing.SetRealm(testing.NewCodeRealm(IBCGovPath))
+	UpdateImpl(cross(cur), upgradeTestImplPath2)
+	uassert.Equal(t, gen+1, ClientTrustGeneration(seeded.id))
+}

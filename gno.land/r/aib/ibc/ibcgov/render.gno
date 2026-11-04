@@ -31,7 +31,8 @@ func Render(path string) string {
 }
 
 // fromOf is a JSON path's ?from= decision number, 0 (the first) when absent
-// or not a number.
+// or not a number; one out of range saturates, so it reads past the end (an
+// empty page) or from the first.
 func fromOf(path string) int64 {
 	_, query, _ := strings.Cut(path, "?")
 	v, _ := url.ParseQuery(query)
