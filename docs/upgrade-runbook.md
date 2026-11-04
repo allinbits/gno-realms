@@ -18,12 +18,14 @@ the proxies and stay provable across the switch.
 - The candidate is a realm under the proxy's `impl/` namespace,
   `gno.land/r/aib/ibc/core/impl/vN` or
   `gno.land/r/aib/ibc/apps/transfer/impl/vN`. The `v<N>` suffix is a
-  convention: registration checks only that the path is under the proxy's
-  `/impl/` namespace, and ibcgov's update builders that it starts with
-  `/impl/v`; neither parses a number. It
+  convention: registration and ibcgov's update builders check only that the path is
+  under the proxy's `/impl/` namespace (a layered path such as transfer
+  `impl/controls/v0` included); neither parses a number. It
   implements the proxy's `Logic`, registers itself from `init` with
-  `RegisterImpl`, and reuses from `impl/v0` what it does not change (`New`, the
-  exported `Renderer`).
+  `RegisterImpl`, and reuses what it does not change: core `impl/v0`'s `New` and exported
+  `Renderer`; for transfer, `impl/ics20/v0`'s (`New`, the plain ICS-20
+  logic, and `Renderer`/`NewRendererVia`) and `impl/controls/v0`'s `New`,
+  which wraps an inner `Logic`.
 - Every implementation a proxy registers is a realm of the bridge for
   good: each proxy indexes it by realm address (`IsImplAddress`), and the
   transfer app's receive, payout, enrolment and collector checks read that
@@ -53,7 +55,7 @@ the proxies and stay provable across the switch.
   enforced again by the installation) and, where it needs more, by its
   hook (`OnInstall`, which panics to refuse). The shipped hooks: core
   `impl/v0`'s is empty (its manifest accepts any predecessor); transfer
-  `impl/v0`'s accepts any predecessor and initializes the route controls'
+  `impl/controls/v0`'s accepts any predecessor and initializes the route controls'
   extension, idempotently (`InitExt`, a no-op once it exists). A new hook
   should do nothing on a re-install, migrate from the version it follows,
   and refuse the rest. Keep the migration bounded: constant work, whatever the number
@@ -86,8 +88,9 @@ the proxies and stay provable across the switch.
 One `MsgAddPackage`, from any account that may deploy under the `aib`
 namespace, usually the AIB multisig. List the candidate in
 `scripts/packages.sh` after the current implementation, so that on a fresh
-chain the current one registers first and bootstraps: `impl/v0` for both
-proxies. Then:
+chain the current one registers first and bootstraps: core `impl/v0`, and
+transfer `impl/controls/v0` (after `impl/ics20/v0`, which it wraps and which
+registers nothing). Then:
 
 ```
 ONLY=gno.land/r/aib/ibc/core/impl/vN ./scripts/make-deploy-tx.sh   # unsigned tx for the multisig
@@ -235,9 +238,10 @@ the decision would be spent with:
 
 ## 7. Ethereum routes on a fresh deployment
 
-The transfer app is deployed fresh with `impl/v0` as its initial
+The transfer app is deployed fresh with `impl/controls/v0` as its initial
 implementation: it registers first (see `scripts/packages.sh`), serves every
-non-Ethereum client with the plain ICS-20 logic, and puts every Ethereum
+non-Ethereum client with the plain ICS-20 logic of `impl/ics20/v0`, which it
+wraps, and puts every Ethereum
 client under the route controls (ADR 0004). An Ethereum client carries
 nothing until a decision makes it a route.
 

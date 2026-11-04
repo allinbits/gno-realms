@@ -20,7 +20,7 @@ import (
 // settle. Every send on a route writes one, so a send without one is refused
 // (ADR pr6375 §7.13: no refund on an Ethereum client bypasses the refund
 // meter or the refunds hold).
-func (l *logic) sendRecord(_ int, rlm realm, rt *controls.Route, sourceClient string, sequence uint64) (controls.SendRecord, error) {
+func (l *routes) sendRecord(_ int, rlm realm, rt *controls.Route, sourceClient string, sequence uint64) (controls.SendRecord, error) {
 	key := controls.PacketKey(sourceClient, sequence)
 	if rt == nil {
 		return controls.SendRecord{}, ufmt.Errorf("client %s is an Ethereum client of no enrolled route: it sent no %s", sourceClient, key)
@@ -32,15 +32,11 @@ func (l *logic) sendRecord(_ int, rlm realm, rt *controls.Route, sourceClient st
 	return rec, nil
 }
 
-// OnAcknowledgementPacket is impl/v0's for clients the controls do not cover.
-// On an Ethereum client it settles the send's record: a success completes
+// OnAcknowledgementPacket, on an Ethereum client, settles the send's record: a success completes
 // it, an error refunds the sender under the refund meter and the refunds
 // hold. A send without a record is refused.
-func (l *logic) OnAcknowledgementPacket(_ int, rlm realm, sourceClient, destinationClient string, sequence uint64, acknowledgement []byte, payload types.Payload) error {
-	rt, covered := l.routeOf(0, rlm, sourceClient)
-	if !covered {
-		return l.Logic.OnAcknowledgementPacket(0, rlm, sourceClient, destinationClient, sequence, acknowledgement, payload)
-	}
+func (l *routes) OnAcknowledgementPacket(_ int, rlm realm, sourceClient, destinationClient string, sequence uint64, acknowledgement []byte, payload types.Payload) error {
+	rt := l.routeOf(0, rlm, sourceClient)
 	rec, err := l.sendRecord(0, rlm, rt, sourceClient, sequence)
 	if err != nil {
 		return err
@@ -77,14 +73,10 @@ func (l *logic) OnAcknowledgementPacket(_ int, rlm realm, sourceClient, destinat
 	return nil
 }
 
-// OnTimeoutPacket is impl/v0's for clients the controls do not cover; on an
-// Ethereum client it refunds the sender under the refund meter and the
+// OnTimeoutPacket, on an Ethereum client, refunds the sender under the refund meter and the
 // refunds hold. A send without a record is refused.
-func (l *logic) OnTimeoutPacket(_ int, rlm realm, sourceClient, destinationClient string, sequence uint64, payload types.Payload) error {
-	rt, covered := l.routeOf(0, rlm, sourceClient)
-	if !covered {
-		return l.Logic.OnTimeoutPacket(0, rlm, sourceClient, destinationClient, sequence, payload)
-	}
+func (l *routes) OnTimeoutPacket(_ int, rlm realm, sourceClient, destinationClient string, sequence uint64, payload types.Payload) error {
+	rt := l.routeOf(0, rlm, sourceClient)
 	rec, err := l.sendRecord(0, rlm, rt, sourceClient, sequence)
 	if err != nil {
 		return err
@@ -96,7 +88,7 @@ func (l *logic) OnTimeoutPacket(_ int, rlm realm, sourceClient, destinationClien
 
 // settle attaches the outcome to the record and pays what the refund meter
 // allows now; the rest is queued (and everything under a refunds hold).
-func (l *logic) settle(_ int, rlm realm, rt *controls.Route, rec controls.SendRecord, outcome string) {
+func (l *routes) settle(_ int, rlm realm, rt *controls.Route, rec controls.SendRecord, outcome string) {
 	hold := ibcgov.Flagged(rt.Key, ibcgov.FnRefunds) || rt.IsClosed()
 	pay, err := rt.Settle(now(), chainHeight(), rec.Key, outcome, hold, l.lockOf(rt, rec.Denom))
 	if err != nil {
@@ -111,7 +103,7 @@ func (l *logic) settle(_ int, rlm realm, rt *controls.Route, rec controls.SendRe
 
 // payOut moves amount of denom to `to`: out of the route's escrow for a
 // gno-native token, as newly minted vouchers for an Ethereum token.
-func (l *logic) payOut(_ int, rlm realm, rt *controls.Route, denom string, to address, amount uint256) {
+func (l *routes) payOut(_ int, rlm realm, rt *controls.Route, denom string, to address, amount uint256) {
 	if amount == 0 {
 		return
 	}

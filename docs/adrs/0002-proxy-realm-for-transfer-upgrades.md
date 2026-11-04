@@ -33,8 +33,14 @@ start with empty voucher ledgers, and could not take the port.
 ## Decision
 
 Apply ADR 0001 to the transfer realm: `gno.land/r/aib/ibc/apps/transfer` is a
-permanent proxy, the ICS-20 logic lives in `gno.land/r/aib/ibc/apps/transfer/impl/v0`
-and is invoked non-crossing. The lifecycle (`RegisterImpl`, `UpdateImpl` with
+permanent proxy, the ICS-20 logic lives in an implementation realm under
+`gno.land/r/aib/ibc/apps/transfer/impl/` and is invoked non-crossing. The
+plain ICS-20 logic is `impl/ics20/v0`, which registers nothing; the installed
+implementation is `impl/controls/v0`, which wraps it (`New(ics20.New(s), s)`)
+and puts every Ethereum client under the route controls (ADR 0004). A wrapper
+sees the inner logic only through `Logic` and shares the proxy's store as one
+of the proxy's implementations: the store capability flows through the
+forwarded calls. The lifecycle (`RegisterImpl`, `UpdateImpl` with
 `OnInstall`, bootstrap auto-activation, `NewUpdateImplProposalRequest`,
 `ImplPath`/`ImplVersion`, `Render` forwarded to the implementation) and the
 gating by `p/aib/authority` are the same as in ADR 0001 and are not repeated
@@ -49,8 +55,9 @@ here.
 2. **The direct-user-call guard stays in the proxy.** `Transfer` refuses any
    caller but a direct user call before delegating, since the packet sender is
    the tx origin and `OriginSend` describes coins that landed at the proxy. The
-   non-crossing forward preserves `cur.Previous()` and the tx-level facts, so
-   the implementation classifies the denom and checks `OriginSend` itself. The
+   proxy reads the envelope (`unsafe.OriginSend()`) and forwards it as `sent`;
+   the non-crossing forward preserves `cur.Previous()` and the tx-level facts,
+   so the implementation classifies the denom and checks `sent` against it. The
    sends it authorizes for `OnSendPacket` live in the proxy's store
    (`SetPending*`/`ConsumePending*` accessors), and the proxy clears them on
    every exit path of `Transfer`.
@@ -79,8 +86,10 @@ here.
    `FungibleTokenPacketData` move to `gno.land/p/aib/ibc/ics20/v0`, since an
    implementation cannot construct another realm's types.
 9. **Render** forwarded to the implementation, as for core; the routes the e2e
-   suite and tooling read are pinned by the `z0e` filetest, and `impl/v0`
-   exports its `Renderer` for reuse.
+   suite and tooling read are pinned by the `z0e` filetest, and
+   `impl/ics20/v0` exports its `Renderer` for reuse (`NewRendererVia` takes
+   the client a voucher's "send back" link goes through, which the route
+   controls point at a route's current client).
 
 ### `Logic`
 
@@ -92,7 +101,7 @@ type Logic interface {
     Version() string
     OnInstall(_ int, rlm realm, prevPath, prevVersion string)
     Render(path string) string
-    Transfer(_ int, rlm realm, clientID, receiver, denom string, amount int64, timeoutTimestamp uint64, memo string) (types.MsgSendPacket, uint64)
+    Transfer(_ int, rlm realm, sent []chain.Coin, clientID, receiver, denom string, amount int64, timeoutTimestamp uint64, memo string) (types.MsgSendPacket, uint64)
     OnSendPacket(_ int, rlm realm, sourceClient, destinationClient string, sequence uint64, payload types.Payload) error
     OnRecvPacket(_ int, rlm realm, sourceClient, destinationClient string, sequence uint64, payload types.Payload) types.RecvPacketResult
     OnTimeoutPacket(_ int, rlm realm, sourceClient, destinationClient string, sequence uint64, payload types.Payload) error

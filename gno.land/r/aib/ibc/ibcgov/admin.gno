@@ -226,9 +226,12 @@ func mustAddr(s string) address {
 	return a
 }
 
+// mustImplPath refuses a path outside the proxy's implementation namespace
+// (prefix/impl/, as the proxy's RegisterImpl requires: impl/v<N>, or a
+// layered one such as transfer impl/controls/v<N>) or not registered there.
 func mustImplPath(prefix, path string) {
-	if !strings.HasPrefix(path, prefix+"/impl/v") {
-		panic("ibcgov: an implementation lives under " + prefix + "/impl/v<N>, not " + path)
+	if !strings.HasPrefix(path, prefix+"/impl/") {
+		panic("ibcgov: an implementation lives under " + prefix + "/impl/, not " + path)
 	}
 	if (prefix == CorePath && core.IsRegisteredImpl(path)) || (prefix == TransferPath && transfer.IsRegisteredImpl(path)) {
 		return

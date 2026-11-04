@@ -14,9 +14,9 @@ type upgradeTarget struct {
 
 var upgradeTargets = []upgradeTarget{
 	{"core", "gno.land/r/aib/ibc/core", "gno.land/r/aib/ibc/core/impl/v0", "gno.land/r/aib/ibc/core/impl/v99"},
-	// The transfer app starts with impl/v0 (the ICS-20 logic and the route
-	// controls) on a fresh deployment.
-	{"transfer", "gno.land/r/aib/ibc/apps/transfer", "gno.land/r/aib/ibc/apps/transfer/impl/v0", "gno.land/r/aib/ibc/apps/transfer/impl/v99"},
+	// The transfer app starts with impl/controls/v0 (the route controls around
+	// the plain ICS-20 logic of impl/ics20/v0) on a fresh deployment.
+	{"transfer", "gno.land/r/aib/ibc/apps/transfer", "gno.land/r/aib/ibc/apps/transfer/impl/controls/v0", "gno.land/r/aib/ibc/apps/transfer/impl/v99"},
 }
 
 func (t upgradeTarget) rel() string { return strings.TrimPrefix(t.realm, "gno.land/") }

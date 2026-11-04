@@ -67,7 +67,8 @@ func TestBridgeRealms(t *testing.T) {
 		transfer.PkgPath,
 		"gno.land/r/aib/ibc/ibcgov",
 		"gno.land/r/aib/ibc/ethrelay",
-		"gno.land/r/aib/ibc/apps/transfer/impl/v0", // registered
+		"gno.land/r/aib/ibc/apps/transfer/impl/ics20/v0",
+		"gno.land/r/aib/ibc/apps/transfer/impl/controls/v0", // registered
 	} {
 		uassert.True(t, isBridgeRealm(chain.PackageAddress(p)), p)
 	}

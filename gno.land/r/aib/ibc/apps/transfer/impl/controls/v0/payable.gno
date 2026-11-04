@@ -28,7 +28,7 @@ type payout struct {
 // supply; for a GRC20, its registered token, the route's escrow accounting
 // and this realm's token balance; for a native coin, the escrow accounting,
 // the chain's coin maximum and this realm's bank balance.
-func (l *logic) payable(rt *controls.Route, ps []payout) string {
+func (l *routes) payable(rt *controls.Route, ps []payout) string {
 	self := chain.PackageAddress(transfer.PkgPath)
 	totals := map[string]uint256{}
 	var order []string

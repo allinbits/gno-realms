@@ -13,14 +13,15 @@ import (
 	"gno.land/p/aib/ics23/v0"
 	"gno.land/p/nt/testutils/v0"
 	"gno.land/r/aib/ibc/apps/transfer"
-	implv0 "gno.land/r/aib/ibc/apps/transfer/impl/v0"
+	ics20impl "gno.land/r/aib/ibc/apps/transfer/impl/ics20/v0"
+	_ "gno.land/r/aib/ibc/apps/transfer/impl/controls/v0"
 	"gno.land/r/aib/ibc/core"
 	_ "gno.land/r/aib/ibc/core/impl/v0"
 )
 
 // OnRecvPacket: success with native coins
 const (
-	v0Path  = "gno.land/r/aib/ibc/apps/transfer/impl/v0"
+	v0Path  = "gno.land/r/aib/ibc/apps/transfer/impl/controls/v0"
 	v99Path = "gno.land/r/aib/ibc/apps/transfer/impl/v99"
 )
 
@@ -29,7 +30,7 @@ type v99 struct{ transfer.Logic }
 
 func (v99) Version() string { return "v99" }
 
-func newV99(s transfer.Store) transfer.Logic { return v99{Logic: implv0.New(s)} }
+func newV99(s transfer.Store) transfer.Logic { return v99{Logic: ics20impl.New(s)} }
 
 // Implementation switch and rollback: the voucher v0 minted is still there
 // under v99, can be sent back through v99 (store, ledger and pending-send slot
@@ -167,7 +168,7 @@ func main(cur realm) {
 // sent back through v99, sequence: 1
 // receiver voucher balance after send back: 60
 //
-// impl after rollback: gno.land/r/aib/ibc/apps/transfer/impl/v0 v0
+// impl after rollback: gno.land/r/aib/ibc/apps/transfer/impl/controls/v0 v0
 // receiver voucher balance after rollback: 60
 // ## Authority
 //
@@ -175,9 +176,9 @@ func main(cur realm) {
 //   - g12l3du5z70zzq9rkc82asre09srefve7p5mfay4
 //   - g1p84dvfh4wrplyxx4zsmy77a8rxcnjup2j7zv5r
 // - **Paused**: false (set by the IBC core)
-// - **Implementation**: [`gno.land/r/aib/ibc/apps/transfer/impl/v0`](/r/aib/ibc/apps/transfer/impl/v0) (version v0)
+// - **Implementation**: [`gno.land/r/aib/ibc/apps/transfer/impl/controls/v0`](/r/aib/ibc/apps/transfer/impl/controls/v0) (version v0)
 // - **Registered implementations**:
-//   - gno.land/r/aib/ibc/apps/transfer/impl/v0
+//   - gno.land/r/aib/ibc/apps/transfer/impl/controls/v0
 //   - gno.land/r/aib/ibc/apps/transfer/impl/v99
 // - **Blocked addresses**: none
 
@@ -372,7 +373,7 @@ func main(cur realm) {
 //     "attrs": [
 //       {
 //         "key": "old_path",
-//         "value": "gno.land/r/aib/ibc/apps/transfer/impl/v0"
+//         "value": "gno.land/r/aib/ibc/apps/transfer/impl/controls/v0"
 //       },
 //       {
 //         "key": "new_path",
@@ -468,7 +469,7 @@ func main(cur realm) {
 //       },
 //       {
 //         "key": "new_path",
-//         "value": "gno.land/r/aib/ibc/apps/transfer/impl/v0"
+//         "value": "gno.land/r/aib/ibc/apps/transfer/impl/controls/v0"
 //       },
 //       {
 //         "key": "version",

@@ -22,7 +22,7 @@ import (
 // read the send envelope (sent), so sent describes coins that landed at the
 // proxy and unsafe.OriginCaller is the packet sender. The proxy clears the
 // recorded send on every exit path.
-func (l *base) Transfer(_ int, rlm realm, sent []chain.Coin, clientID, receiver, denom string, amount uint256, timeoutTimestamp uint64, memo string) (
+func (l *logic) Transfer(_ int, rlm realm, sent []chain.Coin, clientID, receiver, denom string, amount uint256, timeoutTimestamp uint64, memo string) (
 	packet types.MsgSendPacket, sequence uint64,
 ) {
 	sender := unsafe.OriginCaller().String()

@@ -16,7 +16,7 @@ import (
 	"gno.land/p/aib/ibc/types/v0"
 	"gno.land/p/nt/testutils/v0"
 	"gno.land/r/aib/ibc/apps/transfer"
-	_ "gno.land/r/aib/ibc/apps/transfer/impl/v0"
+	_ "gno.land/r/aib/ibc/apps/transfer/impl/controls/v0"
 	"gno.land/r/aib/ibc/core"
 	_ "gno.land/r/aib/ibc/core/impl/v0"
 	"gno.land/r/aib/ibc/ibcgov"
@@ -54,7 +54,7 @@ func execute(cur realm, id int64) {
 	ibcgov.Execute(cross(cur), id)
 }
 
-// setupRoute creates an Ethereum client, installs transfer impl/v0 and
+// setupRoute creates an Ethereum client, installs transfer impl/controls/v0 and
 // enrolls the client as a route, every step a governor decision.
 func setupRoute(cur realm) string {
 	clientID := core.CreateClient(cross(cur), ethtesting.ClientState(), ethtesting.ConsensusState())
@@ -96,9 +96,9 @@ func controlsView() controls.Reader { return transfer.ExtView("controls").(contr
 
 func ugnot(a address) int64 { return banker.NewReadonlyBanker().GetCoin(a, "ugnot") }
 
-// With impl/v0 active, an Ethereum client that is no route's current client
+// With impl/controls/v0 active, an Ethereum client that is no route's current client
 // carries no transfer (sends refused, receives error-acked), while a
-// non-Ethereum client keeps impl/v0's behaviour: protobuf payloads, no fee,
+// non-Ethereum client keeps the plain ICS-20 app's behaviour: protobuf payloads, no fee,
 // no limits, escrow keyed by its client id, no send record.
 func main(cur realm) {
 	route := setupRoute(cur)
