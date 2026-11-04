@@ -218,8 +218,12 @@ gnokey query vm/qeval -data 'gno.land/r/aib/ibc/core.CheckUpdateImpl("gno.land/r
 gnokey query vm/qeval -data 'gno.land/r/aib/ibc/apps/transfer.CheckUpdateImpl("gno.land/r/aib/ibc/apps/transfer/impl/vN")' -remote <rpc>
 ```
 
-An empty string means it would apply; otherwise the reason is the one the
-decision would be spent with:
+An empty string means the candidate passes the manifest preflight, which
+runs none of its code: the installation can still fail when it builds the
+candidate (its constructor, its version against its manifest, the controls
+on what it built, its `OnInstall`), aborting with the decision left
+pending (see "When a migration fails"). Otherwise the reason is the one
+the decision would be spent with:
 
 - the previous implementation's manifest must install over the version now
   active (its `over` list; core `impl/v0` declares `nil`, any);
