@@ -215,7 +215,7 @@ func main(cur realm) {
 	epoch2, _ := ibcgov.PayoutsEpoch(client)
 	println("under", core.ImplVersion()+":", decided(replace))
 	println("after: verifier", core.VerifierVersion(client), "| same client:", core.ClientType(client), "| status", core.ClientStatus(client),
-		"| trust generation advanced:", core.ClientTrustGeneration(client) > gen, "| payouts epoch", epoch, "->", epoch2)
+		"| trust generation advanced by", core.ClientTrustGeneration(client)-gen, "| payouts epoch", epoch, "->", epoch2)
 	// Slot 72 is the retired verifier's: proven through the new one.
 	println("proves the receipt at the pre-replacement height:", proves(), "| renders its state:", strings.Contains(core.Render("clients/"+client), "\"latest_execution_block_number\""))
 	again := govern(cur, ibcgov.NewReplaceVerifierRequest(cross(cur), client, ethtesting.NextVersion))
@@ -263,7 +263,7 @@ func main(cur realm) {
 // before: verifier ethereum/v0 | proves the receipt: true
 // under impl/v0: spent - spent: core impl v0 converts no ethereum/v0 verifier to ethereum/testing-next | verifier ethereum/v0
 // under v1-next: applied - core migrate client: route ethereum-1's meters emptied
-// after: verifier ethereum/testing-next | same client: ethereum | status Active | trust generation advanced: true | payouts epoch 0 -> 1
+// after: verifier ethereum/testing-next | same client: ethereum | status Active | trust generation advanced by 1 | payouts epoch 0 -> 1
 // proves the receipt at the pre-replacement height: true | renders its state: true
 // again: spent - spent: core impl v1-next converts no ethereum/testing-next verifier to ethereum/testing-next
 // fork schedule on the converted verifier: applied - core migrate client: route ethereum-1's meters emptied | still ethereum/testing-next | proves the receipt: true

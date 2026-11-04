@@ -307,6 +307,11 @@ func (l *Ledger) JSON(from int64) string {
 	if from < 1 {
 		from = 1
 	}
+	if from > l.seq {
+		// Past the last decision: an empty page, never a key wider than the
+		// ledger's own (a from of 10^12 or more).
+		return "{\"entries\":[],\"next\":0}"
+	}
 	var parts []string
 	next := int64(0)
 	l.all.Iterate(key(from), "", func(_ string, v any) bool {

@@ -60,8 +60,11 @@ type Client interface {
 	SetCounterparty(_ int, rlm realm, clientID string, merklePrefix [][]byte)
 	LightClient() lightclient.Interface
 	// SetLightClient replaces the verifier with convert(current), for a
-	// migration to a new light-client version. As for AddClient, convert must
-	// be a /p/-declared function so the new verifier is allocated here.
+	// migration to a new light-client version, and starts a new trust
+	// generation: whatever path substitutes the verifier (a governed
+	// migration, an installation hook, a lazy conversion). As for AddClient,
+	// convert must be a /p/-declared function so the new verifier is
+	// allocated here.
 	SetLightClient(_ int, rlm realm, convert func(current lightclient.Interface) lightclient.Interface)
 	// TrustGeneration counts the verifier's recoveries, freezes, upgrades,
 	// migrations and substitutions: the core starts a new generation on each.
@@ -306,9 +309,12 @@ func (c *client) SetLightClient(_ int, rlm realm, convert func(lightclient.Inter
 	if lc == nil {
 		panic("SetLightClient: nil light client")
 	}
-	// The trust generation is the core's to start (core.MigrateClient), not
-	// the implementation's, which an upgrade replaces.
 	c.lightClient = lc
+	// A substituted verifier is a new trust, whichever path substitutes it:
+	// the store starts the generation, so no implementation can skip it. A
+	// core entry point that substituted through here does not start another
+	// (startTrustGeneration).
+	c.trustGen++
 }
 
 // TrustGeneration is the verifier's trust generation (see client.trustGen).

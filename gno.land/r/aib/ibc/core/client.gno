@@ -94,8 +94,9 @@ func UpdateClient(cur realm, clientID string, clientMessage lightclient.ClientMe
 func UpgradeClient(cur realm, clientID string, clientState, consensusState, proofUpgradeClient, proofUpgradeConsensusState any) {
 	ensureNotRetired(clientID)
 	ensureAuthorizedRelayer()
+	gen := ClientTrustGeneration(clientID)
 	mustImpl().UpgradeClient(0, cur, clientID, clientState, consensusState, proofUpgradeClient, proofUpgradeConsensusState)
-	newTrustGeneration(clientID)
+	startTrustGeneration(clientID, gen)
 }
 
 // RecoverClient recovers a frozen or expired subject client using a healthy
@@ -106,15 +107,19 @@ func RecoverClient(cur realm, subjectClientID, substituteClientID string) {
 	assertGovernance(cur, "recover_client")
 	ensureNotRetired(subjectClientID)
 	ensureNotRetired(substituteClientID)
+	gen := ClientTrustGeneration(subjectClientID)
 	mustImpl().RecoverClient(0, cur, subjectClientID, substituteClientID)
-	newTrustGeneration(subjectClientID)
+	startTrustGeneration(subjectClientID, gen)
 }
 
-// newTrustGeneration starts a new trust generation of clientID's verifier,
-// after a call that changed whom it trusts. The core does it itself rather
-// than leave it to the implementation, which an upgrade replaces.
-func newTrustGeneration(clientID string) {
-	if c := store.getClient(clientID); c != nil {
+// startTrustGeneration starts a new trust generation of clientID's verifier,
+// after a call that changed whom it trusts, unless one started during the
+// call: gen is the generation before it, and a verifier the implementation
+// substituted (Client.SetLightClient) started one already. The core does it
+// itself rather than leave it to the implementation, which an upgrade
+// replaces; each such call starts exactly one.
+func startTrustGeneration(clientID string, gen uint64) {
+	if c := store.getClient(clientID); c != nil && c.trustGen == gen {
 		c.trustGen++
 	}
 }
@@ -218,10 +223,11 @@ func MigrateClient(cur realm, clientID, migration string, params []byte) string 
 	if !ok {
 		panic("core: the active implementation " + implVersion + " cannot migrate clients")
 	}
+	gen := ClientTrustGeneration(clientID)
 	if err := m.MigrateClient(0, cur, clientID, migration, params); err != nil {
 		return err.Error()
 	}
-	newTrustGeneration(clientID)
+	startTrustGeneration(clientID, gen)
 	return ""
 }
 

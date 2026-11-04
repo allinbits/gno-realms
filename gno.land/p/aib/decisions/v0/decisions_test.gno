@@ -115,6 +115,12 @@ func TestJSONPage(t *testing.T) {
 	if past := l.JSON(int64(PageMax + 6)); past != "{\"entries\":[],\"next\":0}" {
 		t.Fatalf("past the end: %s", past)
 	}
+	// A from wider than any key (review of #91, round 2) is past the end too.
+	for _, from := range []int64{1_000_000_000_000, 1<<63 - 1} {
+		if past := l.JSON(from); past != "{\"entries\":[],\"next\":0}" {
+			t.Fatalf("from %d: %s", from, past)
+		}
+	}
 }
 
 // TestGovernor (M1k): the rule every bridge realm reads — GovDAO's proxy decides when no governor was compiled or

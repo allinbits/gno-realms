@@ -1002,7 +1002,7 @@ func PruneGovRetirements(cur realm, n int) int {
 	var done []string
 	seen := 0
 	last := ""
-	awaitingGov.Iterate(after(govPruneAfter), "", func(c string, _ any) bool {
+	stopped := awaitingGov.Iterate(after(govPruneAfter), "", func(c string, _ any) bool {
 		if seen == n {
 			return true
 		}
@@ -1013,7 +1013,7 @@ func PruneGovRetirements(cur realm, n int) int {
 		}
 		return false
 	})
-	if seen < n {
+	if !stopped {
 		last = "" // the walk reached the end: the next starts over
 	}
 	govPruneAfter = last
