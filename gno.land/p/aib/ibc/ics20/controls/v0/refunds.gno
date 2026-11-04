@@ -945,7 +945,8 @@ func hiddenRefund(r *SendRecord, d *Denom) bool {
 
 // Prepared reports whether every client a replacement retired from the
 // route had its records walked by PrepareReplacement: until then no
-// settlement, sweep payment, credit by vote or reopening applies.
+// settlement, sweep payment, credit by vote (CreditByVote, CreditPending) or
+// reopening applies.
 func (rt *Route) Prepared() bool { return rt.prepIdx >= len(rt.Replaced) }
 
 func (rt *Route) checkPrepared() error {

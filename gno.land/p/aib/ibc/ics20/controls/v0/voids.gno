@@ -451,6 +451,11 @@ func (rt *Route) CreditByVote(now, height, epoch int64, key, denom string, to ad
 // an unescrowed denom it is never above the free lock, for a minted one never
 // past the supply cap.
 func (rt *Route) CreditPending(now, height, epoch int64, key, denom string, to address, amount, carried, lock int64) error {
+	// As every credit by vote: no escrow is taken before a replacement's
+	// suspect refunds are reserved (Prepared).
+	if err := rt.checkPrepared(); err != nil {
+		return err
+	}
 	if _, _, ok := ParsePacketKey(key); !ok {
 		return errors.New("controls: not a packet key: " + key)
 	}
