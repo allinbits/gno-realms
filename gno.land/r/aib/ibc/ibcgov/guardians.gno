@@ -454,7 +454,10 @@ func PruneFlags(cur realm, n int) int {
 		}
 		return false
 	})
-	pruneAfter = last // "" once the walk reaches the end: the next starts over
+	if visited < n {
+		last = "" // the walk reached the end: the next starts over
+	}
+	pruneAfter = last
 	for _, k := range stale {
 		pruneFlag(k, flags.Get(k).(*flag))
 	}

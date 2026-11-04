@@ -144,6 +144,21 @@ func main(cur realm) {
 	e, _ = controlsView().Sweep(route, key)
 	println("applied anyway:", refusal, "| entry still owed:", !e.Paid && !e.Voided, "| realm holds", grc20test.BalanceOf(transferAddr))
 
+	// No realm of the bridge is a payee (review of #92): the sweep and
+	// credit builders refuse ibcgov's own address, and a sweep to an
+	// implementation registered during its delay is refused when it executes.
+	gov := chain.PackageAddress(ibcgov.PkgPath).String()
+	println("builder, payee ibcgov:", revive(func() { ibcgov.NewSweepRequest(cross(cur), route, key, gov) }))
+	println("credit builder, payee ibcgov:", revive(func() { ibcgov.NewCreditRequest(cross(cur), route, key, alias, gov, 500) }))
+	const laterImpl = "gno.land/r/aib/ibc/apps/transfer/impl/v9x"
+	late := govern(cur, ibcgov.NewSweepRequest(cross(cur), route, key, chain.PackageAddress(laterImpl).String()))
+	testing.SetRealm(testing.NewCodeRealm(laterImpl))
+	transfer.RegisterImpl(cross(cur), func(s transfer.Store) transfer.Logic { return nil }, "v9x", nil, true)
+	testing.SetRealm(testing.NewCodeRealm("gno.land/r/aib/main"))
+	execute(cur, late)
+	e, _ = controlsView().Sweep(route, key)
+	println("payee an implementation registered meanwhile:", decided(late), "| entry still owed:", !e.Paid && !e.Voided)
+
 	pay := govern(cur, ibcgov.NewSweepRequest(cross(cur), route, key, alice.String()))
 	execute(cur, pay)
 	println("to alice:", decided(pay), "| alice", grc20test.BalanceOf(alice))
@@ -151,6 +166,9 @@ func main(cur realm) {
 
 // Output:
 // swept: 500 bridge realm
-// builder, payee the transfer realm: ibcgov: a sweep pays out of the transfer realm, never to it
+// builder, payee the transfer realm: ibcgov: the payee g1tp3gk4quumurav4858hjfdy6hxtyffwmnxyr00 is a realm of the bridge (gno.land/r/aib/ibc/apps/transfer)
 // applied anyway: cannot pay g1tp3gk4quumurav4858hjfdy6hxtyffwmnxyr00: not a valid recipient other than the transfer realm | entry still owed: true | realm holds 900
+// builder, payee ibcgov: ibcgov: the payee g12l3du5z70zzq9rkc82asre09srefve7p5mfay4 is a realm of the bridge (gno.land/r/aib/ibc/ibcgov)
+// credit builder, payee ibcgov: ibcgov: the payee g12l3du5z70zzq9rkc82asre09srefve7p5mfay4 is a realm of the bridge (gno.land/r/aib/ibc/ibcgov)
+// payee an implementation registered meanwhile: spent - spent: the payee g1u54yy6kljq98wlgsfgvtgwkj2esqyz880a3ad3 is a realm of the bridge (a registered implementation) | entry still owed: true
 // to alice: applied - sweep | alice 500

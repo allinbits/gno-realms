@@ -161,8 +161,15 @@ func main(cur realm) {
 	govern(cur, ibcgov.NewExpectRecoveryRequest(cross(cur), "gnoland-b", "gnoland-c", "ethereum-3"))
 	byRecovery := ibcgov.LastDecision()
 	govern(cur, ibcgov.NewCancelRequest(cross(cur), byKind10))
+	late := ibcgov.NewExpectRecoveryRequest(cross(cur), "gnoland-b", "gnoland-c", "ethereum-3")
 	execute(cur, byRecovery)
 	println("the recovery's expectation:", decided(byRecovery))
+	// Once active, B→C takes no new kind 10 or recovery expectation (review
+	// of #92): refused when built, and a request built before is spent when
+	// recorded.
+	println("a kind 10 for the active B→C:", revive(func() { dispatch("gnoland-b", "gnoland-c", "ethereum-3") }))
+	println("a recovery expectation for it:", revive(func() { ibcgov.NewExpectRecoveryRequest(cross(cur), "gnoland-b", "gnoland-c", "ethereum-3") }))
+	println("one built before, recorded now:", decided(govern(cur, late)))
 	println("c's notice:", deliver(cur, c, 0), "|", epochNow())
 
 	// One recovery Request governed twice records two decisions, each owning
@@ -185,6 +192,9 @@ func main(cur realm) {
 // the surviving expectation, executed last: applied - expect the governance epoch to move from client-0 to gnoland-b over ethereum-2
 // b's notice: acknowledged | epoch 2 over ethereum-2
 // the recovery's expectation: applied - expect the governance epoch to move from gnoland-b to gnoland-c over ethereum-3
+// a kind 10 for the active B→C: ibcgov: transition gnoland-b → gnoland-c over ethereum-3 is expected already
+// a recovery expectation for it: ibcgov: transition gnoland-b → gnoland-c over ethereum-3 is expected already
+// one built before, recorded now: spent - spent: transition gnoland-b → gnoland-c over ethereum-3 is expected already
 // c's notice: acknowledged | epoch 3 over ethereum-3
 // a fourth while the recovery holds its place: ibcgov: router client gnoland-c has 4 expected successors already, intents included
-// after both are cancelled: applied - dispatched as epoch 3 seq 4; its transition is expected from decision 29
+// after both are cancelled: applied - dispatched as epoch 3 seq 4; its transition is expected from decision 30

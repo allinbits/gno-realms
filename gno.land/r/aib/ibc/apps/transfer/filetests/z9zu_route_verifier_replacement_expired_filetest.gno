@@ -106,4 +106,4 @@ func main(cur realm) {
 // replace the expired client's verifier: applied - core migrate client: route ethereum-1's meters emptied
 // after: Expired ethereum/testing-next 0/72
 // replace the frozen client's verifier: spent - spent: client ethereum-2 is Frozen, not Active or Expired | still ethereum/testing-freezing
-// recovery: applied - core recover client | now Active ethereum/testing-next 0/5000000
+// recovery: applied - core recover client: route ethereum-1's meters emptied | now Active ethereum/testing-next 0/5000000

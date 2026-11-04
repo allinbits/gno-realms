@@ -62,6 +62,13 @@ func (p *routeParams) deferredBy() string {
 }
 
 func (p *routeParams) apply(cur realm, t int64) (string, string) {
+	if p.op == controls.OpCredit || p.op == controls.OpSweep {
+		// An implementation registered during the delay is a bridge realm
+		// too (mustPayee).
+		if b := BridgeRealm(p.p.To); b != "" {
+			return "", "the payee " + string(p.p.To) + " is a realm of the bridge (" + b + ")"
+		}
+	}
 	identity := ""
 	if p.enroll {
 		// Re-check the client on the live state (ADR pr6375 §7.5): one that
@@ -103,9 +110,12 @@ func (p *routeParams) apply(cur realm, t int64) (string, string) {
 		// The two-phase epoch switch (ADR pr6375 §7.12): while the
 		// governance epoch runs over the old client, it is retired for
 		// transfers only, until IBCAdmin's epoch notice moves the epoch.
+		// Read once: retiring ports and the meters below change neither the
+		// epoch nor the graph.
+		expected := onExpectedPath(p.replace)
 		retired := " retired"
 		switch {
-		case onExpectedPath(p.replace):
+		case expected:
 			// The epoch runs over it, or may still move through it.
 			core.RetireClientPort(cross(cur), p.replace, transfer.PortID)
 			awaitGov(p.replace)
@@ -133,7 +143,7 @@ func (p *routeParams) apply(cur realm, t int64) (string, string) {
 		if n := foldFlags(p.p.Client, p.p.Route, t); n > 0 {
 			note += ", " + strconv.Itoa(n) + " flags of " + p.p.Client + " moved to the route"
 		}
-		if onExpectedPath(p.replace) {
+		if expected {
 			note += "; governance epoch " + strconv.FormatUint(uint64(epoch), 10) + " stays over " + EpochClient() + " until IBCAdmin's epoch notices arrive"
 		}
 	}
@@ -303,15 +313,23 @@ var bridgeRealms = []string{
 	"gno.land/r/aib/ibc/ethrelay",
 }
 
+// bridgeRealmByAddr is bridgeRealms keyed by package address, built once:
+// BridgeRealm is read on every receive and every claim payout.
+var bridgeRealmByAddr = func() map[address]string {
+	m := make(map[address]string, len(bridgeRealms))
+	for _, p := range bridgeRealms {
+		m[chain.PackageAddress(p)] = p
+	}
+	return m
+}()
+
 // BridgeRealm is which realm of the bridge a is, or "" for none: its path,
 // or "a registered implementation". A credit to one of them is swept (ADR
 // pr6375 §7.1), never paid to an address whose code could not move it, and
 // none can be a fee collector.
 func BridgeRealm(a address) string {
-	for _, p := range bridgeRealms {
-		if chain.PackageAddress(p) == a {
-			return p
-		}
+	if p, ok := bridgeRealmByAddr[a]; ok {
+		return p
 	}
 	// Every registered implementation, superseded ones included (a registry
 	// only grows): one keyed lookup in each proxy's address index, whatever
@@ -329,6 +347,18 @@ func mustCollector(s string) address {
 	a := mustAddr(s)
 	if p := BridgeRealm(a); p != "" {
 		panic("ibcgov: the fee collector " + string(a) + " is a realm of the bridge (" + p + ")")
+	}
+	return a
+}
+
+// mustPayee reads the recipient of a credit or a sweep payment: an address
+// that is no realm of the bridge, whose code could not move what it is paid
+// (checked again when the decision executes, against every implementation
+// registered by then).
+func mustPayee(s string) address {
+	a := mustAddr(s)
+	if p := BridgeRealm(a); p != "" {
+		panic("ibcgov: the payee " + string(a) + " is a realm of the bridge (" + p + ")")
 	}
 	return a
 }
@@ -580,7 +610,8 @@ func NewRestoreRequest(cur realm, route, keys string) Request {
 // NewCreditRequest credits a packet by vote after 7 days (ADR pr6375 §7.9):
 // only a packet received on the route with a success acknowledgement, for
 // its whole payable amount (a haircut goes through NewReduceRequest), never
-// above the free lock, deduplicated against every claim of the packet.
+// above the free lock, deduplicated against every claim of the packet, and
+// never to a realm of the bridge (mustPayee).
 func NewCreditRequest(cur realm, route, key, denom, to string, amount uint256) Request {
 	route = mustRoute(route)
 	if _, _, ok := controls.ParsePacketKey(key); !ok {
@@ -589,20 +620,17 @@ func NewCreditRequest(cur realm, route, key, denom, to string, amount uint256) R
 	if !isDenom(denom) || amount == 0 {
 		panic("ibcgov: a credit names a denom and a positive amount")
 	}
-	a := mustAddr(to)
+	a := mustPayee(to)
 	text := "credit " + u256s(amount) + " " + denom + " to " + string(a) + " for packet " + key + " on route " + route
 	return routeRequest(cur, controls.OpCredit, "credit", text, controls.Params{Route: route, Key: key, Denom: denom, To: a, Amount: amount}, true)
 }
 
 // NewSweepRequest pays sweep entries of one denom to an address after 7
-// days.
+// days, never to a realm of the bridge (mustPayee).
 func NewSweepRequest(cur realm, route, keys, to string) Request {
 	route = mustRoute(route)
 	list := mustKeys(keys)
-	a := mustAddr(to)
-	if a == chain.PackageAddress(transfer.PkgPath) {
-		panic("ibcgov: a sweep pays out of the transfer realm, never to it")
-	}
+	a := mustPayee(to)
 	return routeRequest(cur, controls.OpSweep, "sweep", "pay sweep entries on route "+route+" to "+string(a)+": "+strings.Join(list, ","),
 		controls.Params{Route: route, Keys: list, To: a}, true)
 }
