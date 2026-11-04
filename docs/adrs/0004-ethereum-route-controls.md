@@ -909,8 +909,9 @@ Compiled: 7-day delay, 14-day deadline, 24-hour hold linger, day 21 of a hold,
 authorizations an incident holds on a denom at once; a further one is
 refused until one is paid or revoked), `ReopenBatch` 64 (a reopening batch takes at
 most 64 incidents, then at most 64 authorizations), `PageLines` 100 (each
-paginated controls page returns at most 100 entries), envelope 1024 bytes, gov packet timeout 6 hours,
-the governor (ibcgov's deployer). Per route and denom, set by decision at
+paginated controls page returns at most 100 entries), envelope 1024 bytes, gov packet timeout 6 hours.
+Recorded at deployment, not compiled: the governor, the account that
+deployed ibcgov (its `init` reads `cur.Previous()`). Per route and denom, set by decision at
 launch: the cap floor (10,000 tokens/day in base units), fee (20, floor 2,
 ceiling cap/4), send max 25,000 and min 40, refund cap (the day cap), the
 Ethereum token of a gno-native denom, mint cap and supply cap of Ethereum
