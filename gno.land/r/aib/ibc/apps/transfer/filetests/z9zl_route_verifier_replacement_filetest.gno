@@ -240,7 +240,8 @@ func main(cur realm) {
 
 	// A replaced client stays recoverable (Codex docs round 5 #2): the
 	// route's client, now expired, is recovered with a later client whose
-	// verifier was replaced too.
+	// verifier was replaced too. The substitute's state is a new trust: the
+	// route's meters start empty (review of #92).
 	cs := ethtesting.ClientState()
 	cs.LatestSlot, cs.LatestExecutionBlockNumber = 5_000_000, 5_000_000
 	cs.ForkParameters = fp // the subject's schedule, migrated above
@@ -251,8 +252,11 @@ func main(cur realm) {
 	execute(cur, govern(cur, ibcgov.NewReplaceVerifierRequest(cross(cur), substitute, ethtesting.NextVersion)))
 	println("subject:", core.ClientStatus(client), core.VerifierVersion(client), "| substitute:", core.ClientStatus(substitute), core.VerifierVersion(substitute))
 	recovery := govern(cur, ibcgov.NewRecoverClientRequest(cross(cur), client, substitute))
+	epoch3, _ := ibcgov.PayoutsEpoch(client)
 	execute(cur, recovery)
-	println("recovery:", decided(recovery), "| subject now", core.ClientStatus(client), core.VerifierVersion(client), core.ClientLatestHeight(client))
+	epoch4, _ := ibcgov.PayoutsEpoch(client)
+	println("recovery:", decided(recovery), "| subject now", core.ClientStatus(client), core.VerifierVersion(client), core.ClientLatestHeight(client),
+		"| payouts epoch", epoch3, "->", epoch4)
 }
 
 // Output:
@@ -265,4 +269,4 @@ func main(cur realm) {
 // fork schedule on the converted verifier: applied - core migrate client: route ethereum-1's meters emptied | still ethereum/testing-next | proves the receipt: true
 // expired during the delay: applied - core migrate client | verifier ethereum/testing-next | status Expired
 // subject: Expired ethereum/testing-next | substitute: Active ethereum/testing-next
-// recovery: applied - core recover client | subject now Active ethereum/testing-next 0/5000000
+// recovery: applied - core recover client: route ethereum-1's meters emptied | subject now Active ethereum/testing-next 0/5000000 | payouts epoch 2 -> 3
