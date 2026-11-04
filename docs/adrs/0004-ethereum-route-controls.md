@@ -403,7 +403,12 @@ router client is not usable when it executes, or "route" when the
 migration reverts), when its parameters must change (`suspectFrom`), when
 the first was dispatched in an epoch that has since moved, or when the
 approval came from a recovery expectation and governance now replaces the
-route by kind 10 instead. Governance then removes the active expectation
+route by kind 10 instead. A first kind 10 that IBCAdmin has not spent is
+cancelled there first (`NewEthCancelRequest` naming its seq, applied when
+IBCAdmin records it, its acknowledgement checked; one of a past epoch
+is abandoned there already): left pending, it could
+still execute with its old parameters once mature, and its epoch switch
+would abandon the retry. Governance then removes the active expectation
 (`NewRemoveExpectationRequest`, at once, a tightening, leaving a tombstone)
 and dispatches the kind 10 again: the tombstoned transition is approved
 again by the new dispatch's own 7-day, hold-deferred expectation. It runs
@@ -411,9 +416,11 @@ alongside IBCAdmin's own 7-day delay for the kind 10, which counts from
 its recording there, after the dispatch, so the retry costs no time a
 notice could have used unless a hold here defers the expectation past
 IBCAdmin's execution (a notice before the approval is refused and sent
-again). A removal is refused while a proven notice
-still needs the transition (`checkRemove`), and then that notice is the
-way forward: Ethereum went through the transition already. Ownership is indexed: each owning decision is one entry
+again). A removal is refused while the transition lies on an expected path
+a proven notice may still be applied along (`checkRemove`); that notice is
+then the way forward. It authenticates its endpoint and epoch, not which
+of the expected paths Ethereum took, so the refusal does not prove
+Ethereum executed this transition. Ownership is indexed: each owning decision is one entry
 keyed by the transition, the intent's generation (given when the intent is
 created, so an owner of an intent a switch dropped never owns a later one
 of the same transition) and the decision, with a live-owner count on the
