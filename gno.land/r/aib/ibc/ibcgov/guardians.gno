@@ -443,7 +443,7 @@ func PruneFlags(cur realm, n int) int {
 	var stale []string
 	visited := 0
 	last := ""
-	flags.Iterate(after(pruneAfter), "", func(k string, v any) bool {
+	stopped := flags.Iterate(after(pruneAfter), "", func(k string, v any) bool {
 		if visited == n {
 			return true
 		}
@@ -454,7 +454,7 @@ func PruneFlags(cur realm, n int) int {
 		}
 		return false
 	})
-	if visited < n {
+	if !stopped {
 		last = "" // the walk reached the end: the next starts over
 	}
 	pruneAfter = last

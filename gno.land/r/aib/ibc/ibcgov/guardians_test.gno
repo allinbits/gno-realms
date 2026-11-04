@@ -64,7 +64,20 @@ func TestPruneFlagsStartsOverAtTheEnd(cur realm, t *testing.T) {
 	if n := PruneFlags(cross(cur), 1); n != 1 || pruneAfter != "r2|sends|3" {
 		t.Fatalf("a bounded pass: %d removed, cursor %q", n, pruneAfter)
 	}
-	if n := PruneFlags(cross(cur), 1); n != 1 || flags.Size() != 0 {
-		t.Fatalf("the rest: %d removed, %d left", n, flags.Size())
+	// The last entry, at exactly the budget: the walk reached the end, so
+	// the next call starts over (review of #92, round 2).
+	if n := PruneFlags(cross(cur), 1); n != 1 || flags.Size() != 0 || pruneAfter != "" {
+		t.Fatalf("the rest: %d removed, %d left, cursor %q", n, flags.Size(), pruneAfter)
+	}
+	put("r4|sends|3")
+	put("r7|sends|3")
+	clearSeat(3, 400)
+	if n := PruneFlags(cross(cur), 2); n != 2 || pruneAfter != "" {
+		t.Fatalf("two entries, a budget of two: %d removed, cursor %q", n, pruneAfter)
+	}
+	put("r0|sends|3")
+	clearSeat(3, 500)
+	if n := PruneFlags(cross(cur), 2); n != 1 {
+		t.Fatalf("an entry before the last walk's end: %d removed", n)
 	}
 }
