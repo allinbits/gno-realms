@@ -394,9 +394,26 @@ is refused, spent or cancelled, never once active (z9zzd: two kind 10s for
 one transition, one cancelled; a kind 10 and a recovery expectation for
 one transition). Once active, the transition takes no new kind 10 or
 recovery expectation: one is refused when built, recorded or dispatched,
-since it has nothing left to approve and its expectation decision could
-only be spent (a packet lost after the approval is `Redispatch`'s to
-resend). Ownership is indexed: each owning decision is one entry
+since the local verifier is approved already and a new expectation
+decision could only be spent. A packet lost or unanswered after the
+approval is `Redispatch`'s to resend, identical bytes in a fresh packet.
+A new Ethereum decision for the same transition is still needed when
+IBCAdmin spent the first one (a kind 10 spends with "client" when the new
+router client is not usable when it executes, or "route" when the
+migration reverts), when its parameters must change (`suspectFrom`), when
+the first was dispatched in an epoch that has since moved, or when the
+approval came from a recovery expectation and governance now replaces the
+route by kind 10 instead. Governance then removes the active expectation
+(`NewRemoveExpectationRequest`, at once, a tightening, leaving a tombstone)
+and dispatches the kind 10 again: the tombstoned transition is approved
+again by the new dispatch's own 7-day, hold-deferred expectation. It runs
+alongside IBCAdmin's own 7-day delay for the kind 10, which counts from
+its recording there, after the dispatch, so the retry costs no time a
+notice could have used unless a hold here defers the expectation past
+IBCAdmin's execution (a notice before the approval is refused and sent
+again). A removal is refused while a proven notice
+still needs the transition (`checkRemove`), and then that notice is the
+way forward: Ethereum went through the transition already. Ownership is indexed: each owning decision is one entry
 keyed by the transition, the intent's generation (given when the intent is
 created, so an owner of an intent a switch dropped never owns a later one
 of the same transition) and the decision, with a live-owner count on the
@@ -910,8 +927,9 @@ Compiled: 7-day delay, 14-day deadline, 24-hour hold linger, day 21 of a hold,
 authorizations an incident holds on a denom at once; a further one is
 refused until one is paid or revoked), `ReopenBatch` 64 (a reopening batch takes at
 most 64 incidents, then at most 64 authorizations), `PageLines` 100 (each
-paginated controls page returns at most 100 entries), envelope 1024 bytes, gov packet timeout 6 hours,
-the governor (ibcgov's deployer). Per route and denom, set by decision at
+paginated controls page returns at most 100 entries), envelope 1024 bytes, gov packet timeout 6 hours.
+Recorded at deployment, not compiled: the governor, the account that
+deployed ibcgov (its `init` reads `cur.Previous()`). Per route and denom, set by decision at
 launch: the cap floor (10,000 tokens/day in base units), fee (20, floor 2,
 ceiling cap/4), send max 25,000 and min 40, refund cap (the day cap), the
 Ethereum token of a gno-native denom, mint cap and supply cap of Ethereum
