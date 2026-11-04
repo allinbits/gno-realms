@@ -1863,3 +1863,29 @@ func TestSettledRecordTakesNoProof(t *testing.T) {
 		t.Fatalf("reservations changed after the settlement: %+v", d.Totals)
 	}
 }
+
+// Every credit by decision waits for a replacement's preparation, as
+// settlements and sweep payments do (review of #90): a pending packet's
+// credit included, which could otherwise take escrow the retired client's
+// suspect refunds are about to reserve.
+func TestCreditsWaitForPreparation(t *testing.T) {
+	r, rt := newRoute(t)
+	rt.RecordSend(sendRec(1, "ugnot", KindUnescrow, 100))
+	rt.Settle(t0, 5, pk(1), OutcomeSuccess, false, 200)
+	if err := r.Replace("ethereum-1", "ethereum-2", 3, 1000); err != nil {
+		t.Fatal(err)
+	}
+	notPrepared := func(what string, err error) {
+		if err == nil || !strings.Contains(err.Error(), "not prepared") {
+			t.Fatalf("%s before the preparation: %v", what, err)
+		}
+	}
+	notPrepared("a pending credit", rt.CreditPending(t0, 20, 0, pk(60), "ugnot", alice, 100, 100, 1000))
+	notPrepared("a credit by vote", rt.CreditByVote(t0, 20, 0, pk(61), "ugnot", alice, 100, 1000))
+	if n, done, _ := rt.PrepareReplacement(MaxKeys); n != 1 || !done {
+		t.Fatalf("preparation: %d %v", n, done)
+	}
+	if err := rt.CreditPending(t0, 20, 0, pk(60), "ugnot", alice, 100, 100, 1000); err != nil {
+		t.Fatalf("a pending credit once prepared: %v", err)
+	}
+}
