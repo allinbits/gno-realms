@@ -342,8 +342,9 @@ var liveEdges int
 // checkExpect is why the transition old → next over the gno client local
 // cannot be expected, or "": its old router client must be reachable from
 // the epoch client (through live transitions or tombstones), the local
-// client must qualify (checkLocal), and a transition not already live must
-// fit the old client's successors (live ones only) and, unless it is
+// client must qualify (checkLocal), the transition must not be active
+// already (a pending one gains an owner), and one not already live must fit
+// the old client's successors (live ones only) and, unless it is
 // tombstoned, the joint budget of maxLive.
 func checkExpect(old, next, local string) string {
 	if epoch == 0 {
@@ -359,6 +360,14 @@ func checkExpect(old, next, local string) string {
 	succ := expectedOf(old)
 	for _, x := range succ {
 		if x.to == next && x.local == local {
+			// An active transition is approved already: a second kind 10 or a
+			// recovery expectation for it has nothing left to approve, and an
+			// expectation decision recorded on it could only be spent (its
+			// intent is never pending). A packet lost after the approval is
+			// Redispatch's to resend.
+			if x.active {
+				return "transition " + old + " → " + next + " over " + local + " is expected already"
+			}
 			return ""
 		}
 	}

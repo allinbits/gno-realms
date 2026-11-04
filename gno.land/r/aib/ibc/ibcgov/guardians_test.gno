@@ -36,3 +36,35 @@ func TestSeatGenerationEnds(t *testing.T) {
 		t.Fatalf("left: %d records, %d entries", genEnds.Size(), flags.Size())
 	}
 }
+
+// A PruneFlags call that reaches the end of the entries before its budget
+// runs out starts the next call over from the first entry, so a stale entry
+// keyed before where it stopped is found at once, not after an empty call
+// (review of #92).
+func TestPruneFlagsStartsOverAtTheEnd(cur realm, t *testing.T) {
+	put := func(k string) {
+		flags.Set(k, &flag{seat: 3, gen: seatGen[3], at: 1})
+		seatFlags[3]++
+	}
+	put("r5|sends|3")
+	put("r6|sends|3")
+	clearSeat(3, 100)
+	if n := PruneFlags(cross(cur), 16); n != 2 || pruneAfter != "" {
+		t.Fatalf("first pass: %d removed, cursor %q", n, pruneAfter)
+	}
+	put("r1|sends|3") // before where the first pass stopped
+	clearSeat(3, 200)
+	if n := PruneFlags(cross(cur), 16); n != 1 {
+		t.Fatalf("second pass: %d removed", n)
+	}
+	// A call whose budget ends before the entries do resumes after them.
+	put("r2|sends|3")
+	put("r3|sends|3")
+	clearSeat(3, 300)
+	if n := PruneFlags(cross(cur), 1); n != 1 || pruneAfter != "r2|sends|3" {
+		t.Fatalf("a bounded pass: %d removed, cursor %q", n, pruneAfter)
+	}
+	if n := PruneFlags(cross(cur), 1); n != 1 || flags.Size() != 0 {
+		t.Fatalf("the rest: %d removed, %d left", n, flags.Size())
+	}
+}
