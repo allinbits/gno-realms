@@ -120,6 +120,18 @@ func contains(list []string, s string) bool {
 	return false
 }
 
+// emptyRouteMeters starts a new payouts epoch of client's route, if it has
+// one, and says so: a recovered or migrated verifier is a new trust, so the
+// route's meters start empty, as after a replacement (ADR pr6375 §7.1).
+func emptyRouteMeters(client string, t int64) string {
+	route := routeKeyOf(client)
+	if !routes.Has(route) {
+		return ""
+	}
+	bumpPayoutsEpoch(route, t)
+	return ": route " + route + "'s meters emptied"
+}
+
 func (p *adminParams) apply(cur realm, t int64) (string, string) {
 	if refusal := p.check(); refusal != "" {
 		return "", refusal
@@ -134,6 +146,10 @@ func (p *adminParams) apply(cur realm, t int64) (string, string) {
 		core.RemoveRelayer(cross(cur), address(a[0]))
 	case "core recover client":
 		core.RecoverClient(cross(cur), a[0], a[1])
+		// The substitute's state is a new trust, as a migrated verifier is.
+		if note := emptyRouteMeters(a[0], t); note != "" {
+			return p.op + note, ""
+		}
 	case "core approve app":
 		core.ApproveApp(cross(cur), a[0], a[1])
 	case "core reject app":
@@ -151,11 +167,8 @@ func (p *adminParams) apply(cur realm, t int64) (string, string) {
 		if refusal := core.MigrateClient(cross(cur), a[0], a[1], bz); refusal != "" {
 			return "", refusal
 		}
-		// A migrated verifier is a new trust: the meters of the client's
-		// route start empty, as after a replacement (ADR pr6375 §7.1).
-		if route := routeKeyOf(a[0]); routes.Has(route) {
-			bumpPayoutsEpoch(route, t)
-			return p.op + ": route " + route + "'s meters emptied", ""
+		if note := emptyRouteMeters(a[0], t); note != "" {
+			return p.op + note, ""
 		}
 	case "transfer update impl":
 		transfer.UpdateImpl(cross(cur), a[0])
