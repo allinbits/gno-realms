@@ -21,7 +21,9 @@ type payout struct {
 // banker call would fail on, made before anything changes, so a governed
 // payout that cannot be made is refused (the decision spent) with every
 // entitlement kept, never aborted halfway. Amounts are checked per denom in
-// total: a recipient that is a valid address other than this realm; for a
+// total: a recipient that is a valid address and no realm of the bridge
+// (isBridgeRealm: this realm, the core, an implementation...), whose code
+// could not move what it is paid; for a
 // minted denom, its voucher token and the room left under the int64 supply;
 // for a GRC20, its registered token, the route's escrow accounting and this
 // realm's token balance; for a native coin, the escrow accounting and this
@@ -34,8 +36,11 @@ func (l *routes) payable(rt *controls.Route, ps []payout) string {
 		if p.amount <= 0 {
 			continue
 		}
-		if !p.to.IsValid() || p.to == self {
-			return ufmt.Sprintf("cannot pay %s: not a valid recipient other than the transfer realm", string(p.to))
+		// ibcgov refuses such a payee too, when it builds the decision and
+		// when it executes it; checked here as well, so this implementation
+		// never pays a bridge realm whoever decides.
+		if !p.to.IsValid() || isBridgeRealm(p.to) {
+			return ufmt.Sprintf("cannot pay %s: not a valid recipient outside the bridge's realms", string(p.to))
 		}
 		if _, ok := totals[p.denom]; !ok {
 			order = append(order, p.denom)
