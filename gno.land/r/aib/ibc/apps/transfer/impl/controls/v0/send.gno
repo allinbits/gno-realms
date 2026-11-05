@@ -138,12 +138,12 @@ func (l *routes) Transfer(_ int, rlm realm, sent []chain.Coin, clientID, receive
 		acc := l.mustSendable(rt, alias, amount)
 		checkRecipient(rt, receiver, acc.Config.Remote)
 		fee = acc.Config.Fee
-		if fee > 0 {
-			c := chain.NewCoin(alias, fee)
-			if err := l.store.EscrowGRC20(0, rlm, rt.Key, denom, sender, c); err != nil {
-				panic(err)
-			}
-			if err := l.store.UnescrowGRC20(0, rlm, rt.Key, string(rt.FeeCollector), c); err != nil {
+		// The fee goes from the sender's allowance to the collector in one
+		// transfer: it never rests here, so it touches no escrow accounting.
+		// A collector sending pays itself, which the token refuses as a
+		// transfer to oneself: nothing moves then.
+		if fee > 0 && sender != rt.FeeCollector {
+			if err := l.store.TransferGRC20From(0, rlm, denom, sender, rt.FeeCollector, fee); err != nil {
 				panic(err)
 			}
 		}

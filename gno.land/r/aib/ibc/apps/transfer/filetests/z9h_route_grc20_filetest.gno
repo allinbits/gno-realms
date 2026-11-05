@@ -188,6 +188,19 @@ func main(cur realm) {
 	transfer.Claim(cross(cur), route, alias, 20)
 	println("claim fee to the collector:", grc20test.BalanceOf(collector)-before)
 
+	// A sender that is the route's collector pays its fee to itself: the fee
+	// is one transfer from the sender's allowance to the collector, which the
+	// token refuses between one address and itself, so nothing moves and the
+	// send takes only the amount from the allowance.
+	selfFee := govern(cur, ibcgov.NewSetFeeCollectorRequest(cross(cur), route, string(sender)))
+	execute(cur, selfFee)
+	before = grc20test.BalanceOf(sender)
+	grc20test.Mint(cross(cur), sender, 100)
+	grc20test.Approve(cross(cur), sender, transferAddr, 100)
+	sendGRC20(cur, route, 100)
+	println("collector sending: pays", before+100-grc20test.BalanceOf(sender), "| allowance left", grc20test.Allowance(sender, transferAddr))
+	execute(cur, govern(cur, ibcgov.NewSetFeeCollectorRequest(cross(cur), route, string(collector))))
+
 	// The other order (design review r8 #2): a collector configured at the
 	// address of an implementation not registered yet. Neither proxy
 	// registers an implementation at a route's fee collector; after a
@@ -258,6 +271,7 @@ func main(cur realm) {
 // collector an implementation registered meanwhile: spent - spent: the fee collector g1u54yy6kljq98wlgsfgvtgwkj2esqyz880a3ad3 is a realm of the bridge
 // send fee to the collector: 20
 // claim fee to the collector: 20
+// collector sending: pays 100 | allowance left 0
 // collector a future transfer implementation: applied
 //   its registration: RegisterImpl: gno.land/r/aib/ibc/apps/transfer/impl/v9y is a route's fee collector: change the collector first
 // collector a future core implementation: applied
