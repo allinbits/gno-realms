@@ -8,6 +8,8 @@ import (
 
 	ethtesting "gno.land/p/aib/ibc/lightclient/ethereum/testing/v0"
 	tmtesting "gno.land/p/aib/ibc/lightclient/tendermint/testing/v0"
+	"gno.land/p/aib/ibc/ics20/abi/v0"
+	"gno.land/p/aib/ibc/ics20/v0"
 	"gno.land/p/aib/ibc/types/v0"
 
 	"gno.land/r/aib/ibc/apps/transfer"
@@ -23,10 +25,11 @@ const self = "gno.land/r/aib/ibc/apps/transfer/impl/plain"
 // Ethereum would deploy (or the upgrade rehearsal), registers ics20.New
 // without the route controls, governance activates it (no route exists), and
 // a transfer over a Tendermint client escrows as under the installed
-// controls (z5a). It speaks protobuf only: to a router client (Ethereum's)
-// it sends protobuf too, which the Solidity ICS20 application refuses, so
-// the packet fails and is refunded rather than crossing without controls;
-// the ABI a router's application reads is the route controls' alone.
+// controls (z5a). A router client (Ethereum's) is the route controls'
+// alone: the plain app refuses a send to one before anything moves (a
+// packet it escrowed there would have no send record for controls installed
+// later to settle its refund against) and fails a receive over one, which
+// its source then refunds.
 func init(cur realm) {
 	transfer.RegisterImpl(cross(cur), ics20impl.New, "v0", nil, false)
 }
@@ -60,11 +63,26 @@ func main(cur realm) {
 	core.RegisterCounterparty(cross(cur), eth, [][]byte{{}}, "client-0")
 	testing.SetRealm(testing.NewUserRealm("g1wymu47drhr0kuq2098m792lytgtj2nyx77yrsm"))
 	testing.SetOriginSend(chain.NewCoins(chain.NewCoin("ugnot", 5)))
-	pkt, _ := transfer.Transfer(cross(cur), eth, "0x00000000000000000000000000000000000000aa", "ugnot", 5, uint64(time.Now().Add(time.Hour).Unix()), "")
-	println("to", eth, "router:", core.IsRouterClient(eth), "| encoding:", pkt.Payloads[0].Encoding)
+	println("send to", eth, "(router:", core.IsRouterClient(eth), "):", revive(func() {
+		transfer.Transfer(cross(cur), eth, "0x00000000000000000000000000000000000000aa", "ugnot", 5, uint64(time.Now().Add(time.Hour).Unix()), "")
+	}))
+	println(transfer.Render("total_escrow/ugnot"))
+
+	data := ics20.NewFungibleTokenPacketData("0xabc", "7", "0x5f67a5398d91087d1b37a8a43436196a7830867f", "g1wymu47drhr0kuq2098m792lytgtj2nyx77yrsm", "")
+	bz, err := abi.Marshal(data)
+	if err != nil {
+		panic(err)
+	}
+	payload := types.Payload{SourcePort: "transfer", DestinationPort: "transfer", Version: "ics20-1", Encoding: abi.Encoding, Value: bz}
+	testing.SetRealm(testing.NewCodeRealm("gno.land/r/aib/ibc/core"))
+	var app transfer.App
+	res := app.OnRecvPacket(cross(cur), "client-0", eth, 1, payload)
+	println("receive over", eth, "failed:", res.Status == types.PacketStatus_Failure)
 }
 
 // Output:
 // active: gno.land/r/aib/ibc/apps/transfer/impl/plain v0
 // {"denom":"ugnot","amount":100,"clients":[{"client":"07-tendermint-1","amount":100}]}
-// to ethereum-2 router: true | encoding: application/x-protobuf
+// send to ethereum-2 (router: true ): ethereum-2 is a router client: its transfers need the route controls (impl/controls), not the plain ICS-20 app
+// {"denom":"ugnot","amount":100,"clients":[{"client":"07-tendermint-1","amount":100}]}
+// receive over ethereum-2 failed: true

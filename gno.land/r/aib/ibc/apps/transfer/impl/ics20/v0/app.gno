@@ -13,6 +13,7 @@ import (
 	"gno.land/p/aib/ibc/types/v0"
 	"gno.land/p/nt/ufmt/v0"
 	"gno.land/r/aib/ibc/apps/transfer"
+	"gno.land/r/aib/ibc/core"
 )
 
 // ValidatePayloadShape checks what every ICS-20 v2 payload must satisfy,
@@ -174,6 +175,12 @@ func ValidatePendingSend(expected transfer.PendingSend, sender, sourceClient, de
 
 func (l *logic) OnRecvPacket(_ int, rlm realm, sourceClient, destinationClient string, sequence uint64, payload types.Payload) types.RecvPacketResult {
 	if err := validatePayload(sourceClient, destinationClient, payload); err != nil {
+		return types.RecvPacketResult{Status: types.PacketStatus_Failure}
+	}
+	// A router client's receives are the route controls' (impl/controls):
+	// installed alone, this app credits nothing over one, uncontrolled, and
+	// the source refunds the failed packet.
+	if core.IsRouterClient(destinationClient) {
 		return types.RecvPacketResult{Status: types.PacketStatus_Failure}
 	}
 

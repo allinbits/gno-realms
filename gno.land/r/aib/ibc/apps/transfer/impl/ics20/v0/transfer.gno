@@ -22,6 +22,14 @@ import (
 func (l *logic) Transfer(_ int, rlm realm, sent []chain.Coin, clientID, receiver, denom string, amount int64, timeoutTimestamp uint64, memo string) (
 	packet types.MsgSendPacket, sequence uint64,
 ) {
+	// A router client is served by the route controls alone (impl/controls),
+	// which keep the send record its acknowledgement or timeout settles
+	// against. Installed alone, this app escrows nothing for one: a send it
+	// made would be refused by the controls installed later, its refund
+	// stranded.
+	if core.IsRouterClient(clientID) {
+		panic(ufmt.Sprintf("%s is a router client: its transfers need the route controls (impl/controls), not the plain ICS-20 app", clientID))
+	}
 	sender := unsafe.OriginCaller().String()
 	switch {
 	case strings.HasPrefix(denom, "ibc/"):
@@ -85,12 +93,9 @@ func (l *logic) Transfer(_ int, rlm realm, sent []chain.Coin, clientID, receiver
 		receiver,
 		memo,
 	)
-	// Protobuf, the SDK's encoding. Under impl/controls a router client
-	// (core.IsRouterClient) never reaches this app: the route controls serve
-	// it and send the ABI its Solidity ICS20 application reads. Installed
-	// alone, which the proxy allows only before any route is enrolled, this
-	// app sends a router client protobuf, which that application refuses:
-	// the packet fails and is refunded, rather than crossing uncontrolled.
+	// Protobuf, the SDK's encoding: a router client, whose Solidity ICS20
+	// application reads ABI, never gets here (refused above; under
+	// impl/controls the route controls serve it).
 	encoding, value := transfer.EncodingProtobuf, data.ProtoMarshal()
 	packet = types.MsgSendPacket{
 		SourceClient: clientID,
