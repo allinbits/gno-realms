@@ -78,10 +78,6 @@ func (rd *Renderer) Register(router *mux.Router) {
 // JSON routes list everything.
 const homeListLimit = 100
 
-// HomeListLimit is homeListLimit, for implementations that rewrite the home
-// page (logic rewrites the send-back links of the listed vouchers).
-const HomeListLimit = homeListLimit
-
 func (rd *Renderer) Home(w *mux.ResponseWriter, r *mux.Request) {
 	var out strings.Builder
 	out.WriteString("# IBC transfer\n\n")
