@@ -71,16 +71,23 @@ func (l *logic) CreateClient(_ int, rlm realm, relayer address, clientState ligh
 	if err := consensusState.ValidateBasic(); err != nil {
 		panic(err)
 	}
-	var newLightClient func() lightclient.Interface
+	// Each light client type this implementation knows, and whether its
+	// counterparty is an ICS26 router: an Ethereum client's is the Solidity
+	// stack's. A later EVM chain adds its light client here, router true,
+	// and no application changes (core.IsRouterClient).
+	var (
+		newLightClient func() lightclient.Interface
+		router         bool
+	)
 	switch typ := clientState.ClientType(); typ {
 	case lightclient.Tendermint:
 		newLightClient = tendermint.NewLightClient
 	case ethereum.ClientType:
-		newLightClient = ethereum.NewLightClient
+		newLightClient, router = ethereum.NewLightClient, true
 	default:
 		panic("unhandled light client type " + typ)
 	}
-	c := l.store.AddClient(0, rlm, clientState.ClientType(), relayer, newLightClient)
+	c := l.store.AddClient(0, rlm, clientState.ClientType(), router, relayer, newLightClient)
 	lc := c.LightClient()
 	err := lc.Initialize(clientState, consensusState)
 	if err != nil {
@@ -96,21 +103,21 @@ func (l *logic) CreateClient(_ int, rlm realm, relayer address, clientState ligh
 // RegisterCounterparty registers the IBC v2 counterparty info for the given
 // clientID. It must be called by the same relayer that called CreateClient.
 func (l *logic) RegisterCounterparty(_ int, rlm realm, clientID string, counterpartyMerklePrefix [][]byte, counterpartyClientID string) {
-	// An Ethereum client's counterparty is a client of the ICS26 router,
-	// whose ids follow its own grammar ("client-N", or a custom id such as
+	// A router client's counterparty is a client of the ICS26 router, whose
+	// ids follow its own grammar ("client-N", or a custom id such as
 	// "gnoland"); every other counterparty is an SDK chain's {type}-{N}.
 	if !types.IsValidClientID(counterpartyClientID) && !types.IsValidRouterClientID(counterpartyClientID) {
 		panic("invalid counterparty client id")
 	}
 	c := l.mustClient(clientID)
 	valid := types.IsValidClientID(counterpartyClientID)
-	if c.Type() == ethereum.ClientType {
+	if c.IsRouter() {
 		valid = types.IsValidRouterClientID(counterpartyClientID)
-		// An Ethereum router keeps its commitments at the bare ICS24 keys:
+		// An ICS26 router keeps its commitments at the bare ICS24 keys:
 		// eureka's canonical prefix is a single empty element. Any other
 		// would move every proof of the client off the router's state.
 		if len(counterpartyMerklePrefix) != 1 || len(counterpartyMerklePrefix[0]) != 0 {
-			panic("an Ethereum counterparty's merkle prefix is a single empty element")
+			panic("a router counterparty's merkle prefix is a single empty element")
 		}
 	}
 	if !valid {

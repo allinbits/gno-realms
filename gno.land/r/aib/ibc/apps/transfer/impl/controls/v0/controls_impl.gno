@@ -59,10 +59,10 @@ func (l *logic) OnInstall(_ int, rlm realm, prevPath, prevVersion string) {
 	l.store.InitExt(0, rlm, extKey, controls.NewRegistryAny)
 }
 
-// handler is the logic that serves client: the routes for an Ethereum
-// client, the plain app for every other.
+// handler is the logic that serves client: the routes for a router client
+// (isRouter), the plain app for every other.
 func (l *logic) handler(client string) transfer.Logic {
-	if isEthereum(client) {
+	if isRouter(client) {
 		return l.routes
 	}
 	return l.inner

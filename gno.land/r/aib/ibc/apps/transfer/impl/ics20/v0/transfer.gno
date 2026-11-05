@@ -5,9 +5,7 @@ import (
 	"chain/runtime/unsafe"
 	"strings"
 
-	"gno.land/p/aib/ibc/ics20/abi/v0"
 	"gno.land/p/aib/ibc/ics20/v0"
-	"gno.land/p/aib/ibc/lightclient/ethereum/v0"
 	"gno.land/p/aib/ibc/types/v0"
 	"gno.land/p/nt/ufmt/v0"
 	"gno.land/r/aib/ibc/apps/transfer"
@@ -87,16 +85,13 @@ func (l *logic) Transfer(_ int, rlm realm, sent []chain.Coin, clientID, receiver
 		receiver,
 		memo,
 	)
-	// The Solidity ICS20 application only reads ABI-encoded packet data, so
-	// packets to Ethereum use it.
+	// Protobuf, the SDK's encoding. Under impl/controls a router client
+	// (core.IsRouterClient) never reaches this app: the route controls serve
+	// it and send the ABI its Solidity ICS20 application reads. Installed
+	// alone, which the proxy allows only before any route is enrolled, this
+	// app sends a router client protobuf, which that application refuses:
+	// the packet fails and is refunded, rather than crossing uncontrolled.
 	encoding, value := transfer.EncodingProtobuf, data.ProtoMarshal()
-	if strings.HasPrefix(clientID, ethereum.ClientType+"-") {
-		bz, err := abi.Marshal(data)
-		if err != nil {
-			panic(err)
-		}
-		encoding, value = abi.Encoding, bz
-	}
 	packet = types.MsgSendPacket{
 		SourceClient: clientID,
 		Payloads: []types.Payload{{

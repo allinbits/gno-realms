@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	ethtesting "gno.land/p/aib/ibc/lightclient/ethereum/testing/v0"
 	tmtesting "gno.land/p/aib/ibc/lightclient/tendermint/testing/v0"
 	"gno.land/p/aib/ibc/types/v0"
 
@@ -22,7 +23,10 @@ const self = "gno.land/r/aib/ibc/apps/transfer/impl/plain"
 // Ethereum would deploy (or the upgrade rehearsal), registers ics20.New
 // without the route controls, governance activates it (no route exists), and
 // a transfer over a Tendermint client escrows as under the installed
-// controls (z5a).
+// controls (z5a). It speaks protobuf only: to a router client (Ethereum's)
+// it sends protobuf too, which the Solidity ICS20 application refuses, so
+// the packet fails and is refunded rather than crossing without controls;
+// the ABI a router's application reads is the route controls' alone.
 func init(cur realm) {
 	transfer.RegisterImpl(cross(cur), ics20impl.New, "v0", nil, false)
 }
@@ -50,8 +54,17 @@ func main(cur realm) {
 	testing.SetOriginSend(chain.NewCoins(chain.NewCoin("ugnot", 100)))
 	transfer.Transfer(cross(cur), clientID, "atone1user", "ugnot", 100, uint64(time.Now().Add(time.Hour).Unix()), "memo")
 	println(transfer.Render("total_escrow/ugnot"))
+
+	testing.SetRealm(testing.NewCodeRealm(self))
+	eth := core.CreateClient(cross(cur), ethtesting.ClientState(), ethtesting.ConsensusState())
+	core.RegisterCounterparty(cross(cur), eth, [][]byte{{}}, "client-0")
+	testing.SetRealm(testing.NewUserRealm("g1wymu47drhr0kuq2098m792lytgtj2nyx77yrsm"))
+	testing.SetOriginSend(chain.NewCoins(chain.NewCoin("ugnot", 5)))
+	pkt, _ := transfer.Transfer(cross(cur), eth, "0x00000000000000000000000000000000000000aa", "ugnot", 5, uint64(time.Now().Add(time.Hour).Unix()), "")
+	println("to", eth, "router:", core.IsRouterClient(eth), "| encoding:", pkt.Payloads[0].Encoding)
 }
 
 // Output:
 // active: gno.land/r/aib/ibc/apps/transfer/impl/plain v0
 // {"denom":"ugnot","amount":100,"clients":[{"client":"07-tendermint-1","amount":100}]}
+// to ethereum-2 router: true | encoding: application/x-protobuf

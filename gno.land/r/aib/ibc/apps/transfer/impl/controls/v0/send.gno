@@ -10,7 +10,6 @@ import (
 	"gno.land/p/aib/ibc/ics20/abi/v0"
 	"gno.land/p/aib/ibc/ics20/controls/v0"
 	"gno.land/p/aib/ibc/ics20/v0"
-	"gno.land/p/aib/ibc/lightclient/ethereum/v0"
 	"gno.land/p/aib/ibc/types/v0"
 	"gno.land/p/nt/ufmt/v0"
 	"gno.land/r/aib/ibc/apps/transfer"
@@ -20,10 +19,11 @@ import (
 	"gno.land/r/nt/grc20reg/v0"
 )
 
-// isEthereum reports whether clientID is an Ethereum client of the core: the
-// clients the route controls cover.
-func isEthereum(clientID string) bool {
-	return core.ClientType(clientID) == ethereum.ClientType
+// isRouter reports whether clientID's counterparty is an ICS26 router
+// (core.IsRouterClient): the clients the route controls cover, Ethereum's
+// and any other EVM chain's whose light client the core records as one.
+func isRouter(clientID string) bool {
+	return core.IsRouterClient(clientID)
 }
 
 // routeOf resolves an Ethereum client (the only clients routes serves, see

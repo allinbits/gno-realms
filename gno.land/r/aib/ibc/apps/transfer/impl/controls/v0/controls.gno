@@ -298,8 +298,8 @@ func (l *routes) GovApply(_ int, rlm realm, op string, params []byte) string {
 	reg := l.registry(0, rlm)
 	t := now()
 	if op == controls.OpEnroll {
-		if !isEthereum(p.Route) || core.IsClientRetiredAny(p.Route) {
-			return p.Route + " is no usable Ethereum client"
+		if !isRouter(p.Route) || core.IsClientRetiredAny(p.Route) {
+			return p.Route + " is no usable router client"
 		}
 		// The bridge's own contracts are protected recipients from the
 		// enrolment on (ADR pr6375 R12, §7.8): Keys names the router, the
@@ -444,8 +444,8 @@ func (l *routes) GovApply(_ int, rlm realm, op string, params []byte) string {
 			note += "; continue with transfer.ContinueReopen"
 		}
 	case controls.OpReplace:
-		if !isEthereum(p.Client) || core.IsClientRetiredAny(p.Client) {
-			return p.Client + " is no usable Ethereum client"
+		if !isRouter(p.Client) || core.IsClientRetiredAny(p.Client) {
+			return p.Client + " is no usable router client"
 		}
 		err = reg.Replace(rt.Key, p.Client, p.Height, chainHeight())
 		if err == nil {
