@@ -82,9 +82,14 @@ Nothing in this list can change after the first mainnet deploy.
    the event schema. Administrative events are emitted by proxy code directly.
 6. **No light-client code in the proxy.** The implementation chooses the
    verifier and hands its `/p/` constructor to `AddClient(0, rlm, typ,
-   creator, newLightClient)`; the proxy calls it, so the verifier is allocated
+   router, creator, newLightClient)`; the proxy calls it, so the verifier is allocated
    in the proxy's storage rather than the implementation's, and stores it as a
-   `lightclient.Interface`. Changing the verifier is an
+   `lightclient.Interface`. `router` records, once and for the client's life,
+   whether its counterparty is an ICS26 router (the Solidity stack on an EVM
+   chain; the implementation sets it for an Ethereum client): the client
+   handle reports it (`Client.IsRouter`) and applications read it through
+   `IsRouterClient`, never the client type, so a later EVM chain needs only
+   its light client in an implementation (review of #93). Changing the verifier is an
    ordinary implementation upgrade (see "Light clients").
 7. **Implementation lifecycle.**
    - `RegisterImpl(cur, ctor func(Store) Logic)`: callable only from a sub-realm
