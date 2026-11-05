@@ -37,7 +37,11 @@ permanent proxy, the ICS-20 logic lives in an implementation realm under
 `gno.land/r/aib/ibc/apps/transfer/impl/` and is invoked non-crossing. The
 plain ICS-20 logic is `impl/ics20/v0`, which registers nothing; the installed
 implementation is `impl/controls/v0`, which wraps it (`New(ics20.New(s), s)`)
-and puts every Ethereum client under the route controls (ADR 0004). A wrapper
+and puts every router client (`core.IsRouterClient`: one whose counterparty
+is an ICS26 router, Ethereum's today) under the route controls (ADR 0004).
+It declares the plain app it wraps when it registers (`RegisterImpl`'s
+`wraps`), which makes that realm a bridge realm without any list naming its
+version. A wrapper
 sees the inner logic only through `Logic` and shares the proxy's store as one
 of the proxy's implementations: the store capability flows through the
 forwarded calls. The lifecycle (`RegisterImpl`, `UpdateImpl` with
@@ -77,7 +81,9 @@ here.
    not the entry holding the ledger).
 6. **Value-moving services in the proxy**, as gated `Store` methods:
    `EscrowGRC20`, `UnescrowGRC20` and `UnescrowNative` (check, move, debit, so
-   the accounting never desyncs from the balances), `GetOrCreateVoucher`
+   the accounting never desyncs from the balances), `TransferGRC20From` (a
+   payment that never rests in the proxy, such as a GRC20 route fee from the
+   sender's allowance to the collector, with no accounting), `GetOrCreateVoucher`
    (token creation and `grc20reg.Register(cross(rlm), ...)`), `MintVoucher`
    and `BurnVoucher`. They work because the current realm is the proxy, the
    token's home realm; the ledger pointer is only ever used inside proxy code.

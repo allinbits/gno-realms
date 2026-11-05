@@ -82,9 +82,11 @@ gnokey maketx call -pkgpath gno.land/r/aib/ibc/apps/transfer -func Transfer \
 
 The caller must first approve the transfer app realm to spend the tokens,
 and attach no native coins to the `Transfer` call. On an Ethereum route the
-route fee is drawn from the same allowance, separately and first, so the
-allowance and the balance must cover `amount + fee` (the denom's current
-`fee`, shown at `routes/{route}`); on other clients `amount` is enough.
+route fee is drawn from the same allowance, separately and first, straight
+to the route's fee collector, so the allowance and the balance must cover
+`amount + fee` (the denom's current `fee`, shown at `routes/{route}`); on
+other clients, and for the collector sending on its own route (it would pay
+itself), `amount` is enough.
 
 From Gno code (e.g. in a `MsgRun` script):
 
@@ -640,9 +642,12 @@ the first, and so the bootstrapping, registration is
 `gno.land/r/aib/ibc/apps/transfer/impl/controls/v0`, which holds the route
 controls and wraps the plain ICS-20 logic of
 `gno.land/r/aib/ibc/apps/transfer/impl/ics20/v0` (which registers nothing). The lifecycle is the core's
-(`RegisterImpl(ctor, version, over, keepsControls)` from the implementation's
+(`RegisterImpl(ctor, version, over, keepsControls, wraps...)` from the implementation's
 `init`, `UpdateImpl` by an ibcgov decision, `ImplPath` and `ImplVersion`); see
 the core README's Upgrades section. Here the manifest also declares whether
 the implementation keeps the route controls: once any route exists,
-`CheckUpdateImpl` refuses an implementation that does not. The ICS-20 types
+`CheckUpdateImpl` refuses an implementation that does not. `wraps` names the
+library realms it wraps (impl/controls/v0 declares impl/ics20/v0): each must
+lie under `impl/` and be no route's fee collector, and becomes a bridge
+realm (`IsImplAddress`) without becoming installable. The ICS-20 types
 shared by every implementation live in `gno.land/p/aib/ibc/ics20/v0`.
