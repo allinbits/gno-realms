@@ -44,7 +44,8 @@ func New(inner transfer.Logic, s transfer.Store) transfer.Logic {
 func init(cur realm) {
 	transfer.RegisterImpl(cross(cur), func(s transfer.Store) transfer.Logic {
 		return New(ics20impl.New(s), s)
-	}, version, nil, true) // installs over any
+	}, version, nil, true, // installs over any
+		"gno.land/r/aib/ibc/apps/transfer/impl/ics20/v0") // the plain app it wraps
 }
 
 func (l *logic) Version() string { return version }

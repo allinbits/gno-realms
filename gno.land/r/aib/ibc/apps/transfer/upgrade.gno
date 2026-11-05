@@ -110,9 +110,9 @@ var (
 	// implementation reads and writes the same persistent state.
 	implCtors = bptree.NewBPTree32() // path -> func(Store) Logic
 	// implAddrs indexes every registered implementation by its realm
-	// address, superseded ones included (a registry only grows): bridge
-	// membership is one keyed lookup (IsImplAddress), whatever the number
-	// registered.
+	// address, superseded ones included (a registry only grows), and every
+	// library realm one declared it wraps: bridge membership is one keyed
+	// lookup (IsImplAddress), whatever the number registered.
 	implAddrs = bptree.NewBPTree32() // realm address -> path
 	// implManifests holds what each registered implementation declared
 	// about itself, store-free: the preflight reads it and never builds a
@@ -191,8 +191,13 @@ func assertProxyRealm(_ int, rlm realm) {
 // version it reports, the versions of an active implementation it installs
 // over ("" at bootstrap; its own version always; nil for any) and whether it
 // keeps the route controls, which the preflight reads instead of building
-// it.
-func RegisterImpl(cur realm, ctor func(Store) Logic, version string, over []string, keepsControls bool) {
+// it. wraps names the library realms the implementation wraps, such as the
+// plain ICS-20 app impl/controls/v0 builds on (impl/ics20/v0): they register
+// nothing themselves, yet value can land at their addresses, so they are
+// realms of the bridge too (IsImplAddress, ibcgov.BridgeRealm), and only the
+// wrapper that imports them can say so. They are indexed by address only and
+// stay uninstallable.
+func RegisterImpl(cur realm, ctor func(Store) Logic, version string, over []string, keepsControls bool, wraps ...string) {
 	caller := cur.Previous().PkgPath()
 	if !strings.HasPrefix(caller, implPathPrefix) {
 		panic(ufmt.Sprintf("RegisterImpl: caller %s is not under %s", caller, implPathPrefix))
@@ -209,9 +214,20 @@ func RegisterImpl(cur realm, ctor func(Store) Logic, version string, over []stri
 	if isFeeCollector(chain.PackageAddress(caller)) {
 		panic(ufmt.Sprintf("RegisterImpl: %s is a route's fee collector: change the collector first", caller))
 	}
+	for _, w := range wraps {
+		if !strings.HasPrefix(w, implPathPrefix) {
+			panic(ufmt.Sprintf("RegisterImpl: wrapped %s is not under %s", w, implPathPrefix))
+		}
+		if isFeeCollector(chain.PackageAddress(w)) {
+			panic(ufmt.Sprintf("RegisterImpl: wrapped %s is a route's fee collector: change the collector first", w))
+		}
+	}
 	implCtors.Set(caller, ctor)
 	implManifests.Set(caller, newManifest(version, over, keepsControls))
 	implAddrs.Set(string(chain.PackageAddress(caller)), caller)
+	for _, w := range wraps {
+		implAddrs.Set(string(chain.PackageAddress(w)), w)
+	}
 	if impl == nil {
 		install(0, cur, caller)
 	}
@@ -327,7 +343,8 @@ func ImplVersion() string {
 func IsRegisteredImpl(path string) bool { return implCtors.Get(path) != nil }
 
 // IsImplAddress reports whether a is the realm address of a registered
-// implementation, superseded ones included: a keyed lookup, whatever the
+// implementation, superseded ones included, or of a library realm one
+// declared it wraps (RegisterImpl's wraps): a keyed lookup, whatever the
 // number registered.
 func IsImplAddress(a address) bool { return implAddrs.Get(string(a)) != nil }
 
