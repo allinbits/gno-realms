@@ -9,7 +9,7 @@
 //
 // This realm holds no state, is always invoked non-crossing by the proxy (or
 // the realm wrapping it), as the proxy, and exports nothing that mutates.
-package impl
+package ics20
 
 import (
 	"gno.land/r/aib/ibc/apps/transfer"

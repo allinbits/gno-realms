@@ -1,4 +1,4 @@
-package impl
+package controls
 
 import (
 	"gno.land/p/aib/ibc/ics20/abi/v0"
