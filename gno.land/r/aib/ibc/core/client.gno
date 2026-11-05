@@ -241,6 +241,17 @@ func ClientType(clientID string) string {
 	return c.typ
 }
 
+// IsRouterClient reports whether clientID's counterparty is an ICS26 router
+// (a Solidity IBC stack on an EVM chain), as the implementation that created
+// the client recorded it; false for an unknown client. An application that
+// must speak the router's dialect (ABI-encoded ICS-20 data, the router's
+// client-id grammar) asks this, never the client type: a new EVM chain
+// brings a new light client type, not a new rule in every application.
+func IsRouterClient(clientID string) bool {
+	c := store.getClient(clientID)
+	return c != nil && c.router
+}
+
 // CounterpartyClientID returns the counterparty client id registered for
 // clientID, or "" if none (or the client is unknown).
 func CounterpartyClientID(clientID string) string {

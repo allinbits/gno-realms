@@ -69,6 +69,12 @@ type Store interface {
 	// this realm (TransferFrom, so the owner must have approved this realm)
 	// and records it under clientID as the token's alias (GRC20Alias).
 	EscrowGRC20(_ int, rlm realm, clientID, denomKey string, from address, amount uint256) error
+	// TransferGRC20From moves amount of the GRC20 denomKey from `from` to `to`
+	// directly (TransferFrom, so the owner must have approved this realm),
+	// with no escrow accounting: a payment that never rests here, such as a
+	// route fee paid by the sender to the collector. from and to must
+	// differ (the token refuses a transfer to oneself).
+	TransferGRC20From(_ int, rlm realm, denomKey string, from, to address, amount uint256) error
 	// UnescrowGRC20 and UnescrowNative release amount of denom (a GRC20
 	// alias, or a native coin denom) to receiver out of what clientID
 	// escrowed: check, move, then debit. A native amount above
@@ -274,6 +280,18 @@ func (transferStore) EscrowGRC20(_ int, rlm realm, clientID, denomKey string, fr
 		return ufmt.Errorf("escrow GRC20 %s error: %v", denomKey, err)
 	}
 	addEscrowForClient(clientID, GRC20Alias(denomKey), amount)
+	return nil
+}
+
+func (transferStore) TransferGRC20From(_ int, rlm realm, denomKey string, from, to address, amount uint256) error {
+	assertProxyRealm(0, rlm)
+	token := grc20reg.Get(denomKey)
+	if token == nil {
+		return ufmt.Errorf("GRC20 token %s not found in grc20reg", denomKey)
+	}
+	if err := token.RealmTeller(0, rlm).TransferFrom(0, rlm, from, to, amount); err != nil {
+		return ufmt.Errorf("transfer GRC20 %s error: %v", denomKey, err)
+	}
 	return nil
 }
 

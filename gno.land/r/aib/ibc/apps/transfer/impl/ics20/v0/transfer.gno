@@ -6,9 +6,7 @@ import (
 	"strconv"
 	"strings"
 
-	"gno.land/p/aib/ibc/ics20/abi/v0"
 	"gno.land/p/aib/ibc/ics20/v0"
-	"gno.land/p/aib/ibc/lightclient/ethereum/v0"
 	"gno.land/p/aib/ibc/types/v0"
 	"gno.land/p/nt/ufmt/v0"
 	"gno.land/r/aib/ibc/apps/transfer"
@@ -25,6 +23,14 @@ import (
 func (l *logic) Transfer(_ int, rlm realm, sent []chain.Coin, clientID, receiver, denom string, amount uint256, timeoutTimestamp uint64, memo string) (
 	packet types.MsgSendPacket, sequence uint64,
 ) {
+	// A router client is served by the route controls alone (impl/controls),
+	// which keep the send record its acknowledgement or timeout settles
+	// against. Installed alone, this app escrows nothing for one: a send it
+	// made would be refused by the controls installed later, its refund
+	// stranded.
+	if core.IsRouterClient(clientID) {
+		panic(ufmt.Sprintf("%s is a router client: its transfers need the route controls (impl/controls), not the plain ICS-20 app", clientID))
+	}
 	sender := unsafe.OriginCaller().String()
 	switch {
 	case strings.HasPrefix(denom, "ibc/"):
@@ -89,16 +95,10 @@ func (l *logic) Transfer(_ int, rlm realm, sent []chain.Coin, clientID, receiver
 		receiver,
 		memo,
 	)
-	// The Solidity ICS20 application only reads ABI-encoded packet data, so
-	// packets to Ethereum use it.
+	// Protobuf, the SDK's encoding: a router client, whose Solidity ICS20
+	// application reads ABI, never gets here (refused above; under
+	// impl/controls the route controls serve it).
 	encoding, value := transfer.EncodingProtobuf, data.ProtoMarshal()
-	if strings.HasPrefix(clientID, ethereum.ClientType+"-") {
-		bz, err := abi.Marshal(data)
-		if err != nil {
-			panic(err)
-		}
-		encoding, value = abi.Encoding, bz
-	}
 	packet = types.MsgSendPacket{
 		SourceClient: clientID,
 		Payloads: []types.Payload{{

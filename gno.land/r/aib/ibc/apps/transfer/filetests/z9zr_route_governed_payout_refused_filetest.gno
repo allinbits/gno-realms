@@ -167,7 +167,7 @@ func main(cur realm) {
 // Output:
 // swept: 500 bridge realm
 // builder, payee the transfer realm: ibcgov: the payee g1tp3gk4quumurav4858hjfdy6hxtyffwmnxyr00 is a realm of the bridge (gno.land/r/aib/ibc/apps/transfer)
-// applied anyway: cannot pay g1tp3gk4quumurav4858hjfdy6hxtyffwmnxyr00: not a valid recipient other than the transfer realm | entry still owed: true | realm holds 900
+// applied anyway: cannot pay g1tp3gk4quumurav4858hjfdy6hxtyffwmnxyr00: not a valid recipient outside the bridge's realms | entry still owed: true | realm holds 900
 // builder, payee ibcgov: ibcgov: the payee g12l3du5z70zzq9rkc82asre09srefve7p5mfay4 is a realm of the bridge (gno.land/r/aib/ibc/ibcgov)
 // credit builder, payee ibcgov: ibcgov: the payee g12l3du5z70zzq9rkc82asre09srefve7p5mfay4 is a realm of the bridge (gno.land/r/aib/ibc/ibcgov)
 // payee an implementation registered meanwhile: spent - spent: the payee g1u54yy6kljq98wlgsfgvtgwkj2esqyz880a3ad3 is a realm of the bridge (a registered implementation) | entry still owed: true

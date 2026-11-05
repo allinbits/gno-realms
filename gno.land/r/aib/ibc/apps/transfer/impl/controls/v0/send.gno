@@ -12,7 +12,6 @@ import (
 	"gno.land/p/aib/ibc/ics20/abi/v0"
 	"gno.land/p/aib/ibc/ics20/controls/v0"
 	"gno.land/p/aib/ibc/ics20/v0"
-	"gno.land/p/aib/ibc/lightclient/ethereum/v0"
 	"gno.land/p/aib/ibc/types/v0"
 	"gno.land/p/nt/ufmt/v0"
 	"gno.land/r/aib/ibc/apps/transfer"
@@ -22,10 +21,11 @@ import (
 	"gno.land/r/nt/grc20reg/v1"
 )
 
-// isEthereum reports whether clientID is an Ethereum client of the core: the
-// clients the route controls cover.
-func isEthereum(clientID string) bool {
-	return core.ClientType(clientID) == ethereum.ClientType
+// isRouter reports whether clientID's counterparty is an ICS26 router
+// (core.IsRouterClient): the clients the route controls cover, Ethereum's
+// and any other EVM chain's whose light client the core records as one.
+func isRouter(clientID string) bool {
+	return core.IsRouterClient(clientID)
 }
 
 // routeOf resolves an Ethereum client (the only clients routes serves, see
@@ -150,11 +150,12 @@ func (l *routes) Transfer(_ int, rlm realm, sent []chain.Coin, clientID, receive
 		acc := l.mustSendable(rt, alias, amount)
 		checkRecipient(rt, receiver, acc.Config.Remote)
 		fee = acc.Config.Fee
-		if fee > 0 {
-			if err := l.store.EscrowGRC20(0, rlm, rt.Key, denom, sender, fee); err != nil {
-				panic(err)
-			}
-			if err := l.store.UnescrowGRC20(0, rlm, rt.Key, string(rt.FeeCollector), alias, fee); err != nil {
+		// The fee goes from the sender's allowance to the collector in one
+		// transfer: it never rests here, so it touches no escrow accounting.
+		// A collector sending pays itself, which the token refuses as a
+		// transfer to oneself: nothing moves then.
+		if fee > 0 && sender != rt.FeeCollector {
+			if err := l.store.TransferGRC20From(0, rlm, denom, sender, rt.FeeCollector, fee); err != nil {
 				panic(err)
 			}
 		}

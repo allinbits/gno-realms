@@ -33,11 +33,15 @@ the proxies and stay provable across the switch.
   candidates never makes those checks costlier.
 - `RegisterImpl` takes, beside the constructor, a manifest of plain
   values: `RegisterImpl(cur, ctor, version, over)` for the core,
-  `RegisterImpl(cur, ctor, version, over, keepsControls)` for the transfer
-  app. `version` is what the candidate's `Version()` reports; `over` lists
+  `RegisterImpl(cur, ctor, version, over, keepsControls, wraps...)` for the
+  transfer app. `version` is what the candidate's `Version()` reports; `over` lists
   the versions of an active implementation it installs over (`""` for the
   bootstrap; its own version is always accepted; `nil` accepts any);
-  `keepsControls` declares that it implements the route controls. Either
+  `keepsControls` declares that it implements the route controls; `wraps`
+  names the library realms it wraps, each under the transfer `impl/`
+  namespace and no route's fee collector, which become bridge realms (a
+  credit to one is swept) and stay uninstallable. A wrapper of a new plain
+  app (say `impl/ics20/v1`) must name it there: no list elsewhere does. Either
   proxy refuses the registration when the implementation's realm address
   is a transfer route's fee collector (it would become a realm of the
   bridge): change that route's collector first

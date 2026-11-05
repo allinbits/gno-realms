@@ -141,7 +141,7 @@ func (l *routes) OnRecvPacket(_ int, rlm realm, sourceClient, destinationClient 
 		// a broken invariant, which must abort the receive.
 		panic(err)
 	}
-	ack := types.NewResultAppAcknowledgement([]byte{byte(1)})
+	ack := ics20.SuccessAck()
 	booked := "claim"
 	if swept {
 		booked = "sweep"

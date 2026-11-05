@@ -9,6 +9,7 @@ import (
 
 	"gno.land/p/aib/ibc/host/v0"
 	"gno.land/p/aib/ibc/ics20/controls/v0"
+	"gno.land/p/aib/ibc/ics20/v0"
 	"gno.land/p/aib/ibc/lightclient/ethereum/v0"
 	"gno.land/p/aib/ibc/types/v0"
 	"gno.land/p/nt/ufmt/v0"
@@ -225,7 +226,7 @@ func (l *routes) Recapitalize(_ int, rlm realm, sent []chain.Coin, route string,
 // successAckCommitment is the acknowledgement commitment of this app's
 // success acknowledgement, what a credited packet's acknowledgement must be.
 func successAckCommitment() []byte {
-	ack := types.NewResultAppAcknowledgement([]byte{byte(1)})
+	ack := ics20.SuccessAck()
 	return types.CommitAcknowledgement(types.Acknowledgement{AppAcknowledgements: [][]byte{ack.MarshalJSON()}})
 }
 
@@ -265,7 +266,7 @@ func (l *routes) creditPending(_ int, rlm realm, rt *controls.Route, p controls.
 	if kind == controls.KindMint {
 		l.ensureVoucher(0, rlm, denom, accDenom, rt.Denom(accDenom).Config.Decimals)
 	}
-	ack := types.NewResultAppAcknowledgement([]byte{byte(1)})
+	ack := ics20.SuccessAck()
 	client, seq, _ := controls.ParsePacketKey(p.Key)
 	core.WriteAcknowledgement(cross(rlm), client, seq, types.Acknowledgement{AppAcknowledgements: [][]byte{ack.MarshalJSON()}})
 	return ""
@@ -299,8 +300,8 @@ func (l *routes) GovApply(_ int, rlm realm, op string, params []byte) string {
 	reg := l.registry(0, rlm)
 	t := now()
 	if op == controls.OpEnroll {
-		if !isEthereum(p.Route) || core.IsClientRetiredAny(p.Route) {
-			return p.Route + " is no usable Ethereum client"
+		if !isRouter(p.Route) || core.IsClientRetiredAny(p.Route) {
+			return p.Route + " is no usable router client"
 		}
 		// The bridge's own contracts are protected recipients from the
 		// enrolment on (ADR pr6375 R12, §7.8): Keys names the router, the
@@ -456,8 +457,8 @@ func (l *routes) GovApply(_ int, rlm realm, op string, params []byte) string {
 			note += "; continue with transfer.ContinueReopen"
 		}
 	case controls.OpReplace:
-		if !isEthereum(p.Client) || core.IsClientRetiredAny(p.Client) {
-			return p.Client + " is no usable Ethereum client"
+		if !isRouter(p.Client) || core.IsClientRetiredAny(p.Client) {
+			return p.Client + " is no usable router client"
 		}
 		err = reg.Replace(rt.Key, p.Client, p.Height, chainHeight())
 		if err == nil {

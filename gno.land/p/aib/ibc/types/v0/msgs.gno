@@ -62,7 +62,9 @@ type MsgRecvPacket struct {
 	ProofHeight     Height
 	// Ext carries data a later core implementation may need on this
 	// entry point. The proxy signatures are frozen, so this is the only
-	// place a new message field can be added. Unused by impl/v0.
+	// place a new message field can be added.
+	// impl/v0 reads an extproof.Proof here: a client-specific proof (an
+	// Ethereum storage proof) its client checks through extproof.Verifier.
 	Ext any
 }
 
@@ -86,7 +88,9 @@ type MsgAcknowledgement struct {
 	ProofHeight     Height
 	// Ext carries data a later core implementation may need on this
 	// entry point. The proxy signatures are frozen, so this is the only
-	// place a new message field can be added. Unused by impl/v0.
+	// place a new message field can be added.
+	// impl/v0 reads an extproof.Proof here: a client-specific proof (an
+	// Ethereum storage proof) its client checks through extproof.Verifier.
 	Ext any
 }
 
@@ -188,7 +192,9 @@ type MsgTimeout struct {
 	ProofHeight     Height
 	// Ext carries data a later core implementation may need on this
 	// entry point. The proxy signatures are frozen, so this is the only
-	// place a new message field can be added. Unused by impl/v0.
+	// place a new message field can be added.
+	// impl/v0 reads an extproof.Proof here: a client-specific proof (an
+	// Ethereum storage proof) its client checks through extproof.Verifier.
 	Ext any
 }
 

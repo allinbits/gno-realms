@@ -57,7 +57,7 @@ func TestSavePendingAsyncAckRejectsAlreadyAcked(cur realm, t *testing.T) {
 
 func newAsyncAckTestClient() *client {
 	store = newStore()
-	c := store.addClient(lightclient.Tendermint, address("g1jg8mtutu9khhfwc4nxmuhcpftf0pajdhfvsqf5"), tendermint.NewTMLightClient())
+	c := store.addClient(lightclient.Tendermint, false, address("g1jg8mtutu9khhfwc4nxmuhcpftf0pajdhfvsqf5"), tendermint.NewTMLightClient())
 	c.counterpartyClientID = "07-tendermint-42"
 	return c
 }

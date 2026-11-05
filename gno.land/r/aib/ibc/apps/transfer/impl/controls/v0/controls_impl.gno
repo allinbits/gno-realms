@@ -44,7 +44,8 @@ func New(inner transfer.Logic, s transfer.Store) transfer.Logic {
 func init(cur realm) {
 	transfer.RegisterImpl(cross(cur), func(s transfer.Store) transfer.Logic {
 		return New(ics20impl.New(s), s)
-	}, version, nil, true) // installs over any
+	}, version, nil, true, // installs over any
+		"gno.land/r/aib/ibc/apps/transfer/impl/ics20/v0") // the plain app it wraps
 }
 
 func (l *logic) Version() string { return version }
@@ -59,10 +60,10 @@ func (l *logic) OnInstall(_ int, rlm realm, prevPath, prevVersion string) {
 	l.store.InitExt(0, rlm, extKey, controls.NewRegistryAny)
 }
 
-// handler is the logic that serves client: the routes for an Ethereum
-// client, the plain app for every other.
+// handler is the logic that serves client: the routes for a router client
+// (isRouter), the plain app for every other.
 func (l *logic) handler(client string) transfer.Logic {
-	if isEthereum(client) {
+	if isRouter(client) {
 		return l.routes
 	}
 	return l.inner

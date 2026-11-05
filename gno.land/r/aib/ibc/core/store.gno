@@ -31,8 +31,12 @@ type Store interface {
 	// called here so the verifier is allocated in this realm: a /p/-declared
 	// function such as tendermint.NewTMLightClient runs with the caller's
 	// storage authority, whereas an object the implementation allocated
-	// itself would belong to the implementation's realm.
-	AddClient(_ int, rlm realm, typ string, creator address, newLightClient func() lightclient.Interface) Client
+	// itself would belong to the implementation's realm. router records,
+	// once and for the client's life, whether its counterparty is an ICS26
+	// router (a Solidity IBC stack on an EVM chain, Ethereum or another):
+	// its packets follow the router's client-id grammar and its transfer
+	// packets are ABI-encoded (Client.IsRouter, IsRouterClient).
+	AddClient(_ int, rlm realm, typ string, router bool, creator address, newLightClient func() lightclient.Interface) Client
 	// Client returns the client with the given identifier, or nil.
 	Client(id string) Client
 	// ClientIDs returns the known client identifiers, sorted lexically.
@@ -54,6 +58,9 @@ type Store interface {
 type Client interface {
 	ID() string
 	Type() string
+	// IsRouter reports whether the counterparty is an ICS26 router, as
+	// recorded when the client was created (AddClient).
+	IsRouter() bool
 	Creator() address
 	CounterpartyClientID() string
 	CounterpartyMerklePrefix() [][]byte
@@ -174,6 +181,7 @@ func (cs *coreStore) isRetiredFor(clientID, port string) bool {
 type client struct {
 	id                       string
 	typ                      string
+	router                   bool
 	creator                  address
 	counterpartyClientID     string
 	counterpartyMerklePrefix [][]byte
@@ -200,7 +208,7 @@ type pendingAsyncAck struct {
 	height     int64 // the block height of the receive
 }
 
-func (cs *coreStore) AddClient(_ int, rlm realm, typ string, creator address, newLightClient func() lightclient.Interface) Client {
+func (cs *coreStore) AddClient(_ int, rlm realm, typ string, router bool, creator address, newLightClient func() lightclient.Interface) Client {
 	assertProxyRealm(0, rlm)
 	if newLightClient == nil {
 		panic("AddClient: nil light client constructor")
@@ -209,14 +217,15 @@ func (cs *coreStore) AddClient(_ int, rlm realm, typ string, creator address, ne
 	if lc == nil {
 		panic("AddClient: nil light client")
 	}
-	return cs.addClient(typ, creator, lc)
+	return cs.addClient(typ, router, creator, lc)
 }
 
-func (cs *coreStore) addClient(typ string, creator address, lc lightclient.Interface) *client {
+func (cs *coreStore) addClient(typ string, router bool, creator address, lc lightclient.Interface) *client {
 	id := ufmt.Sprintf("%s-%d", typ, uint64(cs.clientSeq.Next()))
 	c := &client{
 		id:          id,
 		typ:         typ,
+		router:      router,
 		creator:     creator,
 		lightClient: lc,
 
@@ -275,6 +284,7 @@ func (cs *coreStore) Route(portID string) App {
 
 func (c *client) ID() string                         { return c.id }
 func (c *client) Type() string                       { return c.typ }
+func (c *client) IsRouter() bool                     { return c.router }
 func (c *client) Creator() address                   { return c.creator }
 func (c *client) CounterpartyClientID() string       { return c.counterpartyClientID }
 func (c *client) CounterpartyMerklePrefix() [][]byte { return copyPrefix(c.counterpartyMerklePrefix) }

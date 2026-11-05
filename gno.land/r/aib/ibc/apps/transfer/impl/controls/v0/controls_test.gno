@@ -61,6 +61,24 @@ func TestCheckRecipient(cur realm, t *testing.T) {
 	}
 }
 
+// A governed payout to any realm of the bridge is refused before anything is
+// paid, the transfer realm's own address and every other one alike.
+func TestPayableRefusesBridgeRealms(t *testing.T) {
+	l := &routes{}
+	for _, p := range []string{
+		transfer.PkgPath,
+		"gno.land/r/aib/ibc/core",
+		"gno.land/r/aib/ibc/ibcgov",
+		"gno.land/r/aib/ibc/apps/transfer/impl/ics20/v0",
+		"gno.land/r/aib/ibc/apps/transfer/impl/controls/v0",
+	} {
+		refusal := l.payable(nil, []payout{{denom: "ugnot", to: chain.PackageAddress(p), amount: 1}})
+		uassert.Equal(t, "cannot pay "+string(chain.PackageAddress(p))+": not a valid recipient outside the bridge's realms", refusal, p)
+	}
+	refusal := l.payable(nil, []payout{{denom: "ugnot", to: address("g1nope"), amount: 1}})
+	uassert.Equal(t, "cannot pay g1nope: not a valid recipient outside the bridge's realms", refusal)
+}
+
 func TestBridgeRealms(t *testing.T) {
 	for _, p := range []string{
 		"gno.land/r/aib/ibc/core",

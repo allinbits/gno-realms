@@ -305,14 +305,14 @@ func quoteIdentity(s string) string {
 // bridgeRealms are the realms of the bridge with no withdrawal entry point.
 // Every implementation the core and transfer proxies ever registered is one
 // too, read from their registries (BridgeRealm), so a registration after
-// deployment is covered at once; the plain ICS-20 app, which the installed
-// transfer implementation wraps and which registers nothing, is listed here.
+// deployment is covered at once, and so is every library realm a transfer
+// implementation declares it wraps (transfer.RegisterImpl's wraps: the plain
+// ICS-20 app under impl/controls/v0): no versioned path is listed here.
 var bridgeRealms = []string{
 	CorePath,
 	TransferPath,
 	PkgPath,
 	"gno.land/r/aib/ibc/ethrelay",
-	"gno.land/r/aib/ibc/apps/transfer/impl/ics20/v0",
 }
 
 // bridgeRealmByAddr is bridgeRealms keyed by package address, built once:
