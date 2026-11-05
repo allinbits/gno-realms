@@ -183,8 +183,10 @@ not additive forfeits rollback.
 Light-client state is a set of core-owned objects whose methods are bound to
 the `/p/` version that created them. Verification stays in `/p/`, versioned
 (`p/aib/ibc/lightclient/tendermint/v0`, `/v1`, ...). A new implementation that
-needs a new verifier converts each stored client lazily or in `OnInstall`,
-reading the exported fields of the v0 object and storing the result with
+needs a new verifier converts each stored client lazily, on its first use,
+or through a governed migration of that one client (`MigrateClient`), never
+all of them in `OnInstall`, whose work stays bounded whatever the number of
+clients (above). It reads the exported fields of the v0 object and stores the result with
 `SetLightClient`, which takes the `/p/` conversion function for the same
 allocation reason as `AddClient` and starts the client's next trust
 generation (a governed migration that substitutes through it starts no
