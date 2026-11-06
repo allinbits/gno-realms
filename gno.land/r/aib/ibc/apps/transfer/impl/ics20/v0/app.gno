@@ -1,4 +1,4 @@
-package impl
+package ics20
 
 import (
 	"bytes"
@@ -13,28 +13,54 @@ import (
 	"gno.land/p/aib/ibc/types/v0"
 	"gno.land/p/nt/ufmt/v0"
 	"gno.land/r/aib/ibc/apps/transfer"
+	"gno.land/r/aib/ibc/core"
 )
 
-// validatePayload enforces that the source and destination portIDs are the
-// same and equal to the transfer portID, that the clientIDs are in the
-// {clientid}-{sequence} format transfer expects, and the ICS20 version and
-// encoding. This is necessary for IBC v2 since the portIDs (and thus the
-// application-application connection) are not prenegotiated by a channel
-// handshake. This restriction can be removed in a future where the trace hop
-// on receive commits to **both** the source and destination portIDs rather
-// than just the destination port.
-func validatePayload(sourceClient, destinationClient string, payload types.Payload) error {
+// ValidatePayloadShape checks what every ICS-20 v2 payload must satisfy,
+// whatever its clients: the transfer port on both sides, the version, and a
+// known encoding (protobuf, or the Solidity ICS20 application's ABI). The
+// ports are checked because IBC v2 prenegotiates no application connection
+// by a channel handshake; this can go once the trace hop on receive commits
+// to both ports rather than the destination's only.
+func ValidatePayloadShape(payload types.Payload) error {
 	if payload.SourcePort != transfer.PortID || payload.DestinationPort != transfer.PortID {
 		return ufmt.Errorf("payload port ID is invalid: expected %s, got sourcePort: %s destPort: %s", transfer.PortID, payload.SourcePort, payload.DestinationPort)
-	}
-	if !types.IsValidClientID(sourceClient) || !types.IsValidClientID(destinationClient) {
-		return ufmt.Errorf("client IDs must be in valid format: {string}-{number}")
 	}
 	if payload.Version != transfer.V1 {
 		return ufmt.Errorf("invalid ICS20 version: expected %s, got %s", transfer.V1, payload.Version)
 	}
 	if payload.Encoding != transfer.EncodingProtobuf && payload.Encoding != abi.Encoding {
 		return ufmt.Errorf("invalid encoding: expected %s or %s, got %s", transfer.EncodingProtobuf, abi.Encoding, payload.Encoding)
+	}
+	return nil
+}
+
+// DecodePacketData decodes the payload's packet data in its encoding,
+// protobuf or Solidity ABI, with no validation.
+func DecodePacketData(payload types.Payload) (ics20.FungibleTokenPacketData, error) {
+	var (
+		data ics20.FungibleTokenPacketData
+		err  error
+	)
+	if payload.Encoding == abi.Encoding {
+		data, err = abi.Unmarshal(payload.Value)
+	} else {
+		err = data.ProtoUnmarshal(payload.Value)
+	}
+	if err != nil {
+		return data, ufmt.Errorf("decoding FungibleTokenPacketData: %v", err)
+	}
+	return data, nil
+}
+
+// validatePayload is ValidatePayloadShape plus both client ids in the
+// {string}-{number} format of an SDK chain.
+func validatePayload(sourceClient, destinationClient string, payload types.Payload) error {
+	if err := ValidatePayloadShape(payload); err != nil {
+		return err
+	}
+	if !types.IsValidClientID(sourceClient) || !types.IsValidClientID(destinationClient) {
+		return ufmt.Errorf("client IDs must be in valid format: {string}-{number}")
 	}
 	return nil
 }
@@ -151,13 +177,19 @@ func (l *logic) OnRecvPacket(_ int, rlm realm, sourceClient, destinationClient s
 	if err := validatePayload(sourceClient, destinationClient, payload); err != nil {
 		return types.RecvPacketResult{Status: types.PacketStatus_Failure}
 	}
+	// A router client's receives are the route controls' (impl/controls):
+	// installed alone, this app credits nothing over one, uncontrolled, and
+	// the source refunds the failed packet.
+	if core.IsRouterClient(destinationClient) {
+		return types.RecvPacketResult{Status: types.PacketStatus_Failure}
+	}
 
 	var (
 		data       ics20.FungibleTokenPacketData
 		token      ics20.Token
 		amount     int64
 		ackErr     error
-		ack        = types.NewResultAppAcknowledgement([]byte{byte(1)})
+		ack        = ics20.SuccessAck()
 		recvResult = types.RecvPacketResult{
 			Status:          types.PacketStatus_Success,
 			Acknowledgement: ack.MarshalJSON(),
@@ -386,20 +418,12 @@ func (l *logic) refundPacketToken(_ int, rlm realm, sourcePort, sourceClient, se
 	return nil
 }
 
-// unmarshalPayload decodes the packet data of payload in its encoding:
-// protobuf, or Solidity ABI from the Ethereum ICS20 application.
+// unmarshalPayload decodes the packet data of payload (DecodePacketData) and
+// validates it by the SDK's rules.
 func unmarshalPayload(payload types.Payload) (ics20.FungibleTokenPacketData, ics20.Token, error) {
-	var (
-		data ics20.FungibleTokenPacketData
-		err  error
-	)
-	if payload.Encoding == abi.Encoding {
-		data, err = abi.Unmarshal(payload.Value)
-	} else {
-		err = data.ProtoUnmarshal(payload.Value)
-	}
+	data, err := DecodePacketData(payload)
 	if err != nil {
-		return data, ics20.Token{}, ufmt.Errorf("decoding FungibleTokenPacketData: %v", err)
+		return data, ics20.Token{}, err
 	}
 	if err := data.ValidateBasic(); err != nil {
 		return data, ics20.Token{}, ufmt.Errorf("invalid FungibleTokenPacketData: %v", err)
