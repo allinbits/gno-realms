@@ -2,9 +2,7 @@ package controls
 
 import (
 	"bytes"
-	"chain"
 	"errors"
-	"strconv"
 
 	"gno.land/p/aib/ibc/ics20/controls/v0"
 	"gno.land/p/aib/ibc/types/v0"
@@ -63,7 +61,7 @@ func (l *routes) OnAcknowledgementPacket(_ int, rlm realm, sourceClient, destina
 		transfer.AttributeKeySender, string(rec.Sender),
 		transfer.AttributeKeyReceiver, rec.Receiver,
 		transfer.AttributeKeyDenom, rec.Denom,
-		transfer.AttributeKeyAmount, strconv.FormatInt(rec.Amount, 10),
+		transfer.AttributeKeyAmount, u(rec.Amount),
 		transfer.AttributeKeyAck, string(acknowledgement),
 	}
 	transfer.EmitPacket(0, rlm, attrs...)
@@ -84,7 +82,7 @@ func (l *routes) OnTimeoutPacket(_ int, rlm realm, sourceClient, destinationClie
 		return err
 	}
 	l.settle(0, rlm, rt, rec, controls.OutcomeTimeout)
-	transfer.EmitTimeout(0, rlm, string(rec.Sender), rec.Denom, strconv.FormatInt(rec.Amount, 10), "")
+	transfer.EmitTimeout(0, rlm, string(rec.Sender), rec.Denom, u(rec.Amount), "")
 	return nil
 }
 
@@ -100,13 +98,13 @@ func (l *routes) settle(_ int, rlm realm, rt *controls.Route, rec controls.SendR
 		l.payOut(0, rlm, rt, rec.Denom, rec.Sender, pay)
 	}
 	transfer.EmitRoute(0, rlm, "settle", "route", rt.Key, "packet", rec.Key, "outcome", outcome,
-		"payment", rt.SendPayment(rec.Key), "refunded", strconv.FormatInt(pay, 10))
+		"payment", rt.SendPayment(rec.Key), "refunded", u(pay))
 }
 
 // payOut moves amount of denom to `to`: out of the route's escrow for a
 // gno-native token, as newly minted vouchers for an Ethereum token.
-func (l *routes) payOut(_ int, rlm realm, rt *controls.Route, denom string, to address, amount int64) {
-	if amount <= 0 {
+func (l *routes) payOut(_ int, rlm realm, rt *controls.Route, denom string, to address, amount uint256) {
+	if amount == 0 {
 		return
 	}
 	acc := rt.Denom(denom)
@@ -116,12 +114,11 @@ func (l *routes) payOut(_ int, rlm realm, rt *controls.Route, denom string, to a
 		}
 		return
 	}
-	c := chain.NewCoin(denom, amount)
 	var err error
 	if transfer.IsGRC20Alias(denom) {
-		err = l.store.UnescrowGRC20(0, rlm, rt.Key, string(to), c)
+		err = l.store.UnescrowGRC20(0, rlm, rt.Key, string(to), denom, amount)
 	} else {
-		err = l.store.UnescrowNative(0, rlm, rt.Key, string(to), c)
+		err = l.store.UnescrowNative(0, rlm, rt.Key, string(to), denom, amount)
 	}
 	if err != nil {
 		panic(err)

@@ -69,7 +69,7 @@ func (l *logic) handler(client string) transfer.Logic {
 	return l.inner
 }
 
-func (l *logic) Transfer(_ int, rlm realm, sent []chain.Coin, clientID, receiver, denom string, amount int64, timeoutTimestamp uint64, memo string) (
+func (l *logic) Transfer(_ int, rlm realm, sent []chain.Coin, clientID, receiver, denom string, amount uint256, timeoutTimestamp uint64, memo string) (
 	packet types.MsgSendPacket, sequence uint64,
 ) {
 	return l.handler(clientID).Transfer(0, rlm, sent, clientID, receiver, denom, amount, timeoutTimestamp, memo)

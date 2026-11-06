@@ -1,5 +1,7 @@
 package controls
 
+import "math/overflow"
+
 // Meter is a token bucket: a level that refills continuously at a rate per
 // day up to a ceiling, with no midnight reset, so at most two ceilings can
 // leave in any 24 hours (a full bucket plus a day of refill). A meter belongs
@@ -13,15 +15,15 @@ package controls
 // solana/realm/p/hlroute/v0/hlroute.gno (Meter, refill), Copyright (C) 2026
 // NewTendermint, LLC, GNO Network General Public License.
 type Meter struct {
-	Level int64
+	Level uint256
 	At    int64 // last refill, unix seconds
 	Epoch int64 // the payouts epoch it last saw
-	Frac  int64
+	Frac  uint256
 	// The rate and ceiling in effect since At, set by the last refill: the
 	// time since At refills at them, never at a rate or ceiling given later
 	// (a cap change, of the configuration or of the lock a cap derives from,
 	// never rewrites the refill before it was seen).
-	Rate, Ceil int64
+	Rate, Ceil uint256
 	Set        bool
 }
 
@@ -39,16 +41,10 @@ func NewMeter(now, epoch int64) Meter {
 // then at the new with no time elapsed (Route.Reconfigure), so the new one
 // applies from the change. A new epoch empties the meter as of epochAt
 // first. A ceiling below the level (the cap fell) brings the level down to
-// it. rate and ceil must be non-negative.
-func (m *Meter) Refill(now, rate, ceil, epoch, epochAt int64) {
+// it.
+func (m *Meter) Refill(now int64, rate, ceil uint256, epoch, epochAt int64) {
 	if m.Epoch != epoch {
 		m.Level, m.At, m.Epoch, m.Frac = 0, epochAt, epoch, 0
-	}
-	if rate < 0 {
-		rate = 0
-	}
-	if ceil < 0 {
-		ceil = 0
 	}
 	newRate, newCeil := rate, ceil
 	if m.Set {
@@ -61,14 +57,16 @@ func (m *Meter) Refill(now, rate, ceil, epoch, epochAt int64) {
 			el = Day
 			m.Frac = 0
 		}
-		// Overflow-safe: (rate%Day)*el + Frac stays below 2·Day² and the
-		// refill itself at most rate, so only the addition to the level can
-		// overflow; it saturates at the ceiling against the headroom.
-		num := (rate%Day)*el + m.Frac
-		add := (rate/Day)*el + num/Day
-		m.Frac = num % Day
+		e, day := uint256(el), uint256(Day)
+		// (rate%Day)*el + Frac stays below 2·Day², so only the whole days'
+		// part and the addition to the level can overflow: either fills the
+		// meter, which saturates at the ceiling.
+		num := (rate%day)*e + m.Frac
+		whole, ok := overflow.Mulu256(rate/day, e)
+		add, ok2 := overflow.Addu256(whole, num/day)
+		m.Frac = num % day
 		m.At = now
-		if add >= ceil-m.Level {
+		if !ok || !ok2 || m.Level >= ceil || add >= ceil-m.Level {
 			m.Level = ceil
 		} else {
 			m.Level += add
@@ -83,9 +81,4 @@ func (m *Meter) Refill(now, rate, ceil, epoch, epochAt int64) {
 }
 
 // Take removes amount from the level. The caller checked it is available.
-func (m *Meter) Take(amount int64) {
-	m.Level -= amount
-	if m.Level < 0 {
-		m.Level = 0
-	}
-}
+func (m *Meter) Take(amount uint256) { m.Level = sub0(m.Level, amount) }

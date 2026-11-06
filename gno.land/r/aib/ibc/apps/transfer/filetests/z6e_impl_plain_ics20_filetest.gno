@@ -82,7 +82,7 @@ func main(cur realm) {
 
 // Output:
 // active: gno.land/r/aib/ibc/apps/transfer/impl/plain v0
-// {"denom":"ugnot","amount":100,"clients":[{"client":"07-tendermint-1","amount":100}]}
+// {"denom":"ugnot","amount":"100","clients":[{"client":"07-tendermint-1","amount":"100"}]}
 // send to ethereum-2 (router: true ): ethereum-2 is a router client: its transfers need the route controls (impl/controls), not the plain ICS-20 app
-// {"denom":"ugnot","amount":100,"clients":[{"client":"07-tendermint-1","amount":100}]}
+// {"denom":"ugnot","amount":"100","clients":[{"client":"07-tendermint-1","amount":"100"}]}
 // receive over ethereum-2 failed: true
