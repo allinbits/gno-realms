@@ -5,7 +5,6 @@ import (
 	"chain/runtime/unsafe"
 	"math"
 	"math/overflow"
-	"strconv"
 	"strings"
 
 	"gno.land/p/aib/encoding/ethaddr/v0"
