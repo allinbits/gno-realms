@@ -11,7 +11,25 @@ import (
 // on gno.land) applies in the same transaction; a loosening one is queued
 // for decisions.Delay and anyone applies it with Execute once due. Parameters
 // are re-checked against live state when the decision applies: a refusal
-// then spends the decision (recorded, no effect, never retried).
+// then spends the decision (recorded, no effect, never retried). A guardian
+// hold defers every queued decision, except a guardian replacement after day
+// 21 of the hold, and spends every unpause.
+
+// unpauser is implemented by the parameters of an unpause decision, which a
+// guardian hold spends.
+type unpauser interface{ unpause() }
+
+// deferrer is implemented by a decision whose execution a standing flag
+// defers (it stays pending): deferredBy is the reason, "" if none.
+type deferrer interface{ deferredBy() string }
+
+// holdBounded is implemented by a decision a guardian hold defers only until
+// a deadline: holdDeadline anchors it at the standing hold on the first
+// deferral, and returns the anchor, the deadline and whether this call set
+// the anchor.
+type holdBounded interface {
+	holdDeadline() (anchor, deadline int64, first bool)
+}
 
 // applier is implemented by every gno-side decision's parameters: apply makes
 // the change and returns a note, or the reason it cannot apply now.
@@ -45,6 +63,11 @@ func spendAtRecording(kind, text string, params applier, made, t int64, refusal 
 
 func applyDecision(cur realm, d *decisions.Decision, t int64) {
 	p := d.Params.(applier)
+	if _, ok := p.(unpauser); ok && heldAt(t) {
+		ledger.Spend(d, "spent: a guardian hold stands, which spends every unpause")
+		chain.Emit("Decision", "id", itoa(d.ID), "kind", d.Kind, "state", "spent")
+		return
+	}
 	note, refusal := p.apply(cur, t)
 	if refusal != "" {
 		ledger.Spend(d, "spent: "+refusal)
@@ -56,12 +79,40 @@ func applyDecision(cur realm, d *decisions.Decision, t int64) {
 }
 
 // Execute applies queued decision id once its delay has passed. Anyone may
-// call it.
+// call it. A guardian hold defers it (it stays pending), except a guardian
+// replacement from day 21 of the hold on.
 func Execute(cur realm, id int64) {
 	t := now()
 	d, err := ledger.Due(id, t)
 	if err != nil {
 		panic("ibcgov: " + err.Error())
+	}
+	if heldAt(t) {
+		hb, ok := d.Params.(holdBounded)
+		if !ok {
+			panic("ibcgov: decision " + itoa(id) + " is deferred: a guardian hold stands since " + itoa(holdSince))
+		}
+		// A seat change (a guardian replacement or a vacancy) lands from day
+		// 21 of the hold that first deferred it after it became due, its
+		// anchor, whatever holds stand by then: a later hold, after one was
+		// cleared, never resets that deadline (ADR pr6375 §7.4; Ethereum
+		// anchors it the same way). The first deferral records the anchor
+		// and returns, so the record stands.
+		anchor, deadline, first := hb.holdDeadline()
+		if t < deadline {
+			if first {
+				chain.Emit("Decision", "id", itoa(d.ID), "kind", d.Kind, "state", "deferred", "until", itoa(deadline))
+				return
+			}
+			panic("ibcgov: decision " + itoa(id) + " is deferred: a guardian hold first deferred it on " + itoa(anchor) + ", until " + itoa(deadline))
+		}
+	}
+	// One flag stops a route's payouts, governed ones included: a decision
+	// paying out on a flagged function waits (ADR pr6375 R10, §7.4).
+	if df, ok := d.Params.(deferrer); ok {
+		if reason := df.deferredBy(); reason != "" {
+			panic("ibcgov: decision " + itoa(id) + " is deferred: " + reason)
+		}
 	}
 	applyDecision(cur, d, t)
 }
@@ -75,11 +126,15 @@ func (p *cancelParams) apply(cur realm, t int64) (string, string) {
 		return "", err.Error()
 	}
 	chain.Emit("Decision", "id", itoa(d.ID), "kind", d.Kind, "state", "cancelled")
+	// A cancelled expectation releases its transition's intent.
+	if ep, ok := d.Params.(*expectParams); ok {
+		release(ep.from, ep.to, ep.local, ep.gen, ep.owner)
+	}
 	return "cancelled decision " + itoa(p.id), ""
 }
 
 // NewCancelRequest withdraws pending decision id at once (ADR pr6375 §7.5:
-// cancels are immediate).
+// cancels are immediate). Guardians cannot cancel; only a decision can.
 func NewCancelRequest(cur realm, id int64) Request {
 	d, ok := ledger.Find(id)
 	if !ok || !d.Pending() {
