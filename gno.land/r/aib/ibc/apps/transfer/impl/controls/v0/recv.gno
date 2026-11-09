@@ -31,8 +31,7 @@ func receivedDenom(rt *controls.Route, sourceClient string, payload types.Payloa
 }
 
 // ensureVoucher records a minted denom's trace and creates its voucher, so a
-// claim of it can be minted: before a receive books a credit of the denom, or
-// a credit by vote completes a pending acknowledgement of it.
+// claim of it can be minted: before a receive books a credit of the denom.
 func (l *routes) ensureVoucher(_ int, rlm realm, denom ics20.Denom, accDenom string) {
 	if !l.store.HasDenom(accDenom) {
 		l.store.SetDenom(0, rlm, denom)
