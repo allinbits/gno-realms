@@ -33,7 +33,7 @@ func NewToken(baseDenom, amount string) Token {
 func (t Token) AmountUint256() (uint256, error) {
 	amt, err := strconv.ParseUint256(t.Amount, 10)
 	if err != nil {
-		return 0, ufmt.Errorf("unable to parse amount %q into uint256", t.Amount)
+		return 0, ufmt.Errorf("unable to parse amount %q into uint256: %v", t.Amount, err)
 	}
 	return amt, nil
 }

@@ -30,7 +30,7 @@ func TestTokenToCoin(t *testing.T) {
 			"failure: invalid amount string",
 			ics20.NewToken(tokenDenom, "value"),
 			chain.Coin{},
-			"unable to parse amount \"value\" into uint256",
+			"unable to parse amount \"value\" into uint256: strconv.ParseUint256",
 		},
 		{
 			"failure: above the coin maximum",
