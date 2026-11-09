@@ -393,7 +393,7 @@ func (rt *Route) restoreClaim(c *Claim, now, epoch int64) {
 // against every claim and payment of the packet: only a receive these
 // controls booked, a live sweep entry recorded at its receipt after the
 // route's activation, is credited, which replaces the entry. A receive from
-// before the activation was paid at once by impl/v0 and is never credited
+// before the activation was paid at once by the plain ICS-20 app and is never credited
 // again. The amount is the sweep entry's whole amount (any haircut goes
 // through Reduce), at least the fee, and for an unescrowed denom never above
 // the free lock.

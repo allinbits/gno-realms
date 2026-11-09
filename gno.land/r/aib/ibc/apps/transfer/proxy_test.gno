@@ -215,3 +215,24 @@ func TestImplAddressIndex(cur realm, t *testing.T) {
 	uassert.False(t, IsRegisteredImpl(implPathPrefix+"v9999"))
 	uassert.Equal(t, 200, len(RegisteredImplPaths()))
 }
+
+// A voucher's grc20 name is its base denom as a display field within grc20's
+// bounds: a base denom longer than grc20.MaxNameLen is cut on a character
+// boundary and marked "...", a control character is shown as "?", so no
+// counterparty denom makes its first receive panic (Codex review of #85).
+// The full base denom stays in the denom record and the renders.
+func TestVoucherNameBounded(cur realm, t *testing.T) {
+	resetUpgradeState()
+	defer resetUpgradeState()
+
+	name := func(base string) string {
+		d := ics20.NewDenom(base, ics20.NewHop(PortID, "07-tendermint-1")).IBCDenom()
+		return store.GetOrCreateVoucher(0, cur, base, d).GetName()
+	}
+	fits := strings.Repeat("a", grc20.MaxNameLen)
+	uassert.Equal(t, fits, name(fits))
+	uassert.Equal(t, strings.Repeat("b", grc20.MaxNameLen-3)+"...", name(strings.Repeat("b", grc20.MaxNameLen+1)))
+	// 60 bytes then three 2-byte runes: the cut never splits one.
+	uassert.Equal(t, strings.Repeat("c", 60)+"...", name(strings.Repeat("c", 60)+"ééé"))
+	uassert.Equal(t, "u?atom?", name("u\x01atom\x7f"))
+}

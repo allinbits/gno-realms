@@ -27,7 +27,7 @@ import (
 func view() controls.Reader {
 	rd, ok := transfer.ExtView("controls").(controls.Reader)
 	if !ok {
-		panic("ibcgov: the transfer app keeps no route controls (install transfer impl/v1 first)")
+		panic("ibcgov: the transfer app keeps no route controls (install transfer impl/controls/v0 first)")
 	}
 	return rd
 }
@@ -304,15 +304,14 @@ func quoteIdentity(s string) string {
 // bridgeRealms are the realms of the bridge with no withdrawal entry point.
 // Every implementation the core and transfer proxies ever registered is one
 // too, read from their registries (BridgeRealm), so a registration after
-// deployment is covered at once.
+// deployment is covered at once, and so is every library realm a transfer
+// implementation declares it wraps (transfer.RegisterImpl's wraps: the plain
+// ICS-20 app under impl/controls/v0): no versioned path is listed here.
 var bridgeRealms = []string{
 	CorePath,
 	TransferPath,
 	PkgPath,
 	"gno.land/r/aib/ibc/ethrelay",
-	// Kept as a library and never registered (a fresh deployment starts
-	// with impl/v1), so no registry lists it.
-	"gno.land/r/aib/ibc/apps/transfer/impl/v0",
 }
 
 // bridgeRealmByAddr is bridgeRealms keyed by package address, built once:
