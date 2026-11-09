@@ -2,6 +2,7 @@ package e2e
 
 import (
 	"fmt"
+	"math/big"
 	"time"
 )
 
@@ -248,8 +249,8 @@ func (s *E2ETestSuite) TestIBCTransferGRC20GnoToAtomOne() {
 	// Verify mint
 	beforeBalance, err := queryGnoGRC20TestBalance(s.gnoContainer, sender)
 	r.NoError(err, "query GRC20 test balance after mint")
-	r.Equal(balanceBeforeMint+mintAmount, beforeBalance, "minted balance mismatch")
-	s.T().Logf("GRC20 test balance after mint: %d", beforeBalance)
+	r.Zero(new(big.Int).Add(balanceBeforeMint, big.NewInt(mintAmount)).Cmp(beforeBalance), "minted balance mismatch: %s then %s", balanceBeforeMint, beforeBalance)
+	s.T().Logf("GRC20 test balance after mint: %s", beforeBalance)
 
 	// Approve the transfer app to spend tokens
 	s.T().Logf("Approving %s to spend %d tokens...", transferApp, transferAmount)
@@ -270,16 +271,16 @@ func (s *E2ETestSuite) TestIBCTransferGRC20GnoToAtomOne() {
 
 	// Verify sender balance decreased on Gno (tokens escrowed)
 	s.T().Log("Verifying sender GRC20 balance decreased on Gno...")
-	var afterBalance int64
+	var afterBalance *big.Int
 	r.Eventually(func() bool {
 		bal, err := queryGnoGRC20TestBalance(s.gnoContainer, sender)
 		if err != nil {
 			return false
 		}
 		afterBalance = bal
-		return afterBalance == beforeBalance-transferAmount
+		return afterBalance.Cmp(new(big.Int).Sub(beforeBalance, big.NewInt(transferAmount))) == 0
 	}, time.Minute/2, time.Second, "sender GRC20 balance did not decrease on Gno")
-	s.T().Logf("GRC20 balance verified: %d (before: %d, expected -%d)", afterBalance, beforeBalance, transferAmount)
+	s.T().Logf("GRC20 balance verified: %s (before: %s, expected -%d)", afterBalance, beforeBalance, transferAmount)
 
 	// Query the grc20 alias from the transfer realm via qeval.
 	alias, err := queryGnoGRC20Alias(s.gnoContainer, denom)
@@ -348,8 +349,8 @@ func (s *E2ETestSuite) TestIBCTransferGRC20GnoToAtomOne() {
 			return false
 		}
 		afterBalance = bal
-		return afterBalance == beforeBalance+transferAmount
+		return afterBalance.Cmp(new(big.Int).Add(beforeBalance, big.NewInt(transferAmount))) == 0
 	}, time.Minute/2, time.Second, "GRC20 balance not unescrowed on Gno")
 
-	s.T().Logf("GRC20 balance verified: %d (before: %d, expected +%d)", afterBalance, beforeBalance, transferAmount)
+	s.T().Logf("GRC20 balance verified: %s (before: %s, expected +%d)", afterBalance, beforeBalance, transferAmount)
 }
