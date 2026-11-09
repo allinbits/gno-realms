@@ -668,16 +668,16 @@ func voucherSymbolOf(id uint64) string {
 // discoverability. Non-crossing helper; rlm is needed to issue the cross
 // call into grc20reg.Register from this realm's frame.
 //
-// The token's name is the base denom, its symbol is allocated from the
-// voucher ids (see VoucherSymbol), and its grc20reg slug is the full hash:
-// the registry key rlmpath.symbol is unique per voucher, so no denom,
-// whatever its hash, can take another's key. Its decimals are the
-// implementation's to name (an ICS20 packet carries no token metadata: on an
-// Ethereum route the denom's governed configuration, 0 elsewhere), and
-// grc20 fixes them at creation: decimals other than an existing voucher's
-// panic. This proxy is frozen while every caller is replaceable code, so it
-// catches an implementation that forgot what its configuration checks
-// refuse.
+// The token's name is the base denom as a display field (voucherName), its
+// symbol is allocated from the voucher ids (see VoucherSymbol), and its
+// grc20reg slug is the full hash: the registry key rlmpath.symbol is unique
+// per voucher, so no denom, whatever its hash, can take another's key. Its
+// decimals are the implementation's to name (an ICS20 packet carries no
+// token metadata: on an Ethereum route the denom's governed configuration,
+// 0 elsewhere), and grc20 fixes them at creation: decimals other than an
+// existing voucher's panic. This proxy is frozen while every caller is
+// replaceable code, so it catches an implementation that forgot what its
+// configuration checks refuse.
 func getOrCreateVoucher(_ int, rlm realm, baseDenom, voucherDenom string, decimals int) *voucher {
 	if err := CheckVoucherDecimals(voucherDenom, decimals); err != nil {
 		panic("transfer: " + err.Error())
@@ -687,11 +687,39 @@ func getOrCreateVoucher(_ int, rlm realm, baseDenom, voucherDenom string, decima
 	}
 	id := nextVoucherID.Next()
 	sym := voucherSymbolOf(uint64(id))
-	token, ledger := grc20.NewToken(baseDenom, sym, decimals, id, rlm)
+	token, ledger := grc20.NewToken(voucherName(baseDenom), sym, decimals, id, rlm)
 	inst := &voucher{token: token, ledger: ledger, symbol: sym}
 	voucherTokens.Set(voucherDenom, inst)
 	grc20reg.Register(cross(rlm), token, voucherDenom[len("ibc/"):])
 	return inst
+}
+
+// voucherName is a base denom as a grc20 token name, a display field: a
+// control character (grc20 refuses one) shown as "?", and a name longer than
+// grc20.MaxNameLen cut on a character boundary and marked "...". A base
+// denom is the counterparty's and accepted as received (ics20 checks only
+// that it is not blank), so neither may make a first receive panic; the full
+// denom stays in the denom record and the renders.
+func voucherName(base string) string {
+	var b strings.Builder
+	for _, c := range base {
+		if c < 0x20 || c == 0x7f {
+			c = '?'
+		}
+		b.WriteRune(c)
+	}
+	name := b.String()
+	if len(name) <= grc20.MaxNameLen {
+		return name
+	}
+	cut := 0
+	for i := range name {
+		if i > grc20.MaxNameLen-len("...") {
+			break
+		}
+		cut = i
+	}
+	return name[:cut] + "..."
 }
 
 // getVoucher returns the voucher instance for the given IBC denom, or nil if not
