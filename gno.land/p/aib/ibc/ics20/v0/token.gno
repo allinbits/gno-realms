@@ -43,7 +43,7 @@ func (t Token) ToCoin() (chain.Coin, error) {
 func (t Token) AmountInt64() (int64, error) {
 	amt, err := strconv.ParseInt(t.Amount, 10, 64)
 	if err != nil {
-		return 0, ufmt.Errorf("unable to parse amount %q into int64", t.Amount)
+		return 0, ufmt.Errorf("unable to parse amount %q into int64: %v", t.Amount, err)
 	}
 	return amt, nil
 }
