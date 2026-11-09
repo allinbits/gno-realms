@@ -72,7 +72,7 @@ func setupRoute(cur realm) string {
 
 // send transfers amount of ugnot from sender to an Ethereum receiver, sending
 // coins with the call (the coins land at the transfer realm first).
-func send(cur realm, route string, amount, coins int64, receiver string) uint64 {
+func send(cur realm, route string, amount uint256, coins int64, receiver string) uint64 {
 	testing.IssueCoins(chain.PackageAddress(transfer.PkgPath), chain.NewCoins(chain.NewCoin("ugnot", coins)))
 	testing.SetRealm(testing.NewUserRealm(sender))
 	testing.SetOriginSend(chain.NewCoins(chain.NewCoin("ugnot", coins)))
@@ -84,8 +84,8 @@ func send(cur realm, route string, amount, coins int64, receiver string) uint64 
 
 // recv delivers a packet from Ethereum to the transfer app as the core does
 // after verifying its proof.
-func recv(cur realm, route string, seq uint64, denom, receiver string, amount int64) types.RecvPacketResult {
-	data := ics20.NewFungibleTokenPacketData(denom, strconv.FormatInt(amount, 10), "0x5f67a5398d91087d1b37a8a43436196a7830867f", receiver, "")
+func recv(cur realm, route string, seq uint64, denom, receiver string, amount uint256) types.RecvPacketResult {
+	data := ics20.NewFungibleTokenPacketData(denom, strconv.FormatUint256(amount, 10), "0x5f67a5398d91087d1b37a8a43436196a7830867f", receiver, "")
 	bz, err := abi.Marshal(data)
 	if err != nil {
 		panic(err)
@@ -122,7 +122,7 @@ func claim(cur realm, route, denom string) int {
 }
 
 // sendVoucher sends bob's vouchers back to Ethereum.
-func sendVoucher(cur realm, route, receiver, voucher string, amount int64) uint64 {
+func sendVoucher(cur realm, route, receiver, voucher string, amount uint256) uint64 {
 	testing.SetRealm(testing.NewUserRealm(bob))
 	_, seq := transfer.Transfer(cross(cur), route, receiver, voucher, amount, uint64(time.Now().Add(time.Hour).Unix()), "")
 	testing.SetRealm(testing.NewCodeRealm("gno.land/r/aib/main"))
@@ -147,7 +147,7 @@ func main(cur realm) {
 		tokenB = "0x1000000000000000000000000000000000691bd4"
 	)
 	for _, tok := range []string{tokenA, tokenB} {
-		execute(cur, govern(cur, ibcgov.NewSetDenomRequest(cross(cur), route, tok, "mint", 4_000, 10_000, 10, 1, 0, 0, 4_000, "")))
+		execute(cur, govern(cur, ibcgov.NewSetDenomRequest(cross(cur), route, tok, "mint", 4_000, 10_000, 10, 1, 0, 0, 4_000, "", 0)))
 	}
 	voucherA := ics20.NewDenom(tokenA, ics20.NewHop("transfer", route)).IBCDenom()
 	voucherB := ics20.NewDenom(tokenB, ics20.NewHop("transfer", route)).IBCDenom()

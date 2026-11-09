@@ -4,6 +4,7 @@ import (
 	"chain"
 	"chain/runtime/unsafe"
 	"math"
+	"math/overflow"
 	"strings"
 
 	"gno.land/p/aib/encoding/ethaddr/v0"
@@ -16,7 +17,7 @@ import (
 	ics20impl "gno.land/r/aib/ibc/apps/transfer/impl/ics20/v0"
 	"gno.land/r/aib/ibc/core"
 	"gno.land/r/aib/ibc/ibcgov"
-	"gno.land/r/nt/grc20reg/v0"
+	"gno.land/r/nt/grc20reg/v1"
 )
 
 // isRouter reports whether clientID's counterparty is an ICS26 router
@@ -83,26 +84,33 @@ func checkRecipient(rt *controls.Route, receiver, token string) {
 }
 
 // Transfer, on a route, applies the send-side controls, builds an ABI packet, sends it and
-// writes the send record.
-func (l *routes) Transfer(_ int, rlm realm, sent []chain.Coin, clientID, receiver, denom string, amount int64, timeoutTimestamp uint64, memo string) (
+// writes the send record. Every amount on the route is bounded by
+// abi.MaxAmount, the most Ethereum's transfer app takes (ADR pr6375 E6): a
+// send above it would only come back refused, so it is refused here.
+func (l *routes) Transfer(_ int, rlm realm, sent []chain.Coin, clientID, receiver, denom string, amount uint256, timeoutTimestamp uint64, memo string) (
 	packet types.MsgSendPacket, sequence uint64,
 ) {
 	rt := l.routeOf(0, rlm, clientID)
 	rt = mustRoute(rt, clientID)
+	if amount == 0 {
+		panic("the amount must be positive")
+	}
+	if amount > abi.MaxAmount {
+		panic("the amount is above Ethereum's maximum of 2^96 - 1: " + controls.Decimal(amount))
+	}
 	sender := unsafe.OriginCaller()
 	var (
 		wireDenom string // the denom path in the packet
 		accDenom  string // the accounting denom of the send record
 		kind      string
-		fee       int64
+		fee       uint256
 	)
 	switch {
 	case strings.HasPrefix(denom, "ibc/"):
 		// A voucher returning to Ethereum: burnt in OnSendPacket; never
 		// limited, charged or paused, and taken on a route a replacement
 		// closed too (exit only, ADR pr6375 §7.12): it lowers the supply
-		// and adds no exposure, and frees the supply's capacity a parked
-		// reconciliation refund waits for.
+		// and adds no exposure.
 		if len(sent) > 0 {
 			panic("voucher transfer must not include native coins")
 		}
@@ -155,26 +163,28 @@ func (l *routes) Transfer(_ int, rlm realm, sent []chain.Coin, clientID, receive
 		acc := l.mustSendable(rt, denom, amount)
 		checkRecipient(rt, receiver, acc.Config.Remote)
 		fee = acc.Config.Fee
-		if amount > math.MaxInt64-fee {
-			panic("the amount plus the route fee overflows")
+		// A native coin is an int64: the amount plus the route fee must fit
+		// one, or no coin sent could match it.
+		total, ok := overflow.Addu256(amount, fee)
+		if !ok || total > math.MaxInt64 {
+			panic("the amount plus the route fee is above the chain's coin maximum")
 		}
-		if len(sent) != 1 || sent[0].Denom != denom || sent[0].Amount != amount+fee {
-			panic(ufmt.Sprintf("send exactly %d%s: the amount plus the route fee of %d", amount+fee, denom, fee))
+		if len(sent) != 1 || sent[0].Denom != denom || transfer.CoinAmount(sent[0]) != total {
+			panic("send exactly " + controls.Decimal(total) + denom + ": the amount plus the route fee of " + controls.Decimal(fee))
 		}
-		l.store.SetPendingNativeEscrow(0, rlm, chain.NewCoin(denom, amount))
+		l.store.SetPendingNativeEscrow(0, rlm, chain.NewCoin(denom, int64(amount)))
 		if fee > 0 {
 			// The fee landed here with the amount: book it to the route and
 			// pay it to the collector, so the escrow accounting stays exact.
-			c := chain.NewCoin(denom, fee)
-			l.store.AddEscrow(0, rlm, rt.Key, c)
-			if err := l.store.UnescrowNative(0, rlm, rt.Key, string(rt.FeeCollector), c); err != nil {
+			l.store.AddEscrow(0, rlm, rt.Key, denom, fee)
+			if err := l.store.UnescrowNative(0, rlm, rt.Key, string(rt.FeeCollector), denom, fee); err != nil {
 				panic(err)
 			}
 		}
 		wireDenom, accDenom, kind = denom, denom, controls.KindUnescrow
 	}
 
-	data := ics20.NewFungibleTokenPacketData(wireDenom, ufmt.Sprintf("%d", amount), sender.String(), receiver, memo)
+	data := ics20.NewFungibleTokenPacketData(wireDenom, controls.Decimal(amount), sender.String(), receiver, memo)
 	value, err := abi.Marshal(data)
 	if err != nil {
 		panic(err)
@@ -201,7 +211,7 @@ func (l *routes) Transfer(_ int, rlm realm, sent []chain.Coin, clientID, receive
 
 // mustSendable is the accounting of a gno-native denom a send may carry on
 // rt: enabled, not paused by a sends flag, within the send limits.
-func (l *routes) mustSendable(rt *controls.Route, denom string, amount int64) *controls.Denom {
+func (l *routes) mustSendable(rt *controls.Route, denom string, amount uint256) *controls.Denom {
 	acc := rt.Denom(denom)
 	if acc == nil || acc.Config.Kind != controls.KindUnescrow {
 		panic(ufmt.Sprintf("denom %s is not enabled for sends on route %s", denom, rt.Key))
@@ -249,9 +259,9 @@ func (l *routes) OnSendPacket(_ int, rlm realm, sourceClient, destinationClient 
 	if err := ics20impl.ValidateBaseDenomNoSlash(token); err != nil {
 		return err
 	}
-	coin, err := token.ToCoin()
+	amount, err := token.AmountUint256()
 	if err != nil {
-		return ufmt.Errorf("token to coin error: %v", err)
+		return err
 	}
 	switch {
 	case token.Denom.HasPrefix(payload.SourcePort, sourceClient):
@@ -259,11 +269,11 @@ func (l *routes) OnSendPacket(_ int, rlm realm, sourceClient, destinationClient 
 		if !ok {
 			return ufmt.Errorf("voucher packet must be initiated through transfer.Transfer")
 		}
-		if err := ics20impl.ValidatePendingSend(expected, data.Sender, sourceClient, token.Denom.Path(), coin.Amount); err != nil {
+		if err := ics20impl.ValidatePendingSend(expected, data.Sender, sourceClient, token.Denom.Path(), amount); err != nil {
 			return ufmt.Errorf("voucher packet %v", err)
 		}
 		internal := toInternal(token.Denom, rt).IBCDenom()
-		if err := l.store.BurnVoucher(0, rlm, internal, address(data.Sender), coin.Amount); err != nil {
+		if err := l.store.BurnVoucher(0, rlm, internal, address(data.Sender), amount); err != nil {
 			return ufmt.Errorf("burn voucher %s error: %v", internal, err)
 		}
 	case transfer.IsGRC20Alias(token.Denom.Base):
@@ -271,11 +281,11 @@ func (l *routes) OnSendPacket(_ int, rlm realm, sourceClient, destinationClient 
 		if !ok {
 			return ufmt.Errorf("GRC20 packet must be initiated through transfer.Transfer")
 		}
-		if err := ics20impl.ValidatePendingSend(expected, data.Sender, sourceClient, token.Denom.Path(), coin.Amount); err != nil {
+		if err := ics20impl.ValidatePendingSend(expected, data.Sender, sourceClient, token.Denom.Path(), amount); err != nil {
 			return ufmt.Errorf("GRC20 packet %v", err)
 		}
 		denomKey := transfer.ResolveGRC20Alias(token.Denom.Base)
-		if err := l.store.EscrowGRC20(0, rlm, rt.Key, denomKey, address(data.Sender), coin); err != nil {
+		if err := l.store.EscrowGRC20(0, rlm, rt.Key, denomKey, address(data.Sender), amount); err != nil {
 			return err
 		}
 	default:
@@ -283,10 +293,14 @@ func (l *routes) OnSendPacket(_ int, rlm realm, sourceClient, destinationClient 
 		if !ok {
 			return ufmt.Errorf("native packet must be initiated through transfer.Transfer")
 		}
+		coin, err := token.ToCoin()
+		if err != nil {
+			return ufmt.Errorf("token to coin error: %v", err)
+		}
 		if coin.Denom != expected.Denom || coin.Amount != expected.Amount {
 			return ufmt.Errorf("escrowed coin %s is not equal to fungible packet data token %s", expected, coin)
 		}
-		l.store.AddEscrow(0, rlm, rt.Key, coin)
+		l.store.AddEscrow(0, rlm, rt.Key, coin.Denom, transfer.CoinAmount(coin))
 	}
 	transfer.EmitTransfer(0, rlm, data.Sender, data.Receiver, token.Denom.Path(), token.Amount, data.Memo)
 	return nil

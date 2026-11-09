@@ -86,7 +86,7 @@ func TestFungibleTokenPacketDataValidateBasic(t *testing.T) {
 		{
 			name:       "invalid negative amount",
 			packetData: ics20.NewFungibleTokenPacketData(denom, "-1", sender, receiver, ""),
-			expErr:     "amount must be strictly positive: got -1",
+			expErr:     "unable to parse transfer amount \"-1\"",
 		},
 		{
 			name:       "invalid large amount",

@@ -75,7 +75,7 @@ func setupRoute(cur realm) string {
 
 // send transfers amount of ugnot from sender to an Ethereum receiver, sending
 // coins with the call (the coins land at the transfer realm first).
-func send(cur realm, route string, amount, coins int64, receiver string) uint64 {
+func send(cur realm, route string, amount uint256, coins int64, receiver string) uint64 {
 	testing.IssueCoins(chain.PackageAddress(transfer.PkgPath), chain.NewCoins(chain.NewCoin("ugnot", coins)))
 	testing.SetRealm(testing.NewUserRealm(sender))
 	testing.SetOriginSend(chain.NewCoins(chain.NewCoin("ugnot", coins)))
@@ -87,8 +87,8 @@ func send(cur realm, route string, amount, coins int64, receiver string) uint64 
 
 // recv delivers a packet from Ethereum to the transfer app as the core does
 // after verifying its proof.
-func recv(cur realm, route string, seq uint64, denom, receiver string, amount int64) types.RecvPacketResult {
-	data := ics20.NewFungibleTokenPacketData(denom, strconv.FormatInt(amount, 10), "0x5f67a5398d91087d1b37a8a43436196a7830867f", receiver, "")
+func recv(cur realm, route string, seq uint64, denom, receiver string, amount uint256) types.RecvPacketResult {
+	data := ics20.NewFungibleTokenPacketData(denom, strconv.FormatUint256(amount, 10), "0x5f67a5398d91087d1b37a8a43436196a7830867f", receiver, "")
 	bz, err := abi.Marshal(data)
 	if err != nil {
 		panic(err)
@@ -106,8 +106,8 @@ func controlsView() controls.Reader { return transfer.ExtView("controls").(contr
 func ugnot(a address) int64 { return banker.NewReadonlyBanker().GetCoin(a, "ugnot") }
 
 // recvOn delivers a packet arriving on client dst from the router client src.
-func recvOn(cur realm, src, dst string, seq uint64, denom, receiver string, amount int64) types.RecvPacketResult {
-	data := ics20.NewFungibleTokenPacketData(denom, strconv.FormatInt(amount, 10), ethReceiver, receiver, "")
+func recvOn(cur realm, src, dst string, seq uint64, denom, receiver string, amount uint256) types.RecvPacketResult {
+	data := ics20.NewFungibleTokenPacketData(denom, strconv.FormatUint256(amount, 10), ethReceiver, receiver, "")
 	bz, _ := abi.Marshal(data)
 	payload := types.Payload{SourcePort: "transfer", DestinationPort: "transfer", Version: "ics20-1", Encoding: abi.Encoding, Value: bz}
 	testing.SetRealm(testing.NewCodeRealm("gno.land/r/aib/ibc/core"))
@@ -117,7 +117,7 @@ func recvOn(cur realm, src, dst string, seq uint64, denom, receiver string, amou
 	return res
 }
 
-func sendVoucher(cur realm, client, voucher string, amount int64) uint64 {
+func sendVoucher(cur realm, client, voucher string, amount uint256) uint64 {
 	testing.SetRealm(testing.NewUserRealm(bob))
 	_, seq := transfer.Transfer(cross(cur), client, ethReceiver, voucher, amount, uint64(time.Now().Add(time.Hour).Unix()), "")
 	testing.SetRealm(testing.NewCodeRealm("gno.land/r/aib/main"))
@@ -134,7 +134,7 @@ func wireDenom(route, client string, seq uint64) string {
 func meters(route, denom string) string {
 	epoch, at := ibcgov.PayoutsEpoch(route)
 	b, r := controlsView().Meters(route, denom, bob, time.Now().Unix(), epoch, at, 0)
-	return "bridge " + strconv.FormatInt(b, 10) + ", bob " + strconv.FormatInt(r, 10)
+	return "bridge " + strconv.FormatUint256(b, 10) + ", bob " + strconv.FormatUint256(r, 10)
 }
 
 // sendBack is the home page's "send back" action of the voucher (its link
@@ -156,7 +156,7 @@ func decided(id int64) string {
 
 func claimState(route string, seq uint64) string {
 	c, _ := controlsView().Claim(route, controls.PacketKey(route, seq))
-	return c.State + " paid " + strconv.FormatInt(c.Paid, 10)
+	return c.State + " paid " + strconv.FormatUint256(c.Paid, 10)
 }
 
 func setTime(t time.Time) {
@@ -167,7 +167,7 @@ func setTime(t time.Time) {
 
 func refundState(route, client string, seq uint64) string {
 	r, _ := controlsView().Send(route, controls.PacketKey(client, seq))
-	return "outcome " + r.Outcome + ", payment " + r.Payment + ", refunded " + strconv.FormatInt(r.Refunded, 10)
+	return "outcome " + r.Outcome + ", payment " + r.Payment + ", refunded " + strconv.FormatUint256(r.Refunded, 10)
 }
 
 // A flag on a route's client is a flag on the route (Codex round 7 #1): a
@@ -177,7 +177,7 @@ func refundState(route, client string, seq uint64) string {
 // permissionless claims alike.
 func main(cur realm) {
 	route := setupRoute(cur)
-	execute(cur, govern(cur, ibcgov.NewSetDenomRequest(cross(cur), route, "ugnot", "unescrow", 10_000, 0, 20, 2, 25_000, 40, 10_000, "0x0000000000000000000000000000000000c0ffee")))
+	execute(cur, govern(cur, ibcgov.NewSetDenomRequest(cross(cur), route, "ugnot", "unescrow", 10_000, 0, 20, 2, 25_000, 40, 10_000, "0x0000000000000000000000000000000000c0ffee", 0)))
 	execute(cur, govern(cur, ibcgov.NewSetSeatsRequest(cross(cur), "0:"+string(guardian))))
 	b := core.CreateClient(cross(cur), ethtesting.ClientState(), ethtesting.ConsensusState())
 	core.RegisterCounterparty(cross(cur), b, [][]byte{{}}, "client-1")

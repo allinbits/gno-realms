@@ -89,6 +89,17 @@ func (w *Writer) Uint(v uint64) *Writer {
 	return w
 }
 
+// Uint256 writes a uint256 as 32 big-endian bytes.
+func (w *Writer) Uint256(v uint256) *Writer {
+	var b [32]byte
+	for i := 31; i >= 0; i-- {
+		b[i] = byte(v)
+		v >>= 8
+	}
+	w.buf = append(w.buf, b[:]...)
+	return w
+}
+
 // Int writes an int64 as 8 big-endian bytes (two's complement).
 func (w *Writer) Int(v int64) *Writer { return w.Uint(uint64(v)) }
 
@@ -222,6 +233,19 @@ func (r *Reader) Uint() uint64 {
 	}
 	return uint64(b[0])<<56 | uint64(b[1])<<48 | uint64(b[2])<<40 | uint64(b[3])<<32 |
 		uint64(b[4])<<24 | uint64(b[5])<<16 | uint64(b[6])<<8 | uint64(b[7])
+}
+
+// Uint256 reads a fixed 32-byte big-endian uint256, or 0 on failure.
+func (r *Reader) Uint256() uint256 {
+	b, ok := r.take(32)
+	if !ok {
+		return 0
+	}
+	var v uint256
+	for _, c := range b {
+		v = v<<8 | uint256(c)
+	}
+	return v
 }
 
 // Int reads a fixed 8-byte big-endian int64.
