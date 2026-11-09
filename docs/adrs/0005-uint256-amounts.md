@@ -167,9 +167,13 @@ the only party that knows the counterparty's is governance.
 - Decimals are fixed once the voucher exists, as on Ethereum, where
   `setCustomERC20` refuses a denom that has a token: a configuration whose
   decimals differ from an existing voucher's is refused by the builder
-  (`transfer.VoucherDecimals`) and again when the decision executes
-  (`GovApply`, which spends it: a first receive during the 7-day delay
-  creates the voucher). A voucher minted before its denom was configured
+  and again when the decision executes (`GovApply`, which spends it: a
+  first receive during the 7-day delay creates the voucher), both through
+  `transfer.CheckVoucherDecimals`. The frozen transfer proxy applies the
+  same check when a voucher is asked for (`getOrCreateVoucher` panics on
+  decimals other than an existing voucher's), so a replaceable
+  implementation that forgot its own check cannot mint into a voucher it
+  believes has other decimals (review of #85). A voucher minted before its denom was configured
   (by `impl/v0`, 0 decimals) therefore takes only a configuration naming
   0. Before the first receive, a change is accepted.
 - `controls.Loosens` treats any change of the decimals as loosening, so it
@@ -184,7 +188,7 @@ the only party that knows the counterparty's is governance.
 - Tests: `TestConfigValidateAndLoosens` (range, the unescrow refusal, the
   delay in both directions), `TestCodecRoundTrip` (the wire field and its
   bound), `TestVoucherDecimalsFixedAtCreation` (the store keeps the first
-  value), filetest `z9zzw` (the decision text; a change before the first
+  value and panics on others), filetest `z9zzw` (the decision text; a change before the first
   receive accepted; 19, -1 and an unescrowed denom's decimals refused; 1
   WETH received as `10^18` base units into an 18-decimal voucher; a change
   after the first receive refused by the builder and by `GovApply`; the
