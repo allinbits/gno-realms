@@ -3,6 +3,7 @@ package ics20
 import (
 	"chain"
 	"chain/runtime/unsafe"
+	"math"
 	"strconv"
 	"strings"
 
@@ -70,8 +71,11 @@ func (l *logic) Transfer(_ int, rlm realm, sent []chain.Coin, clientID, receiver
 		panic(ufmt.Sprintf("GRC20 token %s not found in grc20reg", denom))
 	default:
 		// Native coin: the coins landed at the proxy (direct user call,
-		// checked by the proxy). A coin is an int64, so an amount above the
-		// chain's coin maximum can match no coin sent.
+		// checked by the proxy). A coin is an int64: an amount above the
+		// chain's coin maximum is refused as such, not as a mismatch.
+		if amount > math.MaxInt64 {
+			panic(ufmt.Sprintf("%s %s is above the chain's coin maximum", strconv.FormatUint256(amount, 10), denom))
+		}
 		if len(sent) != 1 || sent[0].Amount == 0 {
 			panic("native transfer requires one non-zero coin to be sent")
 		}

@@ -57,6 +57,11 @@ func main(cur realm) {
 	testing.SetOriginSend(chain.NewCoins(chain.NewCoin("ugnot", 100)))
 	transfer.Transfer(cross(cur), clientID, "atone1user", "ugnot", 100, uint64(time.Now().Add(time.Hour).Unix()), "memo")
 	println(transfer.Render("total_escrow/ugnot"))
+	// A native amount above the chain's coin maximum is refused as such, as
+	// the controls refuse it (review of #85).
+	println("above the coin maximum:", revive(func() {
+		transfer.Transfer(cross(cur), clientID, "atone1user", "ugnot", 1<<63, uint64(time.Now().Add(time.Hour).Unix()), "")
+	}))
 
 	testing.SetRealm(testing.NewCodeRealm(self))
 	eth := core.CreateClient(cross(cur), ethtesting.ClientState(), ethtesting.ConsensusState())
@@ -83,6 +88,7 @@ func main(cur realm) {
 // Output:
 // active: gno.land/r/aib/ibc/apps/transfer/impl/plain v0
 // {"denom":"ugnot","amount":"100","clients":[{"client":"07-tendermint-1","amount":"100"}]}
+// above the coin maximum: 9223372036854775808 ugnot is above the chain's coin maximum
 // send to ethereum-2 (router: true ): ethereum-2 is a router client: its transfers need the route controls (impl/controls), not the plain ICS-20 app
 // {"denom":"ugnot","amount":"100","clients":[{"client":"07-tendermint-1","amount":"100"}]}
 // receive over ethereum-2 failed: true
