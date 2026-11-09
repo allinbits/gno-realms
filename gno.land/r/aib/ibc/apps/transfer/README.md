@@ -203,7 +203,7 @@ mapping: [ADR 0004](../../../../../../docs/adrs/0004-ethereum-route-controls.md)
 - **Receives** are refused with an error acknowledgement, before any state
   change, under a `credits` flag, on a closed route, for a denom not enabled,
   past a minted denom's supply cap (what is booked against it,
-  `Outstanding + Returning + Parked + ProvenOwed + Owed + Withheld + Swept`,
+  `Outstanding + Returning + ProvenOwed + Owed + Withheld + Swept`,
   plus the receive, ADR 0004's one equation; the
   cap governs admission only: lowering it below what is booked refuses new
   credits and keeps every booked obligation payable), or for a blocked
@@ -242,10 +242,9 @@ mapping: [ADR 0004](../../../../../../docs/adrs/0004-ethereum-route-controls.md)
   under a `refunds` hold or on a closed route), in installments: each takes
   what the meter (and, for `unescrow`, the escrow) allows of the head
   refund's remainder, at least `min(remainder, max(1, RefundCap/24))`, which
-  the meter must hold for any installment, a minted one included (a minted
-  installment the meter allows is then cut to the supply's headroom when
-  that is less, any positive amount: headroom clips the payment, never the
-  meter minimum), and the call stops at a head it cannot pay. The outcome, the
+  the meter must hold for any installment, a minted one included (nothing
+  else bounds a minted installment: the supply cap governs admission only,
+  ADR 0005), and the call stops at a head it cannot pay. The outcome, the
   local processing height and the payment state are attached to the send
   record. Queued refunds are reserved: no receive or claim payout takes
   their escrow.
@@ -256,17 +255,15 @@ mapping: [ADR 0004](../../../../../../docs/adrs/0004-ethereum-route-controls.md)
   A governed reconciliation's refunds are the other exception: a
   settlement pays them on the closed route (that is how the retired
   client's sends are settled), subject to its own checks and deferred under
-  a `refunds` hold. A genuine refund the settlement cannot pay then is
-  parked instead of refused: its record is settled, the refund owed and
-  queued. A minted one (the outstanding supply cannot hold it) is reserved
-  against the supply cap (apart from the returns in flight, so it never
-  refuses a return), and `ClaimRefunds` pays it after the reopening in
-  installments as the supply has room (a voucher return makes some). An
-  escrowed one (the free escrow is short, a forged receive having drained
-  it, say) is reserved by the queued refunds, so no claim, sweep or
-  receive takes the escrow it waits for, and `ClaimRefunds` pays it after
-  the reopening once the escrow is whole again (a recapitalization); the
-  route can reopen meanwhile, its losses accepted as a deficit. The replacement client must authenticate the route's identity, the
+  a `refunds` hold. A minted refund is always paid at once (nothing bounds
+  the vouchers it mints again, ADR 0005). An escrowed genuine refund the
+  settlement cannot pay then (the free escrow is short, a forged receive
+  having drained it, say) is parked instead of refused: its record is
+  settled, the refund owed and queued, reserved by the queued refunds, so
+  no claim, sweep or receive takes the escrow it waits for, and
+  `ClaimRefunds` pays it after the reopening once the escrow is whole
+  again (a recapitalization); the route can reopen meanwhile, its losses
+  accepted as a deficit. The replacement client must authenticate the route's identity, the
   Ethereum chain, router and commitments slot recorded at the enrolment
   (`ibcgov.RouteIdentity`). It reopens by a governed decision, refused
   while a send record of a retired client is still open (its commitment
