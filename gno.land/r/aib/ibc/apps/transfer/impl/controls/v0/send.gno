@@ -36,9 +36,6 @@ func (l *routes) routeOf(_ int, rlm realm, clientID string) *controls.Route {
 	return l.registry(0, rlm).RouteOf(clientID)
 }
 
-// u is an amount in decimal digits (ufmt takes no uint256).
-func u(v uint256) string { return strconv.FormatUint256(v, 10) }
-
 func mustRoute(rt *controls.Route, clientID string) *controls.Route {
 	if rt == nil {
 		panic(ufmt.Sprintf("client %s is an Ethereum client of no enrolled route: it carries no transfer", clientID))
@@ -100,7 +97,7 @@ func (l *routes) Transfer(_ int, rlm realm, sent []chain.Coin, clientID, receive
 		panic("the amount must be positive")
 	}
 	if amount > abi.MaxAmount {
-		panic("the amount is above Ethereum's maximum of 2^96 - 1: " + u(amount))
+		panic("the amount is above Ethereum's maximum of 2^96 - 1: " + controls.Decimal(amount))
 	}
 	sender := unsafe.OriginCaller()
 	var (
@@ -174,7 +171,7 @@ func (l *routes) Transfer(_ int, rlm realm, sent []chain.Coin, clientID, receive
 			panic("the amount plus the route fee is above the chain's coin maximum")
 		}
 		if len(sent) != 1 || sent[0].Denom != denom || transfer.CoinAmount(sent[0]) != total {
-			panic("send exactly " + u(total) + denom + ": the amount plus the route fee of " + u(fee))
+			panic("send exactly " + controls.Decimal(total) + denom + ": the amount plus the route fee of " + controls.Decimal(fee))
 		}
 		l.store.SetPendingNativeEscrow(0, rlm, chain.NewCoin(denom, int64(amount)))
 		if fee > 0 {
@@ -188,7 +185,7 @@ func (l *routes) Transfer(_ int, rlm realm, sent []chain.Coin, clientID, receive
 		wireDenom, accDenom, kind = denom, denom, controls.KindUnescrow
 	}
 
-	data := ics20.NewFungibleTokenPacketData(wireDenom, u(amount), sender.String(), receiver, memo)
+	data := ics20.NewFungibleTokenPacketData(wireDenom, controls.Decimal(amount), sender.String(), receiver, memo)
 	value, err := abi.Marshal(data)
 	if err != nil {
 		panic(err)

@@ -62,7 +62,7 @@ func (l *routes) payable(rt *controls.Route, ps []payout) string {
 				return "no voucher token for " + denom
 			}
 			if _, ok := overflow.Addu256(tok.TotalSupply(), total); !ok {
-				return "minting " + u(total) + " " + denom + " would overflow its token supply"
+				return "minting " + controls.Decimal(total) + " " + denom + " would overflow its token supply"
 			}
 			continue
 		}
@@ -75,12 +75,12 @@ func (l *routes) payable(rt *controls.Route, ps []payout) string {
 				return "GRC20 token " + transfer.ResolveGRC20Alias(denom) + " not found in grc20reg"
 			}
 			if have := tok.BalanceOf(self); have < total {
-				return "this realm holds " + u(have) + " of " + denom + ", short of " + u(total)
+				return "this realm holds " + controls.Decimal(have) + " of " + denom + ", short of " + controls.Decimal(total)
 			}
 			continue
 		}
 		if total > math.MaxInt64 {
-			return "paying " + u(total) + " " + denom + " is above the chain's coin maximum"
+			return "paying " + controls.Decimal(total) + " " + denom + " is above the chain's coin maximum"
 		}
 		if have := banker.NewReadonlyBanker().GetCoin(self, denom); have < int64(total) {
 			return ufmt.Sprintf("this realm holds %d %s, short of %d", have, denom, int64(total))

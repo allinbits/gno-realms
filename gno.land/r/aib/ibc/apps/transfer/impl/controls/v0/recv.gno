@@ -110,7 +110,7 @@ func (l *routes) OnRecvPacket(_ int, rlm realm, sourceClient, destinationClient 
 	// (its transfer app refuses it, ADR pr6375 E6): a receive above it can
 	// only be a forgery, refused before any state change.
 	if amount > abi.MaxAmount {
-		return refuse(ufmt.Errorf("the amount %s is above Ethereum's maximum of 2^96 - 1", u(amount)))
+		return refuse(ufmt.Errorf("the amount %s is above Ethereum's maximum of 2^96 - 1", controls.Decimal(amount)))
 	}
 
 	denom, accDenom, kind := receivedDenom(rt, sourceClient, payload, token)
@@ -154,6 +154,6 @@ func (l *routes) OnRecvPacket(_ int, rlm realm, sourceClient, destinationClient 
 		transfer.AttributeKeyAckSuccess, strconv.FormatBool(ack.Success()),
 	)
 	transfer.EmitRoute(0, rlm, "credit", "route", rt.Key, "packet", key, "denom", accDenom,
-		"receiver", string(receiver), "amount", u(amount), "booked", booked)
+		"receiver", string(receiver), "amount", controls.Decimal(amount), "booked", booked)
 	return types.RecvPacketResult{Status: types.PacketStatus_Success, Acknowledgement: ack.MarshalJSON()}
 }

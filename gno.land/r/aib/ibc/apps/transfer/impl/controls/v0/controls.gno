@@ -65,7 +65,7 @@ func (l *routes) Claim(_ int, rlm realm, clientID, denom string, n int) int {
 		l.payOut(0, rlm, rt, denom, p.To, p.Amount)
 		l.payOut(0, rlm, rt, denom, rt.FeeCollector, p.Fee)
 		transfer.EmitRoute(0, rlm, "claim", "route", rt.Key, "packet", p.Key, "denom", denom, "to", string(p.To),
-			"amount", u(p.Amount), "fee", u(p.Fee))
+			"amount", controls.Decimal(p.Amount), "fee", controls.Decimal(p.Fee))
 	}
 	return len(ps)
 }
@@ -83,7 +83,7 @@ func (l *routes) ClaimRefunds(_ int, rlm realm, clientID, denom string, n int) i
 	for _, p := range ps {
 		l.payOut(0, rlm, rt, denom, p.To, p.Amount)
 		transfer.EmitRoute(0, rlm, "refund", "route", rt.Key, "packet", p.Key, "denom", denom, "to", string(p.To),
-			"amount", u(p.Amount))
+			"amount", controls.Decimal(p.Amount))
 	}
 	return len(ps)
 }
@@ -174,7 +174,7 @@ func (l *routes) ContinueReopen(_ int, rlm realm, route string) bool {
 	if err != nil {
 		panic(err)
 	}
-	transfer.EmitRoute(0, rlm, "reopen", "route", rt.Key, "accepted", u(accepted), "open", strconv.FormatBool(done))
+	transfer.EmitRoute(0, rlm, "reopen", "route", rt.Key, "accepted", controls.Decimal(accepted), "open", strconv.FormatBool(done))
 	return done
 }
 
@@ -212,7 +212,7 @@ func (l *routes) Recapitalize(_ int, rlm realm, sent []chain.Coin, route string,
 		// A native coin is an int64: an authorization above the chain's
 		// coin maximum can match no coin sent.
 		if len(sent) != 1 || sent[0].Denom != r.Denom || transfer.CoinAmount(sent[0]) != r.Amount {
-			panic("send exactly " + u(r.Amount) + r.Denom + " in a direct call")
+			panic("send exactly " + controls.Decimal(r.Amount) + r.Denom + " in a direct call")
 		}
 		l.store.AddEscrow(0, rlm, rt.Key, r.Denom, r.Amount)
 	}
@@ -220,7 +220,7 @@ func (l *routes) Recapitalize(_ int, rlm realm, sent []chain.Coin, route string,
 		panic(err)
 	}
 	transfer.EmitRoute(0, rlm, "recapitalize", "route", rt.Key, "id", strconv.FormatInt(id, 10), "denom", r.Denom,
-		"amount", u(r.Amount), "payer", string(payer))
+		"amount", controls.Decimal(r.Amount), "payer", string(payer))
 }
 
 // successAckCommitment is the acknowledgement commitment of this app's
@@ -301,8 +301,8 @@ func (l *routes) GovApply(_ int, rlm realm, op string, params []byte) string {
 			// voucher is the token wallets hold: a configuration naming
 			// others is refused (ibcgov refuses it when built as well; a
 			// first receive during the delay creates the voucher).
-			if d := tok.GetDecimals(); d != p.Config.Decimals {
-				return "the voucher of " + p.Denom + " exists with " + strconv.Itoa(d) + " decimals, which never change"
+			if err := transfer.CheckVoucherDecimals(p.Denom, p.Config.Decimals); err != nil {
+				return err.Error()
 			}
 		}
 		// The meters refill at the old caps up to now first: a new cap
@@ -365,7 +365,7 @@ func (l *routes) GovApply(_ int, rlm realm, op string, params []byte) string {
 		// A recapitalization in coins is paid as one coin, an int64: an
 		// authorization above the chain's coin maximum could never be paid.
 		if !transfer.IsGRC20Alias(p.Denom) && p.Amount > math.MaxInt64 {
-			return "a recapitalization in coins is at most " + u(math.MaxInt64) + " " + p.Denom + ": no coin can pay more"
+			return "a recapitalization in coins is at most " + controls.Decimal(math.MaxInt64) + " " + p.Denom + ": no coin can pay more"
 		}
 		var id int64
 		id, err = rt.AuthorizeRecap(p.Denom, p.Amount, p.Incident)
@@ -404,7 +404,7 @@ func (l *routes) GovApply(_ int, rlm realm, op string, params []byte) string {
 		var accepted uint256
 		var done bool
 		accepted, done, err = rt.Reopen()
-		note = "accepted deficit " + u(accepted)
+		note = "accepted deficit " + controls.Decimal(accepted)
 		if !done {
 			note += "; continue with transfer.ContinueReopen"
 		}

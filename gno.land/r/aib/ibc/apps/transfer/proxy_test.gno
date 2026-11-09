@@ -195,8 +195,9 @@ func TestReadOnlyViewsAndGates(cur realm, t *testing.T) {
 }
 
 // A voucher takes its decimals when it is created and keeps them: a later
-// request with others returns the same token, and the decimals of a voucher
-// that does not exist yet are nobody's.
+// request with the same returns the same token, one with others panics
+// (review of #85), and the decimals of a voucher that does not exist yet are
+// nobody's.
 func TestVoucherDecimalsFixedAtCreation(cur realm, t *testing.T) {
 	resetUpgradeState()
 	defer resetUpgradeState()
@@ -211,9 +212,12 @@ func TestVoucherDecimalsFixedAtCreation(cur realm, t *testing.T) {
 	uassert.True(t, ok)
 	uassert.Equal(t, grc20.MaxDecimals, d)
 
-	again := store.GetOrCreateVoucher(0, cur, "0x457df1a9866af7b6a78eeba9291fc3e58b4d864b", weth, 6)
+	again := store.GetOrCreateVoucher(0, cur, "0x457df1a9866af7b6a78eeba9291fc3e58b4d864b", weth, grc20.MaxDecimals)
 	uassert.Equal(t, tok.GetSymbol(), again.GetSymbol())
-	uassert.Equal(t, grc20.MaxDecimals, again.GetDecimals())
+	uassert.PanicsContains(t, cur, "exists with 18 decimals, which never change", func() {
+		store.GetOrCreateVoucher(0, cur, "0x457df1a9866af7b6a78eeba9291fc3e58b4d864b", weth, 6)
+	})
+	uassert.NoError(t, CheckVoucherDecimals(weth, grc20.MaxDecimals))
 	uassert.Equal(t, 1, store.Vouchers().Size())
 
 	// grc20's bound holds here too.

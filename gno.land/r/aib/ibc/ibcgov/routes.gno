@@ -429,9 +429,9 @@ func denomText(denom string, c controls.DenomConfig) string {
 	if remote == "" {
 		remote = "-"
 	}
-	return denom + " kind=" + c.Kind + " capFloor=" + u256s(c.CapFloor) + " supplyCap=" + u256s(c.SupplyCap) +
-		" fee=" + u256s(c.Fee) + " feeFloor=" + u256s(c.FeeFloor) + " sendMax=" + u256s(c.SendMax) + " sendMin=" + u256s(c.SendMin) +
-		" refundCap=" + u256s(c.RefundCap) + " remoteToken=" + remote + " decimals=" + strconv.Itoa(c.Decimals)
+	return denom + " kind=" + c.Kind + " capFloor=" + controls.Decimal(c.CapFloor) + " supplyCap=" + controls.Decimal(c.SupplyCap) +
+		" fee=" + controls.Decimal(c.Fee) + " feeFloor=" + controls.Decimal(c.FeeFloor) + " sendMax=" + controls.Decimal(c.SendMax) + " sendMin=" + controls.Decimal(c.SendMin) +
+		" refundCap=" + controls.Decimal(c.RefundCap) + " remoteToken=" + remote + " decimals=" + strconv.Itoa(c.Decimals)
 }
 
 // denomConfig checks a denom's configuration as NewSetDenomRequest takes it
@@ -492,8 +492,8 @@ func NewSetDenomRequest(cur realm, route, denom, kind string, capFloor, supplyCa
 	if old, ok := view().DenomConfig(route, denom); ok && old.Kind != kind {
 		panic("ibcgov: a denom never changes accounting")
 	}
-	if d, ok := transfer.VoucherDecimals(denom); ok && d != decimals {
-		panic("ibcgov: the voucher of " + denom + " exists with " + strconv.Itoa(d) + " decimals, which never change")
+	if err := transfer.CheckVoucherDecimals(denom, decimals); err != nil {
+		panic("ibcgov: " + err.Error())
 	}
 	// At once or queued is decided against the configuration when the
 	// decision is recorded: another decision may have changed it since the
@@ -623,7 +623,7 @@ func NewCreditRequest(cur realm, route, key, denom, to string, amount uint256) R
 		panic("ibcgov: a credit names a denom and a positive amount")
 	}
 	a := mustPayee(to)
-	text := "credit " + u256s(amount) + " " + denom + " to " + string(a) + " for packet " + key + " on route " + route
+	text := "credit " + controls.Decimal(amount) + " " + denom + " to " + string(a) + " for packet " + key + " on route " + route
 	return routeRequest(cur, controls.OpCredit, "credit", text, controls.Params{Route: route, Key: key, Denom: denom, To: a, Amount: amount}, true)
 }
 
@@ -661,7 +661,7 @@ func NewRecordLossRequest(cur realm, route, key, denom string, amount uint256, c
 	if _, _, ok := controls.ParsePacketKey(key); !ok || !isDenom(denom) || amount == 0 {
 		panic("ibcgov: a loss names a packet key, a denom and a positive amount")
 	}
-	text := "loss of " + u256s(amount) + " " + denom + " on " + chain + " for packet " + key + " on route " + route + " (" + cause + ", incident " + incident + ")"
+	text := "loss of " + controls.Decimal(amount) + " " + denom + " on " + chain + " for packet " + key + " on route " + route + " (" + cause + ", incident " + incident + ")"
 	return routeRequest(cur, controls.OpLoss, "record loss", text,
 		controls.Params{Route: route, Key: key, Denom: denom, Amount: amount, Chain: chain, Incident: incident, Cause: cause}, true)
 }
@@ -678,9 +678,9 @@ func NewRecapitalizeRequest(cur realm, route, denom string, amount uint256, inci
 		panic("ibcgov: a recapitalization names a denom and a positive amount")
 	}
 	if !transfer.IsGRC20Alias(denom) && amount > math.MaxInt64 {
-		panic("ibcgov: a recapitalization in coins is at most " + u256s(math.MaxInt64) + " " + denom + ": no coin can pay more")
+		panic("ibcgov: a recapitalization in coins is at most " + controls.Decimal(math.MaxInt64) + " " + denom + ": no coin can pay more")
 	}
-	return routeRequest(cur, controls.OpRecapitalize, "recapitalize", "recapitalize "+u256s(amount)+" "+denom+" on route "+route+" (incident "+incident+")",
+	return routeRequest(cur, controls.OpRecapitalize, "recapitalize", "recapitalize "+controls.Decimal(amount)+" "+denom+" on route "+route+" (incident "+incident+")",
 		controls.Params{Route: route, Denom: denom, Amount: amount, Incident: incident}, true)
 }
 
@@ -707,7 +707,7 @@ func NewReduceRequest(cur realm, route, key string, amount uint256, incident str
 	if _, _, ok := controls.ParsePacketKey(key); !ok || amount == 0 {
 		panic("ibcgov: a reduction names a packet key and a positive amount")
 	}
-	return routeRequest(cur, controls.OpReduce, "reduce", "reduce the liability of "+key+" on route "+route+" by "+u256s(amount)+" (incident "+incident+")",
+	return routeRequest(cur, controls.OpReduce, "reduce", "reduce the liability of "+key+" on route "+route+" by "+controls.Decimal(amount)+" (incident "+incident+")",
 		controls.Params{Route: route, Key: key, Amount: amount, Incident: incident}, true)
 }
 
@@ -719,7 +719,7 @@ func NewAcceptDeficitRequest(cur realm, route, denom string, amount uint256, inc
 	if !isDenom(denom) || amount == 0 {
 		panic("ibcgov: an accepted deficit names a denom and a positive amount")
 	}
-	return routeRequest(cur, controls.OpAccept, "accept deficit", "accept a deficit of "+u256s(amount)+" "+denom+" on route "+route+" (incident "+incident+")",
+	return routeRequest(cur, controls.OpAccept, "accept deficit", "accept a deficit of "+controls.Decimal(amount)+" "+denom+" on route "+route+" (incident "+incident+")",
 		controls.Params{Route: route, Denom: denom, Amount: amount, Incident: incident}, true)
 }
 

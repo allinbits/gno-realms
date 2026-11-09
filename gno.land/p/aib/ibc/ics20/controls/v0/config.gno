@@ -68,7 +68,7 @@ func (c DenomConfig) Validate() error {
 	switch c.Kind {
 	case KindUnescrow:
 		if c.SendMin == 0 || c.SendMax < c.SendMin {
-			return ufmt.Errorf("controls: send limits must satisfy 0 < min (%s) <= max (%s)", u(c.SendMin), u(c.SendMax))
+			return ufmt.Errorf("controls: send limits must satisfy 0 < min (%s) <= max (%s)", Decimal(c.SendMin), Decimal(c.SendMax))
 		}
 		if c.SupplyCap != 0 {
 			return errors.New("controls: an unescrowed denom has no supply cap")
@@ -97,12 +97,12 @@ func (c DenomConfig) Validate() error {
 		return errors.New("controls: the day cap must be positive")
 	}
 	if c.FeeFloor == 0 || c.Fee < c.FeeFloor {
-		return ufmt.Errorf("controls: the fee (%s) must be at least the fee floor (%s), which is positive", u(c.Fee), u(c.FeeFloor))
+		return ufmt.Errorf("controls: the fee (%s) must be at least the fee floor (%s), which is positive", Decimal(c.Fee), Decimal(c.FeeFloor))
 	}
 	// The fee ceiling is cap/4 and the cap is never below CapFloor; equally,
 	// the cap floor is never below 4 fees.
 	if c.Fee > c.CapFloor/4 {
-		return ufmt.Errorf("controls: the fee (%s) is above its ceiling of a quarter of the day cap (%s)", u(c.Fee), u(c.CapFloor/4))
+		return ufmt.Errorf("controls: the fee (%s) is above its ceiling of a quarter of the day cap (%s)", Decimal(c.Fee), Decimal(c.CapFloor/4))
 	}
 	if c.RefundCap == 0 {
 		return errors.New("controls: the refund cap must be positive")

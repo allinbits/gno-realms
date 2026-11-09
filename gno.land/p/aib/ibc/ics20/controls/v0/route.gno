@@ -707,7 +707,7 @@ func (rt *Route) checkSetDenom(name string, c DenomConfig, outstanding uint256) 
 			return errors.New("controls: a denom never changes accounting")
 		}
 		if c.CapFloor < d.LaunchCapFloor {
-			return ufmt.Errorf("controls: the cap floor (%s) cannot go below its launch value (%s)", u(c.CapFloor), u(d.LaunchCapFloor))
+			return ufmt.Errorf("controls: the cap floor (%s) cannot go below its launch value (%s)", Decimal(c.CapFloor), Decimal(d.LaunchCapFloor))
 		}
 	}
 	return nil
@@ -816,10 +816,10 @@ func (d *Denom) CheckSend(amount uint256) error {
 		return errors.New("controls: the amount must be positive")
 	}
 	if amount < d.Config.SendMin {
-		return ufmt.Errorf("controls: %s is below the minimum send of %s", u(amount), u(d.Config.SendMin))
+		return ufmt.Errorf("controls: %s is below the minimum send of %s", Decimal(amount), Decimal(d.Config.SendMin))
 	}
 	if amount > d.Config.SendMax {
-		return ufmt.Errorf("controls: %s is above the maximum send of %s", u(amount), u(d.Config.SendMax))
+		return ufmt.Errorf("controls: %s is above the maximum send of %s", Decimal(amount), Decimal(d.Config.SendMax))
 	}
 	return nil
 }
@@ -961,7 +961,7 @@ func (rt *Route) CheckCredit(denom string, amount uint256) error {
 	if d.Config.Kind == KindMint {
 		booked := d.Totals.booked()
 		if amount > sub0(d.Config.SupplyCap, booked) {
-			return ufmt.Errorf("controls: %s would take %s past its supply cap of %s (%s outstanding or booked)", u(amount), denom, u(d.Config.SupplyCap), u(booked))
+			return ufmt.Errorf("controls: %s would take %s past its supply cap of %s (%s outstanding or booked)", Decimal(amount), denom, Decimal(d.Config.SupplyCap), Decimal(booked))
 		}
 	}
 	return nil

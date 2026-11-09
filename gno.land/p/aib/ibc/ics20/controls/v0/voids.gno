@@ -455,10 +455,10 @@ func (rt *Route) CreditByVote(now, height, epoch int64, key, denom string, to ad
 	// The full payable amount: a credit never drops part of an entitlement
 	// (a haircut goes through Reduce, against an incident).
 	if amount != e.Amount || amount < d.Config.Fee {
-		return ufmt.Errorf("controls: a credit by vote is the sweep entry's whole amount (%s), at least the fee (%s), not %s", u(e.Amount), u(d.Config.Fee), u(amount))
+		return ufmt.Errorf("controls: a credit by vote is the sweep entry's whole amount (%s), at least the fee (%s), not %s", Decimal(e.Amount), Decimal(d.Config.Fee), Decimal(amount))
 	}
 	if free := sub0(lock, d.Reserved()); d.Config.Kind == KindUnescrow && amount > free {
-		return ufmt.Errorf("controls: %s is above the free lock of %s", u(amount), u(free))
+		return ufmt.Errorf("controls: %s is above the free lock of %s", Decimal(amount), Decimal(free))
 	}
 	// A minted credit replaces its sweep entry within the supply already
 	// booked for it: amount never exceeds the entry.
@@ -505,12 +505,12 @@ func (rt *Route) PaySweeps(keys []string, to address, lock uint256) ([]Payment, 
 	}
 	d := rt.Denom(denom)
 	if free := sub0(lock, d.Reserved()); d.Config.Kind == KindUnescrow && total > free {
-		return nil, ufmt.Errorf("controls: %s is above the free lock of %s", u(total), u(free))
+		return nil, ufmt.Errorf("controls: %s is above the free lock of %s", Decimal(total), Decimal(free))
 	}
 	// A minted payment adds to the outstanding supply: refused whole, the
 	// entries kept, when it would overflow it.
 	if _, ok := checkedAdd(d.Totals.Outstanding, total); d.Config.Kind == KindMint && !ok {
-		return nil, ufmt.Errorf("controls: %s of %s would overflow its outstanding supply", u(total), denom)
+		return nil, ufmt.Errorf("controls: %s of %s would overflow its outstanding supply", Decimal(total), denom)
 	}
 	var out []Payment
 	for _, k := range keys {
@@ -598,7 +598,7 @@ func (rt *Route) AuthorizeRecap(denom string, amount uint256, incident string) (
 		return 0, err
 	}
 	if amount == 0 || amount > rt.recapitalizable(denom, incident, 0) {
-		return 0, ufmt.Errorf("controls: %s is not within incident %s's unrecovered losses not yet authorized", u(amount), incident)
+		return 0, ufmt.Errorf("controls: %s is not within incident %s's unrecovered losses not yet authorized", Decimal(amount), incident)
 	}
 	p := openRecapPrefix(denom, incident)
 	open := 0
@@ -718,7 +718,7 @@ func (rt *Route) Recapitalize(id int64, denom string, amount uint256, by address
 		return ufmt.Errorf("controls: recapitalization %d is paid or revoked", id)
 	}
 	if r.Denom != denom || r.Amount != amount {
-		return ufmt.Errorf("controls: recapitalization %d is %s %s", id, u(r.Amount), r.Denom)
+		return ufmt.Errorf("controls: recapitalization %d is %s %s", id, Decimal(r.Amount), r.Denom)
 	}
 	// Re-checked at payment: the incident's losses must still hold it.
 	if amount > rt.recapitalizable(denom, r.Incident, id) {
@@ -754,7 +754,7 @@ func (rt *Route) Reduce(key string, amount uint256, incident string) error {
 		return err
 	}
 	if amount == 0 || amount > c.Remaining() || amount > rt.unrecoveredOf(c.Denom, incident) {
-		return ufmt.Errorf("controls: %s is not within the claim's remainder and incident %s's unrecovered losses", u(amount), incident)
+		return ufmt.Errorf("controls: %s is not within the claim's remainder and incident %s's unrecovered losses", Decimal(amount), incident)
 	}
 	rt.revokeConflicting(c.Denom, incident, amount)
 	c.Amount -= amount
@@ -791,7 +791,7 @@ func (rt *Route) reduceSweep(key string, amount uint256, incident string) error 
 		return err
 	}
 	if amount == 0 || amount > e.Amount || amount > rt.unrecoveredOf(e.Denom, incident) {
-		return ufmt.Errorf("controls: %s is not within the sweep entry's amount and incident %s's unrecovered losses", u(amount), incident)
+		return ufmt.Errorf("controls: %s is not within the sweep entry's amount and incident %s's unrecovered losses", Decimal(amount), incident)
 	}
 	rt.revokeConflicting(e.Denom, incident, amount)
 	d := rt.Denom(e.Denom)
@@ -820,7 +820,7 @@ func (rt *Route) Accept(denom string, amount uint256, incident string) error {
 		return errors.New("controls: an accepted deficit names its incident")
 	}
 	if amount == 0 || amount > rt.unresolvedOf(denom, incident) {
-		return ufmt.Errorf("controls: %s is not within incident %s's unresolved losses", u(amount), incident)
+		return ufmt.Errorf("controls: %s is not within incident %s's unresolved losses", Decimal(amount), incident)
 	}
 	rt.accept(denom, incident, amount)
 	return nil

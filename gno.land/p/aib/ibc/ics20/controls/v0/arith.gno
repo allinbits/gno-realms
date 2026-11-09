@@ -74,10 +74,11 @@ func boundAdd(a, b uint256) uint256 {
 // statAdd is boundAdd for a statistic.
 func statAdd(a, b uint256) uint256 { return boundAdd(a, b) }
 
-// u is an amount in decimal digits (ufmt takes no uint256).
-func u(v uint256) string { return strconv.FormatUint256(v, 10) }
+// Decimal is an amount in decimal digits (ufmt takes no uint256): the one
+// formatter of the route controls, the controls implementation and ibcgov.
+func Decimal(v uint256) string { return strconv.FormatUint256(v, 10) }
 
 // qu is an amount as a JSON string: amounts are quoted in every JSON this
 // package renders, so a 256-bit value survives a reader that parses numbers
 // as doubles.
-func qu(v uint256) string { return "\"" + u(v) + "\"" }
+func qu(v uint256) string { return "\"" + Decimal(v) + "\"" }

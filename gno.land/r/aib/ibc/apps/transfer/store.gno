@@ -3,6 +3,7 @@ package transfer
 import (
 	"chain"
 	"chain/banker"
+	"errors"
 	"math"
 	"math/overflow"
 	"strconv"
@@ -87,8 +88,9 @@ type Store interface {
 	// Vouchers is a read-only view; values are *grc20.Token.
 	Vouchers() bptree.ITree
 	// GetOrCreateVoucher is the voucher of voucherDenom, created with
-	// decimals (0 to grc20.MaxDecimals) if it did not exist: an existing
-	// voucher keeps the decimals it was created with, whatever is passed.
+	// decimals (0 to grc20.MaxDecimals) if it did not exist. An existing
+	// voucher keeps the decimals it was created with: passing others panics
+	// (CheckVoucherDecimals), an implementation's mistake caught here.
 	GetOrCreateVoucher(_ int, rlm realm, baseDenom, voucherDenom string, decimals int) *grc20.Token
 	MintVoucher(_ int, rlm realm, ibcDenom string, to address, amount uint256) error
 	BurnVoucher(_ int, rlm realm, ibcDenom string, from address, amount uint256) error
@@ -640,6 +642,18 @@ func VoucherDecimals(ibcDenom string) (int, bool) {
 	return v.(*voucher).token.GetDecimals(), true
 }
 
+// CheckVoucherDecimals refuses decimals other than those of the existing
+// voucher of an IBC denom, which grc20 fixed at its creation; any decimals
+// pass for a denom with no voucher yet. The one comparison behind ibcgov's
+// request builder, the controls' configuration of a denom and the voucher's
+// creation (getOrCreateVoucher).
+func CheckVoucherDecimals(ibcDenom string, decimals int) error {
+	if d, ok := VoucherDecimals(ibcDenom); ok && d != decimals {
+		return errors.New("the voucher of " + ibcDenom + " exists with " + strconv.Itoa(d) + " decimals, which never change")
+	}
+	return nil
+}
+
 // voucherSymbolOf is the symbol of the voucher with grc20 id id.
 func voucherSymbolOf(id uint64) string {
 	sym := "IBC-" + strings.ToUpper(strconv.FormatUint(id, 36))
@@ -660,8 +674,14 @@ func voucherSymbolOf(id uint64) string {
 // whatever its hash, can take another's key. Its decimals are the
 // implementation's to name (an ICS20 packet carries no token metadata: on an
 // Ethereum route the denom's governed configuration, 0 elsewhere), and
-// grc20 fixes them at creation: an existing voucher keeps its own.
+// grc20 fixes them at creation: decimals other than an existing voucher's
+// panic. This proxy is frozen while every caller is replaceable code, so it
+// catches an implementation that forgot what its configuration checks
+// refuse.
 func getOrCreateVoucher(_ int, rlm realm, baseDenom, voucherDenom string, decimals int) *voucher {
+	if err := CheckVoucherDecimals(voucherDenom, decimals); err != nil {
+		panic("transfer: " + err.Error())
+	}
 	if v := voucherTokens.Get(voucherDenom); v != nil {
 		return v.(*voucher)
 	}

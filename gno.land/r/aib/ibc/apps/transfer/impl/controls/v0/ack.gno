@@ -61,7 +61,7 @@ func (l *routes) OnAcknowledgementPacket(_ int, rlm realm, sourceClient, destina
 		transfer.AttributeKeySender, string(rec.Sender),
 		transfer.AttributeKeyReceiver, rec.Receiver,
 		transfer.AttributeKeyDenom, rec.Denom,
-		transfer.AttributeKeyAmount, u(rec.Amount),
+		transfer.AttributeKeyAmount, controls.Decimal(rec.Amount),
 		transfer.AttributeKeyAck, string(acknowledgement),
 	}
 	transfer.EmitPacket(0, rlm, attrs...)
@@ -82,7 +82,7 @@ func (l *routes) OnTimeoutPacket(_ int, rlm realm, sourceClient, destinationClie
 		return err
 	}
 	l.settle(0, rlm, rt, rec, controls.OutcomeTimeout)
-	transfer.EmitTimeout(0, rlm, string(rec.Sender), rec.Denom, u(rec.Amount), "")
+	transfer.EmitTimeout(0, rlm, string(rec.Sender), rec.Denom, controls.Decimal(rec.Amount), "")
 	return nil
 }
 
@@ -98,7 +98,7 @@ func (l *routes) settle(_ int, rlm realm, rt *controls.Route, rec controls.SendR
 		l.payOut(0, rlm, rt, rec.Denom, rec.Sender, pay)
 	}
 	transfer.EmitRoute(0, rlm, "settle", "route", rt.Key, "packet", rec.Key, "outcome", outcome,
-		"payment", rt.SendPayment(rec.Key), "refunded", u(pay))
+		"payment", rt.SendPayment(rec.Key), "refunded", controls.Decimal(pay))
 }
 
 // payOut moves amount of denom to `to`: out of the route's escrow for a

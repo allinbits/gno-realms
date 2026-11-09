@@ -581,7 +581,7 @@ func (rt *Route) PlanSettlement(client string, items []SettleItem, incident stri
 				return nil, ufmt.Errorf("controls: item %d: %v", i, err)
 			}
 			if it.Amount == 0 || it.Amount != paid {
-				return nil, ufmt.Errorf("controls: item %d: the receive %s paid out %s, not %s", i, key, u(paid), u(it.Amount))
+				return nil, ufmt.Errorf("controls: item %d: the receive %s paid out %s, not %s", i, key, Decimal(paid), Decimal(it.Amount))
 			}
 			if err := rt.checkIncidentKind(denom, incident, false); err != nil {
 				return nil, ufmt.Errorf("controls: item %d: %v", i, err)
@@ -628,7 +628,7 @@ func (rt *Route) PlanSettlement(client string, items []SettleItem, incident stri
 			// pr6375 §7.9); zero for one paid in full already, which only
 			// settles the record.
 			if rem := mustSub(r.Amount, r.Refunded); it.Amount != rem {
-				return nil, ufmt.Errorf("controls: item %d: a refund pays send %s's whole remainder (%s), not %s", i, key, u(rem), u(it.Amount))
+				return nil, ufmt.Errorf("controls: item %d: a refund pays send %s's whole remainder (%s), not %s", i, key, Decimal(rem), Decimal(it.Amount))
 			}
 			if it.Amount == 0 {
 				break // paid in full already: settles the record, moves nothing
@@ -651,7 +651,7 @@ func (rt *Route) PlanSettlement(client string, items []SettleItem, incident stri
 			// A forged refund: what was paid is the loss, the remainder is
 			// rejected.
 			if r.Refunded == 0 || it.Amount != r.Refunded {
-				return nil, ufmt.Errorf("controls: item %d: a forged refund's loss is what send %s was refunded (%s), not %s", i, key, u(r.Refunded), u(it.Amount))
+				return nil, ufmt.Errorf("controls: item %d: a forged refund's loss is what send %s was refunded (%s), not %s", i, key, Decimal(r.Refunded), Decimal(it.Amount))
 			}
 			if rt.LossBooked(DirSend, key) {
 				return nil, ufmt.Errorf("controls: item %d: the loss of %s is recorded already", i, key)

@@ -1689,8 +1689,8 @@ func NewEthLimitsRequest(cur realm, clientID, token string, maxPerMessage, dayCa
 	tok := mustEthAddr(token)
 	p.params = abi.Encode(abi.String(clientID), abi.Address(tok),
 		abi.Uint256Of(maxPerMessage), abi.Uint256Of(dayCap), abi.Uint256Of(refundCap), abi.Uint256Of(sendMax), abi.Uint256Of(sendMin))
-	text := "limits of " + ethAddrText(tok) + " on " + clientID + ": maxPerMessage=" + u256s(maxPerMessage) + " dayCap=" + u256s(dayCap) +
-		" refundCap=" + u256s(refundCap) + " sendMax=" + u256s(sendMax) + " sendMin=" + u256s(sendMin)
+	text := "limits of " + ethAddrText(tok) + " on " + clientID + ": maxPerMessage=" + controls.Decimal(maxPerMessage) + " dayCap=" + controls.Decimal(dayCap) +
+		" refundCap=" + controls.Decimal(refundCap) + " sendMax=" + controls.Decimal(sendMax) + " sendMin=" + controls.Decimal(sendMin)
 	return ethRequestP(cur, "limits", text, p)
 }
 
