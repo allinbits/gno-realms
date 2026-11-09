@@ -131,5 +131,5 @@ func main(cur realm) {
 // Output:
 // switch: applied - transfer update impl | active: gno.land/r/aib/ibc/apps/transfer/impl/asyncrecv v1
 // acknowledgement pending: true | voucher token: false
-// credit: refused - packet ethereum-1/00000000000000000001 has no success acknowledgement: an error-acknowledged packet is refunded at its source
+// credit: spent - spent: packet ethereum-1/00000000000000000001 has no success acknowledgement: an error-acknowledged packet is refunded at its source
 // acknowledgement pending: true | voucher token: false
