@@ -325,15 +325,13 @@ gnokey query vm/qrender -data "gno.land/r/aib/ibc/apps/transfer:total_escrow/ugn
 ```
 
 ```json
-{ "denom": "ugnot", "amount": 100, "clients": [{ "client": "07-tendermint-1", "amount": 100 }] }
+{ "denom": "ugnot", "amount": "100", "clients": [{ "client": "07-tendermint-1", "amount": "100" }] }
 ```
 
-Amounts in these JSON renders are written as JSON numbers converted from
-float64: an integer above 2^53 (9007199254740992) can lose precision
-(9007199254740993 renders as 9007199254740992). Read exact values from Gno
-code: `VoucherBalanceOf(ibcDenom, addr)` for a balance, the voucher token's
-`TotalSupply()` (via grc20reg) for a supply, and the route controls' totals
-for an Ethereum route.
+Amounts in these JSON renders are JSON strings of decimal digits, exact up
+to `2^256 - 1` (ADR 0005): a reader that parses JSON numbers as doubles
+would lose precision above 2^53, so none is written as a number. Counts
+(pages, decimals) stay JSON numbers.
 
 ## Helper functions
 
