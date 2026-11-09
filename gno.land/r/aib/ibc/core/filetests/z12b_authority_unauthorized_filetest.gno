@@ -2,16 +2,19 @@
 package main
 
 import (
+	"testing"
+
+	"gno.land/p/aib/authority/v0"
 	"gno.land/r/aib/ibc/core"
 	_ "gno.land/r/aib/ibc/core/impl/v0"
 )
 
-// A non-member cannot administer the realm. The bootstrap admits a stranger;
-// this realm is then not a member.
+// The relayer list is a governance decision: not even GovDAO, a member of the
+// authority, changes it directly (ADR pr6375 R14).
 func main(cur realm) {
-	core.AddAuthorityMember(cross(cur), "g1someother00000000000000000000000000")
+	testing.SetRealm(testing.NewCodeRealm(authority.GovDAOPath))
 	core.AddRelayer(cross(cur), "g1relayer000000000000000000000000000000")
 }
 
 // Error:
-// add_relayer: caller g1gjs8nfdrd55z3xu9gjcatnj29vkwuyx4ffqxd9 is not a member of the authority
+// add_relayer: only gno.land/r/aib/ibc/ibcgov decides this, not gno.land/r/gov/dao

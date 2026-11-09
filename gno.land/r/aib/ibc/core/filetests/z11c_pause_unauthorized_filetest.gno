@@ -8,7 +8,6 @@ import (
 
 // Pause is admin-only.
 func main(cur realm) {
-	core.AddAuthorityMember(cross(cur), "g1someother00000000000000000000000000")
 	core.Pause(cross(cur))
 }
 

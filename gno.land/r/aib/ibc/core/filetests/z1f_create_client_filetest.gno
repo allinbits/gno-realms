@@ -2,26 +2,17 @@
 package main
 
 import (
+	ethtesting "gno.land/p/aib/ibc/lightclient/ethereum/testing/v0"
 	"gno.land/p/aib/ibc/lightclient/tendermint/testing/v0"
-	"gno.land/p/aib/ibc/lightclient/v0"
 	"gno.land/p/aib/ibc/types/v0"
 	"gno.land/r/aib/ibc/core"
 	_ "gno.land/r/aib/ibc/core/impl/v0"
 )
 
-type SoloMachine struct{}
-
-func (SoloMachine) ClientType() string {
-	return lightclient.Solomachine
-}
-
-func (SoloMachine) ValidateBasic() error {
-	return nil
-}
-
-// CreateClient w/ client type mismatch
+// CreateClient w/ client type mismatch: a Tendermint client state with an
+// Ethereum consensus state, both our own types.
 func main(cur realm) {
-	core.CreateClient(cross(cur), testing.NewClientState("chainid", types.Height{}), SoloMachine{})
+	core.CreateClient(cross(cur), testing.NewClientState("chainid", types.NewHeight(2, 2)), ethtesting.ConsensusState())
 }
 
 // Error:

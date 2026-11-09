@@ -26,7 +26,7 @@ func newV99(s core.Store) core.Logic { return v99{Logic: implv0.New(s)} }
 // registerV99 registers the candidate as if from its own realm.
 func registerV99(cur realm) {
 	testing.SetRealm(testing.NewCodeRealm(v99Path))
-	core.RegisterImpl(cross(cur), newV99)
+	core.RegisterImpl(cross(cur), newV99, "v99", nil)
 	testing.SetRealm(testing.NewCodeRealm("gno.land/r/aib/main"))
 }
 
@@ -44,4 +44,4 @@ func main(cur realm) {
 }
 
 // Error:
-// update_impl: caller g1gjs8nfdrd55z3xu9gjcatnj29vkwuyx4ffqxd9 is not a member of the authority
+// update_impl: only gno.land/r/aib/ibc/ibcgov decides this, not gno.land/r/aib/main

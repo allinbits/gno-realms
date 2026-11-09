@@ -14,7 +14,10 @@ package ethereum
 
 import (
 	"bytes"
+	"encoding/hex"
 	"errors"
+	"strconv"
+	"strings"
 	"time"
 
 	"crypto/bls12381"
@@ -23,6 +26,7 @@ import (
 	"gno.land/p/aib/ibc/lightclient/v0"
 	"gno.land/p/aib/ibc/types/v0"
 	"gno.land/p/aib/ics23/v0"
+	"gno.land/p/nt/avl/v0"
 	"gno.land/p/nt/bptree/v0"
 	"gno.land/p/nt/ufmt/v0"
 )
@@ -32,6 +36,23 @@ import (
 type EthLightClient struct {
 	ClientState            *ClientState
 	ConsensusStateByHeight *bptree.BPTree // height:*ConsensusState
+	// TrustedFromSlot is the slot of the consensus state a recovery copied:
+	// the states below it were trusted by the verifier the recovery replaced,
+	// so no proof, timestamp or update is ever read from them again.
+	TrustedFromSlot uint64
+	// history is the verifiers replacements retired before this one
+	// (NewFrom), read only, keyed by the latest slot each had when it was
+	// retired (zero-padded): a persistent tree, shared with the verifiers it
+	// came from and never written through, so a height none of the newer
+	// stores holds is found by one ordered lookup, in O(log replacements),
+	// however many replacements there were (no chain of delegations).
+	history *avl.Node
+	// overrides is the consensus states a retired verifier rewrote at slots
+	// an earlier store's interval already covers (a next-committee-only
+	// update of the head it inherited), keyed by historyKey(slot), consulted
+	// before history: a persistent tree, copy-on-write like history, holding
+	// at most the few heads each replacement carried.
+	overrides *avl.Node
 }
 
 var (
@@ -53,8 +74,174 @@ func heightAtSlot(slot uint64) types.Height {
 	return types.NewHeight(0, slot)
 }
 
-// Implements lightclient.Interface.
+// Version names this verifier package and version, which a governed verifier
+// replacement converts from (core.RegisterVerifier).
+const Version = "ethereum/v0"
+
+// VerifierVersion is Version: the core reads it to tell which verifier a
+// client holds.
+func (c *EthLightClient) VerifierVersion() string { return Version }
+
+// Ethereum is the v0 verifier itself: a later verifier version that wraps it
+// keeps exposing its state, so renders and recoveries read it whatever wraps
+// it.
+func (c *EthLightClient) Ethereum() *EthLightClient { return c }
+
+// RouteIdentity is the history this verifier authenticates (ADR pr6375
+// §7.12, "Route identity is preserved"): the Ethereum chain (its chain id and
+// genesis validators root), the ICS26 router and its commitments slot. router
+// is the router's address in lower case with "0x". Every field is fixed at
+// creation: no update, recovery or verifier replacement changes it.
+func (c *EthLightClient) RouteIdentity() (identity, router string) {
+	cs := c.ClientState
+	router = "0x" + hex.EncodeToString(cs.IBCContractAddress)
+	identity = "chain " + strconv.FormatUint(cs.ChainID, 10) +
+		", genesis validators root 0x" + hex.EncodeToString(cs.GenesisValidatorsRoot) +
+		", router " + router +
+		", commitment slot 0x" + hex.EncodeToString(cs.IBCCommitmentSlot)
+	return identity, router
+}
+
+// ethState is a verifier exposing ethereum/v0 state: this one, or a later
+// version wrapping it.
+type ethState interface {
+	Ethereum() *EthLightClient
+}
+
+// Retire is a read-only view of c, the verifier a replacement is about to
+// retire: what a conversion is handed, so it reads c and can never write to
+// it. The view serves the consensus states c trusts at or below its latest
+// slot.
+func Retire(c *EthLightClient) *Retired {
+	return &Retired{c: c, upTo: c.ClientState.LatestSlot}
+}
+
+// NewFrom is a verifier that continues the retired one r views, for a
+// verifier replacement (ADR pr6375 R16), copying no consensus-state history
+// (O(log previous stores), the persistent trees' insertions copying their
+// search paths): a deep copy of its client state, and r, from which it serves every
+// consensus state at or below the retired verifier's latest slot, so every
+// height it trusted stays provable. Its own consensus states, those it stores
+// from now on, are kept apart (an overlay), and nothing writes to the retired
+// verifier: r is the only reference, and it only reads.
+func NewFrom(r *Retired) *EthLightClient {
+	cs := r.ClientState()
+	// Each store in the history owns the interval of slots above the
+	// previous one's key and up to its own: non-overlapping. The retired
+	// verifier's own store joins it only when it holds a slot above every
+	// key (its finality advanced since it was created). Any state it holds
+	// at or below the highest key (at most the head it inherited, rewritten
+	// by a next-committee-only update) is an override of an earlier store's
+	// interval: it is copied into the overrides, consulted first, so it is
+	// never lost to that interval whether or not finality advanced after it.
+	// Both trees are persistent: the retired verifier's own are not changed.
+	hist, ovr := r.c.history, r.c.overrides
+	if r.c.ConsensusStateByHeight.Size() > 0 {
+		var top uint64
+		hasTop := false
+		hist.ReverseIterate("", "", func(n *avl.Node) bool {
+			top, _ = strconv.ParseUint(n.Key(), 10, 64)
+			hasTop = true
+			return true
+		})
+		if hasTop {
+			// Bounded: a verifier's own store holds no slot below the head
+			// it was created with, so this visits at most that head.
+			r.c.ConsensusStateByHeight.Iterate("", heightAtSlot(top+1).StringNatSort(), func(_ string, v any) bool {
+				copied := copyConsensusState(*v.(*ConsensusState))
+				ovr, _ = ovr.Set(historyKey(copied.Slot), &copied)
+				return false
+			})
+		}
+		if !hasTop || r.upTo > top {
+			hist, _ = hist.Set(historyKey(r.upTo), r.c)
+		}
+	}
+	return &EthLightClient{
+		ClientState:            &cs,
+		ConsensusStateByHeight: bptree.NewBPTree32(),
+		TrustedFromSlot:        r.c.TrustedFromSlot,
+		history:                hist,
+		overrides:              ovr,
+	}
+}
+
+// historyKey orders the retired verifiers by the latest slot they had.
+func historyKey(slot uint64) string {
+	s := strconv.FormatUint(slot, 10)
+	return strings.Repeat("0", 20-len(s)) + s
+}
+
+// fromHistory is the consensus state at height a retired verifier stores
+// itself: the first one retired at a latest slot at or above it holds it,
+// if any does (their own stores cover disjoint ranges of slots).
+func (c *EthLightClient) fromHistory(height types.Height) (*ConsensusState, bool) {
+	if _, v, ok := c.overrides.Get(historyKey(height.RevisionHeight)); ok {
+		return v.(*ConsensusState), true
+	}
+	var owner *EthLightClient
+	c.history.Iterate(historyKey(height.RevisionHeight), "", func(n *avl.Node) bool {
+		owner = n.Value().(*EthLightClient)
+		return true
+	})
+	if owner == nil {
+		return nil, false
+	}
+	v := owner.ConsensusStateByHeight.Get(height.StringNatSort())
+	if v == nil {
+		return nil, false
+	}
+	return v.(*ConsensusState), true
+}
+
+// HistoryDepth is how many retired verifiers' stores this one reads through
+// its history: each lookup is one ordered search of them.
+func (c *EthLightClient) HistoryDepth() int { return c.history.Size() }
+
+// Retired is a read-only view of a verifier a replacement retires: the
+// consensus states it trusted, at or below upTo, and nothing to write with.
+type Retired struct {
+	c    *EthLightClient
+	upTo uint64
+}
+
+// ClientState is a deep copy of the retired verifier's client state.
+func (r *Retired) ClientState() ClientState {
+	cs := *r.c.ClientState
+	cs.GenesisValidatorsRoot = cloneBytes(cs.GenesisValidatorsRoot)
+	cs.IBCContractAddress = cloneBytes(cs.IBCContractAddress)
+	cs.IBCCommitmentSlot = cloneBytes(cs.IBCCommitmentSlot)
+	return cs
+}
+
+// LatestHeight is the retired verifier's latest height.
+func (r *Retired) LatestHeight() types.Height { return r.c.LatestHeight() }
+
+// ConsensusState is a copy of the retired verifier's consensus state at
+// height, if it trusted one there.
+func (r *Retired) ConsensusState(height types.Height) (ConsensusState, bool) {
+	cons, ok := r.consensusState(height)
+	if !ok {
+		return ConsensusState{}, false
+	}
+	return copyConsensusState(*cons), true
+}
+
+// consensusState is the retired verifier's consensus state at height, if it
+// trusted one there.
+func (r *Retired) consensusState(height types.Height) (*ConsensusState, bool) {
+	if r == nil || height.RevisionHeight > r.upTo {
+		return nil, false
+	}
+	return r.c.GetConsensusState(height)
+}
+
+// Implements lightclient.Interface. It runs once, on a client not yet
+// initialized: a stored client's trusted state is never replaced through it.
 func (c *EthLightClient) Initialize(clientState lightclient.ClientState, consensusState lightclient.ConsensusState) error {
+	if c.ClientState != nil {
+		return errors.New("ethereum client initialized already")
+	}
 	cs, ok := clientState.(ClientState)
 	if !ok {
 		return ufmt.Errorf("expected ethereum ClientState, got %T", clientState)
@@ -739,10 +926,35 @@ func (c *EthLightClient) TimestampAtHeight(height types.Height) (uint64, error) 
 // light-client containers (new generalized indices, as Gloas did) needs new
 // verification code too: such a fork still needs a new client package.
 func (c *EthLightClient) RecoverClient(substitute lightclient.Interface) error {
-	sub, ok := substitute.(*EthLightClient)
+	if err := c.CheckRecovery(substitute); err != nil {
+		return err
+	}
+	sub := substitute.(ethState).Ethereum()
+	a, b := c.ClientState, sub.ClientState
+	cons, _ := sub.GetConsensusState(sub.LatestHeight())
+	copied := copyConsensusState(*cons)
+	c.setConsensusState(&copied)
+	updated := *a
+	updated.LatestSlot = b.LatestSlot
+	updated.LatestExecutionBlockNumber = b.LatestExecutionBlockNumber
+	updated.MinSyncCommitteeParticipants = b.MinSyncCommitteeParticipants
+	updated.ForkParameters = b.ForkParameters
+	updated.IsFrozen = false
+	c.ClientState = &updated
+	c.TrustedFromSlot = copied.Slot
+	return nil
+}
+
+// CheckRecovery is why RecoverClient would refuse substitute, or nil; it
+// changes nothing, so a governed recovery is refused deterministically
+// before it runs.
+func (c *EthLightClient) CheckRecovery(substitute lightclient.Interface) error {
+	// The v0 verifier, or a later version wrapping it.
+	s, ok := substitute.(ethState)
 	if !ok {
 		return ufmt.Errorf("substitute must be an ethereum client, got %T", substitute)
 	}
+	sub := s.Ethereum()
 	a, b := c.ClientState, sub.ClientState
 	if !sameChainAndRouter(a, b) {
 		return errors.New("substitute client tracks a different chain or router")
@@ -753,19 +965,9 @@ func (c *EthLightClient) RecoverClient(substitute lightclient.Interface) error {
 	if b.LatestSlot <= a.LatestSlot {
 		return errors.New("substitute must be ahead of the subject")
 	}
-	cons, ok := sub.GetConsensusState(sub.LatestHeight())
-	if !ok {
+	if _, ok := sub.GetConsensusState(sub.LatestHeight()); !ok {
 		return errors.New("substitute has no latest consensus state")
 	}
-	copied := copyConsensusState(*cons)
-	c.setConsensusState(&copied)
-	updated := *a
-	updated.LatestSlot = b.LatestSlot
-	updated.LatestExecutionBlockNumber = b.LatestExecutionBlockNumber
-	updated.MinSyncCommitteeParticipants = b.MinSyncCommitteeParticipants
-	updated.ForkParameters = b.ForkParameters
-	updated.IsFrozen = false
-	c.ClientState = &updated
 	return nil
 }
 
@@ -796,11 +998,26 @@ func (c *EthLightClient) setConsensusState(cons *ConsensusState) {
 	c.ConsensusStateByHeight.Set(heightAtSlot(cons.Slot).StringNatSort(), cons)
 }
 
-// GetConsensusState returns the consensus state at height, if any.
+// GetConsensusState returns the consensus state at height, if any and still
+// trusted: one below TrustedFromSlot, from before a recovery, is not. An
+// Ethereum height is revision 0 and a slot: any other revision holds none,
+// whatever store (the client's own, the overrides, the history) would be
+// read for its slot.
 func (c *EthLightClient) GetConsensusState(height types.Height) (*ConsensusState, bool) {
+	if height.RevisionNumber != 0 || height.RevisionHeight < c.TrustedFromSlot {
+		return nil, false
+	}
 	v := c.ConsensusStateByHeight.Get(height.StringNatSort())
 	if v == nil {
-		return nil, false
+		// A height the retired verifier trusted before a replacement: a
+		// copy, so no pointer into the retired verifier ever escapes, to a
+		// later conversion least of all.
+		cons, ok := c.fromHistory(height)
+		if !ok {
+			return nil, false
+		}
+		copied := copyConsensusState(*cons)
+		return &copied, true
 	}
 	return v.(*ConsensusState), true
 }

@@ -133,7 +133,7 @@ func main(cur realm) {
 // res: (2 gno.land/p/aib/ibc/types/v0.ResponseResultType)
 //
 // ----------- assert render clients/07-tendermint-1/packet_receipts
-// {"items":[{"sequence":"1","data":"Ag=="}],"page":1,"total":1}
+// {"items":[{"sequence":"1","data":"EenARY9OAmttQ2oxxsNVUCDgDRf5pN2NoILemcfK3U4="}],"page":1,"total":1}
 //
 // ----------- assert render clients/07-tendermint-1/packet_acknowledgements
 // Expected commitment 4vsw3796verKgtQmU00rOp1URN0qh/oW04t3uhoTztc=

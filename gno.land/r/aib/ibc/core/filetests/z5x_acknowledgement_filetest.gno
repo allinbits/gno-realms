@@ -135,7 +135,7 @@ func main(cur realm) {
 // recv res: (2 gno.land/p/aib/ibc/types/v0.ResponseResultType)
 //
 // ----------- assert render clients/07-tendermint-1/packet_receipts/1
-// {"sequence":"1","data":"Ag=="}
+// {"sequence":"1","data":"wXN0rG457rG26RY83iG2Lgl16hpxtMM3m0iC3RUol4A="}
 //
 // ----------- assert render clients/07-tendermint-1/packet_acknowledgements before WriteAcknowledgement
 // {"items":[],"page":1,"total":1}
