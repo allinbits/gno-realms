@@ -87,10 +87,11 @@ func decided(id int64) string {
 	return d.State() + " - " + d.Note
 }
 
-// A credit by vote completing a pending asynchronous acknowledgement of the
-// first packet of a minted denom creates the denom and its voucher, with the
-// configured decimals, as the receive does: the claim it books is payable
-// (review of #93).
+// A credit by vote needs the packet's success acknowledgement: one whose
+// asynchronous acknowledgement is still pending is refused, nothing booked
+// and the acknowledgement left to the app (review of #85: no transfer
+// implementation answers asynchronously, and the controls have no path for
+// it).
 func main(cur realm) {
 	const client = "ethereum-1"
 	timeout := uint64(time.Now().Add(90 * 24 * time.Hour).Unix())
@@ -123,19 +124,12 @@ func main(cur realm) {
 	credit := govern(cur, ibcgov.NewCreditRequest(cross(cur), client, controls.PacketKey(client, 1), voucher, string(bob), 50))
 	execute(cur, credit)
 	_, _, pending = core.PendingAsyncAck(client, 1)
-	println("credit:", decided(credit), "| acknowledgement pending:", pending, "| voucher token:", transfer.VoucherSymbol(voucher) != "")
-
-	advance(24 * time.Hour) // the claim meter refills
-	testing.SetRealm(testing.NewUserRealm(bob))
-	paid := transfer.Claim(cross(cur), client, voucher, 10)
-	println("claims paid:", paid, "| bob's vouchers:", strconv.FormatUint256(transfer.VoucherBalanceOf(voucher, bob), 10))
-	// The voucher carries the decimals governance configured, as at a receive.
-	println(transfer.Render("voucher/" + voucher))
+	println("credit:", decided(credit))
+	println("acknowledgement pending:", pending, "| voucher token:", transfer.VoucherSymbol(voucher) != "")
 }
 
 // Output:
 // switch: applied - transfer update impl | active: gno.land/r/aib/ibc/apps/transfer/impl/asyncrecv v1
 // acknowledgement pending: true | voucher token: false
-// credit: applied - credit | acknowledgement pending: false | voucher token: true
-// claims paid: 1 | bob's vouchers: 40
-// {"denom":"ibc/2495500BDD01666856D26EE034DB2F940FD4DA91239F4D5C7AE1E9D07538CFFE","grc20reg_key":"gno.land/r/aib/ibc/apps/transfer.IBC-1","name":"0x457df1a9866af7b6a78eeba9291fc3e58b4d864b","symbol":"IBC-1","decimals":6,"total_supply":"50"}
+// credit: refused - packet ethereum-1/00000000000000000001 has no success acknowledgement: an error-acknowledged packet is refunded at its source
+// acknowledgement pending: true | voucher token: false

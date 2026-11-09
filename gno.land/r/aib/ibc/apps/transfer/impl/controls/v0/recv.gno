@@ -32,10 +32,9 @@ func receivedDenom(rt *controls.Route, sourceClient string, payload types.Payloa
 }
 
 // ensureVoucher records a minted denom's trace and creates its voucher, so a
-// claim of it can be minted: before a receive books a credit of the denom, or
-// a credit by vote completes a pending acknowledgement of it. The first
-// creates the voucher with the decimals governance configured; a later
-// configuration cannot change them (GovApply).
+// claim of it can be minted: before a receive books a credit of the denom.
+// The first creates the voucher with the decimals governance configured; a
+// later configuration cannot change them (GovApply).
 func (l *routes) ensureVoucher(_ int, rlm realm, denom ics20.Denom, accDenom string, decimals int) {
 	if !l.store.HasDenom(accDenom) {
 		l.store.SetDenom(0, rlm, denom)
