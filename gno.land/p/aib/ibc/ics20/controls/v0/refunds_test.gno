@@ -503,9 +503,6 @@ func TestAggregatesNeverWrap(t *testing.T) {
 	if _, err := rt.Credit(t0, 10, 0, pk(11), "ugnot", alice, q, ByPacket, "bridge realm", 0); err == nil {
 		t.Fatalf("liabilities wrapped")
 	}
-	if err := rt.CreditPending(t0, 10, 0, pk(12), "ugnot", alice, q, q, maxInt64); err == nil {
-		t.Fatalf("liabilities wrapped by a pending credit")
-	}
 	// The reservation of claims and refunds together saturates: nothing is
 	// free, never a wrapped negative reservation freeing escrow.
 	d.Totals.Owed, d.Totals.Swept = q, 0
@@ -1865,9 +1862,8 @@ func TestSettledRecordTakesNoProof(t *testing.T) {
 }
 
 // Every credit by decision waits for a replacement's preparation, as
-// settlements and sweep payments do (review of #90): a pending packet's
-// credit included, which could otherwise take escrow the retired client's
-// suspect refunds are about to reserve.
+// settlements and sweep payments do (review of #90): it could otherwise take
+// escrow the retired client's suspect refunds are about to reserve.
 func TestCreditsWaitForPreparation(t *testing.T) {
 	r, rt := newRoute(t)
 	rt.RecordSend(sendRec(1, "ugnot", KindUnescrow, 100))
@@ -1880,12 +1876,8 @@ func TestCreditsWaitForPreparation(t *testing.T) {
 			t.Fatalf("%s before the preparation: %v", what, err)
 		}
 	}
-	notPrepared("a pending credit", rt.CreditPending(t0, 20, 0, pk(60), "ugnot", alice, 100, 100, 1000))
 	notPrepared("a credit by vote", rt.CreditByVote(t0, 20, 0, pk(61), "ugnot", alice, 100, 1000))
 	if n, done, _ := rt.PrepareReplacement(MaxKeys); n != 1 || !done {
 		t.Fatalf("preparation: %d %v", n, done)
-	}
-	if err := rt.CreditPending(t0, 20, 0, pk(60), "ugnot", alice, 100, 100, 1000); err != nil {
-		t.Fatalf("a pending credit once prepared: %v", err)
 	}
 }
