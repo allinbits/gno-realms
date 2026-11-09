@@ -425,8 +425,11 @@ Voucher tokens can be discovered in two ways:
    `VoucherSymbol(ibcDenom)`. Enumerate entries with the
    `gno.land/r/aib/ibc/apps/transfer.` prefix.
 
-The token name is the base denomination (e.g. `uatom`) and the symbol is
-allocated when the voucher is created (e.g. `IBC-1`). Every voucher has zero decimals: the
+The token name is the base denomination (e.g. `uatom`) as a display field
+within grc20's bounds: a control character is shown as `?`, and a base
+denomination longer than 64 bytes is cut on a character boundary and ends
+in `...` (the full one stays in the denom record and the renders). The
+symbol is allocated when the voucher is created (e.g. `IBC-1`). Every voucher has zero decimals: the
 counterparty's decimal metadata is not carried over, and balances are the
 unscaled base-unit amounts the packets carried. For the full denom and richer metadata
 (trace hops, total supply), query the render endpoint `voucher/ibc/{HASH}`.
