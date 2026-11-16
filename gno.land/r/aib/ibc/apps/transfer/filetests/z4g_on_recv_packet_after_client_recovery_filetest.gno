@@ -15,7 +15,7 @@ import (
 	"gno.land/p/aib/ics23/v0"
 	"gno.land/p/nt/testutils/v0"
 	"gno.land/r/aib/ibc/apps/transfer"
-	_ "gno.land/r/aib/ibc/apps/transfer/impl/v0"
+	_ "gno.land/r/aib/ibc/apps/transfer/impl/controls/v0"
 	"gno.land/r/aib/ibc/core"
 	_ "gno.land/r/aib/ibc/core/impl/v0"
 )
@@ -48,7 +48,6 @@ import (
 // Expired and rejects everything else -- so the property under test is the same.
 func main(cur realm) {
 	const admin = "g1wymu47drhr0kuq2098m792lytgtj2nyx77yrsm"
-	core.AddAuthorityMember(cross(cur), cur.Address())
 
 	var (
 		// clientA locks the escrow, breaks, and is recovered in place.
@@ -88,7 +87,7 @@ func main(cur realm) {
 	transfer.Transfer(cross(cur), clientAID, "atone1user", "ugnot", 100,
 		uint64(time.Now().Add(time.Hour).Unix()), "")
 	testing.SetOriginSend(nil)
-	// Restore the admin EOA: RecoverClient is gated on unsafe.OriginCaller().
+	// Restore the relayer EOA.
 	testing.SetRealm(testing.NewUserRealm(address(admin)))
 
 	println("----------- escrow locked under clientA, clientA Active")
@@ -230,8 +229,10 @@ func main(cur realm) {
 		panic("substitute id race: " + got)
 	}
 
-	// --- Repair clientA in place. ---
+	// --- Repair clientA in place: a governance decision of ibcgov. ---
+	testing.SetRealm(testing.NewCodeRealm(core.IBCGovPath))
 	core.RecoverClient(cross(cur), clientAID, substituteID)
+	testing.SetRealm(testing.NewUserRealm(address(admin)))
 
 	println("----------- clientA recovered in place, same ID")
 	println(core.Render("clients/" + clientAID + "/status"))
@@ -261,10 +262,16 @@ func main(cur realm) {
 
 // Output:
 // ----------- escrow locked under clientA, clientA Active
-// {"denom":"ugnot","amount":100,"clients":[{"client":"07-tendermint-1","amount":100}]}
+// {"denom":"ugnot","amount":"100","clients":[{"client":"07-tendermint-1","amount":"100"}]}
 // {"status":"Active"}
 // ----------- clientA broken; escrow is now unreleasable
 // {"status":"Frozen"}
-
-// Error:
-// recover_client: caller g1wymu47drhr0kuq2098m792lytgtj2nyx77yrsm is not a member of the authority
+// ----------- clientA recovered in place, same ID
+// {"status":"Active"}
+//
+// recv result (2 == SUCCESS): 2
+// ----------- escrow drawn down to 0
+// {"denom":"ugnot","amount":"0","clients":[{"client":"07-tendermint-1","amount":"0"}]}
+// ----------- receiver balance (100ugnot released)
+// 100ugnot
+// ----------- transfer realm balance (escrow emptied)

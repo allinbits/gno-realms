@@ -45,6 +45,25 @@ func New(deployer address) *Authority {
 	return a
 }
 
+// NewWithMembers returns an authority whose members are exactly the given
+// addresses (empty ones skipped), with no deployer and no test-framework
+// bootstrap: every later AddMember is gated by the members. A realm whose
+// administration belongs to governance realms (ADR pr6375 R14: the IBC realms
+// keep the GovDAO proxy and the ibcgov realm, and drop the deployer) calls it
+// from init with their package addresses.
+func NewWithMembers(members ...address) *Authority {
+	a := &Authority{bootstrapped: true}
+	for _, m := range members {
+		if m != "" {
+			a.members.Add(m)
+		}
+	}
+	if a.members.Size() == 0 {
+		panic("authority: no member")
+	}
+	return a
+}
+
 // Assert panics unless the caller of the realm function holding rlm is a
 // member. rlm must be that realm's live cur: a stored or forwarded realm value
 // is rejected, so a foreign realm cannot replay a captured cur to impersonate

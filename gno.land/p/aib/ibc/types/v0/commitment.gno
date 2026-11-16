@@ -33,6 +33,31 @@ func CommitPacket(packet Packet) []byte {
 	return hash[:]
 }
 
+// CommitPacketReceipt returns the value the IBC core stores at a packet's
+// receipt path (ICS24 receipt key: destination client ‖ 0x02 ‖ sequence) when
+// it receives the packet. ibc-go stores the constant 0x02 there, which says
+// that some packet was received at the sequence but not which; this value
+// identifies the packet, so a reconciliation can tell which packet occupies a
+// sequence (ADR pr6375 R19, §7.12), as eureka's
+// keccak256(abi.encode(packet)) does on Ethereum. The encoding, fixed-length
+// so no field can be malleated into another:
+//
+//	sha256(0x03 ‖ uint64be(sequence) ‖ sha256(sourceClient) ‖ CommitPacket(packet))
+//
+// CommitPacket covers the destination client, the timeout and every payload
+// (ports, version, encoding and value); the sequence and the source client
+// complete it. Counterparties only ever prove the absence of a receipt (for a
+// timeout), which this value does not affect.
+func CommitPacketReceipt(packet Packet) []byte {
+	buf := []byte{byte(3)}
+	buf = append(buf, encoding.Uint64ToBigEndian(packet.Sequence)...)
+	srcHash := sha256.Sum256([]byte(packet.SourceClient))
+	buf = append(buf, srcHash[:]...)
+	buf = append(buf, CommitPacket(packet)...)
+	hash := sha256.Sum256(buf)
+	return hash[:]
+}
+
 // CommitAcknowledgement returns the V2 acknowledgement commitment bytes.
 // The commitment consists of:
 // sha256_hash(0x02 + sha256_hash(ack1) + sha256_hash(ack2) + ...) from a given

@@ -13,14 +13,15 @@ import (
 	"gno.land/p/aib/ics23/v0"
 	"gno.land/p/nt/testutils/v0"
 	"gno.land/r/aib/ibc/apps/transfer"
-	implv0 "gno.land/r/aib/ibc/apps/transfer/impl/v0"
+	ics20impl "gno.land/r/aib/ibc/apps/transfer/impl/ics20/v0"
+	_ "gno.land/r/aib/ibc/apps/transfer/impl/controls/v0"
 	"gno.land/r/aib/ibc/core"
 	_ "gno.land/r/aib/ibc/core/impl/v0"
 )
 
 // OnRecvPacket: success with native coins
 const (
-	v0Path  = "gno.land/r/aib/ibc/apps/transfer/impl/v0"
+	v0Path  = "gno.land/r/aib/ibc/apps/transfer/impl/controls/v0"
 	v99Path = "gno.land/r/aib/ibc/apps/transfer/impl/v99"
 )
 
@@ -29,7 +30,7 @@ type v99 struct{ transfer.Logic }
 
 func (v99) Version() string { return "v99" }
 
-func newV99(s transfer.Store) transfer.Logic { return v99{Logic: implv0.New(s)} }
+func newV99(s transfer.Store) transfer.Logic { return v99{Logic: ics20impl.New(s)} }
 
 // Implementation switch and rollback: the voucher v0 minted is still there
 // under v99, can be sent back through v99 (store, ledger and pending-send slot
@@ -135,10 +136,9 @@ func main(cur realm) {
 	println("\nack res:", res)
 	println("receiver voucher balance:", transfer.VoucherBalanceOf(voucherDenom, receiver))
 
-	transfer.AddAuthorityMember(cross(cur), cur.Address())
 	testing.SetRealm(testing.NewCodeRealm(v99Path))
-	transfer.RegisterImpl(cross(cur), newV99)
-	testing.SetRealm(testing.NewCodeRealm("gno.land/r/aib/main"))
+	transfer.RegisterImpl(cross(cur), newV99, "v99", nil, false)
+	testing.SetRealm(testing.NewCodeRealm(transfer.IBCGovPath)) // decided by the governance realm
 	transfer.UpdateImpl(cross(cur), v99Path)
 	println("\nimpl:", transfer.ImplPath(), transfer.ImplVersion())
 	println("receiver voucher balance after switch:", transfer.VoucherBalanceOf(voucherDenom, receiver))
@@ -148,7 +148,7 @@ func main(cur realm) {
 	println("sent back through v99, sequence:", seq)
 	println("receiver voucher balance after send back:", transfer.VoucherBalanceOf(voucherDenom, receiver))
 
-	testing.SetRealm(testing.NewCodeRealm("gno.land/r/aib/main"))
+	testing.SetRealm(testing.NewCodeRealm(transfer.IBCGovPath)) // decided by the governance realm
 	transfer.UpdateImpl(cross(cur), v0Path)
 	println("\nimpl after rollback:", transfer.ImplPath(), transfer.ImplVersion())
 	println("receiver voucher balance after rollback:", transfer.VoucherBalanceOf(voucherDenom, receiver))
@@ -168,17 +168,17 @@ func main(cur realm) {
 // sent back through v99, sequence: 1
 // receiver voucher balance after send back: 60
 //
-// impl after rollback: gno.land/r/aib/ibc/apps/transfer/impl/v0 v0
+// impl after rollback: gno.land/r/aib/ibc/apps/transfer/impl/controls/v0 v0
 // receiver voucher balance after rollback: 60
 // ## Authority
 //
 // - **Authority members**:
-//   - g1gjs8nfdrd55z3xu9gjcatnj29vkwuyx4ffqxd9
+//   - g12l3du5z70zzq9rkc82asre09srefve7p5mfay4
 //   - g1p84dvfh4wrplyxx4zsmy77a8rxcnjup2j7zv5r
 // - **Paused**: false (set by the IBC core)
-// - **Implementation**: [`gno.land/r/aib/ibc/apps/transfer/impl/v0`](/r/aib/ibc/apps/transfer/impl/v0) (version v0)
+// - **Implementation**: [`gno.land/r/aib/ibc/apps/transfer/impl/controls/v0`](/r/aib/ibc/apps/transfer/impl/controls/v0) (version v0)
 // - **Registered implementations**:
-//   - gno.land/r/aib/ibc/apps/transfer/impl/v0
+//   - gno.land/r/aib/ibc/apps/transfer/impl/controls/v0
 //   - gno.land/r/aib/ibc/apps/transfer/impl/v99
 // - **Blocked addresses**: none
 
@@ -247,7 +247,7 @@ func main(cur realm) {
 //     "attrs": [
 //       {
 //         "key": "token",
-//         "value": "gno.land/r/aib/ibc/apps/transfer.CAEF9CA8CE6.0000001"
+//         "value": "gno.land/r/aib/ibc/apps/transfer.IBC-1.0000001"
 //       },
 //       {
 //         "key": "name",
@@ -255,21 +255,21 @@ func main(cur realm) {
 //       },
 //       {
 //         "key": "symbol",
-//         "value": "CAEF9CA8CE6"
+//         "value": "IBC-1"
 //       },
 //       {
 //         "key": "decimals",
 //         "value": "0"
 //       }
 //     ],
-//     "pkg_path": "gno.land/p/nt/grc20/v0"
+//     "pkg_path": "gno.land/p/nt/grc20/v1"
 //   },
 //   {
 //     "type": "register",
 //     "attrs": [
 //       {
 //         "key": "token_path",
-//         "value": "gno.land/r/aib/ibc/apps/transfer.CAEF9CA8CE6"
+//         "value": "gno.land/r/aib/ibc/apps/transfer.IBC-1"
 //       },
 //       {
 //         "key": "pkgpath",
@@ -281,17 +281,17 @@ func main(cur realm) {
 //       },
 //       {
 //         "key": "symbol",
-//         "value": "CAEF9CA8CE6"
+//         "value": "IBC-1"
 //       }
 //     ],
-//     "pkg_path": "gno.land/r/nt/grc20reg/v0"
+//     "pkg_path": "gno.land/r/nt/grc20reg/v1"
 //   },
 //   {
 //     "type": "Transfer",
 //     "attrs": [
 //       {
 //         "key": "token",
-//         "value": "gno.land/r/aib/ibc/apps/transfer.CAEF9CA8CE6.0000001"
+//         "value": "gno.land/r/aib/ibc/apps/transfer.IBC-1.0000001"
 //       },
 //       {
 //         "key": "from",
@@ -306,7 +306,7 @@ func main(cur realm) {
 //         "value": "100"
 //       }
 //     ],
-//     "pkg_path": "gno.land/p/nt/grc20/v0"
+//     "pkg_path": "gno.land/p/nt/grc20/v1"
 //   },
 //   {
 //     "type": "fungible_token_packet",
@@ -369,21 +369,11 @@ func main(cur realm) {
 //     "pkg_path": "gno.land/r/aib/ibc/core"
 //   },
 //   {
-//     "type": "authority_member_added",
-//     "attrs": [
-//       {
-//         "key": "address",
-//         "value": "g1gjs8nfdrd55z3xu9gjcatnj29vkwuyx4ffqxd9"
-//       }
-//     ],
-//     "pkg_path": "gno.land/r/aib/ibc/apps/transfer"
-//   },
-//   {
 //     "type": "impl_updated",
 //     "attrs": [
 //       {
 //         "key": "old_path",
-//         "value": "gno.land/r/aib/ibc/apps/transfer/impl/v0"
+//         "value": "gno.land/r/aib/ibc/apps/transfer/impl/controls/v0"
 //       },
 //       {
 //         "key": "new_path",
@@ -427,7 +417,7 @@ func main(cur realm) {
 //     "attrs": [
 //       {
 //         "key": "token",
-//         "value": "gno.land/r/aib/ibc/apps/transfer.CAEF9CA8CE6.0000001"
+//         "value": "gno.land/r/aib/ibc/apps/transfer.IBC-1.0000001"
 //       },
 //       {
 //         "key": "from",
@@ -442,7 +432,7 @@ func main(cur realm) {
 //         "value": "40"
 //       }
 //     ],
-//     "pkg_path": "gno.land/p/nt/grc20/v0"
+//     "pkg_path": "gno.land/p/nt/grc20/v1"
 //   },
 //   {
 //     "type": "ibc_transfer",
@@ -479,7 +469,7 @@ func main(cur realm) {
 //       },
 //       {
 //         "key": "new_path",
-//         "value": "gno.land/r/aib/ibc/apps/transfer/impl/v0"
+//         "value": "gno.land/r/aib/ibc/apps/transfer/impl/controls/v0"
 //       },
 //       {
 //         "key": "version",

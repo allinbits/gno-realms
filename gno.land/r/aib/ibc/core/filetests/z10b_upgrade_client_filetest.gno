@@ -2,6 +2,8 @@
 package main
 
 import (
+	"testing"
+
 	"time"
 
 	tmtesting "gno.land/p/aib/ibc/lightclient/tendermint/testing/v0"
@@ -15,8 +17,9 @@ func main(cur realm) {
 	// Bootstrap: the test caller is admin, but we add a DIFFERENT address
 	// as the only authorized relayer. Subsequent core entrypoints called
 	// from the test caller fail the relayer gate.
-	core.AddAuthorityMember(cross(cur), cur.Address())
+	testing.SetRealm(testing.NewCodeRealm(core.IBCGovPath)) // decided by the governance realm
 	core.AddRelayer(cross(cur), "g1wymu47drhr0kuq2098m792lytgtj2nyx77yrsm")
+	testing.SetRealm(testing.NewCodeRealm("gno.land/r/aib/main"))
 
 	var (
 		clientState    = tmtesting.NewClientState("chain-id-2", types.NewHeight(2, 2))
@@ -27,8 +30,10 @@ func main(cur realm) {
 
 	// Replace the whitelist entry with a different address so the test
 	// caller is no longer authorized.
+	testing.SetRealm(testing.NewCodeRealm(core.IBCGovPath)) // decided by the governance realm
 	core.RemoveRelayer(cross(cur), "g1wymu47drhr0kuq2098m792lytgtj2nyx77yrsm")
 	core.AddRelayer(cross(cur), "g100000000000000000000000000000000000000")
+	testing.SetRealm(testing.NewCodeRealm("gno.land/r/aib/main"))
 
 	core.UpgradeClient(cross(cur), clientID, nil, nil, nil, nil)
 }

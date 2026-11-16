@@ -10,7 +10,7 @@ import (
 	"gno.land/p/aib/ibc/types/v0"
 
 	"gno.land/r/aib/ibc/apps/transfer"
-	_ "gno.land/r/aib/ibc/apps/transfer/impl/v0"
+	_ "gno.land/r/aib/ibc/apps/transfer/impl/controls/v0"
 	"gno.land/r/aib/ibc/core"
 	_ "gno.land/r/aib/ibc/core/impl/v0"
 )
@@ -41,9 +41,9 @@ func main(cur realm) {
 
 // Output:
 // ----------- assert render total_escrow/ugnot before Transfer
-// {"denom":"ugnot","amount":0,"clients":[]}
+// {"denom":"ugnot","amount":"0","clients":[]}
 // ----------- assert render total_escrow/ugnot after Transfer
-// {"denom":"ugnot","amount":100,"clients":[{"client":"07-tendermint-1","amount":100}]}
+// {"denom":"ugnot","amount":"100","clients":[{"client":"07-tendermint-1","amount":"100"}]}
 
 // Events:
 // [

@@ -12,7 +12,7 @@ import (
 	"gno.land/p/nt/testutils/v0"
 	"gno.land/p/onbloc/json/v0"
 	"gno.land/r/aib/ibc/apps/transfer"
-	_ "gno.land/r/aib/ibc/apps/transfer/impl/v0"
+	_ "gno.land/r/aib/ibc/apps/transfer/impl/controls/v0"
 	"gno.land/r/aib/ibc/core"
 	_ "gno.land/r/aib/ibc/core/impl/v0"
 )
@@ -114,6 +114,6 @@ func recv(cur realm, base, receiver string) string {
 // denoms/ibc/129B3695C9BF61661EEFB1425AA6BBF83D7AE9998794646830744E6A344E9D34 -> valid JSON: true
 // {"base":"u\ufffdatom","path":"transfer/07-tendermint-1/u\ufffdatom","denom":"ibc/129B3695C9BF61661EEFB1425AA6BBF83D7AE9998794646830744E6A344E9D34"}
 // vouchers -> valid JSON: true
-// {"items":[{"denom":"ibc/129B3695C9BF61661EEFB1425AA6BBF83D7AE9998794646830744E6A344E9D34","grc20reg_key":"gno.land/r/aib/ibc/apps/transfer.129B3695C9B","name":"u\ufffdatom","symbol":"129B3695C9B","decimals":0,"total_supply":100}],"page":1,"total":1}
+// {"items":[{"denom":"ibc/129B3695C9BF61661EEFB1425AA6BBF83D7AE9998794646830744E6A344E9D34","grc20reg_key":"gno.land/r/aib/ibc/apps/transfer.IBC-1","name":"u�atom","symbol":"IBC-1","decimals":0,"total_supply":"100"}],"page":1,"total":1}
 // voucher/ibc/129B3695C9BF61661EEFB1425AA6BBF83D7AE9998794646830744E6A344E9D34 -> valid JSON: true
-// {"denom":"ibc/129B3695C9BF61661EEFB1425AA6BBF83D7AE9998794646830744E6A344E9D34","grc20reg_key":"gno.land/r/aib/ibc/apps/transfer.129B3695C9B","name":"u\ufffdatom","symbol":"129B3695C9B","decimals":0,"total_supply":100}
+// {"denom":"ibc/129B3695C9BF61661EEFB1425AA6BBF83D7AE9998794646830744E6A344E9D34","grc20reg_key":"gno.land/r/aib/ibc/apps/transfer.IBC-1","name":"u�atom","symbol":"IBC-1","decimals":0,"total_supply":"100"}

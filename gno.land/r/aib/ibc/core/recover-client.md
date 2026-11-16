@@ -10,9 +10,11 @@ tracks the same counterparty chain.
 core.RecoverClient(cross, subjectClientID, substituteClientID string)
 ```
 
-Only a member of the authority can call it (see `admin.gno` and the README's
-Authority section): the AIB multisig directly, or GovDAO through a proposal
-built with `NewRecoverClientProposalRequest`.
+Only the governance realm `gno.land/r/aib/ibc/ibcgov` can call it (see
+`admin.gno` and the README's Authority section): a recovery trusts the
+substitute, so it is a decision with ibcgov's 7-day delay
+(`ibcgov.NewRecoverClientRequest`), made by the governor before its yield and
+by GovDAO after.
 
 ## End-to-end flow
 
@@ -80,15 +82,15 @@ A proposal asks to run:
 core.RecoverClient(cross, subjectID, substituteID)
 ```
 
-Gated by the authority; the proposal is built with
-`core.NewRecoverClientProposalRequest(cross(cur), subjectID, substituteID)`.
+Gated on the governance realm; the decision is built with
+`ibcgov.NewRecoverClientRequest(cross(cur), subjectID, substituteID)`.
 
 ### 6. `RecoverClient` executes
 
 `r/aib/ibc/core/client.gno`:
 
-1. `auth.Assert(0, rlm, "recover_client")`: the caller must be a member of the
-   authority.
+1. `assertGovernance(cur, "recover_client")`: the caller must be
+   `gno.land/r/aib/ibc/ibcgov`; neither client may be retired.
 2. Subject and substitute IDs must differ; both must resolve; `typ` must match.
 3. Subject status ∈ {`Frozen`, `Expired`}; substitute status must be `Active`.
 4. Delegates to `subject.lightClient.RecoverClient(substitute.lightClient)`.
@@ -147,6 +149,34 @@ Other parameters (`TrustLevel`, `UnbondingPeriod`, `MaxClockDrift`,
 `ProofSpecs`, `UpgradePath`) **cannot** be changed by recovery — the match
 check rejects the substitute. Changing those requires `UpgradeClient` (or a
 fresh client migration).
+
+## Ethereum clients
+
+The tendermint rules above do not apply to `ethereum` clients; see ADR 0003.
+
+- The substitute must track the same chain and router: chain id, genesis
+  validators root and time, genesis slot, genesis fork version, slot timing,
+  sync committee size, router address and commitments slot. Its latest slot
+  must be ahead of the subject's. (Its fork parameters' genesis slot equals
+  its genesis slot, as `ValidateBasic` requires of every client.)
+- Its client state must be valid (`ValidateBasic`), its fork schedule
+  included, and the subject adopts that schedule and its minimum
+  participation. No fork comparison binds the substitute to the subject's
+  schedule: a recovery can schedule a fork announced after the client was
+  created, or repair a schedule that stopped the client from verifying. A
+  wrong schedule cannot make a relayed update verify false data (every
+  relayed update needs a 2/3 sync committee signature over the chain's real
+  domain). A recovery, unlike a relayed update, adopts the substitute's state
+  as trusted: its creator's bootstrap is not proven, so governance must
+  authenticate the substitute's state and vet its schedule before recovering
+  from it; see ADR 0003.
+- Only a Frozen or Expired subject is recovered. An Active client facing a
+  fork its schedule lacks is not waited out: core `impl/v0` migrates it in
+  place by a governed fork-schedule migration
+  (`ibcgov.NewMigrateClientRequest(cur, clientID, "ethereum-fork-schedule",
+  ...)`), before or after the fork activates (core README). A client that merely fell
+  behind needs no recovery: until it expires, a relayer catches it up by
+  replaying each missed period's update.
 
 ## Caveats
 

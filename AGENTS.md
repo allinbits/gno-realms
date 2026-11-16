@@ -15,7 +15,7 @@ CI runs unit + e2e tests on every push (`.github/workflows/test.yml`).
 
 Under the hood:
 - `go tool gno test ./gno.land/...` runs all Gno tests (unit tests + filetests)
-- `go test -C ./cmd/gen-block-signatures` and `go test -C ./cmd/gen-proof` run Go tests
+- `go test -C ./cmd/gen-block-signatures`, `go test -C ./cmd/gen-proof` and `go test -C ./cmd/gen-eth-synthetic` run Go tests (the last checks that the synthetic Ethereum light-client data is current)
 
 **Important:** Always use `go tool gno test`, not a standalone `gno` binary. The pinned `gnolang/gno@master` commit is resolved via `go mod` replace directives, so `go tool gno` picks up the correct version automatically. A standalone `gno` may be a different (older) release and miss features the realms rely on.
 
@@ -52,6 +52,8 @@ go tool gno test -update-golden-tests ./gno.land/r/aib/ibc/apps/transfer/
 cmd/                          # Go CLI tools
   gen-block-signatures/       # Generate Tendermint block signatures for test headers
   gen-proof/                  # Generate IBC proof structures
+  gen-eth-fixtures/           # Convert eureka Ethereum light-client fixtures to Gno test data
+  gen-eth-synthetic/          # Synthetic Ethereum light-client test data built from the specs (blst, fixed seed)
 gno.land/
   p/aib/                      # Packages (stateless libraries)
     ibc/app/v0/               # IBCApp interface definition
@@ -66,13 +68,22 @@ gno.land/
     encoding/v0/              # Uint64 big-endian encoding
     encoding/proto/v0/        # Protobuf varint/field encoding
     merkle/v0/                # RFC-6962 Merkle tree
-    authority/v0/             # Member authority (multisig + GovDAO) gating admin operations
+    authority/v0/             # Member authority (GovDAO + ibcgov) gating the tightening operations
+    decisions/v0/             # Decision ledger (vendored from gnolang/bridges)
+    encoding/abi/v0/          # Solidity abi.encode
+    encoding/ethaddr/v0/      # Ethereum addresses (EIP-55)
+    ibc/ics20/controls/v0/    # Ethereum route controls: meters, claims, send records, refunds, voids, losses
+    ibc/lightclient/ethereum/v0/          # Ethereum light client
+    ibc/lightclient/ethereum/testing/v0/  # Ethereum client states for filetests
     jsonpage/v0/              # AVL tree JSON pagination
   r/aib/ibc/                  # Realms (stateful contracts)
     core/                     # IBC v2 core proxy: entry points, store, gates, admin (ADR 0001)
-    core/impl/v0/             # Core lifecycle logic (CreateClient, SendPacket, RecvPacket, ...)
+    core/impl/v0/             # Core lifecycle logic (CreateClient, SendPacket, RecvPacket, ...) + governed client migration
     apps/transfer/            # Token transfer app proxy: entry points, store, value moves, admin (ADR 0002)
-    apps/transfer/impl/v0/    # ICS-20 logic (Transfer classification, callbacks, refunds)
+    apps/transfer/impl/ics20/v0/    # Plain ICS-20 logic (Transfer classification, callbacks, refunds); registers nothing
+    apps/transfer/impl/controls/v0/ # The installed implementation: wraps ics20/v0, Ethereum clients under the route controls (ADR 0004)
+    ibcgov/                   # Governance: decision ledger, governor/yield, guardians, gov port sender (ADR 0004)
+    ethrelay/                 # MsgCall wire entry points for relaying with Ethereum
     apps/testing/             # Mock IBCApp for tests
 ```
 
@@ -81,7 +92,7 @@ gno.land/
 **IBCApp** (`p/aib/ibc/app/v0/app.gno`): Apps must implement 4 callbacks:
 - `OnSendPacket`, `OnRecvPacket`, `OnTimeoutPacket`, `OnAcknowledgementPacket`
 - Every callback must first check that `cur.Previous().PkgPath()` is the core realm (transfer's `assertCoreCaller`): the methods are exported and a zero-value `App` is callable by any realm, so without the gate anyone can mint vouchers or release escrow
-- Register apps with `core.RegisterApp(cur, portID, app)`: immediate for realms under `gno.land/r/aib/`, pending until `core.ApproveApp` by the authority for any other realm
+- Register apps with `core.RegisterApp(cur, portID, app)`: immediate for realms under `gno.land/r/aib/`, pending until a `core.ApproveApp` decision of ibcgov for any other realm
 
 **lightclient.Interface** (`p/aib/ibc/lightclient/v0/lightclient.gno`): 12 methods including `Initialize`, `VerifyClientMessage`, `UpdateState`, `VerifyMembership`, `VerifyNonMembership`, `Status`, `LatestHeight`
 
@@ -149,11 +160,12 @@ Most IBC functions require `MsgRun` (not `MsgCall`) because they take complex ar
 IBC voucher tokens (minted on RecvPacket for cross-chain tokens) use **GRC20 tokens** instead of native banker coins. This enables DeFi compatibility (Gnoswap, etc.) via the `grc20reg` registry.
 
 ### Key Dependencies
-- `gno.land/p/nt/grc20/v0` - GRC20 token implementation. Interrealm v2 added a realm capability to the value-moving APIs: `grc20.NewToken(0, rlm, name, symbol, decimals)`, `token.RealmTeller(0, cur)`, and `teller.TransferFrom(0, cur, from, to, amount)` all take the `(_ int, rlm/cur realm, …)` non-crossing form. `PrivateLedger.Mint/Burn` move tokens without a realm arg.
-- `gno.land/r/nt/grc20reg/v0` - Global token registry (`Register(cross(cur), token, slug)`, `Get`)
+- `gno.land/p/nt/grc20/v1` - GRC20 token implementation with `uint256` amounts (ADR 0005; `v0` counts in `int64` and is not used by the bridge). Interrealm v2 added a realm capability to the value-moving APIs: `token.RealmTeller(0, cur)` and `teller.TransferFrom(0, cur, from, to, amount)` take the `(_ int, rlm/cur realm, …)` non-crossing form. `PrivateLedger.Mint/Burn` move tokens without a realm arg.
+- `gno.land/r/nt/grc20reg/v1` - Global token registry of v1 tokens (`Register(cross(cur), token, slug)`, `Get`)
+- Amounts are `uint256` everywhere but native coins (`chain.Coin`, the banker), which stay `int64`: the transfer realm converts at that boundary only (`transfer.CoinAmount`, `coinOf`). `ufmt`/`uassert` take no `uint256`: format with `strconv.FormatUint256`, compare natively. On an Ethereum route every amount is at most `2^96 - 1` (`abi.MaxAmount`).
 
 ### How It Works
-- **OnRecvPacket (mint)**: `getOrCreateGRC20(ibcDenom, baseDenom)` creates a GRC20 token + registers in grc20reg, then `inst.ledger.Mint(receiver, amount)`
+- **OnRecvPacket (mint)**: `getOrCreateVoucher(ibcDenom, baseDenom, decimals)` creates a GRC20 token + registers in grc20reg, then `inst.ledger.Mint(receiver, amount)`. An ICS20 packet carries no token metadata: on an Ethereum route the voucher takes the decimals governance configured for the denom (`ibcgov.NewSetDenomRequest`'s trailing `decimals`, 0..18, `controls.DenomConfig.Decimals`; a change waits 7 days and is refused once the voucher exists), elsewhere 0. Amounts are base units either way (ADR 0005, "Voucher decimals").
 - **OnSendPacket (burn)**: `getGRC20(ibcDenom)` retrieves the token, then `inst.ledger.Burn(sender, amount)`
 - **Refund (ack error / timeout)**: `getGRC20(ibcDenom)` + `inst.ledger.Mint(sender, amount)` to re-mint
 
@@ -215,7 +227,7 @@ Naming convention: `z{category}{letter}_{description}_filetest.gno`
 
 ### Authority in filetests
 
-Administrative functions (`AddRelayer`, `Pause`, `BlockAddress`, ...) require a member of the realm's authority. At `init` in the test framework the deployer is unknown, so the first `AddAuthorityMember` is ungated: a filetest bootstraps with `core.AddAuthorityMember(cross(cur), cur.Address())`, because calls from `main` present the filetest realm's own address. To act as GovDAO, `testing.SetRealm(testing.NewCodeRealm(authority.GovDAOPath))` before the call.
+Administration is split (ADR pr6375 R14, see the core README's Authority section). The authority of core and transfer has fixed members, the GovDAO proxy and the governance realm `gno.land/r/aib/ibc/ibcgov`; it gates only the immediate tightening operations (`Pause`, `PauseApp`, `RejectApp`, `BlockAddress`). Every loosening operation (`AddRelayer`, `RemoveRelayer`, `Unpause`, `UnpauseApp`, `ApproveApp`, `RecoverClient`, `UpdateImpl`, `MigrateClient`, `RetireClient`, `UnblockAddress`, membership, transfer's `GovApply`) is gated on a call from ibcgov alone. A filetest acts as ibcgov with `testing.SetRealm(testing.NewCodeRealm(core.IBCGovPath))` right before the call (in the same function: an override set in a helper that returns does not reliably carry over), and as GovDAO with `testing.SetRealm(testing.NewCodeRealm(authority.GovDAOPath))`. Restore the filetest's own identity afterwards with `testing.SetRealm(testing.NewCodeRealm("gno.land/r/aib/main"))` when later calls depend on it (app registrations record the caller's path).
 
 ### Unit Tests with Malleate Pattern
 
@@ -309,7 +321,7 @@ e2e/
 ├── tx_test.go              # signAndBroadcastAtomOneTx, signAndBroadcastGnoCall (suite methods)
 ├── suite_test.go           # Testify suite: SetupSuite, waitForIBCClients, gnokey helpers
 ├── ibc_transfer_test.go    # TestIBCTransferAtomOneToGno, TestIBCTransferGnoToAtomOne
-└── upgrade_test.go         # TestGovDAOUpdateImpl (UpdateImpl through r/gov/dao), TestUpgradeRehearsal (deploy v99, switch, relay, roll back)
+└── upgrade_test.go         # TestGovernorUpdateImpl (UpdateImpl through an ibcgov decision, premature execution refused), TestUpgradeRehearsal (deploy v99, switch, relay, roll back)
 ```
 
 ### Ports

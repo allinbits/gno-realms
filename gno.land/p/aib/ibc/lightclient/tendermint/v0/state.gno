@@ -105,18 +105,45 @@ type MerkleRoot struct {
 	Hash []byte
 }
 
-// clone returns a copy of cs sharing no slice or pointer with it (see
-// cloneBytes).
-func (cs ClientState) clone() ClientState {
-	cs.ProofSpecs = cloneProofSpecs(cs.ProofSpecs)
-	if cs.UpgradePath != nil {
-		cs.UpgradePath = append([]string{}, cs.UpgradePath...)
-	}
-	return cs
+// NewMerkleRoot is a root over a copy of hash: a later write to hash does not
+// move it.
+func NewMerkleRoot(hash []byte) MerkleRoot {
+	return MerkleRoot{Hash: cloneBytes(hash)}
 }
 
-func NewMerkleRoot(hash []byte) MerkleRoot {
-	return MerkleRoot{Hash: hash}
+func cloneBytes(b []byte) []byte {
+	if b == nil {
+		return nil
+	}
+	return append([]byte{}, b...)
+}
+
+// cloneProofSpecs deep-copies proof specifications.
+func cloneProofSpecs(specs []*ics23.ProofSpec) []*ics23.ProofSpec {
+	if specs == nil {
+		return nil
+	}
+	out := make([]*ics23.ProofSpec, len(specs))
+	for i, s := range specs {
+		out[i] = s.Clone()
+	}
+	return out
+}
+
+func cloneStrings(s []string) []string {
+	if s == nil {
+		return nil
+	}
+	return append([]string{}, s...)
+}
+
+// clone is a deep copy of cs: what a client keeps of a client state shares
+// no slice or pointer with what it was given.
+func (cs ClientState) clone() *ClientState {
+	out := cs
+	out.ProofSpecs = cloneProofSpecs(cs.ProofSpecs)
+	out.UpgradePath = cloneStrings(cs.UpgradePath)
+	return &out
 }
 
 // Empty returns true if the root is empty

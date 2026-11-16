@@ -34,10 +34,16 @@ func NewLightClient() lightclient.Interface {
 
 var _ lightclient.Interface = (*TMLightClient)(nil)
 
-// Implements lightclient.Interface
+// Implements lightclient.Interface. It runs once, on a client not yet
+// initialized: a stored client's trusted state is never replaced through it.
 func (tm *TMLightClient) Initialize(clientState lightclient.ClientState, consensusState lightclient.ConsensusState) error {
-	cs := clientState.(ClientState).clone()
-	tm.ClientState = &cs
+	if tm.ClientState != nil {
+		return errors.New("tendermint client initialized already")
+	}
+	cs := clientState.(ClientState)
+	// Deep copies throughout: the caller keeps its own slices and may
+	// write to them after the call; the trusted state must not follow.
+	tm.ClientState = cs.clone()
 	in := consensusState.(ConsensusState)
 	// Construct a fresh ConsensusState in our own (caller's) realm context
 	// rather than mutating the inbound value: the inbound value carries the
@@ -45,7 +51,7 @@ func (tm *TMLightClient) Initialize(clientState lightclient.ClientState, consens
 	// foreign-stamped fields panic with "readonly tainted object".
 	consState := ConsensusState{
 		Timestamp:          in.Timestamp,
-		Root:               NewMerkleRoot(cloneBytes(in.Root.Hash)),
+		Root:               NewMerkleRoot(in.Root.Hash),
 		NextValidatorsHash: cloneBytes(in.NextValidatorsHash),
 		processedTime:      time.Now(),
 		processedHeight:    types.GetSelfHeight(),
@@ -172,12 +178,10 @@ func (tm *TMLightClient) UpdateState(clientMsg lightclient.ClientMessage) []type
 	if msgHeight.GT(tm.ClientState.LatestHeight) {
 		tm.ClientState = cloneClientStateWithLatestHeight(tm.ClientState, msgHeight)
 	}
-	// Build and store new consensus state from clientMsg. Its bytes are
-	// copied: the header was built by the caller, who could otherwise rewrite
-	// them, the client's trust root, after verification (see cloneBytes).
+	// Build and store new consensus state from clientMsg
 	consState := &ConsensusState{
 		Timestamp:          msg.Header.Time,
-		Root:               NewMerkleRoot(cloneBytes(msg.Header.AppHash)),
+		Root:               NewMerkleRoot(msg.Header.AppHash), // a copy
 		NextValidatorsHash: cloneBytes(msg.Header.NextValidatorsHash),
 		processedTime:      time.Now(),
 		processedHeight:    types.GetSelfHeight(),
@@ -190,6 +194,9 @@ func (tm *TMLightClient) UpdateState(clientMsg lightclient.ClientMessage) []type
 func (tm *TMLightClient) VerifyMembership(height types.Height,
 	proofs []ics23.CommitmentProof, path types.MerklePath,
 	value []byte) error {
+	if err := ics23.CheckProofs(proofs); err != nil {
+		return err
+	}
 	if tm.ClientState.LatestHeight.LT(height) {
 		return ufmt.Errorf(
 			"client state height < proof height (%s < %s), please ensure the client has been updated", tm.ClientState.LatestHeight, height,
@@ -219,6 +226,9 @@ func (tm *TMLightClient) VerifyMembership(height types.Height,
 // Implements lightclient.Interface
 func (tm *TMLightClient) VerifyNonMembership(height types.Height,
 	proofs []ics23.CommitmentProof, path types.MerklePath) error {
+	if err := ics23.CheckProofs(proofs); err != nil {
+		return err
+	}
 	if tm.ClientState.LatestHeight.LT(height) {
 		return ufmt.Errorf(
 			"client state height < proof height (%d < %d), please ensure the client has been updated", tm.ClientState.LatestHeight, height,
@@ -300,21 +310,12 @@ func (tm *TMLightClient) TimestampAtHeight(height types.Height) (uint64, error) 
 // resetting FrozenHeight. The substitute and subject client states must match
 // in TrustLevel, UnbondingPeriod, MaxClockDrift, ProofSpecs and UpgradePath.
 func (tm *TMLightClient) RecoverClient(substitute lightclient.Interface) error {
-	if substitute == nil {
-		return errors.New("substitute must not be nil")
+	if err := tm.CheckRecovery(substitute); err != nil {
+		return err
 	}
-	sub, ok := substitute.(*TMLightClient)
-	if !ok {
-		return ufmt.Errorf("substitute client type mismatch: expected *TMLightClient, got %T", substitute)
-	}
-	if field := mismatchingClientStateField(tm.ClientState, sub.ClientState); field != "" {
-		return ufmt.Errorf("subject and substitute client states differ on %s", field)
-	}
+	sub := substitute.(*TMLightClient)
 	subLatest := sub.ClientState.LatestHeight
-	subConsState, found := sub.GetConsensusState(subLatest)
-	if !found {
-		return ufmt.Errorf("substitute consensus state not found at height %s", subLatest)
-	}
+	subConsState, _ := sub.GetConsensusState(subLatest)
 
 	// Whole-slot replace, single allocation. See UpdateStateOnMisbehaviour
 	// for the v2 borrow-rule rationale on why per-field writes don't work.
@@ -329,13 +330,35 @@ func (tm *TMLightClient) RecoverClient(substitute lightclient.Interface) error {
 		ProofSpecs:      tm.ClientState.ProofSpecs,
 		UpgradePath:     tm.ClientState.UpgradePath,
 	}
+	// A copy: the substitute keeps its own.
 	tm.SetConsensusState(subLatest, &ConsensusState{
 		Timestamp:          subConsState.Timestamp,
-		Root:               NewMerkleRoot(cloneBytes(subConsState.Root.Hash)),
+		Root:               NewMerkleRoot(subConsState.Root.Hash),
 		NextValidatorsHash: cloneBytes(subConsState.NextValidatorsHash),
 		processedTime:      subConsState.processedTime,
 		processedHeight:    subConsState.processedHeight,
 	})
+	return nil
+}
+
+// CheckRecovery is why RecoverClient would refuse substitute, or nil; it
+// changes nothing, so a governed recovery is refused deterministically
+// before it runs.
+func (tm *TMLightClient) CheckRecovery(substitute lightclient.Interface) error {
+	if substitute == nil {
+		return errors.New("substitute must not be nil")
+	}
+	sub, ok := substitute.(*TMLightClient)
+	if !ok {
+		return ufmt.Errorf("substitute client type mismatch: expected *TMLightClient, got %T", substitute)
+	}
+	if field := mismatchingClientStateField(tm.ClientState, sub.ClientState); field != "" {
+		return ufmt.Errorf("subject and substitute client states differ on %s", field)
+	}
+	subLatest := sub.ClientState.LatestHeight
+	if _, found := sub.GetConsensusState(subLatest); !found {
+		return ufmt.Errorf("substitute consensus state not found at height %s", subLatest)
+	}
 	return nil
 }
 
@@ -499,7 +522,7 @@ func (tm *TMLightClient) VerifyUpgradeAndUpdateState(newClient, newConsState,
 		FrozenHeight:    types.ZeroHeight(),
 		LatestHeight:    upgradedClientState.LatestHeight,
 		ProofSpecs:      cloneProofSpecs(upgradedClientState.ProofSpecs),
-		UpgradePath:     append([]string(nil), upgradedClientState.UpgradePath...),
+		UpgradePath:     cloneStrings(upgradedClientState.UpgradePath),
 	}
 	if err := newClientState.ValidateBasic(); err != nil {
 		return ufmt.Errorf("upgraded client state failed basic validation: %v", err)
@@ -645,28 +668,4 @@ func (tm *TMLightClient) PruneExpiredConsensusStates(now time.Time) int {
 func (tm *TMLightClient) IsExpired(latestTimestamp, now time.Time) bool {
 	expirationTime := latestTimestamp.Add(tm.ClientState.TrustingPeriod)
 	return !expirationTime.After(now)
-}
-
-// cloneBytes returns a copy of b. Everything the client keeps from a value a
-// caller passed in (a client or consensus state, a header) must be copied:
-// slices and pointers keep the caller's realm as their owner, which may keep
-// writing to them after the call returns, and so rewrite the client's trust
-// root or proof specs after they were verified.
-func cloneBytes(b []byte) []byte {
-	if b == nil {
-		return nil
-	}
-	return append([]byte{}, b...)
-}
-
-// cloneProofSpecs returns a deep copy of specs (see cloneBytes).
-func cloneProofSpecs(specs []*ics23.ProofSpec) []*ics23.ProofSpec {
-	if specs == nil {
-		return nil
-	}
-	out := make([]*ics23.ProofSpec, len(specs))
-	for i, spec := range specs {
-		out[i] = spec.Clone()
-	}
-	return out
 }

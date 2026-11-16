@@ -13,10 +13,10 @@ import (
 	"gno.land/p/aib/ics23/v0"
 	"gno.land/p/nt/testutils/v0"
 	"gno.land/r/aib/ibc/apps/transfer"
-	_ "gno.land/r/aib/ibc/apps/transfer/impl/v0"
+	_ "gno.land/r/aib/ibc/apps/transfer/impl/controls/v0"
 	"gno.land/r/aib/ibc/core"
 	_ "gno.land/r/aib/ibc/core/impl/v0"
-	"gno.land/r/nt/grc20reg/v0"
+	"gno.land/r/nt/grc20reg/v1"
 )
 
 // OnRecvPacket: success with native coins
@@ -159,16 +159,16 @@ func main(cur realm) {
 // {"base":"uphoton","path":"transfer/07-tendermint-1/uphoton","denom":"ibc/CAEF9CA8CE6C302D73A831A49E34E59149D3A9AD96CCEBDFBF62F6D5710D92D8"}
 //
 // ----------- assert render voucher
-// {"denom":"ibc/CAEF9CA8CE6C302D73A831A49E34E59149D3A9AD96CCEBDFBF62F6D5710D92D8","grc20reg_key":"gno.land/r/aib/ibc/apps/transfer.CAEF9CA8CE6","name":"uphoton","symbol":"CAEF9CA8CE6","decimals":0,"total_supply":100}
+// {"denom":"ibc/CAEF9CA8CE6C302D73A831A49E34E59149D3A9AD96CCEBDFBF62F6D5710D92D8","grc20reg_key":"gno.land/r/aib/ibc/apps/transfer.IBC-1","name":"uphoton","symbol":"IBC-1","decimals":0,"total_supply":"100"}
 //
 // ----------- assert render voucher balance
-// {"denom":"ibc/CAEF9CA8CE6C302D73A831A49E34E59149D3A9AD96CCEBDFBF62F6D5710D92D8","address":"g1wfjkxetfwejhyh6lta047h6lta047h6llm82yl","balance":100}
+// {"denom":"ibc/CAEF9CA8CE6C302D73A831A49E34E59149D3A9AD96CCEBDFBF62F6D5710D92D8","address":"g1wfjkxetfwejhyh6lta047h6lta047h6llm82yl","balance":"100"}
 //
 // ----------- assert render vouchers
-// {"items":[{"denom":"ibc/CAEF9CA8CE6C302D73A831A49E34E59149D3A9AD96CCEBDFBF62F6D5710D92D8","grc20reg_key":"gno.land/r/aib/ibc/apps/transfer.CAEF9CA8CE6","name":"uphoton","symbol":"CAEF9CA8CE6","decimals":0,"total_supply":100}],"page":1,"total":1}
+// {"items":[{"denom":"ibc/CAEF9CA8CE6C302D73A831A49E34E59149D3A9AD96CCEBDFBF62F6D5710D92D8","grc20reg_key":"gno.land/r/aib/ibc/apps/transfer.IBC-1","name":"uphoton","symbol":"IBC-1","decimals":0,"total_supply":"100"}],"page":1,"total":1}
 //
 // ----------- assert advertised grc20reg_key resolves
-// gno.land/r/aib/ibc/apps/transfer.CAEF9CA8CE6 -> CAEF9CA8CE6
+// gno.land/r/aib/ibc/apps/transfer.IBC-1 -> IBC-1
 
 // Events:
 // [
@@ -235,7 +235,7 @@ func main(cur realm) {
 //     "attrs": [
 //       {
 //         "key": "token",
-//         "value": "gno.land/r/aib/ibc/apps/transfer.CAEF9CA8CE6.0000001"
+//         "value": "gno.land/r/aib/ibc/apps/transfer.IBC-1.0000001"
 //       },
 //       {
 //         "key": "name",
@@ -243,21 +243,21 @@ func main(cur realm) {
 //       },
 //       {
 //         "key": "symbol",
-//         "value": "CAEF9CA8CE6"
+//         "value": "IBC-1"
 //       },
 //       {
 //         "key": "decimals",
 //         "value": "0"
 //       }
 //     ],
-//     "pkg_path": "gno.land/p/nt/grc20/v0"
+//     "pkg_path": "gno.land/p/nt/grc20/v1"
 //   },
 //   {
 //     "type": "register",
 //     "attrs": [
 //       {
 //         "key": "token_path",
-//         "value": "gno.land/r/aib/ibc/apps/transfer.CAEF9CA8CE6"
+//         "value": "gno.land/r/aib/ibc/apps/transfer.IBC-1"
 //       },
 //       {
 //         "key": "pkgpath",
@@ -269,17 +269,17 @@ func main(cur realm) {
 //       },
 //       {
 //         "key": "symbol",
-//         "value": "CAEF9CA8CE6"
+//         "value": "IBC-1"
 //       }
 //     ],
-//     "pkg_path": "gno.land/r/nt/grc20reg/v0"
+//     "pkg_path": "gno.land/r/nt/grc20reg/v1"
 //   },
 //   {
 //     "type": "Transfer",
 //     "attrs": [
 //       {
 //         "key": "token",
-//         "value": "gno.land/r/aib/ibc/apps/transfer.CAEF9CA8CE6.0000001"
+//         "value": "gno.land/r/aib/ibc/apps/transfer.IBC-1.0000001"
 //       },
 //       {
 //         "key": "from",
@@ -294,7 +294,7 @@ func main(cur realm) {
 //         "value": "100"
 //       }
 //     ],
-//     "pkg_path": "gno.land/p/nt/grc20/v0"
+//     "pkg_path": "gno.land/p/nt/grc20/v1"
 //   },
 //   {
 //     "type": "fungible_token_packet",

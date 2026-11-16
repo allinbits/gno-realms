@@ -16,7 +16,7 @@ import (
 	"gno.land/p/nt/testutils/v0"
 	"gno.land/r/aib/ibc/apps/testing/grc20test"
 	"gno.land/r/aib/ibc/apps/transfer"
-	_ "gno.land/r/aib/ibc/apps/transfer/impl/v0"
+	_ "gno.land/r/aib/ibc/apps/transfer/impl/controls/v0"
 	"gno.land/r/aib/ibc/core"
 	_ "gno.land/r/aib/ibc/core/impl/v0"
 )
@@ -168,12 +168,12 @@ func main(cur realm) {
 
 // Output:
 // ----------- escrow + GRC20 balances before attack
-// {"denom":"gno.land:r:aib:ibc:apps:testing:grc20test.TEST","amount":100,"clients":[{"client":"07-tendermint-1","amount":100}]}
+// {"denom":"gno.land:r:aib:ibc:apps:testing:grc20test.TEST","amount":"100","clients":[{"client":"07-tendermint-1","amount":"100"}]}
 // realm: 100
 // attacker: 0
 //
 // recv result (2 == SUCCESS at core level; app ack is error): 2
 // ----------- escrow + GRC20 balances after attack (all unchanged)
-// {"denom":"gno.land:r:aib:ibc:apps:testing:grc20test.TEST","amount":100,"clients":[{"client":"07-tendermint-1","amount":100}]}
+// {"denom":"gno.land:r:aib:ibc:apps:testing:grc20test.TEST","amount":"100","clients":[{"client":"07-tendermint-1","amount":"100"}]}
 // realm: 100
 // attacker: 0
