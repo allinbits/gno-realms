@@ -79,3 +79,43 @@ func ParseClientIdentifier(clientID string) (string, uint64, error) {
 
 	return clientType, sequence, nil
 }
+
+// RouterClientIDPrefix is the prefix of the client ids an Ethereum ICS26
+// router (solidity-ibc-eureka) generates from its own counter.
+const RouterClientIDPrefix = "client-"
+
+// IsValidCustomClientID reports whether id is a custom client id an Ethereum
+// ICS26 router accepts (solidity-ibc-eureka IBCIdentifiers.
+// validateCustomIBCIdentifier): 4 to 128 characters of a-z, A-Z, 0-9 and
+// . _ + - # [ ] < >, not starting with "client-" (the router's own counter)
+// or "channel-". A client id governance adds to the router is one.
+func IsValidCustomClientID(id string) bool {
+	if len(id) < 4 || len(id) > 128 || strings.HasPrefix(id, RouterClientIDPrefix) || strings.HasPrefix(id, "channel-") {
+		return false
+	}
+	for i := 0; i < len(id); i++ {
+		c := id[i]
+		switch {
+		case c >= 'a' && c <= 'z', c >= 'A' && c <= 'Z', c >= '0' && c <= '9':
+		case c == '.' || c == '_' || c == '+' || c == '-' || c == '#' || c == '[' || c == ']' || c == '<' || c == '>':
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+// IsValidRouterClientID reports whether id can name a client on an Ethereum
+// ICS26 router: one it generated ("client-" and a decimal number) or a valid
+// custom id. Such ids are not SDK client ids ({type}-{N}): "gnoland" is one.
+func IsValidRouterClientID(id string) bool {
+	if strings.HasPrefix(id, RouterClientIDPrefix) {
+		n := id[len(RouterClientIDPrefix):]
+		if n == "" || len(n) > 20 || (len(n) > 1 && n[0] == '0') {
+			return false
+		}
+		_, err := strconv.ParseUint(n, 10, 64)
+		return err == nil
+	}
+	return IsValidCustomClientID(id)
+}

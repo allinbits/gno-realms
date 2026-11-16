@@ -23,6 +23,7 @@ gnodev:
 GNO_TEST_PKGS = $(shell find gno.land e2e/gno/rehearsal -name gnomod.toml -exec dirname {} \; | sort)
 
 test:
+	bash scripts/check-packages.sh
 	@set -e; for pkg in $(GNO_TEST_PKGS); do go tool gno test ./$$pkg; done
 	go test -C ./cmd/gen-block-signatures
 	go test -C ./cmd/gen-proof

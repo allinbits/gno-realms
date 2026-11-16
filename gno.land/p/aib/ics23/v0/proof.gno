@@ -12,6 +12,22 @@ type CommitmentProof interface {
 	GetNonexist() *NonExistenceProof
 }
 
+// CheckProofs refuses any proof that is not one of this package's own
+// concrete types, CommitmentProof_Exist or CommitmentProof_Nonexist, by
+// value, before any of its methods runs: a caller-supplied implementation
+// would run its own code in the verifier's realm context. Call it on every
+// caller-supplied proof list before calling GetExist or GetNonexist.
+func CheckProofs(proofs []CommitmentProof) error {
+	for i, p := range proofs {
+		switch p.(type) {
+		case CommitmentProof_Exist, CommitmentProof_Nonexist:
+		default:
+			return ufmt.Errorf("commitment proof #%d is not an ics23 proof", i)
+		}
+	}
+	return nil
+}
+
 type CommitmentProof_Exist struct {
 	Exist *ExistenceProof
 }
@@ -69,20 +85,6 @@ type LeafOp struct {
 	// prefix is a fixed bytes that may optionally be included at the beginning to differentiate
 	// a leaf node from an inner node.
 	Prefix []byte
-}
-
-// Clone returns a deep copy of m (see ProofSpec.Clone).
-func (m *LeafOp) Clone() *LeafOp {
-	if m == nil {
-		return nil
-	}
-	return &LeafOp{
-		Hash:         m.Hash,
-		PrehashKey:   m.PrehashKey,
-		PrehashValue: m.PrehashValue,
-		Length:       m.Length,
-		Prefix:       append([]byte(nil), m.Prefix...),
-	}
 }
 
 func (m *LeafOp) GetHash() HashOp {
