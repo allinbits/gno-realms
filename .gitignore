@@ -1,0 +1,4 @@
+# Outputs of scripts/make-deploy-tx.sh (default OUT and RELAYERS_OUT)
+/deploy-tx.json
+/deploy-tx-*.json
+/add-relayers.gno
