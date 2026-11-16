@@ -16,7 +16,7 @@ import (
 	"gno.land/p/aib/ics23/v0"
 	"gno.land/p/nt/testutils/v0"
 	"gno.land/r/aib/ibc/apps/transfer"
-	_ "gno.land/r/aib/ibc/apps/transfer/impl/v0"
+	_ "gno.land/r/aib/ibc/apps/transfer/impl/controls/v0"
 	"gno.land/r/aib/ibc/core"
 	_ "gno.land/r/aib/ibc/core/impl/v0"
 )
@@ -43,8 +43,9 @@ func main(cur realm) {
 	core.RegisterCounterparty(cross(cur), clientID, [][]byte{[]byte("iavlStoreKey"), []byte("prefix2")}, counterpartyID)
 
 	receiver := testutils.TestAddress("receiver")
-	transfer.AddAuthorityMember(cross(cur), cur.Address())
+	testing.SetRealm(testing.NewCodeRealm(transfer.IBCGovPath)) // decided by the governance realm
 	transfer.BlockAddress(cross(cur), receiver)
+	testing.SetRealm(testing.NewCodeRealm("gno.land/r/aib/main"))
 
 	// Step 1: a real native Transfer escrows 100ugnot under clientID. This is
 	// what establishes the per-client escrow that RecvPacket will release.
@@ -164,13 +165,13 @@ func main(cur realm) {
 // Output:
 // Payload proto: Ch90cmFuc2Zlci8wNy10ZW5kZXJtaW50LTQyL3Vnbm90EgMxMDAaCmF0b25lMXVzZXIiKEcxV0ZKS1hFVEZXRUpIWUg2TFRBMDQ3SDZMVEEwNDdINkxMTTgyWUw=
 // ----------- assert render total_escrow/ugnot before RecvPacket
-// {"denom":"ugnot","amount":100,"clients":[{"client":"07-tendermint-1","amount":100}]}
+// {"denom":"ugnot","amount":"100","clients":[{"client":"07-tendermint-1","amount":"100"}]}
 // receiver blocked: true uppercase: true
 // receiver ugnot before RecvPacket: 0
 //
 // ack res: (2 gno.land/p/aib/ibc/types/v0.ResponseResultType)
 // ----------- assert render total_escrow/ugnot after RecvPacket
-// {"denom":"ugnot","amount":100,"clients":[{"client":"07-tendermint-1","amount":100}]}
+// {"denom":"ugnot","amount":"100","clients":[{"client":"07-tendermint-1","amount":"100"}]}
 // receiver ugnot after RecvPacket: 0
 
 // Events:
@@ -192,16 +193,6 @@ func main(cur realm) {
 //       }
 //     ],
 //     "pkg_path": "gno.land/r/aib/ibc/core"
-//   },
-//   {
-//     "type": "authority_member_added",
-//     "attrs": [
-//       {
-//         "key": "address",
-//         "value": "g1gjs8nfdrd55z3xu9gjcatnj29vkwuyx4ffqxd9"
-//       }
-//     ],
-//     "pkg_path": "gno.land/r/aib/ibc/apps/transfer"
 //   },
 //   {
 //     "type": "block",

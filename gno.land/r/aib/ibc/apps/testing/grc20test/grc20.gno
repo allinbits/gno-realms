@@ -2,8 +2,8 @@
 package grc20test
 
 import (
-	"gno.land/p/nt/grc20/v0"
-	"gno.land/r/nt/grc20reg/v0"
+	"gno.land/p/nt/grc20/v1"
+	"gno.land/r/nt/grc20reg/v1"
 )
 
 // Slug is the grc20reg registration slug (the third argument to
@@ -27,7 +27,7 @@ func init(cur realm) {
 
 // Mint tokens to the specified address.
 // WARNING: test-only, no caller authorization — do not use as a pattern for production.
-func Mint(cur realm, to address, amount int64) {
+func Mint(cur realm, to address, amount uint256) {
 	if err := ledger.Mint(to, amount); err != nil {
 		panic(err)
 	}
@@ -36,20 +36,20 @@ func Mint(cur realm, to address, amount int64) {
 // Approve sets an allowance for spender to spend owner's tokens.
 // Uses PrivateLedger directly to allow explicit owner specification.
 // WARNING: test-only, no caller authorization — do not use as a pattern for production.
-func Approve(cur realm, owner, spender address, amount int64) {
+func Approve(cur realm, owner, spender address, amount uint256) {
 	if err := ledger.Approve(owner, spender, amount); err != nil {
 		panic(err)
 	}
 }
 
-func BalanceOf(addr address) int64 {
+func BalanceOf(addr address) uint256 {
 	return UserTeller.BalanceOf(addr)
 }
 
-func TotalSupply() int64 {
+func TotalSupply() uint256 {
 	return UserTeller.TotalSupply()
 }
 
-func Allowance(owner, spender address) int64 {
+func Allowance(owner, spender address) uint256 {
 	return UserTeller.Allowance(owner, spender)
 }

@@ -10,7 +10,7 @@ import (
 	"gno.land/p/aib/ibc/types/v0"
 	"gno.land/p/aib/ics23/v0"
 	"gno.land/r/aib/ibc/apps/transfer"
-	_ "gno.land/r/aib/ibc/apps/transfer/impl/v0"
+	_ "gno.land/r/aib/ibc/apps/transfer/impl/controls/v0"
 	"gno.land/r/aib/ibc/core"
 	_ "gno.land/r/aib/ibc/core/impl/v0"
 )
@@ -124,7 +124,7 @@ func main(cur realm) {
 // res: (2 gno.land/p/aib/ibc/types/v0.ResponseResultType)
 //
 // ----------- assert render clients/07-tendermint-1/packet_receipts
-// {"items":[{"sequence":"1","data":"Ag=="}],"page":1,"total":1}
+// {"items":[{"sequence":"1","data":"9E8TeFLqyYdQDlOFQHpVfR46COPWlz90UYH7+LxmcQc="}],"page":1,"total":1}
 //
 // ----------- assert render clients/07-tendermint-1/packet_acknowledgements
 // Expected commitment 4vsw3796verKgtQmU00rOp1URN0qh/oW04t3uhoTztc=

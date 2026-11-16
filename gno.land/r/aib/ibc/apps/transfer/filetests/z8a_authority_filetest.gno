@@ -7,16 +7,17 @@ import (
 
 	"gno.land/p/aib/authority/v0"
 	"gno.land/r/aib/ibc/apps/transfer"
-	_ "gno.land/r/aib/ibc/apps/transfer/impl/v0"
+	_ "gno.land/r/aib/ibc/apps/transfer/impl/controls/v0"
 	_ "gno.land/r/aib/ibc/core/impl/v0"
 )
 
-// Authority: GovDAO is a member from the start, the bootstrap admits this realm,
-// and the GovDAO path (previous realm = the DAO proxy) can block an address.
+// Authority (ADR pr6375 R14): GovDAO and ibcgov are the members from init,
+// with no deployer. GovDAO blocks an address at once; unblocking it, like
+// every loosening operation, is ibcgov's decision.
 func main(cur realm) {
 	govdao := chain.PackageAddress(authority.GovDAOPath)
 	println("govdao member:", transfer.IsAuthorityMember(govdao))
-	transfer.AddAuthorityMember(cross(cur), cur.Address())
+	println("ibcgov member:", transfer.IsAuthorityMember(chain.PackageAddress(transfer.IBCGovPath)))
 	println("main member:  ", transfer.IsAuthorityMember(cur.Address()))
 
 	testing.SetRealm(testing.NewCodeRealm(authority.GovDAOPath))
@@ -27,32 +28,23 @@ func main(cur realm) {
 
 // Output:
 // govdao member: true
-// main member:   true
+// ibcgov member: true
+// main member:   false
 // blocked: true
 // ## Authority
 //
 // - **Authority members**:
-//   - g1gjs8nfdrd55z3xu9gjcatnj29vkwuyx4ffqxd9
+//   - g12l3du5z70zzq9rkc82asre09srefve7p5mfay4
 //   - g1p84dvfh4wrplyxx4zsmy77a8rxcnjup2j7zv5r
 // - **Paused**: false (set by the IBC core)
-// - **Implementation**: [`gno.land/r/aib/ibc/apps/transfer/impl/v0`](/r/aib/ibc/apps/transfer/impl/v0) (version v0)
+// - **Implementation**: [`gno.land/r/aib/ibc/apps/transfer/impl/controls/v0`](/r/aib/ibc/apps/transfer/impl/controls/v0) (version v0)
 // - **Registered implementations**:
-//   - gno.land/r/aib/ibc/apps/transfer/impl/v0
+//   - gno.land/r/aib/ibc/apps/transfer/impl/controls/v0
 // - **Blocked addresses**:
 //   - g1wdhk6et0w35x2ujlta047h6lta047h6l82cvgx
 
 // Events:
 // [
-//   {
-//     "type": "authority_member_added",
-//     "attrs": [
-//       {
-//         "key": "address",
-//         "value": "g1gjs8nfdrd55z3xu9gjcatnj29vkwuyx4ffqxd9"
-//       }
-//     ],
-//     "pkg_path": "gno.land/r/aib/ibc/apps/transfer"
-//   },
 //   {
 //     "type": "block",
 //     "attrs": [

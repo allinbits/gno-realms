@@ -2,6 +2,7 @@ package transfer
 
 import (
 	"chain"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -9,7 +10,7 @@ import (
 	"gno.land/p/aib/ibc/ics20/v0"
 	"gno.land/p/aib/ibc/types/v0"
 	"gno.land/p/nt/bptree/v0"
-	"gno.land/p/nt/grc20/v0"
+	"gno.land/p/nt/grc20/v1"
 	"gno.land/p/nt/uassert/v0"
 )
 
@@ -43,7 +44,7 @@ func (l *upgradeTestLogic) Render(path string) string {
 	return "rendered by " + l.version + ": " + path
 }
 
-func (l *upgradeTestLogic) Transfer(_ int, rlm realm, sent []chain.Coin, clientID, receiver, denom string, amount int64, timeoutTimestamp uint64, memo string) (types.MsgSendPacket, uint64) {
+func (l *upgradeTestLogic) Transfer(_ int, rlm realm, sent []chain.Coin, clientID, receiver, denom string, amount uint256, timeoutTimestamp uint64, memo string) (types.MsgSendPacket, uint64) {
 	panic("upgradeTestLogic.Transfer: not implemented")
 }
 
@@ -64,8 +65,8 @@ func (l *upgradeTestLogic) OnAcknowledgementPacket(_ int, rlm realm, sourceClien
 	panic("upgradeTestLogic.OnAcknowledgementPacket: not implemented")
 }
 
-// resetUpgradeState restores an empty store, no implementation and an
-// authority without members, as at genesis in the test framework.
+// resetUpgradeState restores an empty store, no implementation and the
+// authority of init, as at genesis.
 func resetUpgradeState() {
 	denoms = bptree.NewBPTree32()
 	totalEscrow = bptree.NewBPTree32()
@@ -77,13 +78,20 @@ func resetUpgradeState() {
 	implPath = ""
 	implVersion = ""
 	implCtors = bptree.NewBPTree32()
-	auth = authority.New("")
+	implManifests = bptree.NewBPTree32()
+	implAddrs = bptree.NewBPTree32()
+	auth = authority.NewWithMembers(chain.PackageAddress(authority.GovDAOPath), chain.PackageAddress(IBCGovPath))
 	blocked = bptree.NewBPTree32()
+	ext = bptree.NewBPTree32()
 }
 
+// registerAs registers ctor as if from the implementation realm at path; its
+// manifest declares what a build reports (test logic only).
 func registerAs(cur realm, path string, ctor func(Store) Logic) {
+	l := ctor(store)
+	_, keeps := l.(ControlsLogic)
 	testing.SetRealm(testing.NewCodeRealm(path))
-	RegisterImpl(cross(cur), ctor)
+	RegisterImpl(cross(cur), ctor, l.Version(), nil, keeps)
 }
 
 func TestRegisterImplRejectsForeignRealm(cur realm, t *testing.T) {
@@ -114,10 +122,10 @@ func TestUpdateImplRequiresAuthority(cur realm, t *testing.T) {
 
 	registerAs(cur, upgradeTestImplPath, newUpgradeTestLogic)
 	registerAs(cur, upgradeTestImplPath2, newUpgradeTestLogic2)
-	uassert.AbortsContains(t, cur, "is not a member of the authority", func() {
+	uassert.AbortsContains(t, cur, "update_impl: only "+IBCGovPath+" decides this", func() {
 		UpdateImpl(cross(cur), upgradeTestImplPath2)
 	})
-	AddAuthorityMember(cross(cur), cur.Address())
+	testing.SetRealm(testing.NewCodeRealm(IBCGovPath))
 	uassert.AbortsContains(t, cur, "no implementation registered at", func() {
 		UpdateImpl(cross(cur), implPathPrefix+"nowhere")
 	})
@@ -136,7 +144,7 @@ func TestUpdateImplSwapsDispatchAndSharesStore(cur realm, t *testing.T) {
 	setDenom(d)
 
 	registerAs(cur, upgradeTestImplPath2, newUpgradeTestLogic2)
-	AddAuthorityMember(cross(cur), cur.Address())
+	testing.SetRealm(testing.NewCodeRealm(IBCGovPath))
 	UpdateImpl(cross(cur), upgradeTestImplPath2)
 	uassert.Equal(t, "vtest2", ImplVersion())
 
@@ -147,6 +155,7 @@ func TestUpdateImplSwapsDispatchAndSharesStore(cur realm, t *testing.T) {
 	// The callbacks' forwarding through the core-caller gate is covered by
 	// every packet filetest.
 
+	testing.SetRealm(testing.NewCodeRealm(IBCGovPath))
 	UpdateImpl(cross(cur), upgradeTestImplPath)
 	uassert.Equal(t, upgradeTestImplPath, ImplPath())
 	uassert.True(t, hasDenom(d.IBCDenom()))
@@ -174,7 +183,7 @@ func TestReadOnlyViewsAndGates(cur realm, t *testing.T) {
 	uassert.PanicsContains(t, cur, "read-only tree", func() { view.Set("k", 1) })
 
 	// The voucher view hands out tokens, never the voucher entry with its ledger.
-	tok := store.GetOrCreateVoucher(0, cur, "uatom", d.IBCDenom())
+	tok := store.GetOrCreateVoucher(0, cur, "uatom", d.IBCDenom(), 0)
 	uassert.Equal(t, tok.GetSymbol(), store.Vouchers().Get(d.IBCDenom()).(*grc20.Token).GetSymbol())
 	uassert.Equal(t, 1, store.Vouchers().Size())
 
@@ -185,4 +194,76 @@ func TestReadOnlyViewsAndGates(cur realm, t *testing.T) {
 	uassert.PanicsContains(t, cur, "access denied", func() { EmitTransfer(0, stale, "", "", "", "", "") })
 }
 
+// A voucher takes its decimals when it is created and keeps them: a later
+// request with the same returns the same token, one with others panics
+// (review of #85), and the decimals of a voucher that does not exist yet are
+// nobody's.
+func TestVoucherDecimalsFixedAtCreation(cur realm, t *testing.T) {
+	resetUpgradeState()
+	defer resetUpgradeState()
+
+	weth := ics20.NewDenom("0x457df1a9866af7b6a78eeba9291fc3e58b4d864b", ics20.NewHop(PortID, "ethereum-1")).IBCDenom()
+	_, ok := VoucherDecimals(weth)
+	uassert.False(t, ok)
+
+	tok := store.GetOrCreateVoucher(0, cur, "0x457df1a9866af7b6a78eeba9291fc3e58b4d864b", weth, grc20.MaxDecimals)
+	uassert.Equal(t, grc20.MaxDecimals, tok.GetDecimals())
+	d, ok := VoucherDecimals(weth)
+	uassert.True(t, ok)
+	uassert.Equal(t, grc20.MaxDecimals, d)
+
+	again := store.GetOrCreateVoucher(0, cur, "0x457df1a9866af7b6a78eeba9291fc3e58b4d864b", weth, grc20.MaxDecimals)
+	uassert.Equal(t, tok.GetSymbol(), again.GetSymbol())
+	uassert.PanicsContains(t, cur, "exists with 18 decimals, which never change", func() {
+		store.GetOrCreateVoucher(0, cur, "0x457df1a9866af7b6a78eeba9291fc3e58b4d864b", weth, 6)
+	})
+	uassert.NoError(t, CheckVoucherDecimals(weth, grc20.MaxDecimals))
+	uassert.Equal(t, 1, store.Vouchers().Size())
+
+	// grc20's bound holds here too.
+	uatom := ics20.NewDenom("uatom", ics20.NewHop(PortID, "07-tendermint-1")).IBCDenom()
+	uassert.PanicsContains(t, cur, "invalid decimals", func() { store.GetOrCreateVoucher(0, cur, "uatom", uatom, grc20.MaxDecimals+1) })
+}
+
 func captureRealm(cur realm) realm { return cur }
+
+// Bridge membership is a keyed lookup of the registered implementations'
+// addresses, superseded ones kept (design review r12 #1): with 200
+// candidates registered, every one is found, and an unregistered address is
+// not, without enumerating the registry.
+func TestImplAddressIndex(cur realm, t *testing.T) {
+	resetUpgradeState()
+	defer resetUpgradeState()
+	for i := 0; i < 200; i++ {
+		registerAs(cur, implPathPrefix+"v"+strconv.Itoa(1000+i), newUpgradeTestLogic)
+	}
+	for i := 0; i < 200; i++ {
+		p := implPathPrefix + "v" + strconv.Itoa(1000+i)
+		uassert.True(t, IsImplAddress(chain.PackageAddress(p)), p)
+		uassert.True(t, IsRegisteredImpl(p), p)
+	}
+	uassert.False(t, IsImplAddress(chain.PackageAddress(implPathPrefix+"v9999")))
+	uassert.False(t, IsRegisteredImpl(implPathPrefix+"v9999"))
+	uassert.Equal(t, 200, len(RegisteredImplPaths()))
+}
+
+// A voucher's grc20 name is its base denom as a display field within grc20's
+// bounds: a base denom longer than grc20.MaxNameLen is cut on a character
+// boundary and marked "...", a control character is shown as "?", so no
+// counterparty denom makes its first receive panic (Codex review of #85).
+// The full base denom stays in the denom record and the renders.
+func TestVoucherNameBounded(cur realm, t *testing.T) {
+	resetUpgradeState()
+	defer resetUpgradeState()
+
+	name := func(base string) string {
+		d := ics20.NewDenom(base, ics20.NewHop(PortID, "07-tendermint-1")).IBCDenom()
+		return store.GetOrCreateVoucher(0, cur, base, d, 0).GetName()
+	}
+	fits := strings.Repeat("a", grc20.MaxNameLen)
+	uassert.Equal(t, fits, name(fits))
+	uassert.Equal(t, strings.Repeat("b", grc20.MaxNameLen-3)+"...", name(strings.Repeat("b", grc20.MaxNameLen+1)))
+	// 60 bytes then three 2-byte runes: the cut never splits one.
+	uassert.Equal(t, strings.Repeat("c", 60)+"...", name(strings.Repeat("c", 60)+"ééé"))
+	uassert.Equal(t, "u?atom?", name("u\x01atom\x7f"))
+}

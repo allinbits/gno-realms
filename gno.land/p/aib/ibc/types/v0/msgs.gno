@@ -62,12 +62,18 @@ type MsgRecvPacket struct {
 	ProofHeight     Height
 	// Ext carries data a later core implementation may need on this
 	// entry point. The proxy signatures are frozen, so this is the only
-	// place a new message field can be added. Unused by impl/v0.
+	// place a new message field can be added.
+	// impl/v0 reads an extproof.Proof here: a client-specific proof (an
+	// Ethereum storage proof) its client checks through extproof.Verifier.
 	Ext any
 }
 
 // ValidateBasic performs basic checks on a MsgRecvPacket.
 func (msg *MsgRecvPacket) ValidateBasic() error {
+	// Before anything else touches a proof: no caller-supplied code runs.
+	if err := ics23.CheckProofs(msg.ProofCommitment); err != nil {
+		return err
+	}
 	if len(msg.ProofCommitment) == 0 {
 		return ufmt.Errorf("proof commitment can not be empty")
 	}
@@ -82,12 +88,18 @@ type MsgAcknowledgement struct {
 	ProofHeight     Height
 	// Ext carries data a later core implementation may need on this
 	// entry point. The proxy signatures are frozen, so this is the only
-	// place a new message field can be added. Unused by impl/v0.
+	// place a new message field can be added.
+	// impl/v0 reads an extproof.Proof here: a client-specific proof (an
+	// Ethereum storage proof) its client checks through extproof.Verifier.
 	Ext any
 }
 
 // ValidateBasic performs basic checks on a MsgAcknowledgement.
 func (msg *MsgAcknowledgement) ValidateBasic() error {
+	// Before anything else touches a proof: no caller-supplied code runs.
+	if err := ics23.CheckProofs(msg.ProofAcked); err != nil {
+		return err
+	}
 	if len(msg.ProofAcked) == 0 {
 		return errors.New("cannot submit an empty acknowledgement proof")
 	}
@@ -180,11 +192,17 @@ type MsgTimeout struct {
 	ProofHeight     Height
 	// Ext carries data a later core implementation may need on this
 	// entry point. The proxy signatures are frozen, so this is the only
-	// place a new message field can be added. Unused by impl/v0.
+	// place a new message field can be added.
+	// impl/v0 reads an extproof.Proof here: a client-specific proof (an
+	// Ethereum storage proof) its client checks through extproof.Verifier.
 	Ext any
 }
 
 func (msg *MsgTimeout) ValidateBasic() error {
+	// Before anything else touches a proof: no caller-supplied code runs.
+	if err := ics23.CheckProofs(msg.ProofUnreceived); err != nil {
+		return err
+	}
 	if len(msg.ProofUnreceived) == 0 {
 		return errors.New("cannot submit an empty timeout proof")
 	}

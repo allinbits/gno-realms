@@ -8,7 +8,7 @@ import (
 	"gno.land/p/aib/ibc/types/v0"
 
 	"gno.land/r/aib/ibc/apps/transfer"
-	_ "gno.land/r/aib/ibc/apps/transfer/impl/v0"
+	_ "gno.land/r/aib/ibc/apps/transfer/impl/controls/v0"
 	"gno.land/r/aib/ibc/core"
 	_ "gno.land/r/aib/ibc/core/impl/v0"
 )
@@ -43,4 +43,4 @@ func main(cur realm) {
 }
 
 // Error:
-// send packet failed for payload #0 app "transfer": invalid encoding: expected application/x-protobuf, got application/json
+// send packet failed for payload #0 app "transfer": invalid encoding: expected application/x-protobuf or application/x-solidity-abi, got application/json
