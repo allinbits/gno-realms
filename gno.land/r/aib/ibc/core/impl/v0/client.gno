@@ -4,6 +4,7 @@ import (
 	"chain/runtime/unsafe"
 
 	"gno.land/p/aib/ibc/host/v0"
+	"gno.land/p/aib/ibc/lightclient/ethereum/v0"
 	"gno.land/p/aib/ibc/lightclient/tendermint/v0"
 	"gno.land/p/aib/ibc/lightclient/v0"
 	"gno.land/p/aib/ibc/types/v0"
@@ -41,6 +42,8 @@ func (l *logic) CreateClient(_ int, rlm realm, relayer address, clientState ligh
 	switch typ := clientState.ClientType(); typ {
 	case lightclient.Tendermint:
 		newLightClient = tendermint.NewLightClient
+	case ethereum.ClientType:
+		newLightClient = ethereum.NewLightClient
 	default:
 		panic("unhandled light client type " + typ)
 	}

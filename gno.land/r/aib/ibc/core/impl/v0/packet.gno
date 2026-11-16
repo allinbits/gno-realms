@@ -6,8 +6,10 @@ import (
 	"time"
 
 	"gno.land/p/aib/ibc/host/v0"
+	"gno.land/p/aib/ibc/lightclient/extproof/v0"
 	"gno.land/p/aib/ibc/lightclient/v0"
 	"gno.land/p/aib/ibc/types/v0"
+	"gno.land/p/aib/ics23/v0"
 	"gno.land/p/nt/ufmt/v0"
 	"gno.land/r/aib/ibc/core"
 )
@@ -94,7 +96,16 @@ func (l *logic) SendPacket(_ int, rlm realm, msg types.MsgSendPacket) (sequence 
 }
 
 func (l *logic) RecvPacket(_ int, rlm realm, msg types.MsgRecvPacket) types.ResponseResultType {
-	if err := msg.ValidateBasic(); err != nil {
+	extProof, hasExtProof := extproof.FromExt(msg.Ext)
+	if hasExtProof {
+		// msg.ValidateBasic requires an ICS23 proof; apply the rest of it.
+		if len(msg.ProofCommitment) != 0 {
+			panic("a message cannot carry both an ICS23 proof and an Ext proof")
+		}
+		if err := msg.Packet.ValidateBasic(); err != nil {
+			panic(err)
+		}
+	} else if err := msg.ValidateBasic(); err != nil {
 		panic(err)
 	}
 
@@ -137,8 +148,8 @@ func (l *logic) RecvPacket(_ int, rlm realm, msg types.MsgRecvPacket) types.Resp
 		merklePath = types.BuildMerklePath(c.CounterpartyMerklePrefix(), key)
 		value      = types.CommitPacket(msg.Packet)
 	)
-	if err := lc.VerifyMembership(
-		msg.ProofHeight, msg.ProofCommitment, merklePath, value,
+	if err := verifyMembership(
+		lc, msg.ProofHeight, msg.ProofCommitment, extProof, hasExtProof, merklePath, value,
 	); err != nil {
 		panic(ufmt.Sprintf(
 			"failed packet commitment verification for client (%s): %v",
@@ -264,7 +275,19 @@ func (l *logic) WriteAcknowledgement(_ int, rlm realm, clientID string, sequence
 }
 
 func (l *logic) Acknowledgement(_ int, rlm realm, msg types.MsgAcknowledgement) types.ResponseResultType {
-	if err := msg.ValidateBasic(); err != nil {
+	extProof, hasExtProof := extproof.FromExt(msg.Ext)
+	if hasExtProof {
+		// msg.ValidateBasic requires an ICS23 proof; apply the rest of it.
+		if len(msg.ProofAcked) != 0 {
+			panic("a message cannot carry both an ICS23 proof and an Ext proof")
+		}
+		if err := msg.Acknowledgement.Validate(); err != nil {
+			panic(err)
+		}
+		if err := msg.Packet.ValidateBasic(); err != nil {
+			panic(err)
+		}
+	} else if err := msg.ValidateBasic(); err != nil {
 		panic(err)
 	}
 
@@ -307,8 +330,8 @@ func (l *logic) Acknowledgement(_ int, rlm realm, msg types.MsgAcknowledgement) 
 		merklePath = types.BuildMerklePath(c.CounterpartyMerklePrefix(), key)
 		value      = types.CommitAcknowledgement(msg.Acknowledgement)
 	)
-	if err := lc.VerifyMembership(
-		msg.ProofHeight, msg.ProofAcked, merklePath, value,
+	if err := verifyMembership(
+		lc, msg.ProofHeight, msg.ProofAcked, extProof, hasExtProof, merklePath, value,
 	); err != nil {
 		panic(ufmt.Sprintf(
 			"failed packet acknowledgement verification for client (%s): %v",
@@ -353,7 +376,16 @@ func (l *logic) Acknowledgement(_ int, rlm realm, msg types.MsgAcknowledgement) 
 }
 
 func (l *logic) Timeout(_ int, rlm realm, msg types.MsgTimeout) types.ResponseResultType {
-	if err := msg.ValidateBasic(); err != nil {
+	extProof, hasExtProof := extproof.FromExt(msg.Ext)
+	if hasExtProof {
+		// msg.ValidateBasic requires an ICS23 proof; apply the rest of it.
+		if len(msg.ProofUnreceived) != 0 {
+			panic("a message cannot carry both an ICS23 proof and an Ext proof")
+		}
+		if err := msg.Packet.ValidateBasic(); err != nil {
+			panic(err)
+		}
+	} else if err := msg.ValidateBasic(); err != nil {
 		panic(err)
 	}
 
@@ -404,8 +436,8 @@ func (l *logic) Timeout(_ int, rlm realm, msg types.MsgTimeout) types.ResponseRe
 		key        = host.PacketReceiptKey(msg.Packet.DestinationClient, msg.Packet.Sequence)
 		merklePath = types.BuildMerklePath(c.CounterpartyMerklePrefix(), key)
 	)
-	if err := lc.VerifyNonMembership(
-		msg.ProofHeight, msg.ProofUnreceived, merklePath,
+	if err := verifyNonMembership(
+		lc, msg.ProofHeight, msg.ProofUnreceived, extProof, hasExtProof, merklePath,
 	); err != nil {
 		panic(ufmt.Sprintf(
 			"failed packet receipt absence verification for client (%s): %v",
@@ -432,4 +464,35 @@ func (l *logic) Timeout(_ int, rlm realm, msg types.MsgTimeout) types.ResponseRe
 	}
 
 	return types.RESPONSE_SUCCESS
+}
+
+// verifyMembership verifies with the message's Ext proof when it carries one,
+// through the client's extproof.Verifier, and with its ICS23 proofs otherwise.
+func verifyMembership(lc lightclient.Interface, height types.Height,
+	proofs []ics23.CommitmentProof, ext extproof.Proof, hasExt bool,
+	path types.MerklePath, value []byte,
+) error {
+	if !hasExt {
+		return lc.VerifyMembership(height, proofs, path, value)
+	}
+	v, ok := lc.(extproof.Verifier)
+	if !ok {
+		return ufmt.Errorf("light client %T does not accept Ext proofs", lc)
+	}
+	return v.VerifyMembershipProof(height, ext.Data, path, value)
+}
+
+// verifyNonMembership is verifyMembership for absence proofs.
+func verifyNonMembership(lc lightclient.Interface, height types.Height,
+	proofs []ics23.CommitmentProof, ext extproof.Proof, hasExt bool,
+	path types.MerklePath,
+) error {
+	if !hasExt {
+		return lc.VerifyNonMembership(height, proofs, path)
+	}
+	v, ok := lc.(extproof.Verifier)
+	if !ok {
+		return ufmt.Errorf("light client %T does not accept Ext proofs", lc)
+	}
+	return v.VerifyNonMembershipProof(height, ext.Data, path)
 }

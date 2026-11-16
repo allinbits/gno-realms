@@ -1,0 +1,78 @@
+package abi
+
+import (
+	"encoding/hex"
+	"testing"
+
+	"gno.land/p/aib/ibc/ics20/v0"
+	"gno.land/p/nt/urequire/v0"
+)
+
+// A payload sent by the Solidity ICS20 application, from the
+// solidity-ibc-eureka ERC20 transfer fixture.
+const solidityPayload = "0000000000000000000000000000000000000000000000000000000000000020" +
+	"00000000000000000000000000000000000000000000000000000000000000a0" +
+	"0000000000000000000000000000000000000000000000000000000000000100" +
+	"0000000000000000000000000000000000000000000000000000000000000160" +
+	"000000000000000000000000000000000000000000000000000000003b9aca00" +
+	"00000000000000000000000000000000000000000000000000000000000001c0" +
+	"000000000000000000000000000000000000000000000000000000000000002a" +
+	"3078343537646631613938363661663762366137386565626139323931666333" +
+	"6535386234643836346200000000000000000000000000000000000000000000" +
+	"000000000000000000000000000000000000000000000000000000000000002a" +
+	"3078356636376135333938643931303837643162333761386134333433363139" +
+	"3661373833303836376600000000000000000000000000000000000000000000" +
+	"000000000000000000000000000000000000000000000000000000000000002d" +
+	"636f736d6f73316c6a7078666372646170303075657a7a397030796a73353574" +
+	"30646e63656e3638657735633900000000000000000000000000000000000000" +
+	"0000000000000000000000000000000000000000000000000000000000000000"
+
+func TestUnmarshalSolidityPayload(t *testing.T) {
+	bz, _ := hex.DecodeString(solidityPayload)
+	data, err := Unmarshal(bz)
+	urequire.NoError(t, err)
+	urequire.Equal(t, "0x457df1a9866af7b6a78eeba9291fc3e58b4d864b", data.Denom)
+	urequire.Equal(t, "0x5f67a5398d91087d1b37a8a43436196a7830867f", data.Sender)
+	urequire.Equal(t, "cosmos1ljpxfcrdap00uezz9p0yjs55t0dncen68ew5c9", data.Receiver)
+	urequire.Equal(t, "1000000000", data.Amount)
+	urequire.Equal(t, "", data.Memo)
+
+	// Marshal reproduces Solidity's encoding byte for byte.
+	out, err := Marshal(data)
+	urequire.NoError(t, err)
+	urequire.Equal(t, solidityPayload, hex.EncodeToString(out))
+}
+
+func TestRoundTrip(t *testing.T) {
+	in := ics20.FungibleTokenPacketData{
+		Denom:    "transfer/ethereum-1/ugnot",
+		Sender:   "g1jg8mtutu9khhfwc4nxmuhcpftf0pajdhfvsqf5",
+		Receiver: "0x5f67a5398d91087d1b37a8a43436196a7830867f",
+		Amount:   "115792089237316195423570985008687907853269984665640564039457584007913129639935",
+		Memo:     "a memo that is longer than one thirty-two byte word",
+	}
+	bz, err := Marshal(in)
+	urequire.NoError(t, err)
+	out, err := Unmarshal(bz)
+	urequire.NoError(t, err)
+	urequire.Equal(t, in.Denom, out.Denom)
+	urequire.Equal(t, in.Sender, out.Sender)
+	urequire.Equal(t, in.Receiver, out.Receiver)
+	urequire.Equal(t, in.Amount, out.Amount)
+	urequire.Equal(t, in.Memo, out.Memo)
+}
+
+func TestRejects(t *testing.T) {
+	_, err := Marshal(ics20.FungibleTokenPacketData{Amount: "115792089237316195423570985008687907853269984665640564039457584007913129639936"})
+	urequire.ErrorContains(t, err, "overflows")
+	_, err = Marshal(ics20.FungibleTokenPacketData{Amount: "-1"})
+	urequire.Error(t, err)
+
+	bz, _ := hex.DecodeString(solidityPayload)
+	_, err = Unmarshal(bz[:len(bz)-40])
+	urequire.Error(t, err)
+	bad := append([]byte{}, bz...)
+	bad[word+5] = 1 // huge denom offset
+	_, err = Unmarshal(bad)
+	urequire.Error(t, err)
+}

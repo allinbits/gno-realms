@@ -148,6 +148,35 @@ Other parameters (`TrustLevel`, `UnbondingPeriod`, `MaxClockDrift`,
 check rejects the substitute. Changing those requires `UpgradeClient` (or a
 fresh client migration).
 
+## Ethereum clients
+
+The tendermint rules above do not apply to `ethereum` clients; see ADR 0003.
+
+- The substitute must track the same chain and router: chain id, genesis
+  validators root and time, genesis slot, genesis fork version, slot timing,
+  sync committee size, router address and commitments slot. Its latest slot
+  must be ahead of the subject's. (Its fork parameters' genesis slot equals
+  its genesis slot, as `ValidateBasic` requires of every client.)
+- Its client state must be valid (`ValidateBasic`), its fork schedule
+  included, and the subject adopts that schedule and its minimum
+  participation. No fork comparison binds the substitute to the subject's
+  schedule: a recovery can schedule a fork announced after the client was
+  created, or repair a schedule that stopped the client from verifying. A
+  wrong schedule cannot make a relayed update verify false data (every
+  relayed update needs a 2/3 sync committee signature over the chain's real
+  domain). A recovery, unlike a relayed update, adopts the substitute's state
+  as trusted: its creator's bootstrap is not proven, so governance must
+  authenticate the substitute's state and vet its schedule before recovering
+  from it; see ADR 0003.
+- Only a Frozen or Expired subject is recovered. With this core
+  implementation (`impl/v0`), a known limit: a client facing a fork its
+  schedule lacks stays Active until it expires (8 sync committee periods
+  after its latest slot, about 9.1 days on mainnet), and only then is
+  recovered. Core `impl/v1` removes it with a governed fork-schedule
+  migration of an Active client. A client that merely fell
+  behind needs no recovery: until it expires, a relayer catches it up by
+  replaying each missed period's update.
+
 ## Caveats
 
 - The substitute's `LatestHeight` is not required to be greater than the

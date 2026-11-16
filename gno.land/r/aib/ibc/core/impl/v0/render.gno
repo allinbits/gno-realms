@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"gno.land/p/aib/ibc/lightclient/ethereum/v0"
 	"gno.land/p/aib/ibc/lightclient/tendermint/v0"
 	"gno.land/p/aib/ibc/lightclient/v0"
 	"gno.land/p/aib/ibc/types/v0"
@@ -281,6 +282,14 @@ func (rd *Renderer) ClientConsensusState(w *mux.ResponseWriter, r *mux.Request) 
 			return
 		}
 		RenderNode(w, RenderConsensusState(height, cs))
+	case ethereum.ClientType:
+		lc := c.LightClient().(*ethereum.EthLightClient)
+		cs, found := lc.GetConsensusState(height)
+		if !found {
+			RenderNode(w, NodeError("consensus state not found for height %s", height))
+			return
+		}
+		RenderNode(w, RenderEthConsensusState(height, cs))
 	}
 }
 
@@ -443,6 +452,14 @@ func ClientJSON(c core.Client) *json.Node {
 		if found {
 			m["last_consensus_state"] = RenderConsensusState(lc.LatestHeight(), lastConsState)
 		}
+	case ethereum.ClientType:
+		lc := c.LightClient().(*ethereum.EthLightClient)
+		cs := lc.ClientState
+		m["client_state"] = RenderEthClientState(lc.LatestHeight(), cs)
+		lastConsState, found := lc.GetConsensusState(lc.LatestHeight())
+		if found {
+			m["last_consensus_state"] = RenderEthConsensusState(lc.LatestHeight(), lastConsState)
+		}
 	}
 	return json.ObjectNode("", m)
 }
@@ -467,6 +484,79 @@ func RenderConsensusState(height types.Height, cs *tendermint.ConsensusState) *j
 		"root":                 json.StringNode("", base64.StdEncoding.EncodeToString(cs.Root.Hash)),
 		"next_validators_hash": json.StringNode("", base64.StdEncoding.EncodeToString(cs.NextValidatorsHash)),
 	})
+}
+
+// RenderEthClientState renders the client state of an Ethereum client. uint64
+// values that may exceed 2^53 (fork epochs, FarFutureEpoch among them) are
+// decimal strings.
+func RenderEthClientState(height types.Height, cs *ethereum.ClientState) *json.Node {
+	fp := cs.ForkParameters
+	return json.ObjectNode("", map[string]*json.Node{
+		"chain_id":                         RenderUint(cs.ChainID),
+		"genesis_validators_root":          RenderBytes(cs.GenesisValidatorsRoot),
+		"min_sync_committee_participants":  RenderUint(cs.MinSyncCommitteeParticipants),
+		"sync_committee_size":              RenderUint(cs.SyncCommitteeSize),
+		"genesis_time":                     RenderUint(cs.GenesisTime),
+		"genesis_slot":                     RenderUint(cs.GenesisSlot),
+		"seconds_per_slot":                 RenderUint(cs.SecondsPerSlot),
+		"slots_per_epoch":                  RenderUint(cs.SlotsPerEpoch),
+		"epochs_per_sync_committee_period": RenderUint(cs.EpochsPerSyncCommitteePeriod),
+		"latest_height":                    RenderHeight(height),
+		"latest_execution_block_number":    RenderUint(cs.LatestExecutionBlockNumber),
+		"is_frozen":                        json.BoolNode("", cs.IsFrozen),
+		"ibc_contract_address":             RenderBytes(cs.IBCContractAddress),
+		"ibc_commitment_slot":              RenderBytes(cs.IBCCommitmentSlot),
+		"fork_parameters": json.ObjectNode("", map[string]*json.Node{
+			"genesis_fork_version": RenderBytes(fp.GenesisForkVersion[:]),
+			"altair":               renderFork(fp.Altair),
+			"bellatrix":            renderFork(fp.Bellatrix),
+			"capella":              renderFork(fp.Capella),
+			"deneb":                renderFork(fp.Deneb),
+			"electra":              renderFork(fp.Electra),
+			"fulu":                 renderFork(fp.Fulu),
+			"gloas":                renderFork(fp.Gloas),
+		}),
+	})
+}
+
+func renderFork(f ethereum.Fork) *json.Node {
+	return json.ObjectNode("", map[string]*json.Node{
+		"version": RenderBytes(f.Version[:]),
+		"epoch":   RenderUint(f.Epoch),
+	})
+}
+
+// RenderEthConsensusState renders the consensus state of an Ethereum client.
+// next_sync_committee_known tells a relayer whether the client still needs
+// the period's update revealing the next sync committee.
+func RenderEthConsensusState(height types.Height, cs *ethereum.ConsensusState) *json.Node {
+	m := map[string]*json.Node{
+		"height":                    RenderHeight(height),
+		"slot":                      json.NumberNode("", float64(cs.Slot)),
+		"timestamp":                 json.NumberNode("", float64(cs.Timestamp)),
+		"state_root":                RenderBytes(cs.StateRoot),
+		"current_sync_committee":    renderSyncCommittee(cs.CurrentSyncCommittee),
+		"next_sync_committee_known": json.BoolNode("", cs.NextSyncCommittee != nil),
+	}
+	if cs.NextSyncCommittee != nil {
+		m["next_sync_committee"] = renderSyncCommittee(*cs.NextSyncCommittee)
+	}
+	return json.ObjectNode("", m)
+}
+
+func renderSyncCommittee(s ethereum.SummarizedSyncCommittee) *json.Node {
+	return json.ObjectNode("", map[string]*json.Node{
+		"pubkeys_hash":     RenderBytes(s.PubkeysHash),
+		"aggregate_pubkey": RenderBytes(s.AggregatePubkey),
+	})
+}
+
+func RenderUint(v uint64) *json.Node {
+	return json.StringNode("", strconv.FormatUint(v, 10))
+}
+
+func RenderBytes(b []byte) *json.Node {
+	return json.StringNode("", base64.StdEncoding.EncodeToString(b))
 }
 
 func RenderHeight(h types.Height) *json.Node {
