@@ -46,6 +46,13 @@ func TestMsgHeaderValidateBasic(t *testing.T) {
 			expectedError: "chainID is too long",
 		},
 		{
+			name: "header AppHash too long",
+			malleate: func() {
+				msg.Header.AppHash = make([]byte, 33)
+			},
+			expectedError: "AppHash is 33 bytes, max 32",
+		},
+		{
 			name:          "header height is zero",
 			malleate:      func() { msg.Header.Height = 0 },
 			expectedError: "zero Height",

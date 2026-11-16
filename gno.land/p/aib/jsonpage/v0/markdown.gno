@@ -11,7 +11,11 @@ package jsonpage
 // segment echoed in an error) could otherwise show up as live links or
 // markup on the realm's pages.
 func MarkdownSafe(js []byte) []byte {
-	out := make([]byte, 0, len(js))
+	// Allocate the most the output can take, 6 bytes per input byte: gno's
+	// append grows a slice to exactly the length it needs, so once the
+	// escapes had filled the input's length, every append copied the whole
+	// output again, a cost quadratic in the input.
+	out := make([]byte, 0, 6*len(js))
 	inString := false
 	for i := 0; i < len(js); i++ {
 		c := js[i]

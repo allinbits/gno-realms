@@ -109,8 +109,14 @@ func (l *logic) RegisterCounterparty(_ int, rlm realm, clientID string, counterp
 	if !types.IsValidClientID(counterpartyClientID) && !types.IsValidRouterClientID(counterpartyClientID) {
 		panic("invalid counterparty client id")
 	}
+	if err := validateMerklePrefix(counterpartyMerklePrefix); err != nil {
+		panic(err)
+	}
 	c := l.mustClient(clientID)
-	valid := types.IsValidClientID(counterpartyClientID)
+	// An SDK chain's client id is also bounded as ibc-go's
+	// MsgRegisterCounterparty does (4 to 64 characters); a router's ids are
+	// bounded by their own grammar.
+	valid := types.IsValidClientID(counterpartyClientID) && host.ClientIdentifierValidator(counterpartyClientID) == nil
 	if c.IsRouter() {
 		valid = types.IsValidRouterClientID(counterpartyClientID)
 		// An ICS26 router keeps its commitments at the bare ICS24 keys:
@@ -131,6 +137,30 @@ func (l *logic) RegisterCounterparty(_ int, rlm realm, clientID string, counterp
 		panic("cannot register counterparty once it is already set")
 	}
 	c.SetCounterparty(0, rlm, counterpartyClientID, counterpartyMerklePrefix)
+}
+
+// Bounds of a counterparty merkle prefix. It is stored and rendered, and the
+// Cosmos SDK one, ["ibc", ""], is far within them.
+const (
+	maxMerklePrefixKeys   = 4
+	maxMerklePrefixKeyLen = 64
+)
+
+// validateMerklePrefix checks a counterparty merkle prefix is not empty, like
+// ibc-go, and within the bounds above.
+func validateMerklePrefix(prefix [][]byte) error {
+	if len(prefix) == 0 {
+		return ufmt.Errorf("counterparty merkle prefix cannot be empty")
+	}
+	if len(prefix) > maxMerklePrefixKeys {
+		return ufmt.Errorf("counterparty merkle prefix has %d keys, max %d", len(prefix), maxMerklePrefixKeys)
+	}
+	for i, k := range prefix {
+		if len(k) > maxMerklePrefixKeyLen {
+			return ufmt.Errorf("counterparty merkle prefix key %d is %d bytes, max %d", i, len(k), maxMerklePrefixKeyLen)
+		}
+	}
+	return nil
 }
 
 // UpdateClient updates the given light client with a new header, or submits a

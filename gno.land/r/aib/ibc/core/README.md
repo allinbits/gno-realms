@@ -77,6 +77,10 @@ eureka's single empty merkle prefix.
 
 See [`zz_register_counterparty_example_filetest.gno`](./filetests/zz_register_counterparty_example_filetest.gno)
 
+The counterparty client id must be a valid ICS-024 client identifier of at
+most 64 characters, as ibc-go requires. The merkle prefix must have 1 to 4
+keys of at most 64 bytes each; a Cosmos SDK counterparty uses `["ibc", ""]`.
+
 ## UpdateClient
 
 See [`zz_update_client_example_filetest.gno`](./filetests/zz_update_client_example_filetest.gno)
