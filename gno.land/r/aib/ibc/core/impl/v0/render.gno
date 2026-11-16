@@ -630,12 +630,14 @@ func RenderStrings(s []string) *json.Node {
 
 // RenderNode writes n as JSON, inert in Markdown (jsonmd.Inert): its strings
 // may carry a path segment of the request or a relayer's identifier.
+// The encoder's Go escapes for control characters and invalid UTF-8 are
+// first made valid JSON (see jsonpage.ValidEscapes).
 func RenderNode(w *mux.ResponseWriter, n *json.Node) {
 	bz, err := json.Marshal(n)
 	if err != nil {
 		panic(err)
 	}
-	w.Write(jsonmd.Inert(string(bz)))
+	w.Write(jsonmd.Inert(string(jsonpage.ValidEscapes(bz))))
 }
 
 func NodeErrorClientNotFound(id string) *json.Node {
