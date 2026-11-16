@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math/big"
 	"net/http"
 	"strconv"
 	"strings"
@@ -312,21 +313,26 @@ func queryGnoGRC20Alias(containerID, denom string) (string, error) {
 }
 
 // queryGnoGRC20TestBalance returns the GRC20 test token balance for an address
-// by calling grc20test.BalanceOf via vm/qeval.
-func queryGnoGRC20TestBalance(containerID, addr string) (int64, error) {
+// by calling grc20test.BalanceOf via vm/qeval. A grc20 balance is a uint256,
+// read whole.
+func queryGnoGRC20TestBalance(containerID, addr string) (*big.Int, error) {
 	expr := fmt.Sprintf("BalanceOf(\"%s\")", addr)
 	content, err := gnoEval(containerID, "r/aib/ibc/apps/testing/grc20test", expr)
 	if err != nil {
-		return 0, err
+		return nil, err
 	}
-	// qeval returns: (VALUE TYPE), e.g. (1000 int64)
+	// qeval returns: (VALUE TYPE), e.g. (1000 uint256)
 	content = strings.TrimPrefix(content, "(")
 	content = strings.TrimSuffix(content, ")")
 	parts := strings.Fields(content)
 	if len(parts) != 2 {
-		return 0, fmt.Errorf("unexpected qeval result: %s", content)
+		return nil, fmt.Errorf("unexpected qeval result: %s", content)
 	}
-	return strconv.ParseInt(parts[0], 10, 64)
+	bal, ok := new(big.Int).SetString(parts[0], 10)
+	if !ok {
+		return nil, fmt.Errorf("unexpected qeval balance: %s", parts[0])
+	}
+	return bal, nil
 }
 
 // computeIBCDenomHash computes SHA256("transfer/<clientID>/<denom>") as uppercase hex.

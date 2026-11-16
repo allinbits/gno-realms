@@ -128,7 +128,7 @@ func main(cur realm) {
 
 	govern(cur, ibcgov.NewEthUnpauseRequest(cross(cur), 1, "client-0"))
 	govern(cur, ibcgov.NewEthSeatsRequest(cross(cur), "0:0x1111111111111111111111111111111111111111,4:0x2222222222222222222222222222222222222222"))
-	govern(cur, ibcgov.NewEthLimitsRequest(cross(cur), "client-0", "0x3333333333333333333333333333333333333333", "25000000000", "100000000000", "100000000000", "0", "0"))
+	govern(cur, ibcgov.NewEthLimitsRequest(cross(cur), "client-0", "0x3333333333333333333333333333333333333333", 25000000000, 100000000000, 100000000000, 0, 0))
 	govern(cur, ibcgov.NewEthVoucherRequest(cross(cur), "client-0", "ufoo", "0x4444444444444444444444444444444444444444", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"))
 	govern(cur, ibcgov.NewEthClientRequest(cross(cur), 1, "gnoland-2", "ethereum-2", "6d61696e,2f70762f766d3a676e6f2e6c616e642f722f6169622f6962632f636f72653a",
 		"0x5555555555555555555555555555555555555555", "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"))

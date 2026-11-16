@@ -68,8 +68,8 @@ func setupRoute(cur realm) string {
 }
 
 // ethPacket is a transfer packet the Ethereum router sent to client.
-func ethPacket(client string, seq uint64, token, receiver string, amount int64, timeout uint64) types.Packet {
-	data := ics20.NewFungibleTokenPacketData(token, strconv.FormatInt(amount, 10), ethReceiver, receiver, "")
+func ethPacket(client string, seq uint64, token, receiver string, amount uint256, timeout uint64) types.Packet {
+	data := ics20.NewFungibleTokenPacketData(token, strconv.FormatUint256(amount, 10), ethReceiver, receiver, "")
 	bz, err := abi.Marshal(data)
 	if err != nil {
 		panic(err)
@@ -109,7 +109,7 @@ func main(cur realm) {
 	core.RegisterCounterparty(cross(cur), id, [][]byte{{}}, "client-0")
 	voucher := ics20.NewDenom(weth, ics20.NewHop("transfer", client)).IBCDenom()
 	execute(cur, govern(cur, ibcgov.NewEnrollRouteRequest(cross(cur), client, string(collector), bridge)))
-	execute(cur, govern(cur, ibcgov.NewSetDenomRequest(cross(cur), client, weth, "mint", 4_000, 10_000, 10, 1, 0, 0, 4_000, "")))
+	execute(cur, govern(cur, ibcgov.NewSetDenomRequest(cross(cur), client, weth, "mint", 4_000, 10_000, 10, 1, 0, 0, 4_000, "", 0)))
 
 	relay(cur, router, p2)
 	e, _ := controlsView().Sweep(client, controls.PacketKey(client, 2))

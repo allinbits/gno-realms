@@ -29,7 +29,7 @@ IBC_HASH=$(printf 'transfer/%s/%s' "$CLIENT_ID" "$BASE_DENOM" |
 
 if [ -n "${GRC20KEY:-}" ]; then
 	"${GNOKEY_CMD[@]}" query vm/qeval \
-		--data "gno.land/r/nt/grc20reg/v0.MustGet(\"$GRC20KEY\").BalanceOf(\"$ADDR\")" \
+		--data "gno.land/r/nt/grc20reg/v1.MustGet(\"$GRC20KEY\").BalanceOf(\"$ADDR\")" \
 		-remote $REMOTE
 else
 	"${GNOKEY_CMD[@]}" query vm/qeval \
