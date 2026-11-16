@@ -38,6 +38,6 @@ func main(cur realm) {
 }
 
 // Output:
-// a non-canonical prefix: an Ethereum counterparty's merkle prefix is a single empty element
+// a non-canonical prefix: a router counterparty's merkle prefix is a single empty element
 // mutating the registered slice: undefined | ours now: x
 // the router's commitment still proves: true

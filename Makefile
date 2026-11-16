@@ -11,7 +11,7 @@ endif
 # --- Development ---
 
 gnodev:
-	go tool gnodev -empty-blocks -paths gno.land/r/aib/ibc/core,gno.land/r/aib/ibc/core/impl/v0,gno.land/r/aib/ibc/apps/transfer,gno.land/r/aib/ibc/apps/transfer/impl/v0
+	go tool gnodev -empty-blocks -paths gno.land/r/aib/ibc/core,gno.land/r/aib/ibc/core/impl/v0,gno.land/r/aib/ibc/apps/transfer,gno.land/r/aib/ibc/apps/transfer/impl/ics20/v0,gno.land/r/aib/ibc/apps/transfer/impl/controls/v0
 
 # --- Unit tests ---
 
@@ -22,7 +22,13 @@ gnodev:
 # on scheduling.
 GNO_TEST_PKGS = $(shell find gno.land e2e/gno/rehearsal -name gnomod.toml -exec dirname {} \; | sort)
 
-test:
+# gno lint runs the checks the chain applies at deployment and gno test does
+# not, such as the package name matching its path (a versioned path
+# .../foo/v0 must declare package foo).
+lint:
+	@set -e; for pkg in $(GNO_TEST_PKGS); do go tool gno lint ./$$pkg; done
+
+test: lint
 	bash scripts/check-packages.sh
 	@set -e; for pkg in $(GNO_TEST_PKGS); do go tool gno test ./$$pkg; done
 	go test -C ./cmd/gen-block-signatures

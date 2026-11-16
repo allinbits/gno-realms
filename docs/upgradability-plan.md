@@ -302,8 +302,9 @@ Frozen surface:
   core. The ICS-20 types (`Denom`, `Hop`, `Token`, `FungibleTokenPacketData`)
   move to `p/aib/ibc/ics20/v0` so every implementation can construct them.
 
-Implementation realm: `gno.land/r/aib/ibc/apps/transfer/impl/v0` holding the
-ICS-20 logic (`OnSendPacket`, `OnRecvPacket`, refund paths, denom tracing).
+Implementation realm: `gno.land/r/aib/ibc/apps/transfer/impl/v0` (now split
+into `impl/ics20/v0`, the plain logic, and `impl/controls/v0`, the route
+controls wrapping it: ADR 0004) holding the ICS-20 logic (`OnSendPacket`, `OnRecvPacket`, refund paths, denom tracing).
 
 ### 5.4 Gating `UpdateImpl`
 
@@ -334,7 +335,8 @@ Follow the gno examples: stable entry realms unversioned, everything else `/vN`.
 gno.land/r/aib/ibc/core                     proxy (permanent)
 gno.land/r/aib/ibc/core/impl/v0             first implementation
 gno.land/r/aib/ibc/apps/transfer            proxy (permanent)
-gno.land/r/aib/ibc/apps/transfer/impl/v0    first implementation
+gno.land/r/aib/ibc/apps/transfer/impl/ics20/v0     plain ICS-20 logic (registers nothing)
+gno.land/r/aib/ibc/apps/transfer/impl/controls/v0  first implementation (wraps ics20/v0)
 gno.land/p/aib/ibc/types/v0, host/v0, lightclient/v0, lightclient/tendermint/v0, ...
 ```
 

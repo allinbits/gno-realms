@@ -15,7 +15,7 @@ import (
 	"gno.land/p/nt/testutils/v0"
 	"gno.land/p/nt/ufmt/v0"
 	"gno.land/r/aib/ibc/apps/transfer"
-	_ "gno.land/r/aib/ibc/apps/transfer/impl/v0"
+	_ "gno.land/r/aib/ibc/apps/transfer/impl/controls/v0"
 	"gno.land/r/aib/ibc/core"
 	_ "gno.land/r/aib/ibc/core/impl/v0"
 )
@@ -147,6 +147,7 @@ func singleLeafProof(packet types.Packet) ([]ics23.CommitmentProof, []byte) {
 // First 100 of 101 vouchers; see [`vouchers`](/r/aib/ibc/apps/transfer:vouchers) (`?page`, `?limit`) for all of them.
 // ## Escrow (1)
 // ## JSON endpoints
+// ## Ethereum routes
 // ## Transfer rows: 100
 // ## Vouchers (101) rows: 100
 // ## Escrow (1) rows: 1

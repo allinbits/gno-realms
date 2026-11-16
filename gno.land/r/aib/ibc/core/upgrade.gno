@@ -47,8 +47,11 @@ type Logic interface {
 	// activate in sequence; it is empty at bootstrap. The contract:
 	//   - prevVersion is this version: a re-install, do nothing;
 	//   - prevVersion is the version this one was written to follow: run the
-	//     migration, at most linear in the number of clients, with anything
-	//     proportional to packets left to lazy conversion on access;
+	//     migration, in bounded work whatever the number of clients, packets
+	//     or records: anything proportional to them is converted lazily on
+	//     access or by a permissionless continuation doing a bounded batch a
+	//     call, never here, since an installation whose work grows with the
+	//     state could one day exceed a transaction's gas;
 	//   - anything else: panic.
 	// A panic aborts the whole transaction, so neither the switch nor any
 	// write the hook already made survives: the previous implementation

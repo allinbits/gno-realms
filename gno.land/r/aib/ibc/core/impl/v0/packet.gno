@@ -5,7 +5,6 @@ import (
 	"encoding/hex"
 	"time"
 
-	"gno.land/p/aib/ibc/lightclient/ethereum/v0"
 
 	"gno.land/p/aib/ibc/host/v0"
 	"gno.land/p/aib/ibc/lightclient/extproof/v0"
@@ -19,11 +18,11 @@ import (
 const maxTimeoutDelta time.Duration = 24 * time.Hour
 
 // validatePacket validates a packet of the local client local: by the ICS26
-// router's client id grammar on the counterparty side when local is an
-// Ethereum client (types.Packet.ValidateBasicRouter), by the SDK's rule
-// otherwise (types.Packet.ValidateBasic), unchanged for every other client.
+// router's client id grammar on the counterparty side when local is a router
+// client (Client.IsRouter; types.Packet.ValidateBasicRouter), by the SDK's
+// rule otherwise (types.Packet.ValidateBasic).
 func (l *logic) validatePacket(p types.Packet, local string) error {
-	if c := l.store.Client(local); c != nil && c.Type() == ethereum.ClientType {
+	if c := l.store.Client(local); c != nil && c.IsRouter() {
 		return p.ValidateBasicRouter()
 	}
 	return p.ValidateBasic()

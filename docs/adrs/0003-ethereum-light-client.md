@@ -266,8 +266,9 @@ unchanged.
   holds at or below that key (a rewritten head, a next committee learned
   there) goes into a persistent override tree read first; a conversion
   copies no consensus-state history and costs O(log previous stores)), and the
-  transfer
-  app starts with `impl/v1`, the first implementation its proxy registers;
+  transfer app starts with `impl/controls/v0`, the first implementation its
+  proxy registers, which carries the route controls around the plain
+  ICS-20 logic of `impl/ics20/v0`;
   the new `p/` packages deploy beside them.
 - Tests replay the four recorded devnet runs of the eureka client (11 updates,
   6 storage proofs), a live Sepolia snapshot on Gloas, and tamper cases. A

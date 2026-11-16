@@ -71,8 +71,9 @@ Emitted event:
 signed by the transaction's origin signer that created the client (its
 creator), for any client type: the public relaying of Ethereum clients does
 not extend to it. It is write-once: once a counterparty is registered, a
-second registration is refused. An Ethereum client's counterparty is the
-router's client id with eureka's single empty merkle prefix.
+second registration is refused. A router client's counterparty (an
+Ethereum client's, `IsRouterClient`) is the router's client id with
+eureka's single empty merkle prefix.
 
 See [`zz_register_counterparty_example_filetest.gno`](./filetests/zz_register_counterparty_example_filetest.gno)
 
@@ -105,7 +106,7 @@ Emitted event:
 ## Packet limits
 
 The core checks these on every client's packets, the same on send and on
-receive (`types.Packet.ValidateBasic`; on an Ethereum client's packets
+receive (`types.Packet.ValidateBasic`; on a router client's packets
 `types.Packet.ValidateBasicRouter`, which differs only in the client ids):
 
 | Field | Limit |
@@ -115,7 +116,7 @@ receive (`types.Packet.ValidateBasic`; on an Ethereum client's packets
 | payload value | not empty |
 | source and destination port | 2 to 128 characters of `a-z A-Z 0-9 . _ + - # [ ] < >` (no `/`) |
 | payload version and encoding | not blank; anything else is the application's to check (transfer: `ics20-1`, and `application/x-protobuf` or `application/x-solidity-abi`) |
-| source and destination client id | 4 to 64 characters of the same alphabet. On an Ethereum client's packets either may instead be an ICS26 router client id: `client-N` (N a decimal uint64 of at most 20 digits, no leading zero) or a custom id of 4 to 128 characters of that alphabet, not starting with `client-` or `channel-`. `SendPacket` also checks its source client against the first rule before it builds the packet |
+| source and destination client id | 4 to 64 characters of the same alphabet. On a router client's packets (one whose counterparty is an ICS26 router, recorded at its creation: `IsRouterClient`; an Ethereum client is one) either may instead be an ICS26 router client id: `client-N` (N a decimal uint64 of at most 20 digits, no leading zero) or a custom id of 4 to 128 characters of that alphabet, not starting with `client-` or `channel-`. `SendPacket` also checks its source client against the first rule before it builds the packet |
 | sequence | not 0 |
 | timeout timestamp | not 0 (Unix seconds). On send: after the current block time, at most 24 hours after it (`maxTimeoutDelta`), and after the sending client's latest consensus timestamp. On receive: refused when the current block time is at or after the packet's timeout timestamp |
 

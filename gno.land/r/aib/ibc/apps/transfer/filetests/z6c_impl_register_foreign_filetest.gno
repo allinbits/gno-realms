@@ -5,7 +5,8 @@ import (
 	"testing"
 
 	"gno.land/r/aib/ibc/apps/transfer"
-	implv0 "gno.land/r/aib/ibc/apps/transfer/impl/v0"
+	ics20impl "gno.land/r/aib/ibc/apps/transfer/impl/ics20/v0"
+	_ "gno.land/r/aib/ibc/apps/transfer/impl/controls/v0"
 	_ "gno.land/r/aib/ibc/core/impl/v0"
 )
 
@@ -15,7 +16,7 @@ type v99 struct{ transfer.Logic }
 
 func (v99) Version() string { return "v99" }
 
-func newV99(s transfer.Store) transfer.Logic { return v99{Logic: implv0.New(s)} }
+func newV99(s transfer.Store) transfer.Logic { return v99{Logic: ics20impl.New(s)} }
 
 // RegisterImpl refuses a realm outside the proxy's impl namespace.
 func main(cur realm) {

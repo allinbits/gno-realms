@@ -181,7 +181,7 @@ func TestUpdateImplSwapsDispatchAndSharesStore(cur realm, t *testing.T) {
 	defer resetUpgradeState()
 
 	registerAs(cur, upgradeTestImplPath, newUpgradeTestLogic)
-	seeded := store.addClient(lightclient.Tendermint, address("g1jg8mtutu9khhfwc4nxmuhcpftf0pajdhfvsqf5"), tendermint.NewTMLightClient())
+	seeded := store.addClient(lightclient.Tendermint, false, address("g1jg8mtutu9khhfwc4nxmuhcpftf0pajdhfvsqf5"), tendermint.NewTMLightClient())
 
 	registerAs(cur, upgradeTestImplPath2, newUpgradeTestLogic2)
 	testing.SetRealm(testing.NewCodeRealm(IBCGovPath))
@@ -236,14 +236,14 @@ func TestGatesRejectStaleRealm(cur realm, t *testing.T) {
 	defer resetUpgradeState()
 
 	stale := captureRealm(cross(cur))
-	c := store.addClient(lightclient.Tendermint, address("g1jg8mtutu9khhfwc4nxmuhcpftf0pajdhfvsqf5"), tendermint.NewTMLightClient())
+	c := store.addClient(lightclient.Tendermint, false, address("g1jg8mtutu9khhfwc4nxmuhcpftf0pajdhfvsqf5"), tendermint.NewTMLightClient())
 
 	uassert.PanicsContains(t, cur, "access denied", func() {
 		c.SetPacketReceipt(0, stale, types.Packet{Sequence: 1})
 	})
 	uassert.False(t, c.HasPacketReceipt(1))
 	uassert.PanicsContains(t, cur, "access denied", func() {
-		store.AddClient(0, stale, lightclient.Tendermint, address(""), tendermint.NewLightClient)
+		store.AddClient(0, stale, lightclient.Tendermint, false, address(""), tendermint.NewLightClient)
 	})
 	uassert.PanicsContains(t, cur, "access denied", func() {
 		EmitSendPacket(0, stale, types.Packet{})
@@ -272,7 +272,7 @@ func TestReadOnlyTreeViews(cur realm, t *testing.T) {
 	resetUpgradeState()
 	defer resetUpgradeState()
 
-	c := store.addClient(lightclient.Tendermint, address("g1jg8mtutu9khhfwc4nxmuhcpftf0pajdhfvsqf5"), tendermint.NewTMLightClient())
+	c := store.addClient(lightclient.Tendermint, false, address("g1jg8mtutu9khhfwc4nxmuhcpftf0pajdhfvsqf5"), tendermint.NewTMLightClient())
 	c.SetPacketReceipt(0, cur, types.Packet{Sequence: 3})
 	view := c.PacketReceipts()
 	uassert.Equal(t, 1, view.Size())
@@ -320,7 +320,7 @@ func TestSubstitutionStartsTrustGeneration(cur realm, t *testing.T) {
 	defer resetUpgradeState()
 
 	registerAs(cur, upgradeTestImplPath, newUpgradeTestLogic)
-	seeded := store.addClient(lightclient.Tendermint, address("g1jg8mtutu9khhfwc4nxmuhcpftf0pajdhfvsqf5"), tendermint.NewTMLightClient())
+	seeded := store.addClient(lightclient.Tendermint, false, address("g1jg8mtutu9khhfwc4nxmuhcpftf0pajdhfvsqf5"), tendermint.NewTMLightClient())
 	gen := ClientTrustGeneration(seeded.id)
 	registerAs(cur, upgradeTestImplPath2, func(s Store) Logic {
 		return &substitutingLogic{upgradeTestLogic{store: s, version: "vtest2"}, seeded.id}

@@ -82,15 +82,27 @@ Nothing in this list can change after the first mainnet deploy.
    the event schema. Administrative events are emitted by proxy code directly.
 6. **No light-client code in the proxy.** The implementation chooses the
    verifier and hands its `/p/` constructor to `AddClient(0, rlm, typ,
-   creator, newLightClient)`; the proxy calls it, so the verifier is allocated
+   router, creator, newLightClient)`; the proxy calls it, so the verifier is allocated
    in the proxy's storage rather than the implementation's, and stores it as a
-   `lightclient.Interface`. Changing the verifier is an
+   `lightclient.Interface`. `router` records, once and for the client's life,
+   whether its counterparty is an ICS26 router (the Solidity stack on an EVM
+   chain; the implementation sets it for an Ethereum client): the client
+   handle reports it (`Client.IsRouter`) and applications read it through
+   `IsRouterClient`, never the client type, so a later EVM chain needs only
+   its light client in an implementation (review of #93). Changing the verifier is an
    ordinary implementation upgrade (see "Light clients").
 7. **Implementation lifecycle.**
-   - `RegisterImpl(cur, ctor func(Store) Logic)`: callable only from a sub-realm
-     of the proxy path (`gno.land/r/aib/ibc/core/impl/vN`), from the
-     implementation's `init`. Registration activates nothing, except the
-     bootstrap case below.
+   - `RegisterImpl(cur, ctor func(Store) Logic, version string, over []string)`:
+     callable only from a sub-realm of the proxy path
+     (`gno.land/r/aib/ibc/core/impl/vN`), from the implementation's `init`.
+     `version` and `over` are its manifest: the version its `Version()`
+     reports and the versions of an active implementation it installs over
+     (`""` for the bootstrap; its own version always; `nil` for any). The
+     governed preflight, `CheckUpdateImpl`, reads the manifest alone and never
+     builds the candidate (registered, installs over the active version);
+     the installation enforces the same, then checks that the built
+     implementation reports the declared version (ADR 0004, the runbook).
+     Registration activates nothing, except the bootstrap case below.
    - `UpdateImpl(cur, path)`: authority-gated. Builds the implementation against
      the proxy store, calls `OnInstall(0, cur, prevPath, prevVersion)`, then
      swaps and emits `impl_updated{old, new, version}`. A panic in `OnInstall`
@@ -141,10 +153,13 @@ activate in sequence. Its contract: do nothing when `prevVersion` is its own
 version, migrate when it is the version it follows, panic otherwise. A panic
 aborts the whole transaction, so the previous implementation stays active and
 nothing the hook wrote persists; a fix then ships as the next version, whose
-hook is installed over the still-active one. The migration must be cheap: at
-most linear in the number of clients, with anything proportional to packets
-left to lazy conversion on access. A migration that is not additive forfeits
-rollback.
+hook is installed over the still-active one. The migration must be bounded:
+constant work, whatever the number of clients, packets or records. Anything
+proportional to them is converted lazily on access, or by a permissionless
+continuation doing a bounded batch a call, never in the hook: an installation
+whose work grows with the state could one day exceed a transaction's gas and
+leave its decision pending for good (the runbook's rule). A migration that is
+not additive forfeits rollback.
 
 ### What an implementation may and may not do
 
@@ -168,8 +183,10 @@ rollback.
 Light-client state is a set of core-owned objects whose methods are bound to
 the `/p/` version that created them. Verification stays in `/p/`, versioned
 (`p/aib/ibc/lightclient/tendermint/v0`, `/v1`, ...). A new implementation that
-needs a new verifier converts each stored client lazily or in `OnInstall`,
-reading the exported fields of the v0 object and storing the result with
+needs a new verifier converts each stored client lazily, on its first use,
+or through a governed migration of that one client (`MigrateClient`), never
+all of them in `OnInstall`, whose work stays bounded whatever the number of
+clients (above). It reads the exported fields of the v0 object and stores the result with
 `SetLightClient`, which takes the `/p/` conversion function for the same
 allocation reason as `AddClient` and starts the client's next trust
 generation (a governed migration that substitutes through it starts no
@@ -192,8 +209,13 @@ it equals the IBC v2 message set, provided the frozen signatures leave room:
   takes `any` proofs.
 - Struct-typed messages are not. Before the freeze, each `Msg*` struct of
   `p/aib/ibc/types` (`MsgSendPacket`, `MsgRecvPacket`, `MsgAcknowledgement`,
-  `MsgTimeout`) gets an `Ext any` field, unused by `impl/v0`, through which a
-  later implementation can receive new data on the existing entry points.
+  `MsgTimeout`) gets an `Ext any` field, through which a later implementation
+  can receive new data on the existing entry points. `impl/v0` already reads
+  it on receive, acknowledgement and timeout: an `extproof.Proof`, a
+  client-specific proof (an Ethereum client's storage proof) the client checks
+  through `extproof.Verifier` instead of ICS23 (ADR 0003); `MsgSendPacket`'s
+  stays unused. A later implementation must keep accepting that variant (a
+  relayer sends it), and may add its own types beside it, type-asserted.
   `Packet` itself is committed on both chains and stays as it is.
 - A genuinely new message type is a new IBC protocol version: a new proxy at a
   new path, a relayer release and a counterparty re-registration. Out of scope
