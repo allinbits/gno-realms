@@ -1,11 +1,17 @@
 #!/usr/bin/env bash
 #
-# Build ONE unsigned transaction holding a MsgAddPackage for every entry of
-# packages.sh, in deploy order, so the whole deploy needs a single signing
-# round (for instance by the AIB multisig). Nothing is signed or sent here.
+# Build the unsigned transactions holding a MsgAddPackage for every entry of
+# packages.sh, in deploy order, packed into as few transactions as the chain's
+# MaxTxBytes allows, so the deploy needs few signing rounds (for instance by
+# the AIB multisig). Nothing is signed or sent here.
+#
+# When everything fits in one transaction it is written to OUT (default
+# ./deploy-tx.json). Otherwise the messages are split, still in deploy order,
+# into OUT with -1, -2, ... before its extension (./deploy-tx-1.json, ...),
+# signed with consecutive account sequences and broadcast in that order.
 #
 # Usage:
-#   ./scripts/make-deploy-tx.sh                               # creator: the AIB multisig, writes ./deploy-tx.json
+#   ./scripts/make-deploy-tx.sh                               # creator: the AIB multisig, writes ./deploy-tx.json (or -1, -2, ...)
 #   OUT=/tmp/tx.json ./scripts/make-deploy-tx.sh
 #   CREATOR=g1... ./scripts/make-deploy-tx.sh                 # another creator (address or local key name)
 #   KEEP_TESTS=1 ./scripts/make-deploy-tx.sh                  # keep filetests/ and *_test.gno
@@ -25,12 +31,19 @@
 # the target chain (r/sys/names), or every message is rejected.
 #
 # Tests are stripped by default (filetests/ directories, *_test.gno,
-# *_filetest.gno): with them the sources weigh about 1.4 MB, above the chain's
-# MaxTxBytes (1 MB on onyx), and on-chain they only cost storage deposit.
+# *_filetest.gno): the chain never runs them and type-checks production files
+# only, so on-chain they only cost storage deposit and transaction bytes.
+#
+# Splitting: MaxTxBytes is read from the chain (MAX_TX_BYTES overrides it, and
+# is required when the query fails). Each transaction's JSON document, larger
+# than the amino-binary tx the limit applies to, stays SIG_RESERVE bytes under
+# it: room for the signatures added later (a multisig adds its members' public
+# keys and one signature per signer). A package too large on its own is an
+# error. GAS_WANTED and GAS_FEE apply to each transaction.
 #
 # Signing follows the gnokey multisig flow (gno repo,
 # docs/users/interact-with-gnokey.md, "Using a k-of-n multisig"): each signer
-# signs the same document with the multisig account's number and sequence,
+# signs the same documents with the multisig account's number and sequences,
 # the multisig holder combines the signatures, anyone broadcasts. The script
 # prints those commands with the actual values at the end.
 #
@@ -40,8 +53,9 @@
 #   enablement, so CREATOR must then hold MAX_DEPOSIT per package plus the fee.
 # - "permissionless" (gnodev): messages execute in order within the transaction,
 #   each type-checked against the ones before it. Gas is charged for all of
-#   them, so GAS_WANTED must cover the whole tx and stay under the block's
-#   MaxGas (3,000,000,000 on onyx).
+#   them, so GAS_WANTED must cover each whole tx and stay under the block's
+#   MaxGas (3,000,000,000 on onyx). A transaction only sees the packages of
+#   the ones before it once they are committed: broadcast them in order.
 
 set -euo pipefail
 
@@ -57,6 +71,8 @@ OUT="${OUT:-deploy-tx.json}"
 KEEP_TESTS="${KEEP_TESTS:-0}"
 RELAYERS="${RELAYERS:-}"
 RELAYERS_OUT="${RELAYERS_OUT:-add-relayers.gno}"
+MAX_TX_BYTES="${MAX_TX_BYTES:-}"
+SIG_RESERVE="${SIG_RESERVE:-20000}"
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$REPO_ROOT"
@@ -91,17 +107,28 @@ if [[ -n "$ONLY" ]]; then
   PACKAGES=("${filtered[@]}")
 fi
 
+# ---- size limit -------------------------------------------------------------
+if [[ -z "$MAX_TX_BYTES" ]]; then
+  MAX_TX_BYTES="$(curl -sf --max-time 10 "$REMOTE/consensus_params" 2>/dev/null \
+    | grep -o '"MaxTxBytes": *"[0-9]*"' | sed 's/[^0-9]//g' || true)"
+  if [[ -z "$MAX_TX_BYTES" ]]; then
+    echo "ERROR: cannot read MaxTxBytes from $REMOTE; set MAX_TX_BYTES" >&2
+    exit 1
+  fi
+fi
+
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 
-echo "==> Composing one tx with ${#PACKAGES[@]} MsgAddPackage for $CHAIN_ID ($REMOTE)"
-echo "    creator=$CREATOR  gas-fee=$GAS_FEE  gas-wanted=$GAS_WANTED  max-deposit=$MAX_DEPOSIT/pkg  keep-tests=$KEEP_TESTS"
+echo "==> Composing ${#PACKAGES[@]} MsgAddPackage for $CHAIN_ID ($REMOTE)"
+echo "    creator=$CREATOR  gas-fee=$GAS_FEE/tx  gas-wanted=$GAS_WANTED/tx  max-deposit=$MAX_DEPOSIT/pkg  keep-tests=$KEEP_TESTS"
+echo "    max-tx-bytes=$MAX_TX_BYTES  sig-reserve=$SIG_RESERVE"
 echo
 
 # ---- compose one message per package ---------------------------------------
-# gnokey reads the package directory (including filetests/) and emits the
+# gnokey reads the staged package directory (all of it) and emits the
 # unsigned tx document on stdout when -broadcast=false. One tx per package
-# here; their messages are merged below.
+# here; their messages are packed into transactions below.
 i=0
 for entry in "${PACKAGES[@]}"; do
   i=$((i + 1))
@@ -135,34 +162,57 @@ for entry in "${PACKAGES[@]}"; do
 done
 echo
 
-# ---- merge ------------------------------------------------------------------
-python3 - "$WORK" "${#PACKAGES[@]}" "$OUT" "$MEMO" <<'PY'
-import json, sys
+# ---- pack -------------------------------------------------------------------
+# Greedy, in deploy order: a message joins the current transaction while its
+# JSON document stays within MAX_TX_BYTES - SIG_RESERVE, else it opens the next
+# one. MaxTxBytes applies to the amino-binary tx, smaller than the JSON, so the
+# comparison is conservative. The written files are listed in $WORK/txs.
+python3 - "$WORK" "${#PACKAGES[@]}" "$OUT" "$MEMO" "$MAX_TX_BYTES" "$SIG_RESERVE" <<'PY'
+import json, os, sys
 work, n, out, memo = sys.argv[1], int(sys.argv[2]), sys.argv[3], sys.argv[4]
+budget = int(sys.argv[5]) - int(sys.argv[6])
+
+def doc(msgs, fee):
+    return {"msg": msgs, "fee": fee, "signatures": None, "memo": memo}
+
+def size(tx):
+    return len(json.dumps(tx, separators=(",", ":")).encode())
+
 msgs, fee = [], None
 for i in range(1, n + 1):
     with open(f"{work}/msg-{i}.json") as f:
         tx = json.load(f)
     msgs.extend(tx["msg"])
     fee = fee or tx["fee"]
-tx = {"msg": msgs, "fee": fee, "signatures": None, "memo": memo}
-with open(out, "w") as f:
-    json.dump(tx, f, separators=(",", ":"))
-print(f"==> {out}: {len(msgs)} messages, {len(json.dumps(tx, separators=(',', ':')).encode())} bytes (JSON)")
-PY
 
-# ---- limits -----------------------------------------------------------------
-# MaxTxBytes applies to the amino-binary tx, which is smaller than the JSON
-# document, so comparing the JSON size is conservative.
-if max_tx_bytes="$(curl -sf --max-time 10 "$REMOTE/consensus_params" 2>/dev/null \
-    | grep -o '"MaxTxBytes": *"[0-9]*"' | sed 's/[^0-9]//g')" && [[ -n "$max_tx_bytes" ]]; then
-  size="$(wc -c < "$OUT")"
-  if (( size > max_tx_bytes )); then
-    echo "ERROR: tx is $size bytes, above the chain's MaxTxBytes ($max_tx_bytes); split the deploy or strip more" >&2
-    exit 1
-  fi
-  echo "    fits MaxTxBytes=$max_tx_bytes"
-fi
+groups, cur = [], []
+for m in msgs:
+    alone = size(doc([m], fee))
+    if alone > budget:
+        sys.exit(f"ERROR: {m['package']['path']} alone is {alone} bytes (JSON), above "
+                 f"MaxTxBytes - SIG_RESERVE ({budget}); strip it or split the package")
+    if cur and size(doc(cur + [m], fee)) > budget:
+        groups.append(cur)
+        cur = []
+    cur.append(m)
+groups.append(cur)
+
+if len(groups) == 1:
+    paths = [out]
+else:
+    base, ext = os.path.splitext(out)
+    paths = [f"{base}-{k}{ext}" for k in range(1, len(groups) + 1)]
+with open(f"{work}/txs", "w") as listing:
+    for path, group in zip(paths, groups):
+        tx = doc(group, fee)
+        with open(path, "w") as f:
+            json.dump(tx, f, separators=(",", ":"))
+        print(f"==> {path}: {len(group)} messages, {size(tx)} bytes (JSON), "
+              f"{group[0]['package']['path']} .. {group[-1]['package']['path']}")
+        listing.write(path + "\n")
+PY
+mapfile -t TX_FILES < "$WORK/txs"
+echo "    ${#TX_FILES[@]} transaction(s), each at most MaxTxBytes=$MAX_TX_BYTES less a $SIG_RESERVE-byte signature reserve"
 
 # ---- relayer whitelist ------------------------------------------------------
 # core.AddRelayer is a governed operation: the core accepts it from ibcgov only,
@@ -198,18 +248,38 @@ else
        ibcgov.Govern(cross(cur), ibcgov.NewCoreAddRelayerRequest(cross(cur), \"<relayer-address>\"))"
 fi
 
+# Steps 1-3 per transaction: the k-th one (0-based) is signed with the creator's
+# sequence + k, since each broadcast consumes one sequence.
+sign_cmds="" multisign_cmds="" broadcast_cmds=""
+for k in "${!TX_FILES[@]}"; do
+  f="${TX_FILES[$k]}"
+  seq="S+$k"
+  [[ -n "$acct_seq" ]] && seq=$((acct_seq + k))
+  [[ "$k" == 0 && -z "$acct_seq" ]] && seq="S"
+  sig="<name>-sig-$((k + 1)).json"
+  [[ "${#TX_FILES[@]}" == 1 ]] && sig="<name>-sig.json"
+  sign_cmds+="
+       gnokey sign -tx-path $f -chainid $CHAIN_ID -account-number ${acct_num:-N} -account-sequence $seq \\
+           -output-document $sig <signer-key>"
+  multisign_cmds+="
+       gnokey multisign -tx-path $f -signature ${sig/<name>/<a>} -signature ${sig/<name>/<b>} <multisig-key>"
+  broadcast_cmds+="
+       gnokey broadcast -remote $REMOTE $f"
+done
+order_note=""
+if [[ "${#TX_FILES[@]}" -gt 1 ]]; then
+  order_note=" one at a time, in this order (each needs the packages of the ones before it,
+     and its sequence follows theirs)"
+fi
+
 cat <<EOT
 
 ==> Next steps (multisig flow; account number/sequence are those of the creator $creator_addr right now:
     account-number=${acct_num:-?} account-sequence=${acct_seq:-?}; re-check before signing if another tx was sent meanwhile)
 
-  1. Each signer, on their own machine, with the shared $OUT:
-       gnokey sign -tx-path $OUT -chainid $CHAIN_ID -account-number ${acct_num:-N} -account-sequence ${acct_seq:-S} \\
-           -output-document <name>-sig.json <signer-key>
-  2. Whoever holds the multisig key combines the signatures (member order matters, see the gno docs):
-       gnokey multisign -tx-path $OUT -signature <a>-sig.json -signature <b>-sig.json <multisig-key>
-  3. Broadcast:
-       gnokey broadcast -remote $REMOTE $OUT
+  1. Each signer, on their own machine, with the shared ${TX_FILES[*]}:${sign_cmds}
+  2. Whoever holds the multisig key combines the signatures (member order matters, see the gno docs):${multisign_cmds}
+  3. Broadcast${order_note}:${broadcast_cmds}
   4. On an "inert" chain the packages park until the approvers enable them; poll with
        gnokey query vm/qpkgmeta_json -data <pkgpath> -remote $REMOTE   (status: inert -> live)
   5. Once core and ibcgov are live, governance adds the relayers: until the first add-relayer
