@@ -2,6 +2,8 @@
 package main
 
 import (
+	"testing"
+
 	"encoding/hex"
 
 	"gno.land/p/aib/ibc/lightclient/ethereum/v0"
@@ -24,8 +26,9 @@ func fork(v byte, epoch uint64) ethereum.Fork {
 }
 
 func main(cur realm) {
-	core.AddAuthorityMember(cross(cur), cur.Address())
+	testing.SetRealm(testing.NewCodeRealm(core.IBCGovPath)) // decided by the governance realm
 	core.AddRelayer(cross(cur), "g1wymu47drhr0kuq2098m792lytgtj2nyx77yrsm")
+	testing.SetRealm(testing.NewCodeRealm("gno.land/r/aib/main"))
 
 	// The initial state of the solidity-ibc-eureka ERC20 transfer fixture.
 	clientState := ethereum.ClientState{

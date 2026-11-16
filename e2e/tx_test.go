@@ -48,11 +48,19 @@ func (s *E2ETestSuite) sendGnoCoins(fromKey, toAddr, coins string) {
 
 // signAndBroadcastGnoRun writes a Gno script to the container and executes it via gnokey maketx run.
 func (s *E2ETestSuite) signAndBroadcastGnoRun(keyName, script string) {
+	s.Require().NoError(s.gnoRun(keyName, script))
+}
+
+// gnoRun writes a Gno script to the container and executes it via gnokey
+// maketx run, returning the failure, if any, with the command's output.
+func (s *E2ETestSuite) gnoRun(keyName, script string) error {
 	ctx := context.Background()
 	// Write script to container
 	_, stderr, err := dockerExecStdin(ctx, s.gnoContainer, script,
 		"bash", "-c", "cat > /tmp/run.gno")
-	s.Require().NoError(err, "write run script: %s", stderr)
+	if err != nil {
+		return fmt.Errorf("write run script: %w: %s", err, stderr)
+	}
 
 	runCtx, cancel := context.WithTimeout(ctx, 60*time.Second)
 	defer cancel()
@@ -67,7 +75,10 @@ func (s *E2ETestSuite) signAndBroadcastGnoRun(keyName, script string) {
 		keyName,
 		"/tmp/run.gno",
 	)
-	s.Require().NoError(err, "gnokey maketx run: stdout=%s stderr=%s", stdout, stderr)
+	if err != nil {
+		return fmt.Errorf("gnokey maketx run: %w: stdout=%s stderr=%s", err, stdout, stderr)
+	}
+	return nil
 }
 
 // signAndBroadcastGnoCall executes a gnokey maketx call inside the gno container.

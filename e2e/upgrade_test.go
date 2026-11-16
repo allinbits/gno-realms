@@ -9,7 +9,7 @@ import (
 
 // upgradeTarget is one of the two upgradeable realms and its implementations.
 type upgradeTarget struct {
-	name, realm, v0, v99 string
+	name, realm, initial, v99 string
 }
 
 var upgradeTargets = []upgradeTarget{
@@ -19,32 +19,47 @@ var upgradeTargets = []upgradeTarget{
 
 func (t upgradeTarget) rel() string { return strings.TrimPrefix(t.realm, "gno.land/") }
 
-// TestGovDAOUpdateImpl exercises the governance path of UpdateImpl against the
-// real r/gov/dao of the gno chain: the test key is seeded as a GovDAO member
-// (possible on dev chains only), proposes through each proxy's request
-// constructor the re-installation of its impl/v0, votes, and executes. The
-// callback then runs with the DAO proxy as caller, which the realms'
-// authority accepts. Re-installing v0 keeps the chain usable by the other
-// tests; the switch to another implementation is TestUpgradeRehearsal.
-func (s *E2ETestSuite) TestGovDAOUpdateImpl() {
-	s.ensureGovDAOMember()
+// decisionDelay is the 7-day delay of a loosening ibcgov decision on the e2e
+// devnet: its build divides the realms' delays by 60480 (e2e/gno/Dockerfile),
+// so a decision is due 10 seconds after it is recorded.
+const decisionDelay = 10 * time.Second
+
+// TestGovernorUpdateImpl exercises the governance path of UpdateImpl (ADR
+// pr6375 R14, §6.12): the proxies take an implementation switch only from
+// gno.land/r/aib/ibc/ibcgov, where the launch governor (on the e2e devnet the
+// test key, e2e/gno/Dockerfile) records the decision and anyone executes it
+// once its delay has passed. Executing it before is refused and leaves it
+// pending. Re-installing the initial implementation (impl/v0 of both) keeps
+// the chain usable by the other tests; the switch to another implementation
+// is TestUpgradeRehearsal.
+func (s *E2ETestSuite) TestGovernorUpdateImpl() {
 	for _, tc := range upgradeTargets {
 		s.Run(tc.name, func() {
-			s.Require().Equal(tc.v0, s.implPath(tc), "impl/v0 must be active before the proposal")
-			s.govDAOUpdateImpl(tc, tc.v0)
-			s.Require().Equal(tc.v0, s.implPath(tc), "impl/v0 re-installed through GovDAO")
+			s.Require().Equal(tc.initial, s.implPath(tc), "the initial implementation must be active before the decision")
+			s.governDecision(tc.updateRequest(tc.initial))
+			err := s.gnoRun("test", executeLastDecision)
+			s.Require().Error(err, "a decision executes only once its delay has passed")
+			s.Require().Contains(err.Error(), "is due at")
+			time.Sleep(decisionDelay + 2*time.Second)
+			s.Require().NoError(s.gnoRun("test", executeLastDecision))
+			s.Require().Equal(tc.initial, s.implPath(tc), "the initial implementation re-installed through ibcgov")
 		})
 	}
 }
 
-// TestUpgradeRehearsal is the upgrade runbook end to end on a running chain:
+// TestUpgradeRehearsal is the upgrade runbook end to end on a running chain
+// without Ethereum routes (on a chain whose transfer app keeps route
+// controls, a switch to an implementation without them, such as this
+// rehearsal's v99, is refused: the controls are never rolled back):
 // deploy the v99 candidates with addpkg (their init registers them), switch
-// both realms to them through GovDAO, relay a transfer in each direction
-// through the new implementations, roll back to v0, and relay again. The
-// relayer is never told anything: paths, events and routes are the proxies'.
+// both realms to them through ibcgov decisions, relay a transfer in each
+// direction through the new implementations, roll back to the initial
+// implementations, and relay
+// again. The relayer is never told anything: paths, events and routes are the
+// proxies'. The guardians' holds, which defer every queued decision, need an
+// Ethereum route to flag and are covered by ibcgov's filetests instead
+// (z1b_guardians_holds): this devnet pairs gno.land with AtomOne only.
 func (s *E2ETestSuite) TestUpgradeRehearsal() {
-	s.ensureGovDAOMember()
-
 	for _, tc := range upgradeTargets {
 		// The candidates live outside the gno workspace of the container, so
 		// this addpkg is a real deployment onto the running chain.
@@ -54,11 +69,11 @@ func (s *E2ETestSuite) TestUpgradeRehearsal() {
 		registered, err := gnoEval(s.gnoContainer, tc.rel(), "RegisteredImplPaths()")
 		s.Require().NoError(err, "query RegisteredImplPaths")
 		s.Require().Contains(registered, tc.v99, "the candidate registers itself at deploy")
-		s.Require().Equal(tc.v0, s.implPath(tc), "registration alone activates nothing")
+		s.Require().Equal(tc.initial, s.implPath(tc), "registration alone activates nothing")
 	}
 
 	for _, tc := range upgradeTargets {
-		s.govDAOUpdateImpl(tc, tc.v99)
+		s.governAndExecute(tc.updateRequest(tc.v99))
 		s.Require().Equal(tc.v99, s.implPath(tc))
 		s.Require().Equal("v99", s.implVersion(tc))
 	}
@@ -68,9 +83,9 @@ func (s *E2ETestSuite) TestUpgradeRehearsal() {
 	})
 
 	for _, tc := range upgradeTargets {
-		s.govDAOUpdateImpl(tc, tc.v0)
-		s.Require().Equal(tc.v0, s.implPath(tc))
-		s.Require().Equal("v0", s.implVersion(tc))
+		s.governAndExecute(tc.updateRequest(tc.initial))
+		s.Require().Equal(tc.initial, s.implPath(tc))
+		s.Require().Equal(tc.initial[strings.LastIndex(tc.initial, "/")+1:], s.implVersion(tc))
 	}
 	s.Run("transfers after rollback", func() {
 		s.TestIBCTransferAtomOneToGno()
@@ -78,43 +93,44 @@ func (s *E2ETestSuite) TestUpgradeRehearsal() {
 	})
 }
 
-// ensureGovDAOMember seeds the DAO with the test key as T1 member, once per
-// chain: InitWithUsers locks AllowedDAOs afterwards.
-func (s *E2ETestSuite) ensureGovDAOMember() {
-	allowed, err := gnoEval(s.gnoContainer, "r/gov/dao", "AllowedDAOs()")
-	s.Require().NoError(err, "query AllowedDAOs")
-	if strings.Contains(allowed, "gno.land/r/gov/dao/impl/v0") {
-		return
+// updateRequest is the ibcgov builder call that switches tc's realm to impl.
+func (t upgradeTarget) updateRequest(impl string) string {
+	builder := "NewCoreUpdateImplRequest"
+	if t.name == "transfer" {
+		builder = "NewTransferUpdateImplRequest"
 	}
-	s.signAndBroadcastGnoRun("test", fmt.Sprintf(`package main
+	return fmt.Sprintf("ibcgov.%s(cross(cur), %q)", builder, impl)
+}
 
-import daoinit "gno.land/r/gov/dao/init/v0"
+// executeLastDecision applies ibcgov's newest decision; anyone may.
+const executeLastDecision = `package main
+
+import "gno.land/r/aib/ibc/ibcgov"
 
 func main(cur realm) {
-	daoinit.InitWithUsers(cross(cur), address(%q))
+	ibcgov.Execute(cross(cur), ibcgov.LastDecision())
 }
-`, s.gnoSenderAddress))
-}
+`
 
-// govDAOUpdateImpl proposes, votes and executes in one MsgRun the activation
-// of impl on tc's realm. A single T1 member reaches the supermajority. The
-// proxy panics if impl is not registered, which aborts the transaction.
-func (s *E2ETestSuite) govDAOUpdateImpl(tc upgradeTarget, impl string) {
+// governDecision records a decision as the governor (the test key on this
+// devnet) in a MsgRun: request is a builder call of gno.land/r/aib/ibc/ibcgov.
+func (s *E2ETestSuite) governDecision(request string) {
 	s.signAndBroadcastGnoRun("test", fmt.Sprintf(`package main
 
-import (
-	proxy %q
-	"gno.land/r/gov/dao"
-)
+import "gno.land/r/aib/ibc/ibcgov"
 
 func main(cur realm) {
-	pid := dao.MustCreateProposal(cross(cur), proxy.NewUpdateImplProposalRequest(cross(cur), %q))
-	dao.MustVoteOnProposal(cross(cur), dao.NewVoteRequest(dao.YesVote, pid))
-	if !dao.ExecuteProposal(cross(cur), pid) {
-		panic("proposal not executed")
-	}
+	ibcgov.Govern(cross(cur), %s)
 }
-`, tc.realm, impl))
+`, request))
+}
+
+// governAndExecute records a decision as the governor, waits for its delay
+// and executes it.
+func (s *E2ETestSuite) governAndExecute(request string) {
+	s.governDecision(request)
+	time.Sleep(decisionDelay + 2*time.Second)
+	s.Require().NoError(s.gnoRun("test", executeLastDecision))
 }
 
 func (s *E2ETestSuite) implPath(tc upgradeTarget) string {

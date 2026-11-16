@@ -171,7 +171,9 @@ the `/p/` version that created them. Verification stays in `/p/`, versioned
 needs a new verifier converts each stored client lazily or in `OnInstall`,
 reading the exported fields of the v0 object and storing the result with
 `SetLightClient`, which takes the `/p/` conversion function for the same
-allocation reason as `AddClient`; the consensus-state tree can be shared by pointer, so the
+allocation reason as `AddClient` and starts the client's next trust
+generation (a governed migration that substitutes through it starts no
+second one), so a proof made under the old verifier is never settled on; the consensus-state tree can be shared by pointer, so the
 migration is O(1) per client. The store field stays typed
 `lightclient.Interface` forever, so a later verifier such as `tendermint/v1`
 must still implement it and the implementation type-asserts for anything newer. `RecoverClient` and a

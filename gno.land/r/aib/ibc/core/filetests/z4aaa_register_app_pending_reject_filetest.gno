@@ -11,15 +11,15 @@ import (
 
 // The authority can drop a pending registration.
 func main(cur realm) {
-	core.AddAuthorityMember(cross(cur), cur.Address())
 	app := appstesting.NewApp(cross(cur))
 
 	testing.SetRealm(testing.NewCodeRealm("gno.land/r/third/party/app"))
 	core.RegisterApp(cross(cur), "thirdparty", app)
 	println("pending:", core.IsAppPending("thirdparty", "gno.land/r/third/party/app"))
 
-	testing.SetRealm(testing.NewCodeRealm("gno.land/r/aib/main"))
+	testing.SetRealm(testing.NewCodeRealm(core.IBCGovPath)) // decided by the governance realm
 	core.RejectApp(cross(cur), "thirdparty", "gno.land/r/third/party/app")
+	testing.SetRealm(testing.NewCodeRealm("gno.land/r/aib/main"))
 	println("pending:", core.IsAppPending("thirdparty", "gno.land/r/third/party/app"))
 	println("apps/pending:", core.Render("apps/pending"))
 }
@@ -31,16 +31,6 @@ func main(cur realm) {
 
 // Events:
 // [
-//   {
-//     "type": "authority_member_added",
-//     "attrs": [
-//       {
-//         "key": "address",
-//         "value": "g1gjs8nfdrd55z3xu9gjcatnj29vkwuyx4ffqxd9"
-//       }
-//     ],
-//     "pkg_path": "gno.land/r/aib/ibc/core"
-//   },
 //   {
 //     "type": "app_registration_pending",
 //     "attrs": [

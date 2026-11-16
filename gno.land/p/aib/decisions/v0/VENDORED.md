@@ -9,4 +9,5 @@ namespace rather than import the bridge operator's deployment).
 Local changes: package and constant documentation, `UnpauseDelay`,
 `Decision.Copy` and `Ledger.Find`, `DAOPath` taken from
 `gno.land/p/aib/authority/v0`, `Ledger.JSON` quoted as JSON (`jsonmd.Quote`,
-not Go's `strconv.Quote`) and paged by decision number, and tests for them.
+not Go's `strconv.Quote`) and paged by decision number (a `from` past the last
+decision an empty page), and tests for them.

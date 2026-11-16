@@ -2,14 +2,17 @@
 package main
 
 import (
+	"testing"
+
 	"gno.land/r/aib/ibc/apps/transfer"
 	_ "gno.land/r/aib/ibc/apps/transfer/impl/v0"
 	_ "gno.land/r/aib/ibc/core/impl/v0"
 )
 
-// Block / unblock round trip by the admin; the admin page lists the blocklist.
+// Block / unblock round trip by the governance realm (unblocking is its
+// decision alone); the admin page lists the blocklist.
 func main(cur realm) {
-	transfer.AddAuthorityMember(cross(cur), cur.Address())
+	testing.SetRealm(testing.NewCodeRealm(transfer.IBCGovPath)) // decided by the governance realm
 	println("blocked:", transfer.IsBlocked("g1wdhk6et0w35x2ujlta047h6lta047h6l82cvgx"))
 	transfer.BlockAddress(cross(cur), "g1wdhk6et0w35x2ujlta047h6lta047h6l82cvgx")
 	println("blocked:", transfer.IsBlocked("g1wdhk6et0w35x2ujlta047h6lta047h6l82cvgx"))
@@ -25,7 +28,7 @@ func main(cur realm) {
 // ## Authority
 //
 // - **Authority members**:
-//   - g1gjs8nfdrd55z3xu9gjcatnj29vkwuyx4ffqxd9
+//   - g12l3du5z70zzq9rkc82asre09srefve7p5mfay4
 //   - g1p84dvfh4wrplyxx4zsmy77a8rxcnjup2j7zv5r
 // - **Paused**: false (set by the IBC core)
 // - **Implementation**: [`gno.land/r/aib/ibc/apps/transfer/impl/v0`](/r/aib/ibc/apps/transfer/impl/v0) (version v0)
@@ -38,7 +41,7 @@ func main(cur realm) {
 // ## Authority
 //
 // - **Authority members**:
-//   - g1gjs8nfdrd55z3xu9gjcatnj29vkwuyx4ffqxd9
+//   - g12l3du5z70zzq9rkc82asre09srefve7p5mfay4
 //   - g1p84dvfh4wrplyxx4zsmy77a8rxcnjup2j7zv5r
 // - **Paused**: false (set by the IBC core)
 // - **Implementation**: [`gno.land/r/aib/ibc/apps/transfer/impl/v0`](/r/aib/ibc/apps/transfer/impl/v0) (version v0)
@@ -48,16 +51,6 @@ func main(cur realm) {
 
 // Events:
 // [
-//   {
-//     "type": "authority_member_added",
-//     "attrs": [
-//       {
-//         "key": "address",
-//         "value": "g1gjs8nfdrd55z3xu9gjcatnj29vkwuyx4ffqxd9"
-//       }
-//     ],
-//     "pkg_path": "gno.land/r/aib/ibc/apps/transfer"
-//   },
 //   {
 //     "type": "block",
 //     "attrs": [

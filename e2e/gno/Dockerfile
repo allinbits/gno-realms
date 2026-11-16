@@ -36,6 +36,13 @@ RUN cd gnovm/cmd/gno && go build -o /usr/local/bin/gno .
 # Copy IBC realms/packages and download dependencies from local gnodev.
 COPY gnowork.toml /aibgno/gnowork.toml
 COPY gno.land /aibgno/gno.land
+# The devnet build of the decision delays (ADR pr6375 §7.7): divided by 60480
+# (a 7-day delay is 10 s of block time). The mainnet build keeps factor 1. The
+# ibcgov governor is its deployer: the entrypoint deploys with the e2e test
+# key (TEST_MNEMONIC, g1z437…), so the tests decide through ibcgov as the
+# governor would.
+RUN sed -i 's/^\tFactor = int64(1)$/\tFactor = int64(60480)/' /aibgno/gno.land/p/aib/decisions/v0/decisions.gno && \
+    grep -q 'Factor = int64(60480)' /aibgno/gno.land/p/aib/decisions/v0/decisions.gno
 ENV GNOROOT=/src/gno
 # gnodev answers RPC before every package it serves is queryable, so the
 # download is retried; gnodev's log is printed if it never succeeds.
@@ -48,7 +55,7 @@ RUN download_deps() { \
     }; \
     cd /aibgno && \
     gnodev -empty-blocks \
-        -paths "gno.land/p/nt/uassert/v0,gno.land/p/nt/urequire/v0,gno.land/p/nt/testutils/v0,gno.land/r/aib/ibc/core,gno.land/r/aib/ibc/apps/transfer,gno.land/r/aib/ibc/apps/testing/grc20test" > /tmp/gnodev.log 2>&1 & \
+        -paths "gno.land/p/nt/uassert/v0,gno.land/p/nt/urequire/v0,gno.land/p/nt/testutils/v0,gno.land/r/aib/ibc/core,gno.land/r/aib/ibc/apps/transfer,gno.land/r/aib/ibc/ibcgov,gno.land/r/aib/ibc/apps/testing/grc20test" > /tmp/gnodev.log 2>&1 & \
     gnodev_pid=$!; \
     while ! wget -q -O- 'http://127.0.0.1:26657/abci_query?path=%22.app/version%22' 2>/dev/null | grep -q '"response"'; do \
         kill -0 "$gnodev_pid" 2>/dev/null || { echo "gnodev exited before becoming ready:"; cat /tmp/gnodev.log; exit 1; }; \
@@ -56,6 +63,8 @@ RUN download_deps() { \
     done && \
     gno clean -modcache=true && \
     cd /aibgno/gno.land/r/aib/ibc/apps/transfer && \
+    download_deps && \
+    cd /aibgno/gno.land/r/aib/ibc/ibcgov && \
     download_deps
 
 # Runtime stage

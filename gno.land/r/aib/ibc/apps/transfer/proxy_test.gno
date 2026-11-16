@@ -2,6 +2,7 @@ package transfer
 
 import (
 	"chain"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -64,8 +65,8 @@ func (l *upgradeTestLogic) OnAcknowledgementPacket(_ int, rlm realm, sourceClien
 	panic("upgradeTestLogic.OnAcknowledgementPacket: not implemented")
 }
 
-// resetUpgradeState restores an empty store, no implementation and an
-// authority without members, as at genesis in the test framework.
+// resetUpgradeState restores an empty store, no implementation and the
+// authority of init, as at genesis.
 func resetUpgradeState() {
 	denoms = bptree.NewBPTree32()
 	totalEscrow = bptree.NewBPTree32()
@@ -77,13 +78,20 @@ func resetUpgradeState() {
 	implPath = ""
 	implVersion = ""
 	implCtors = bptree.NewBPTree32()
-	auth = authority.New("")
+	implManifests = bptree.NewBPTree32()
+	implAddrs = bptree.NewBPTree32()
+	auth = authority.NewWithMembers(chain.PackageAddress(authority.GovDAOPath), chain.PackageAddress(IBCGovPath))
 	blocked = bptree.NewBPTree32()
+	ext = bptree.NewBPTree32()
 }
 
+// registerAs registers ctor as if from the implementation realm at path; its
+// manifest declares what a build reports (test logic only).
 func registerAs(cur realm, path string, ctor func(Store) Logic) {
+	l := ctor(store)
+	_, keeps := l.(ControlsLogic)
 	testing.SetRealm(testing.NewCodeRealm(path))
-	RegisterImpl(cross(cur), ctor)
+	RegisterImpl(cross(cur), ctor, l.Version(), nil, keeps)
 }
 
 func TestRegisterImplRejectsForeignRealm(cur realm, t *testing.T) {
@@ -114,10 +122,10 @@ func TestUpdateImplRequiresAuthority(cur realm, t *testing.T) {
 
 	registerAs(cur, upgradeTestImplPath, newUpgradeTestLogic)
 	registerAs(cur, upgradeTestImplPath2, newUpgradeTestLogic2)
-	uassert.AbortsContains(t, cur, "is not a member of the authority", func() {
+	uassert.AbortsContains(t, cur, "update_impl: only "+IBCGovPath+" decides this", func() {
 		UpdateImpl(cross(cur), upgradeTestImplPath2)
 	})
-	AddAuthorityMember(cross(cur), cur.Address())
+	testing.SetRealm(testing.NewCodeRealm(IBCGovPath))
 	uassert.AbortsContains(t, cur, "no implementation registered at", func() {
 		UpdateImpl(cross(cur), implPathPrefix+"nowhere")
 	})
@@ -136,7 +144,7 @@ func TestUpdateImplSwapsDispatchAndSharesStore(cur realm, t *testing.T) {
 	setDenom(d)
 
 	registerAs(cur, upgradeTestImplPath2, newUpgradeTestLogic2)
-	AddAuthorityMember(cross(cur), cur.Address())
+	testing.SetRealm(testing.NewCodeRealm(IBCGovPath))
 	UpdateImpl(cross(cur), upgradeTestImplPath2)
 	uassert.Equal(t, "vtest2", ImplVersion())
 
@@ -147,6 +155,7 @@ func TestUpdateImplSwapsDispatchAndSharesStore(cur realm, t *testing.T) {
 	// The callbacks' forwarding through the core-caller gate is covered by
 	// every packet filetest.
 
+	testing.SetRealm(testing.NewCodeRealm(IBCGovPath))
 	UpdateImpl(cross(cur), upgradeTestImplPath)
 	uassert.Equal(t, upgradeTestImplPath, ImplPath())
 	uassert.True(t, hasDenom(d.IBCDenom()))
@@ -186,3 +195,23 @@ func TestReadOnlyViewsAndGates(cur realm, t *testing.T) {
 }
 
 func captureRealm(cur realm) realm { return cur }
+
+// Bridge membership is a keyed lookup of the registered implementations'
+// addresses, superseded ones kept (design review r12 #1): with 200
+// candidates registered, every one is found, and an unregistered address is
+// not, without enumerating the registry.
+func TestImplAddressIndex(cur realm, t *testing.T) {
+	resetUpgradeState()
+	defer resetUpgradeState()
+	for i := 0; i < 200; i++ {
+		registerAs(cur, implPathPrefix+"v"+strconv.Itoa(1000+i), newUpgradeTestLogic)
+	}
+	for i := 0; i < 200; i++ {
+		p := implPathPrefix + "v" + strconv.Itoa(1000+i)
+		uassert.True(t, IsImplAddress(chain.PackageAddress(p)), p)
+		uassert.True(t, IsRegisteredImpl(p), p)
+	}
+	uassert.False(t, IsImplAddress(chain.PackageAddress(implPathPrefix+"v9999")))
+	uassert.False(t, IsRegisteredImpl(implPathPrefix+"v9999"))
+	uassert.Equal(t, 200, len(RegisteredImplPaths()))
+}

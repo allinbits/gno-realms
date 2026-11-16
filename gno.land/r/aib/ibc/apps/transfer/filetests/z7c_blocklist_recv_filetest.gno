@@ -2,6 +2,8 @@
 package main
 
 import (
+	"testing"
+
 	"encoding/base64"
 	"encoding/hex"
 	"time"
@@ -119,8 +121,9 @@ func main(cur realm) {
 
 	// Block the receiver: core still receives the packet (receipt written) but
 	// the app answers with an error acknowledgement and mints nothing.
-	transfer.AddAuthorityMember(cross(cur), cur.Address())
+	testing.SetRealm(testing.NewCodeRealm(transfer.IBCGovPath)) // decided by the governance realm
 	transfer.BlockAddress(cross(cur), receiver)
+	testing.SetRealm(testing.NewCodeRealm("gno.land/r/aib/main"))
 	println("\nreceiver blocked:", transfer.IsBlocked(receiver))
 
 	res := core.RecvPacket(cross(cur), recvPacket)
@@ -159,16 +162,6 @@ func main(cur realm) {
 //       }
 //     ],
 //     "pkg_path": "gno.land/r/aib/ibc/core"
-//   },
-//   {
-//     "type": "authority_member_added",
-//     "attrs": [
-//       {
-//         "key": "address",
-//         "value": "g1gjs8nfdrd55z3xu9gjcatnj29vkwuyx4ffqxd9"
-//       }
-//     ],
-//     "pkg_path": "gno.land/r/aib/ibc/apps/transfer"
 //   },
 //   {
 //     "type": "block",

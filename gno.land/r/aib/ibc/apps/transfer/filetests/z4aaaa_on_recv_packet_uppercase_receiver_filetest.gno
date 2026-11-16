@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"strings"
+	"testing"
 	"time"
 
 	"gno.land/p/aib/ibc/ics20/v0"
@@ -126,6 +127,17 @@ func main(cur realm) {
 	println("\nack res:", res)
 	println("\nreceiver voucher balance after RecvPacket:", transfer.VoucherBalanceOf(voucherDenom, receiver))
 	println("uppercase spelling balance:", transfer.VoucherBalanceOf(voucherDenom, address(strings.ToUpper(receiver.String()))))
+
+	// Every route, this Tendermint one included (ADR 0004, "Changes affecting
+	// every route"): VoucherSend canonicalizes its recipient. In the base
+	// (1e0c7c5) the 40 vouchers were credited under the uppercase string,
+	// a balance the recipient's own address could not spend.
+	other := testutils.TestAddress("other")
+	testing.SetRealm(testing.NewUserRealm(receiver))
+	transfer.VoucherSend(cross(cur), voucherDenom, address(strings.ToUpper(other.String())), 40)
+	testing.SetRealm(testing.NewCodeRealm("gno.land/r/aib/main"))
+	println("other's vouchers:", transfer.VoucherBalanceOf(voucherDenom, other),
+		"| under the uppercase spelling (40 in the base):", transfer.VoucherBalanceOf(voucherDenom, address(strings.ToUpper(other.String()))))
 }
 
 // Output:
@@ -137,6 +149,7 @@ func main(cur realm) {
 //
 // receiver voucher balance after RecvPacket: 100
 // uppercase spelling balance: 0
+// other's vouchers: 40 | under the uppercase spelling (40 in the base): 0
 
 // Events:
 // [
@@ -203,7 +216,7 @@ func main(cur realm) {
 //     "attrs": [
 //       {
 //         "key": "token",
-//         "value": "gno.land/r/aib/ibc/apps/transfer.CAEF9CA8CE6.0000001"
+//         "value": "gno.land/r/aib/ibc/apps/transfer.IBC-1.0000001"
 //       },
 //       {
 //         "key": "name",
@@ -211,7 +224,7 @@ func main(cur realm) {
 //       },
 //       {
 //         "key": "symbol",
-//         "value": "CAEF9CA8CE6"
+//         "value": "IBC-1"
 //       },
 //       {
 //         "key": "decimals",
@@ -225,7 +238,7 @@ func main(cur realm) {
 //     "attrs": [
 //       {
 //         "key": "token_path",
-//         "value": "gno.land/r/aib/ibc/apps/transfer.CAEF9CA8CE6"
+//         "value": "gno.land/r/aib/ibc/apps/transfer.IBC-1"
 //       },
 //       {
 //         "key": "pkgpath",
@@ -237,7 +250,7 @@ func main(cur realm) {
 //       },
 //       {
 //         "key": "symbol",
-//         "value": "CAEF9CA8CE6"
+//         "value": "IBC-1"
 //       }
 //     ],
 //     "pkg_path": "gno.land/r/nt/grc20reg/v0"
@@ -247,7 +260,7 @@ func main(cur realm) {
 //     "attrs": [
 //       {
 //         "key": "token",
-//         "value": "gno.land/r/aib/ibc/apps/transfer.CAEF9CA8CE6.0000001"
+//         "value": "gno.land/r/aib/ibc/apps/transfer.IBC-1.0000001"
 //       },
 //       {
 //         "key": "from",
@@ -323,5 +336,27 @@ func main(cur realm) {
 //       }
 //     ],
 //     "pkg_path": "gno.land/r/aib/ibc/core"
+//   },
+//   {
+//     "type": "Transfer",
+//     "attrs": [
+//       {
+//         "key": "token",
+//         "value": "gno.land/r/aib/ibc/apps/transfer.IBC-1.0000001"
+//       },
+//       {
+//         "key": "from",
+//         "value": "g1wfjkxetfwejhyh6lta047h6lta047h6llm82yl"
+//       },
+//       {
+//         "key": "to",
+//         "value": "g1da6xsetjta047h6lta047h6lta047h6ltrh8mk"
+//       },
+//       {
+//         "key": "value",
+//         "value": "40"
+//       }
+//     ],
+//     "pkg_path": "gno.land/p/nt/grc20/v0"
 //   }
 // ]

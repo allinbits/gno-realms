@@ -2,6 +2,8 @@
 package main
 
 import (
+	"testing"
+
 	"gno.land/r/aib/ibc/core"
 	_ "gno.land/r/aib/ibc/core/impl/v0"
 )
@@ -10,7 +12,6 @@ func main(cur realm) {
 	// Bootstrap so the test caller is the admin (RecoverClient is
 	// admin-gated; in production this is the deployer or, eventually,
 	// govDAO).
-	core.AddAuthorityMember(cross(cur), cur.Address())
 
 	// RecoverClient revives a Frozen or Expired subject client by copying
 	// state from a healthy substitute that tracks the same counterparty.
@@ -33,7 +34,9 @@ func main(cur realm) {
 	subjectClientID := "07-tendermint-1"    // XXX update — Frozen/Expired client to revive
 	substituteClientID := "07-tendermint-2" // XXX update — healthy client tracking the same chain
 
+	testing.SetRealm(testing.NewCodeRealm(core.IBCGovPath)) // decided by the governance realm
 	core.RecoverClient(cross(cur), subjectClientID, substituteClientID)
+	testing.SetRealm(testing.NewCodeRealm("gno.land/r/aib/main"))
 }
 
 // Error:

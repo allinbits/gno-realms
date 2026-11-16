@@ -201,6 +201,14 @@ func main(cur realm) {
 		ProofHeight:     trustedHeight,
 	}
 	recvRes := core.RecvPacket(cross(cur), recvPacket)
+	// Every route, this Tendermint one included (ADR 0004, "Changes affecting
+	// every route"): the core keeps its own copy of the packet it holds for
+	// the asynchronous acknowledgement. In the base (1e0c7c5) it kept the
+	// relayer's payload slices, so changing them afterwards changed the
+	// packet the acknowledgement is later written for.
+	recvPacket.Packet.Payloads[0].Value[0] = 'X'
+	pending, _, _ := core.PendingAsyncAck(clientToA, 1)
+	println("pending payload after the caller's change:", string(pending.Payloads[0].Value))
 
 	println("recv res:", recvRes)
 	println("\n----------- parent ack BEFORE child is acked (deferred, should not exist)")
@@ -285,6 +293,7 @@ func main(cur realm) {
 }
 
 // Output:
+// pending payload after the caller's change: {}
 // recv res: (2 gno.land/p/aib/ibc/types/v0.ResponseResultType)
 //
 // ----------- parent ack BEFORE child is acked (deferred, should not exist)
@@ -319,7 +328,7 @@ func main(cur realm) {
 //   - destinationPort: appID
 //   - version: v1
 //   - encoding: application/json
-//   - value: {}
+//   - value: X}
 //
 // OnTimeoutPacket (0)
 // OnAcknowledgementPacket (1)
