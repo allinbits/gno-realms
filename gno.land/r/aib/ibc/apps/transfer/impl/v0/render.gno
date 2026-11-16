@@ -5,6 +5,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"gno.land/p/aib/ibc/ics20/v0"
 	"gno.land/p/aib/ibc/lightclient/v0"
@@ -67,6 +68,17 @@ func (rd *Renderer) Register(router *mux.Router) {
 // JSON routes list everything.
 const homeListLimit = 100
 
+// homeCellMax caps the bytes of a voucher's base denom and path shown in a
+// Home row. Both come from counterparties and a trace can hold dozens of
+// hops, so 100 full rows could exceed the query gas limit; the row links to
+// denoms/ibc/{hash}, which shows them whole.
+const homeCellMax = 96
+
+// denomsPageLimit caps a page of the denoms route: a denom with a long trace
+// costs about 77M gas to render, so 100 of them (jsonpage's cap) would
+// exceed the 3e9 gas a query may use.
+const denomsPageLimit = 20
+
 func (rd *Renderer) Home(w *mux.ResponseWriter, r *mux.Request) {
 	var out strings.Builder
 	out.WriteString("# IBC transfer\n\n")
@@ -117,7 +129,7 @@ func (rd *Renderer) Home(w *mux.ResponseWriter, r *mux.Request) {
 			// escape it (and the path that embeds it) as a table cell.
 			out.WriteString(ufmt.Sprintf(
 				"| [`%s`](/r/aib/ibc/apps/transfer:denoms/%s) | %s | %s | %s | %s | %s |\n",
-				ShortDenom(ibcDenom), ibcDenom, sanitize.TableCell(d.Base), sanitize.TableCell(d.Path()), supply, grc20link, actions,
+				ShortDenom(ibcDenom), ibcDenom, sanitize.TableCell(truncate(d.Base, homeCellMax)), sanitize.TableCell(truncate(d.Path(), homeCellMax)), supply, grc20link, actions,
 			))
 		}
 		if denoms.Size() > homeListLimit {
@@ -183,7 +195,7 @@ func (rd *Renderer) Admin(w *mux.ResponseWriter, r *mux.Request) {
 }
 
 func (rd *Renderer) Denoms(w *mux.ResponseWriter, r *mux.Request) {
-	RenderNode(w, jsonpage.Render(rd.store.Denoms(), r, nil))
+	RenderNode(w, jsonpage.RenderMax(rd.store.Denoms(), r, nil, denomsPageLimit))
 }
 
 func (rd *Renderer) Denom(w *mux.ResponseWriter, r *mux.Request) {
@@ -410,6 +422,19 @@ func RenderNode(w *mux.ResponseWriter, n *json.Node) {
 		panic(err)
 	}
 	w.Write(string(jsonpage.MarkdownSafe(bz)))
+}
+
+// truncate returns s cut to at most max bytes, on a rune boundary, with "…"
+// appended when it was cut.
+func truncate(s string, max int) string {
+	if len(s) <= max {
+		return s
+	}
+	i := max
+	for i > 0 && !utf8.RuneStart(s[i]) {
+		i--
+	}
+	return s[:i] + "…"
 }
 
 // GRC20RegKey returns the grc20reg key for a voucher ibc denom. grc20reg keys
