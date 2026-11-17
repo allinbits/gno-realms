@@ -1,4 +1,4 @@
-package jsonpage
+package jsonmd
 
 import (
 	"testing"
