@@ -44,6 +44,9 @@ registration.
 
 ### Scope: one governance channel, one Ethereum route
 
+(Proposed to be lifted by ADR 0007, independent governance per router route,
+which would keep these rules per route.)
+
 ibcgov has one governance channel, bound once, and serves one logical
 Ethereum transfer route, ever. IBCAdmin replaces, recovers, settles and
 reopens only the route of the client it governs over (its kind 10 and its
