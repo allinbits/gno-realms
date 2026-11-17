@@ -220,7 +220,7 @@ func main(cur realm) {
 // Output:
 // epoch 1 over ethereum-1
 // notice over b before its kind 10: error acknowledgement | epoch 1 over ethereum-1
-// kind 10 carried by a Tendermint client: ibcgov: 07-tendermint-6 is not an Ethereum client
+// kind 10 carried by a Tendermint client: ibcgov: 07-tendermint-6 is not an Ethereum or Arc client
 // its expectation: pending - queued 7 days
 // b's notice right after its kind 10: error acknowledgement | epoch 1 over ethereum-1
 // the expectation under a hold: ibcgov: decision 5 is deferred: a guardian hold stands since 1236382293

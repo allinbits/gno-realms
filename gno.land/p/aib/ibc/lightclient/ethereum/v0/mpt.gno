@@ -3,7 +3,6 @@ package ethereum
 import (
 	"bytes"
 	"crypto/keccak256"
-	"encoding/hex"
 	"errors"
 )
 
@@ -22,26 +21,59 @@ func keccak(b []byte) []byte {
 // is false when the proof shows that no value is stored there. An error
 // means the proof does not establish either.
 func mptGet(root, key []byte, proof [][]byte) (value []byte, found bool, err error) {
-	nodes := make(map[string][]byte, len(proof))
-	for _, n := range proof {
-		nodes[hex.EncodeToString(keccak(n))] = n
-	}
-	path := toNibbles(keccak(key))
+	return newNodePool(proof).get(root, key)
+}
 
-	node, ok := nodes[hex.EncodeToString(root)]
+// nodePool indexes proof nodes by their hash, possibly the paths of several
+// keys (a pooled proof), and decodes each node at most once: the paths of a
+// pool's keys share their top levels, which every lookup walks again.
+type nodePool struct {
+	raw     map[string][]byte
+	decoded map[string][]rlpItem
+}
+
+func newNodePool(proof [][]byte) *nodePool {
+	p := &nodePool{raw: make(map[string][]byte, len(proof)), decoded: map[string][]rlpItem{}}
+	for _, n := range proof {
+		p.raw[string(keccak(n))] = n
+	}
+	return p
+}
+
+// node is the decoded node whose hash is h.
+func (p *nodePool) node(h []byte) ([]rlpItem, error) {
+	if elems, ok := p.decoded[string(h)]; ok {
+		return elems, nil
+	}
+	raw, ok := p.raw[string(h)]
 	if !ok {
-		return nil, false, errMissingProofNode
+		return nil, errMissingProofNode
+	}
+	elems, err := decodeNode(raw)
+	if err != nil {
+		return nil, err
+	}
+	p.decoded[string(h)] = elems
+	return elems, nil
+}
+
+func decodeNode(raw []byte) ([]rlpItem, error) {
+	item, err := rlpDecode(raw)
+	if err != nil {
+		return nil, err
+	}
+	return rlpList(item)
+}
+
+// get returns the value stored under keccak256(key) in the trie with the
+// given root; see mptGet.
+func (p *nodePool) get(root, key []byte) (value []byte, found bool, err error) {
+	path := toNibbles(keccak(key))
+	elems, err := p.node(root)
+	if err != nil {
+		return nil, false, err
 	}
 	for {
-		item, err := rlpDecode(node)
-		if err != nil {
-			return nil, false, err
-		}
-		elems, err := rlpList(item)
-		if err != nil {
-			return nil, false, err
-		}
-
 		var child rlpItem
 		switch len(elems) {
 		case 17: // branch
@@ -84,16 +116,16 @@ func mptGet(root, key []byte, proof [][]byte) (value []byte, found bool, err err
 		// embedded node (encoded in under 32 bytes), 32 bytes is a hash.
 		switch {
 		case child.isList:
-			node = child.raw
+			elems, err = decodeNode(child.raw)
 		case len(child.payload) == 0:
 			return nil, false, nil
 		case len(child.payload) == 32:
-			node, ok = nodes[hex.EncodeToString(child.payload)]
-			if !ok {
-				return nil, false, errMissingProofNode
-			}
+			elems, err = p.node(child.payload)
 		default:
 			return nil, false, errRLP
+		}
+		if err != nil {
+			return nil, false, err
 		}
 	}
 }
@@ -159,7 +191,12 @@ func accountStorageRoot(stateRoot, address []byte, proof [][]byte) ([]byte, erro
 // storageValue returns the 32-byte value of slot key in the storage trie with
 // the given root, zero when the proof shows it is unset.
 func storageValue(storageRoot, key []byte, proof [][]byte) ([]byte, error) {
-	v, found, err := mptGet(storageRoot, key, proof)
+	return storageValueIn(newNodePool(proof), storageRoot, key)
+}
+
+// storageValueIn is storageValue over a node pool.
+func storageValueIn(nodes *nodePool, storageRoot, key []byte) ([]byte, error) {
+	v, found, err := nodes.get(storageRoot, key)
 	if err != nil {
 		return nil, err
 	}

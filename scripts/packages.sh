@@ -60,6 +60,12 @@ PACKAGES=(
   # ics23 (and the crypto/bls12381 native)
   "gno.land/p/aib/ibc/lightclient/ethereum/v0:gno.land/p/aib/ibc/lightclient/ethereum/v0"
 
+  # arc/testing has no aib deps; arc depends on encoding/wire,
+  # ibc/lightclient, lightclient/ethereum, lightclient/extproof, ibc/types,
+  # ics23 (and arc/testing in its tests)
+  "gno.land/p/aib/ibc/lightclient/arc/testing/v0:gno.land/p/aib/ibc/lightclient/arc/testing/v0"
+  "gno.land/p/aib/ibc/lightclient/arc/v0:gno.land/p/aib/ibc/lightclient/arc/v0"
+
   # realms (stateful)
   # grc20test has no aib deps (a TEST token with open Mint, testnet only)
   "gno.land/r/aib/ibc/apps/testing/grc20test:gno.land/r/aib/ibc/apps/testing/grc20test"
@@ -75,7 +81,8 @@ PACKAGES=(
   # ibc/types, ics23, jsonpage, r/aib/ibc/core
   "gno.land/r/aib/ibc/apps/transfer:gno.land/r/aib/ibc/apps/transfer"
 
-  # depends on r/aib/ibc/core, lightclient/ethereum, encoding/wire, extproof
+  # depends on r/aib/ibc/core, lightclient/ethereum, lightclient/arc,
+  # encoding/wire, extproof (and arc/testing in its filetest)
   "gno.land/r/aib/ibc/ethrelay:gno.land/r/aib/ibc/ethrelay"
 
   # the governance realm: depends on decisions, encoding/abi, encoding/ethaddr,

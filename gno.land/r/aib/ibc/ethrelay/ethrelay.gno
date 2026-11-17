@@ -1,5 +1,7 @@
 // Package ethrelay is the MsgCall entry point for relaying between gno.land
-// and Ethereum. Each function takes its message as a []byte argument in the
+// and the EVM chains running the ICS26 router: Ethereum, and Arc (the
+// *Arc* functions; Arc packet messages use RecvPacket, Acknowledgement and
+// Timeout as Ethereum's do, with the same storage proofs). Each function takes its message as a []byte argument in the
 // wire format (gno.land/p/aib/encoding/wire), which the VM base64-decodes
 // natively, decodes it and forwards it to the IBC core. Relaying through
 // MsgRun instead would charge preprocessing gas for every byte of the
@@ -24,6 +26,7 @@ import (
 	"errors"
 
 	"gno.land/p/aib/encoding/wire/v0"
+	"gno.land/p/aib/ibc/lightclient/arc/v0"
 	"gno.land/p/aib/ibc/lightclient/ethereum/v0"
 	"gno.land/p/aib/ibc/lightclient/extproof/v0"
 	"gno.land/p/aib/ibc/types/v0"
@@ -49,7 +52,37 @@ func SubmitMisbehaviour(cur realm, clientID string, misbehaviour []byte) {
 	core.UpdateClient(cross(cur), clientID, m)
 }
 
-// RecvPacket delivers a packet sent on Ethereum.
+// CreateArcClient creates an Arc client from a wire-encoded creation
+// message (arc.DecodeCreation) and returns its id. As for any client, the
+// first trusted block is the creator's to choose.
+func CreateArcClient(cur realm, msg []byte) string {
+	cs, cons, err := arc.DecodeCreation(msg)
+	if err != nil {
+		panic(err)
+	}
+	return core.CreateClient(cross(cur), cs, cons)
+}
+
+// UpdateArcClient updates the Arc client clientID with a wire-encoded
+// arc.Header.
+func UpdateArcClient(cur realm, clientID string, header []byte) {
+	h, err := arc.DecodeHeader(header)
+	if err != nil {
+		panic(err)
+	}
+	core.UpdateClient(cross(cur), clientID, h)
+}
+
+// SubmitArcMisbehaviour submits a wire-encoded arc.Misbehaviour.
+func SubmitArcMisbehaviour(cur realm, clientID string, misbehaviour []byte) {
+	m, err := arc.DecodeMisbehaviour(misbehaviour)
+	if err != nil {
+		panic(err)
+	}
+	core.UpdateClient(cross(cur), clientID, m)
+}
+
+// RecvPacket delivers a packet sent on Ethereum or Arc.
 func RecvPacket(cur realm, msg []byte) types.ResponseResultType {
 	d := wire.NewReader(msg)
 	packet, height := readPacket(d)

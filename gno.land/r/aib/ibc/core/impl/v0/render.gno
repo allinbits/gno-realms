@@ -8,6 +8,7 @@ import (
 
 	"gno.land/p/aib/jsonmd/v0"
 
+	"gno.land/p/aib/ibc/lightclient/arc/v0"
 	"gno.land/p/aib/ibc/lightclient/ethereum/v0"
 	"gno.land/p/aib/ibc/lightclient/tendermint/v0"
 	"gno.land/p/aib/ibc/lightclient/v0"
@@ -301,6 +302,13 @@ func (rd *Renderer) ClientConsensusState(w *mux.ResponseWriter, r *mux.Request) 
 			return
 		}
 		RenderNode(w, RenderEthConsensusState(height, cs))
+	case arc.ClientType:
+		cs, found := c.LightClient().(*arc.ArcLightClient).GetConsensusState(height)
+		if !found {
+			RenderNode(w, NodeError("consensus state not found for height %s", height))
+			return
+		}
+		RenderNode(w, RenderArcConsensusState(height, cs))
 	}
 }
 
@@ -474,6 +482,12 @@ func ClientJSON(c core.Client) *json.Node {
 		if found {
 			m["last_consensus_state"] = RenderEthConsensusState(lc.LatestHeight(), lastConsState)
 		}
+	case arc.ClientType:
+		lc := c.LightClient().(*arc.ArcLightClient)
+		m["client_state"] = RenderArcClientState(lc.LatestHeight(), lc.ClientState)
+		if cons, found := lc.GetConsensusState(lc.LatestHeight()); found {
+			m["last_consensus_state"] = RenderArcConsensusState(lc.LatestHeight(), cons)
+		}
 	}
 	return json.ObjectNode("", m)
 }
@@ -506,6 +520,19 @@ func ConsensusStatesJSON(c core.Client, r *mux.Request) *json.Node {
 				})
 			}
 			return RenderEthConsensusState(height, cs)
+		})
+	case arc.ClientType:
+		lc := c.LightClient().(*arc.ArcLightClient)
+		return jsonpage.Render(lc.ConsensusStateByHeight, r, func(k string, v any) *json.Node {
+			cs := v.(*arc.ConsensusState)
+			height := types.ParseHeightNatSort(k)
+			if cs.Height < lc.TrustedFromHeight {
+				return json.ObjectNode("", map[string]*json.Node{
+					"height":  RenderHeight(height),
+					"trusted": json.BoolNode("", false),
+				})
+			}
+			return RenderArcConsensusState(height, cs)
 		})
 	}
 	return NodeError("unhandled client type %s", c.Type())
