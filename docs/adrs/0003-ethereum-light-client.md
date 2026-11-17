@@ -235,7 +235,8 @@ no error acknowledgement, so it stays pending on Ethereum until it times out
 
 **Encoding.** `p/aib/ibc/ics20/abi/v0` encodes and decodes the Solidity layout.
 The transfer implementation accepts either encoding on receive, ack and
-timeout, and sends ABI over `ethereum-*` clients. `Transfer`'s signature is
+timeout, and sends ABI over router clients (`core.IsRouterClient`:
+`ethereum-*`, and `arc-*` since ADR 0006). `Transfer`'s signature is
 unchanged.
 
 ## Alternatives considered

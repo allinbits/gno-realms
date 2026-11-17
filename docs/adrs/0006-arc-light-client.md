@@ -1,0 +1,230 @@
+# ADR 0006: Arc light client (experimental)
+
+- Status: Experimental
+- Date: 2026-11-03
+
+## Context
+
+[Arc](https://github.com/circlefin/arc-node) is Circle's EVM L1. Its
+consensus layer is Malachite (circlefin's fork of informalsystems/malachite,
+tag v0.8.0), a Tendermint BFT engine, driving a Reth execution layer through
+the Engine API. The question was whether IBC v2 between gno.land and Arc can
+reuse what exists for Ethereum:
+
+- **On Arc**, the Solidity side of gno-eth-ibc (solidity-ibc-eureka's ICS26
+  router, the ICS20 fork with route controls, `GnoLightClient.sol`) is EVM
+  code that does not depend on Ethereum's consensus, and gno.land's
+  secp256k1 validators (gnolang/gno#6375) are verified with `ecrecover`,
+  which Arc has. It deploys unchanged.
+- **On gno.land**, a light client of Arc is needed. Malachite finality is
+  Tendermint's (single-round BFT, a commit certificate of more than 2/3 of
+  the voting power, final forever), so the client should be a variant of
+  07-tendermint; Arc's state is the EVM's, so packet proofs are the same
+  `eth_getProof` storage proofs the Ethereum client checks.
+
+Everything below about Arc was read from arc-node and malachite at HEAD on
+2026-11-03 and checked against the live testnet (chain id 5042002).
+
+## What a certificate proves
+
+`arc_getCertificate(height)` returns Malachite's `CommitCertificate`
+(`malachite/code/crates/core-types/src/certificate.rs`): height, round, value
+id and the precommit signatures `(address, signature)`.
+
+- The value id is the **EVM block hash**
+  (`arc-node/crates/types/src/value.rs`, `ValueId(BlockHash)`):
+  `keccak256(rlp(header))`, which commits to the state root. The live
+  certificate of block 70498732 names `eth_getBlockByNumber(70498732).hash`.
+- A precommit signs, with **Ed25519** (`ed25519-consensus`, ZIP-215), the SSZ
+  encoding of arc-node's `Vote` without its extension
+  (`crates/types/src/vote.rs`, `to_sign_bytes`), with no hash, domain tag or
+  **chain id**: 75 bytes, `type (1 = Precommit) | height u64 LE | offset 37 |
+  offset 42 | address (20) | 0x01 round u32 LE | 0x01 block hash (32)`
+  (`certificate.gno`, pinned by `TestPrecommitSignBytes` against a live
+  precommit). gno's `crypto/ed25519` native verifies it.
+- A validator's address is the **first** 20 bytes of `keccak256(pubkey)`
+  (`crates/types/src/address.rs`), not the last as for Ethereum accounts.
+- Quorum is `signed*3 > total*2` (Malachite `threshold.rs`), each address at
+  most once.
+
+## Where the validator set is
+
+Not in the header: the consensus layer calls
+`ValidatorRegistry.getActiveValidatorSet()` (proxy
+`0x3600000000000000000000000000000000000002`) on the state after block H-1
+to get the set for height H (`crates/eth-engine/src/rpc/ethereum_rpc.rs`,
+`get_signing_validator_set`), and keeps the entries with status Active and
+positive power (`abi_utils.rs`). The client reads the same entries from the
+registry's storage (ERC-7201 base
+`0xb58d…d200`): the active registrations' `EnumerableSet` at S+1, and for each
+id the `Validator{status, publicKey, votingPower}` at
+`keccak256(abi.encode(id, S))` (`registry.gno` documents the layout). The
+relayer sends one pool of storage-trie nodes for all of those slots (and the
+proxy's implementation slot); the client computes every key itself. On the
+testnet (22 active registrations, 21 of them with power; 112 slots) the pool
+is 164 nodes, about 16 KB.
+
+The consensus layer also drops a registration whose key does not decode to
+an Ed25519 point (`try_decode_validator`, through `ed25519_consensus`'s
+`VerificationKey::try_from`), while the registry only checks a key's length.
+The client drops the same keys (`point.gno`: the decompression succeeds when
+`(y²-1)/(d·y²+1)` is a square mod p, decided by Euler's criterion with the
+`crypto/modexp` native). Kept, such a key could never sign but would count in
+the total power, and could stall the client for good.
+
+## Decision
+
+`gno.land/p/aib/ibc/lightclient/arc/v0`, client type `arc`, ids `arc-N`,
+heights `{0, block number}`.
+
+**Consensus state** of a block B: height, timestamp (seconds), block hash,
+state root, the registry's storage root in B's state, and `NextValidators`,
+the set B's state holds: the set that signs B+1.
+
+**Update** (`Header`) from the latest trusted block T to a block B > T,
+using the certificate of B's child C = B+1:
+
+1. C's RLP header hashes to the certificate's block hash and has its height;
+   B's RLP header hashes to C's parent hash. A certified block's parent is
+   final (every ancestor of a final block is).
+2. The registry's account proof in B's state gives its storage root. Equal
+   to T's: the set is T's (`NextValidators` shared, no set proof). Otherwise
+   the set is read from the node pool.
+3. That set (B's, which signed C) must have signed more than 2/3; when it is
+   not T's set, more than the trust level (default 1/3) of T's set must have
+   signed C too: Tendermint's skipping verification. Each signature is
+   verified once.
+4. B's timestamp is not before T's and not past `now + MaxClockDrift`; T is
+   within the trusting period.
+
+**Why B and not C.** Arc's public RPC nodes serve `eth_getProof` for the
+latest block only (blockdaemon: "distance to target block exceeds maximum
+proof window" at depth 1; drpc: "Unknown state" for any number). An update
+that needed proofs at both H-1 (the signing set) and H could not be built
+from them. Proving B, the set B's state holds signs B+1, so every proof of an
+update (the registry's and the packet commitments') is into one state, read
+while B is the latest; the relayer then waits for C's certificate (blocks are
+about 0.5 s). `relayer/arc` identifies B by the account proof's root and
+retries when the chain moves between proof calls.
+
+**Membership** proofs are `ethereum.MembershipProof` in the `Ext` field,
+checked by the Ethereum client's MPT code against the consensus state's
+state root (`ethereum.RouterCommitment`). That code is exported from the
+Ethereum package (`evm.gno`) rather than copied; `mptGet` gained a variant
+over an indexed node pool (`StorageReader`).
+
+**The registry's implementation is pinned.** The client reads the set by the
+layout of the registry implementation it was created with: creation reads the
+proxy's ERC-1967 implementation slot from the same node pool and records it
+(`ClientState.RegistryImplementation`); every later set read requires the
+proxy to still name it. An upgrade that moved the registry's storage to a new
+namespace would otherwise leave the client reading a stale set at the old
+location, which the old keys could keep signing for. After such an upgrade
+the client stops at its next set read, and a governed recovery from a client
+created after the upgrade moves it on: a recovery adopts the substitute's
+implementation and storage location (`TestTestnetRecoveryAdoptsLayout`). A
+new location is all a recovery can follow; an upgrade that changed the
+`Validator` struct or the set's encoding needs a new version of this client.
+
+**Bounds.** At most 256 active registrations (Arc has none; past it the
+client stops at its next set change); total power at most 2^62, the trust
+check multiplying in 128 bits. Both are checked when a set is read and again
+by `ConsensusState.ValidateBasic` on a created one, whose sum is checked
+before each addition so that it cannot wrap (`TestValidatorSetValidateBounds`); trust level in [1/3, 1) (the check is "more
+than", which nothing passes at 1); `MaxClockDrift` at most an hour and
+`TrustingPeriod` at most a year. The relayer's default drift is 90 seconds:
+Arc's validators accept a proposer's timestamp up to 30 seconds ahead
+(`skew_gate.rs`), and gno.land's block time trails real time.
+
+**Other rules**, as the Ethereum client: updates and misbehaviour must build
+on the latest trusted height; misbehaviour is two headers proving different
+blocks at one height; a recovery copies a substitute tracking the same chain
+id, registry address and router (the route identity, `RouteIdentity`), and
+adopts its registry implementation and storage location; no IBC upgrade
+path.
+
+**Integration.** The core records, when it creates a client, whether its
+counterparty is an ICS26 router on an EVM chain (`Client.IsRouter`,
+`core.IsRouterClient`); `core impl/v0` `CreateClient` records an Arc client
+as one, as it does an Ethereum client, and nothing else changes for the
+applications. The router flag selects the router client-id grammar and empty
+merkle prefix (`RegisterCounterparty`), `ValidateBasicRouter` packets,
+ABI-encoded ICS20 payloads and the route controls (transfer
+`impl/controls/v0` `isRouter`). Arc adds it in three places that still
+compared the client type with Ethereum's: permissionless relaying (`core`
+`ensureRelayerFor`), ibcgov route enrolment and flags, and the governance
+channel (`ibcgov` `checkBindClient`, `checkLocal`), which still binds one
+counterparty IBCAdmin per chain, Ethereum's or Arc's, whichever the chain's
+route goes to. What stays Ethereum-only: fork-schedule migrations and
+verifier replacements (`core impl/v0`, ibcgov `core migrate client`). `r/aib/ibc/ethrelay` gains
+`CreateArcClient`, `UpdateArcClient` and `SubmitArcMisbehaviour`; its packet
+functions serve both chains (same proof format).
+
+## Consequences
+
+- **No chain id in votes.** What pins a client to one Arc network is its
+  trusted validator set, from creation on: a client created with a testnet
+  set could accept devnet blocks signed by the same keys. Creation is
+  trusted, as for every IBC client; `ChainID` is recorded for the route
+  identity only.
+- **The registry layout is a trust assumption.** The client mirrors
+  `getActiveValidatorSet()` and the consensus layer's filter from storage,
+  for the pinned implementation. A storage root equal to the trusted one
+  proves the same set because the proxy's implementation slot is in the same
+  storage and contract code cannot change (EIP-6780). A change of the filter
+  in the consensus layer (arc-node) itself would not be seen.
+- **No accountability.** Arc is permissioned, with no unbonding or slashing:
+  `TrustingPeriod` only bounds how long rotated-out keys keep the client's
+  trust while no update brings it past the rotation, and should be short.
+- **A large rotation in one block stalls the client.** An update proves a
+  block B by the certificate of B+1, which B's own set signs; the trusted
+  state pins no next set (Arc's header commits to none), so when B's set is
+  not the trusted one more than the trust level of the trusted set must sign
+  too, adjacent blocks included. A single block that replaces more than
+  (1 - trust level) of the voting power leaves no update that verifies, and
+  only a governed recovery moves the client on. Verifying B's certificate
+  by the trusted set first would remove this, at the price of a second
+  certificate per update; not done while Arc's set is permissioned and
+  rotates a validator at a time.
+- **No evidence after a successful attack.** Misbehaviour must build on the
+  latest height: once a forged header (signed by more than the trust level
+  of the trusted set) is the latest, evidence against it cannot be
+  submitted, and recovery depends on governance noticing.
+- **Gas** (GnoVM gas in gno test runs, testnet data, 21 validators):
+  creation, which reads the set, about 206M; an update with an unchanged
+  registry about 15M (about 15 Ed25519 signatures, two RLP headers, one
+  account proof): Tendermint's order of cost; an update reading the set
+  about 171M. Reading the set is the price of a set that no header commits
+  to: 112 storage slots, each a Merkle-Patricia walk of 7 to 8 nodes in
+  interpreted Gno, plus the point check (about 2.6M per key, run again by
+  `ValidateBasic` on a created set). Two things keep it there: the node pool
+  decodes each trie node once (the slots' paths share their top levels;
+  before, every walk decoded them again: 670M), and `UpdateState` reuses
+  what `VerifyClientMessage` derived, kept on the header (set through a
+  method, as the core holds the header readonly), instead of reading the
+  proofs a second time. Ethereum updates cost 250M to 400M.
+- **ZIP-215.** Arc accepts Ed25519 signatures by ZIP-215 rules; gno's native
+  is Go's `crypto/ed25519`, stricter on non-canonical encodings. An honest
+  signature verifies under both; at worst a certificate with an edge-case
+  signature fails here (liveness, not safety): a relayer can omit that
+  signature when the rest still exceeds 2/3.
+- **One route.** ibcgov enrolls one router route in total
+  (`checkOneRoute`), so an Arc route is enrolled instead of an Ethereum one,
+  not beside it, and the governance channel binds that route's IBCAdmin.
+  A router client of no enrolled route carries no transfers (the route
+  controls refuse it). Serving both chains at once needs ibcgov to govern
+  several routes (ADR 0004).
+- **Not yet done**: pruning of old consensus states.
+
+## Alternatives considered
+
+- **Prove the signing set at H-1 and the packet state at H**, storing H: the
+  natural Tendermint shape, but it needs two historical states per update,
+  which Arc's public RPCs do not serve.
+- **Carry the validator set in the message and trust its hash**: there is no
+  hash of the set in Arc's header or certificate to check it against; only
+  the registry's state is committed.
+- **Read the set through `eth_call` results**: not provable; storage proofs
+  are.
+- **Copy the MPT code into the Arc package**: about 300 lines duplicated from
+  the Ethereum client; exporting it keeps one implementation.
