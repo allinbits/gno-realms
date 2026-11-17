@@ -93,7 +93,11 @@ using the certificate of B's child C = B+1:
 3. That set (B's, which signed C) must have signed more than 2/3; when it is
    not T's set, more than the trust level (default 1/3) of T's set must have
    signed C too: Tendermint's skipping verification. Each signature is
-   verified once.
+   verified once. Each set's share is counted by its own powers, a
+   rotated-out validator's signature still counting for T's
+   (`TestSyntheticRotationTrustLevel`, `TestSyntheticReweight`,
+   `TestSyntheticTrustLevelParameter`: T's share below, exactly at and
+   above the level, B's set at and below 2/3).
 4. B's timestamp is not before T's and not past `now + MaxClockDrift`; T is
    within the trusting period.
 
@@ -111,7 +115,12 @@ retries when the chain moves between proof calls.
 checked by the Ethereum client's MPT code against the consensus state's
 state root (`ethereum.RouterCommitment`). That code is exported from the
 Ethereum package (`evm.gno`) rather than copied; `mptGet` gained a variant
-over an indexed node pool (`StorageReader`).
+over an indexed node pool (`StorageReader`). A proof is refused for any
+other value, path, state root, router, commitment slot or height than its
+own (`TestSyntheticMembership`, `TestSyntheticMembershipRefusals`), and
+after a recovery for any height below the substitute's
+(`TestSyntheticProofsAfterRecovery`): those states were trusted by the
+client state the recovery replaced.
 
 **The registry's implementation is pinned.** The client reads the set by the
 layout of the registry implementation it was created with: creation reads the
@@ -160,6 +169,24 @@ verifier replacements (`core impl/v0`, ibcgov `core migrate client`). `r/aib/ibc
 `CreateArcClient`, `UpdateArcClient` and `SubmitArcMisbehaviour`; its packet
 functions serve both chains (same proof format).
 
+**Test data.** The testnet fixture (`arc/testing/v0`, recorded by
+gno-eth-ibc's `relayer/cmd/arc-fixtures`) gives a creation and an update
+whose set did not change, and no commitment proofs. The rest comes from
+synthetic data (`zz_synthetic_test.gno`, written by `cmd/gen-arc-synthetic`;
+`go test -C cmd/gen-arc-synthetic` checks that the committed file is what it
+writes): a chain whose blocks 100, 110 and 120 have full states, the
+registry holding a trusted set at 100, a rotated set at 110 (two validators
+out, two in, every kept power changed) and the same validators with other
+powers at 120, each update's certificate signed by every key so that a
+test picks the signers; and the router's commitments with proofs of two
+packets and of the absence of a third. The generator builds everything from
+Arc's and Ethereum's definitions, not from the client's code: RLP headers,
+Merkle-Patricia tries (checked against ethereum/tests vectors), the
+registry's Solidity storage layout (the ERC-7201 namespace, the
+`EnumerableSet`'s swap-and-pop order, the ERC-1967 slot), the SSZ vote
+(checked against the live precommit `TestPrecommitSignBytes` pins), with
+Ed25519 keys from a fixed seed, since Gno cannot sign.
+
 ## Consequences
 
 - **No chain id in votes.** What pins a client to one Arc network is its
@@ -182,10 +209,11 @@ functions serve both chains (same proof format).
   not the trusted one more than the trust level of the trusted set must sign
   too, adjacent blocks included. A single block that replaces more than
   (1 - trust level) of the voting power leaves no update that verifies, and
-  only a governed recovery moves the client on. Verifying B's certificate
-  by the trusted set first would remove this, at the price of a second
-  certificate per update; not done while Arc's set is permissioned and
-  rotates a validator at a time.
+  only a governed recovery moves the client on (the rotation of
+  `TestSyntheticRotationTrustLevel` signed by too little of the trusted
+  set). Verifying B's certificate by the trusted set first would remove
+  this, at the price of a second certificate per update; not done while
+  Arc's set is permissioned and rotates a validator at a time.
 - **No evidence after a successful attack.** Misbehaviour must build on the
   latest height: once a forged header (signed by more than the trust level
   of the trusted set) is the latest, evidence against it cannot be
