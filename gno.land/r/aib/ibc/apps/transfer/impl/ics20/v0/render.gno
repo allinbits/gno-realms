@@ -451,13 +451,13 @@ func ShortDenom(ibcDenom string) string {
 // RenderNode writes n as JSON, inert in Markdown (jsonmd.Inert): its strings
 // may carry a counterparty's base denom or a path segment of the request.
 // The encoder's Go escapes for control characters and invalid UTF-8 are
-// first made valid JSON (see jsonpage.ValidEscapes).
+// first made valid JSON (see jsonmd.ValidEscapes).
 func RenderNode(w *mux.ResponseWriter, n *json.Node) {
 	bz, err := json.Marshal(n)
 	if err != nil {
 		panic(err)
 	}
-	w.Write(jsonmd.Inert(string(jsonpage.ValidEscapes(bz))))
+	w.Write(jsonmd.Inert(string(jsonmd.ValidEscapes(bz))))
 }
 
 // truncate returns s cut to at most max bytes, on a rune boundary, with "…"
