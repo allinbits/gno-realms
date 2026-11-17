@@ -64,7 +64,7 @@ gno.land/
     ibc/lightclient/tendermint/v0/      # Tendermint light client implementation
     ibc/lightclient/tendermint/testing/v0/ # Test helpers: NewMsgHeader, GenValset, etc.
     ibc/testing/v0/           # ICS-23 proof test helpers
-    ics23/v0/                 # ICS-23 Merkle proof verification
+    ics23/v0/                 # ICS-23 Merkle proof verification, MerkleProof protobuf codec
     encoding/v0/              # Uint64 big-endian encoding
     encoding/proto/v0/        # Protobuf varint/field encoding
     merkle/v0/                # RFC-6962 Merkle tree
@@ -95,6 +95,7 @@ gno.land/
 - Register apps with `core.RegisterApp(cur, portID, app)`: immediate for realms under `gno.land/r/aib/`, pending until a `core.ApproveApp` decision of ibcgov for any other realm
 
 **lightclient.Interface** (`p/aib/ibc/lightclient/v0/lightclient.gno`): 12 methods including `Initialize`, `VerifyClientMessage`, `UpdateState`, `VerifyMembership`, `VerifyNonMembership`, `Status`, `LatestHeight`
+- Proofs are opaque `[]byte` everywhere (message proof fields, `VerifyMembership`, `UpgradeClient`, `CounterpartyValue`), as in ibc-go (ADR 0006), decoded by the verifying client: the Tendermint client takes a protobuf ibc-go `MerkleProof` (`ics23.UnmarshalMerkleProof`), the Ethereum client a wire-encoded `MembershipProof` (`DecodeMembershipProof`). Filetests build ICS-23 proofs as Gno literals and pass `ics23.MarshalMerkleProof(proof)`; Ethereum ones pass `MembershipProof.Encode()` or `ethtesting.Router.Proof()`
 
 ### IBC v2 Packet Lifecycle
 

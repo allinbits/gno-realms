@@ -30,14 +30,14 @@ func TestRouterProofsVerify(t *testing.T) {
 	path := func(key []byte) types.MerklePath { return types.BuildMerklePath([][]byte{{}}, key) }
 	for seq := uint64(1); seq <= 40; seq++ {
 		p := packet(seq)
-		if err := c.VerifyMembershipProof(h, r.Proof(), path(host.PacketCommitmentKey(p.SourceClient, seq)), types.CommitPacket(p)); err != nil {
+		if err := c.VerifyMembership(h, r.Proof(), path(host.PacketCommitmentKey(p.SourceClient, seq)), types.CommitPacket(p)); err != nil {
 			t.Fatalf("seq %d: %v", seq, err)
 		}
 	}
-	if err := c.VerifyNonMembershipProof(h, r.Proof(), path(host.PacketCommitmentKey("client-0", 41))); err != nil {
+	if err := c.VerifyNonMembership(h, r.Proof(), path(host.PacketCommitmentKey("client-0", 41))); err != nil {
 		t.Fatal(err)
 	}
-	if err := c.VerifyMembershipProof(h, r.Proof(), path(host.PacketCommitmentKey("client-0", 41)), types.CommitPacket(packet(41))); err == nil {
+	if err := c.VerifyMembership(h, r.Proof(), path(host.PacketCommitmentKey("client-0", 41)), types.CommitPacket(packet(41))); err == nil {
 		t.Fatalf("proved a commitment never stored")
 	}
 }

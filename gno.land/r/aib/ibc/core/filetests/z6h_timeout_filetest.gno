@@ -47,11 +47,11 @@ func main(cur realm) {
 				Version:         "v1",
 			}},
 		},
-		ProofUnreceived: []ics23.CommitmentProof{
+		ProofUnreceived: ics23.MarshalMerkleProof([]ics23.CommitmentProof{
 			ics23.CommitmentProof_Nonexist{
 				Nonexist: &ics23.NonExistenceProof{},
 			},
-		},
+		}),
 		ProofHeight: trustedHeight,
 	}
 

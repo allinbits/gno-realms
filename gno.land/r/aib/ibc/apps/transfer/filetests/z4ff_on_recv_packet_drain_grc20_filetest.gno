@@ -151,7 +151,7 @@ func main(cur realm) {
 	// acknowledgement, not the return value.
 	res := core.RecvPacket(cross(cur), types.MsgRecvPacket{
 		Packet:          packet,
-		ProofCommitment: proof,
+		ProofCommitment: ics23.MarshalMerkleProof(proof),
 		ProofHeight:     proofHeight,
 	})
 

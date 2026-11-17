@@ -109,7 +109,7 @@ func main(cur realm) {
 			// This UNIVERSAL_ERROR_ACKNOWLEDGEMENT error should trigger a refund
 			AppAcknowledgements: [][]byte{types.UniversalErrorAcknowledgement()},
 		},
-		ProofAcked:  proofAcked,
+		ProofAcked:  ics23.MarshalMerkleProof(proofAcked),
 		ProofHeight: trustedHeight,
 	}
 	// For the refund to work we have to fill the realm account

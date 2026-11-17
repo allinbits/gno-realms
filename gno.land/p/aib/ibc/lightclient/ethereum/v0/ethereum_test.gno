@@ -113,21 +113,22 @@ func TestProofRejectsTampering(t *testing.T) {
 	urequire.True(t, p != nil, "no packet proof in fixture")
 	key := host.PacketCommitmentKey(p.packet.SourceClient, p.packet.Sequence)
 	value := types.CommitPacket(p.packet)
-	urequire.NoError(t, c.VerifyMembershipProof(p.height, p.proof, ethPath(key), value))
+	urequire.NoError(t, c.VerifyMembership(p.height, p.proof.Encode(), ethPath(key), value))
 
-	urequire.ErrorContains(t, c.VerifyMembershipProof(p.height, p.proof, ethPath(key), flip(value, 0)),
+	urequire.ErrorContains(t, c.VerifyMembership(p.height, p.proof.Encode(), ethPath(key), flip(value, 0)),
 		"differs from the expected value")
-	urequire.Error(t, c.VerifyNonMembershipProof(p.height, p.proof, ethPath(key)))
+	urequire.Error(t, c.VerifyNonMembership(p.height, p.proof.Encode(), ethPath(key)))
 
 	otherKey := host.PacketCommitmentKey(p.packet.SourceClient, p.packet.Sequence+1)
-	urequire.Error(t, c.VerifyMembershipProof(p.height, p.proof, ethPath(otherKey), value))
+	urequire.Error(t, c.VerifyMembership(p.height, p.proof.Encode(), ethPath(otherKey), value))
 
 	bad := MembershipProof{AccountProof: p.proof.AccountProof, StorageProof: append([][]byte{}, p.proof.StorageProof...)}
 	last := len(bad.StorageProof) - 1
 	bad.StorageProof[last] = flip(bad.StorageProof[last], len(bad.StorageProof[last])-1)
-	urequire.Error(t, c.VerifyMembershipProof(p.height, bad, ethPath(key), value))
+	urequire.Error(t, c.VerifyMembership(p.height, bad.Encode(), ethPath(key), value))
 
-	urequire.ErrorContains(t, c.VerifyMembership(p.height, nil, ethPath(key), value), "extproof")
+	urequire.Error(t, c.VerifyMembership(p.height, nil, ethPath(key), value))
+	urequire.ErrorContains(t, c.VerifyMembership(p.height, append(p.proof.Encode(), 0), ethPath(key), value), "trailing bytes")
 }
 
 // An update anchored at a stored state other than the latest is refused, even

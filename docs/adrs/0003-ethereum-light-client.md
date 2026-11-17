@@ -2,6 +2,10 @@
 
 - Status: Proposed
 - Date: 2026-10-15
+- Superseded in part by: ADR 0006 (the "Proof route" decision: the Ethereum
+  client takes its wire-encoded `MembershipProof` in the messages' proof
+  fields, now `[]byte`, and `extproof` is gone; constraint 1 of the context
+  no longer holds, the proof fields being opaque bytes).
 
 ## Context
 

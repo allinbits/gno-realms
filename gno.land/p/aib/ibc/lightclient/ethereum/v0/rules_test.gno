@@ -185,7 +185,7 @@ func TestProofRevisionNumber(t *testing.T) {
 	c.UpdateState(hdr)
 	height := types.NewHeight(1, c.ClientState.LatestSlot)
 	key := host.PacketCommitmentKey("client-0", 1)
-	urequire.ErrorContains(t, c.VerifyNonMembershipProof(height, MembershipProof{}, ethPath(key)), "revision number must be 0")
+	urequire.ErrorContains(t, c.VerifyNonMembership(height, MembershipProof{}.Encode(), ethPath(key)), "revision number must be 0")
 }
 
 // The clock: no slot before genesis, slots counted from a nonzero genesis
@@ -389,9 +389,9 @@ func TestMembershipPathLength(t *testing.T) {
 	c, hdr := firstUpdate(t, fixtureErc20())
 	c.UpdateState(hdr)
 	height := c.LatestHeight()
-	urequire.ErrorContains(t, c.VerifyNonMembershipProof(height, MembershipProof{}, types.MerklePath{}), "path must have exactly one element, got 0")
+	urequire.ErrorContains(t, c.VerifyNonMembership(height, MembershipProof{}.Encode(), types.MerklePath{}), "path must have exactly one element, got 0")
 	two := types.MerklePath{KeyPath: [][]byte{{1}, {2}}}
-	urequire.ErrorContains(t, c.VerifyNonMembershipProof(height, MembershipProof{}, two), "path must have exactly one element, got 2")
+	urequire.ErrorContains(t, c.VerifyNonMembership(height, MembershipProof{}.Encode(), two), "path must have exactly one element, got 2")
 }
 
 // Explicit misbehaviour: both updates are validated against the trusted state.

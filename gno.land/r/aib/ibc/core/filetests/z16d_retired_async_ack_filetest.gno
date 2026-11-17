@@ -6,7 +6,6 @@ import (
 	"time"
 
 	ethtesting "gno.land/p/aib/ibc/lightclient/ethereum/testing/v0"
-	"gno.land/p/aib/ibc/lightclient/extproof/v0"
 	"gno.land/p/aib/ibc/types/v0"
 	appstesting "gno.land/r/aib/ibc/apps/testing"
 	"gno.land/r/aib/ibc/core"
@@ -39,7 +38,7 @@ func main(cur realm) {
 	app.SetOnRecvPacketReturn(types.RecvPacketResult{Status: types.PacketStatus_Async})
 	core.RegisterApp(cross(cur), "appID", app)
 	for _, p := range []types.Packet{p1, p2} {
-		core.RecvPacket(cross(cur), types.MsgRecvPacket{Packet: p, ProofHeight: types.NewHeight(0, 72), Ext: extproof.Proof{Data: router.Proof()}})
+		core.RecvPacket(cross(cur), types.MsgRecvPacket{Packet: p, ProofHeight: types.NewHeight(0, 72), ProofCommitment: router.Proof()})
 	}
 	pending, height, ok := core.PendingAsyncAck(id, 1)
 	println("pending:", ok, pending.Sequence, "received at height", height)

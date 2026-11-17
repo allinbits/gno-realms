@@ -177,7 +177,7 @@ func main(cur realm) {
 			TimeoutTimestamp:  sendPacket.TimeoutTimestamp,
 			Payloads:          sendPacket.Payloads,
 		},
-		ProofUnreceived: proof,
+		ProofUnreceived: ics23.MarshalMerkleProof(proof),
 		ProofHeight:     msgHeader.GetHeight(),
 	}
 	// For the refund to work we have to fill the realm account

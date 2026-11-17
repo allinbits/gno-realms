@@ -95,13 +95,13 @@ func runFixture(t *testing.T, f fixture) {
 			switch {
 			case p.ack != nil:
 				key := host.PacketAcknowledgementKey(p.packet.DestinationClient, p.packet.Sequence)
-				err = c.VerifyMembershipProof(p.height, p.proof, ethPath(key), types.CommitAcknowledgement(*p.ack))
+				err = c.VerifyMembership(p.height, p.proof.Encode(), ethPath(key), types.CommitAcknowledgement(*p.ack))
 			case p.absent:
 				key := host.PacketReceiptKey(p.packet.DestinationClient, p.packet.Sequence)
-				err = c.VerifyNonMembershipProof(p.height, p.proof, ethPath(key))
+				err = c.VerifyNonMembership(p.height, p.proof.Encode(), ethPath(key))
 			default:
 				key := host.PacketCommitmentKey(p.packet.SourceClient, p.packet.Sequence)
-				err = c.VerifyMembershipProof(p.height, p.proof, ethPath(key), types.CommitPacket(p.packet))
+				err = c.VerifyMembership(p.height, p.proof.Encode(), ethPath(key), types.CommitPacket(p.packet))
 			}
 			urequire.NoError(t, err, ufmt.Sprintf("step %d", i))
 			proofs++

@@ -58,10 +58,11 @@ func (r *Router) StateRoot() []byte {
 }
 
 // Proof proves every value stored so far (and the absence of any other)
-// against StateRoot: the proof lists every node of both tries.
-func (r *Router) Proof() ethereum.MembershipProof {
+// against StateRoot, wire-encoded as relayers pass it: the proof lists every
+// node of both tries.
+func (r *Router) Proof() []byte {
 	_, p := r.tries()
-	return p
+	return p.Encode()
 }
 
 func (r *Router) tries() ([]byte, ethereum.MembershipProof) {

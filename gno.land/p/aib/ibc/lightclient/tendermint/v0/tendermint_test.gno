@@ -252,7 +252,7 @@ func TestVerifyUpgradeAndUpdateStateFailures(t *testing.T) {
 		Root:               tendermint.NewMerkleRoot([]byte("upgraded-root")),
 		NextValidatorsHash: thirtyTwoBytes,
 	}
-	dummyProof := []ics23.CommitmentProof{ics23.CommitmentProof_Exist{Exist: &ics23.ExistenceProof{}}}
+	dummyProof := ics23.MarshalMerkleProof([]ics23.CommitmentProof{ics23.CommitmentProof_Exist{Exist: &ics23.ExistenceProof{}}})
 
 	t.Run("failure: newClient wrong type", func(t *testing.T) {
 		tm := newClient()
@@ -303,30 +303,23 @@ func TestVerifyUpgradeAndUpdateStateFailures(t *testing.T) {
 		urequire.ErrorContains(t, err, "must be greater than current latest height")
 	})
 
-	t.Run("failure: clientProof wrong type", func(t *testing.T) {
+	t.Run("failure: clientProof not a MerkleProof", func(t *testing.T) {
 		tm := newClient()
-		err := tm.VerifyUpgradeAndUpdateState(validUpgradedClient, validUpgradedConsState, []byte("raw"), dummyProof)
+		err := tm.VerifyUpgradeAndUpdateState(validUpgradedClient, validUpgradedConsState, []byte{0x0a, 0x05, 0x0a}, dummyProof)
 		urequire.Error(t, err)
-		urequire.ErrorContains(t, err, "upgradeClientProof must be []ics23.CommitmentProof")
+		urequire.ErrorContains(t, err, "failed to verify upgrade client proof: malformed merkle proof")
 	})
 
 	t.Run("failure: clientProof empty", func(t *testing.T) {
 		tm := newClient()
-		err := tm.VerifyUpgradeAndUpdateState(validUpgradedClient, validUpgradedConsState, []ics23.CommitmentProof{}, dummyProof)
+		err := tm.VerifyUpgradeAndUpdateState(validUpgradedClient, validUpgradedConsState, nil, dummyProof)
 		urequire.Error(t, err)
 		urequire.ErrorContains(t, err, "upgradeClientProof cannot be empty")
 	})
 
-	t.Run("failure: consensusProof wrong type", func(t *testing.T) {
-		tm := newClient()
-		err := tm.VerifyUpgradeAndUpdateState(validUpgradedClient, validUpgradedConsState, dummyProof, "not-a-proof")
-		urequire.Error(t, err)
-		urequire.ErrorContains(t, err, "upgradeConsensusStateProof must be []ics23.CommitmentProof")
-	})
-
 	t.Run("failure: consensusProof empty", func(t *testing.T) {
 		tm := newClient()
-		err := tm.VerifyUpgradeAndUpdateState(validUpgradedClient, validUpgradedConsState, dummyProof, []ics23.CommitmentProof{})
+		err := tm.VerifyUpgradeAndUpdateState(validUpgradedClient, validUpgradedConsState, dummyProof, nil)
 		urequire.Error(t, err)
 		urequire.ErrorContains(t, err, "upgradeConsensusStateProof cannot be empty")
 	})
@@ -553,20 +546,14 @@ func TestInitializeOnce(t *testing.T) {
 	uassert.Equal(t, h1.String(), tm.LatestHeight().String())
 }
 
-type ownProof struct{}
-
-func (ownProof) GetExist() *ics23.ExistenceProof       { panic("caller code ran") }
-func (ownProof) GetNonexist() *ics23.NonExistenceProof { panic("caller code ran") }
-
-// Membership and absence proofs of a caller's own type are refused before
-// any of their code runs (Codex round 19).
-func TestVerifyRefusesOwnProofTypes(t *testing.T) {
+// A proof that is not a protobuf MerkleProof is refused.
+func TestVerifyRefusesMalformedProof(t *testing.T) {
 	tm := tendermint.NewTMLightClient()
 	h := types.NewHeight(0, 1)
 	cs := &tendermint.ConsensusState{Timestamp: time.Now().UTC(), Root: tendermint.NewMerkleRoot([]byte("root")), NextValidatorsHash: []byte("vals")}
 	urequire.NoError(t, tm.Initialize(*tendermint.NewClientState(chainID, tendermint.DefaultTrustLevel, trustingPeriod, ubdPeriod, maxClockDrift, h, ics23.GetSDKProofSpecs(), upgradePath), *cs))
-	proofs := []ics23.CommitmentProof{ownProof{}, ownProof{}}
+	proof := []byte{0x0a, 0x05, 0x0a}
 	path := types.MerklePath{KeyPath: [][]byte{[]byte("a"), []byte("b")}}
-	uassert.ErrorContains(t, tm.VerifyMembership(h, proofs, path, []byte("v")), "not an ics23 proof")
-	uassert.ErrorContains(t, tm.VerifyNonMembership(h, proofs, path), "not an ics23 proof")
+	uassert.ErrorContains(t, tm.VerifyMembership(h, proof, path, []byte("v")), "malformed merkle proof")
+	uassert.ErrorContains(t, tm.VerifyNonMembership(h, proof, path), "malformed merkle proof")
 }

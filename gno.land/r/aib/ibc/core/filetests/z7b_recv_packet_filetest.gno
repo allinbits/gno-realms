@@ -38,7 +38,7 @@ func main(cur realm) {
 				Version:         "v1",
 			}},
 		},
-		ProofCommitment: []ics23.CommitmentProof{},
+		ProofCommitment: ics23.MarshalMerkleProof([]ics23.CommitmentProof{}),
 		ProofHeight:     trustedHeight,
 	}
 

@@ -108,7 +108,7 @@ func main(cur realm) {
 		Acknowledgement: types.Acknowledgement{
 			AppAcknowledgements: [][]byte{[]byte(`{"error":"oups"}`)},
 		},
-		ProofAcked:  proof,
+		ProofAcked:  ics23.MarshalMerkleProof(proof),
 		ProofHeight: trustedHeight,
 	}
 
