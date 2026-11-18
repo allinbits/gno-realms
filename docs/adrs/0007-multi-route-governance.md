@@ -83,7 +83,9 @@ governance route" and `govRoute` reading that route's record.
 
 What stays global, because it is shared or because it is GovDAO's:
 
-- the governor, `yielded` and `Yield` (one decider for all routes);
+- the governor, `yielded` and `Yield`: one decider for all routes, and one
+  yield that hands every route, present and future, to GovDAO at once. A
+  route enrolled after the yield is GovDAO's from the start;
 - the decision ledger, one numbering of every decision;
 - the bridge realm index and the `gov` port registration;
 - `pendingAuth`, which is set and consumed within one call and so belongs to
@@ -275,7 +277,8 @@ The seat rules are those of ADR 0004 and ADR pr6375 §7.4, applied per route:
   vacant, as the first route's do today.
 - `SetFlag(route, fn, keys)` and `ClearFlag` require a seat **of that
   route**. One key may hold seats on several routes; its seats are
-  independent.
+  independent. A flag it sets on route A counts toward A's hold only, and a
+  seat change on one route leaves its seats on the others as they are.
 - **Holds are per route.** Two guardian seats of route R with a live flag
   make R's hold, which lingers 24 hours after fewer than two flag. R's hold
   defers R's decisions and spends R's unpause decisions. It never touches
@@ -586,6 +589,14 @@ route.
   and IBCAdmins, on one chain). Each would need its own route and channel,
   and the chain's guardians and denoms split between them. Nothing needs it
   now; section 4 refuses it by chain identity.
+- **A governor and yield per route.** A route enrolled after the yield could
+  then launch under a governor again, which contradicts "GovDAO is always
+  GovDAO". Rejected: one governor, one yield.
+- **Distinct guardian keys per route** (a key refused a seat on a second
+  route). Nothing on chain ties a key to a person, so the rule would not keep
+  the guardians distinct people, and it would stop an operator trusted on
+  both chains from serving both. Rejected: a key may hold seats on several
+  routes, each seat independent.
 - **A fixed cap on routes** (4 was first proposed), to bound loops over
   routes. The hold counts above remove the only loop on an execution path,
   and every route already needs a GovDAO vote, so a cap would only make a
@@ -597,10 +608,3 @@ route.
    global decisions and spends global unpauses. The alternative is a separate
    global guardian set, with seats of its own, whose hold alone defers global
    decisions.
-2. **Governor and yield.** This proposes one governor and one yield for all
-   routes. The alternative is per route, which would let a new route launch
-   under a governor after GovDAO has taken the first. That does not fit
-   "GovDAO is always GovDAO".
-3. **Keys on several routes.** This proposes allowing one key to hold seats on
-   several routes. Should it be refused instead, so a route's guardians stay
-   distinct people from another's?
