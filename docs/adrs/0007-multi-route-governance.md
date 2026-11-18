@@ -192,9 +192,11 @@ applies. A second deployment on the same chain, with another router and
 IBCAdmin, would need its own route on that chain, which this design does not
 support (Alternatives).
 
-The number of routes is bounded by `maxRoutes` (proposed: 4). Enrolment is a
-7-day governed decision, and the bound keeps any loop over routes constant
-(section 6, the global-decision hold check, and Render).
+The number of routes has no fixed cap. Each route, provisional or enrolled,
+exists only through a 7-day GovDAO decision (an enrolment, or the seat change
+that creates a provisional record), so GovDAO's vote is the bound. No path
+loops over routes: the global-decision hold check reads two numbers
+(section 6), and Render pages the routes.
 
 The per-route rules of ADR 0004 hold for each route separately:
 
@@ -223,7 +225,6 @@ with. A provisional record:
   client of that chain is refused, so it cannot start the chain with vacant
   seats and bypass its guardians;
 - holds seats, flags and a hold, and no channel or graph;
-- counts toward `maxRoutes`;
 - has a hold that defers its own decisions (its enrolment and its seat
   changes) and, like any route's hold, every global decision;
 - is adopted with its seats, flags and seat generations by the enrolment of
@@ -355,8 +356,27 @@ Holds keep today's reach, and only their owner changes:
 
 A global loosening reaches every route, so **any route's hold defers it**, and
 any route's hold spends a global unpause. Each route's guardians can therefore
-delay what affects their route; none can veto. The check reads at most
-`maxRoutes` holds. Guardians still delay and never veto, per route.
+delay what affects their route; none can veto. Guardians still delay and never
+veto, per route.
+
+**The global check is constant work, however many routes exist.** ibcgov keeps
+two numbers beside the per-route hold state:
+
+- `routesFlagging`: how many routes have two or more seats flagging. A route's
+  `updateHold` raises it when the route reaches two flagging seats and lowers
+  it when the route falls below two. Both happen only on flag events.
+- `lingerEnd`: the latest end of any route's 24-hour linger. When a route falls
+  below two flagging seats at t, it is raised to t + 24 hours if that is later.
+  It is never lowered.
+
+Some route is held at t exactly when `routesFlagging > 0` or `t < lingerEnd`.
+If a route is lingering, `lingerEnd` is at or past its own end, so the check
+holds. Conversely, `lingerEnd` was set by a route that fell below two seats at
+`lingerEnd` - 24 hours. A linger ends only by time, so that route is still
+lingering, or it reached two seats again (and is counted, or set a later
+`lingerEnd`). A route cannot be dropped while it holds or lingers (section 5).
+The deferral and spent messages for a global decision name no route, since
+finding one would loop; Render shows which routes hold.
 
 A builder that names a gno client claimed by a route other than the one it
 names is refused, both when recorded and when executed.
@@ -396,7 +416,8 @@ path)` keeps its signature: its `client` is a gno client, resolved through
 **Render and events name the route.**
 
 - `Render` shows one section per route: identity, epoch, seats, flags, hold
-  and graph.
+  and graph. The route list is paged (`?from=` the next route key), like the
+  decision ledger.
 - The dispatch page becomes `dispatch/<route>/<e>/<seq>`, since `(e, seq)`
   repeats across routes.
 - Every governance event carries a `route` attribute: `GovPacketSent`,
@@ -436,8 +457,8 @@ If accepted, this ADR supersedes these parts of ADR 0004, which then gains a
 route.
 
 - **Scope: one governance channel, one Ethereum route.** Replaced by one
-  channel per enrolled route, at most one route per identity, at most
-  `maxRoutes` (section 4). `checkOneRoute` and z9zzs's "only the first of two
+  channel per enrolled route, at most one route per chain, and no fixed number
+  of routes (section 4). `checkOneRoute` and z9zzs's "only the first of two
   enrolments" apply per identity.
 - **Storage, ibcgov.** The channel, graph and guardian fields move into each
   route's record (section 1), and `govClients` is added (section 2).
@@ -521,7 +542,9 @@ route.
   - **Retirement:** a route replacement and governance retirement on A leave
     B's clients open.
   - **Client index:** a client indexed to A is refused as B's local client.
-  - **Route cap:** `maxRoutes` + 1 enrolments are refused.
+  - **Global hold check:** route A's hold ends and lingers while route B's
+    starts and clears. A global decision is deferred until the later linger
+    ends, and not after it. A third route enrolled changes neither count.
   - **Claims:** a counterparty registration (`NewEthClientRequest` op 1) on A
     naming a client of B, or one that authenticates another identity, is
     refused. In the duplicate-enrolment race, the losing enrolment's client
@@ -563,6 +586,10 @@ route.
   and IBCAdmins, on one chain). Each would need its own route and channel,
   and the chain's guardians and denoms split between them. Nothing needs it
   now; section 4 refuses it by chain identity.
+- **A fixed cap on routes** (4 was first proposed), to bound loops over
+  routes. The hold counts above remove the only loop on an execution path,
+  and every route already needs a GovDAO vote, so a cap would only make a
+  fifth chain wait for an upgrade.
 
 ## Open questions
 
@@ -574,7 +601,6 @@ route.
    routes. The alternative is per route, which would let a new route launch
    under a governor after GovDAO has taken the first. That does not fit
    "GovDAO is always GovDAO".
-3. **`maxRoutes`.** 4 is proposed.
-4. **Keys on several routes.** This proposes allowing one key to hold seats on
+3. **Keys on several routes.** This proposes allowing one key to hold seats on
    several routes. Should it be refused instead, so a route's guardians stay
    distinct people from another's?
