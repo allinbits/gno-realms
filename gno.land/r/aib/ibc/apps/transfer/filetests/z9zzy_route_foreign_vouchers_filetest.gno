@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"gno.land/p/aib/ibc/ics20/abi/v0"
+	"gno.land/p/aib/ibc/ics20/controls/v0"
 	"gno.land/p/aib/ibc/ics20/v0"
 	ethtesting "gno.land/p/aib/ibc/lightclient/ethereum/testing/v0"
 	"gno.land/p/aib/ibc/types/v0"
@@ -142,6 +143,18 @@ func main(cur realm) {
 	println("B, A's voucher by its alias:", setDenom(cur, b, transfer.GRC20Alias(key), "unescrow"))
 	println("B, the key allocated since:", setDenom(cur, b, next, "unescrow"))
 	println("A, its own voucher by its IBC denom:", setDenom(cur, a, voucher, "mint"))
+	// The transfer app checks again when the configuration applies, below
+	// ibcgov's checks: the same configurations, applied directly as ibcgov,
+	// are refused there too.
+	mint := controls.Params{Route: b, Denom: voucher, Config: controls.DenomConfig{Kind: "mint", CapFloor: 4_000, SupplyCap: 10_000, Fee: 10, FeeFloor: 1, RefundCap: 4_000}}
+	escrow := controls.Params{Route: b, Denom: transfer.GRC20Alias(key), Config: controls.DenomConfig{Kind: "unescrow", CapFloor: 4_000, Fee: 10, FeeFloor: 1, SendMax: 1_000, SendMin: 1, RefundCap: 4_000, Remote: "0x00000000000000000000000000000000000c0001"}}
+	testing.SetRealm(testing.NewCodeRealm(ibcgov.PkgPath))
+	r1 := transfer.GovApply(cross(cur), controls.OpDenom, mint.Encode())
+	testing.SetRealm(testing.NewCodeRealm(ibcgov.PkgPath))
+	r2 := transfer.GovApply(cross(cur), controls.OpDenom, escrow.Encode())
+	testing.SetRealm(testing.NewCodeRealm("gno.land/r/aib/main"))
+	println("applied directly, A's voucher on B:", r1)
+	println("applied directly, A's voucher alias on B:", r2)
 	// A voucher leaves only by its IBC denom, over its own route.
 	println("send A's voucher as a GRC20 over A:", revive(func() { sendAs(cur, a, key) }))
 	println("send A's voucher as a GRC20 over B:", revive(func() { sendAs(cur, b, key) }))
@@ -158,6 +171,8 @@ func main(cur realm) {
 // B, A's voucher by its alias: ibcgov: gno.land:r:aib:ibc:apps:transfer.IBC-1 is in the voucher namespace: a voucher is configured as a minted denom on its own route only
 // B, the key allocated since: ibcgov: gno.land:r:aib:ibc:apps:transfer.IBC-1 is in the voucher namespace: a voucher is configured as a minted denom on its own route only
 // A, its own voucher by its IBC denom: accepted
+// applied directly, A's voucher on B: ibc/F61E88E597F98385A59D8390409F317E80CD10ACC19C8FB56EF6CB12E85A1DAB is a voucher of transfer/ethereum-1/0x1000000000000000000000000000000000203b0d, not of route ethereum-2
+// applied directly, A's voucher alias on B: gno.land:r:aib:ibc:apps:transfer.IBC-1 is in the voucher namespace: a voucher is a minted denom of its own route only
 // send A's voucher as a GRC20 over A: gno.land/r/aib/ibc/apps/transfer.IBC-1 is a voucher: send it by its ibc/ denom, over the route it came from
 // send A's voucher as a GRC20 over B: gno.land/r/aib/ibc/apps/transfer.IBC-1 is a voucher: send it by its ibc/ denom, over the route it came from
 // send A's voucher over B: voucher ibc/F61E88E597F98385A59D8390409F317E80CD10ACC19C8FB56EF6CB12E85A1DAB did not come over route ethereum-2

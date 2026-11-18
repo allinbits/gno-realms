@@ -93,4 +93,4 @@ func main(cur realm) {
 }
 
 // Output:
-// - flag: payouts seat 0 at 1236382293 naming \_evil\_/00000000000000000001,\<br\>/00000000000000000002,\[x\]\#h/00000000000000000003
+// - flag: payouts on ethereum\-1 seat 0 at 1236382293 naming \_evil\_/00000000000000000001,\<br\>/00000000000000000002,\[x\]\#h/00000000000000000003

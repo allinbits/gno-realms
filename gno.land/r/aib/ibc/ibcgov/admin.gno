@@ -278,7 +278,7 @@ func NewCoreRemoveRelayerRequest(cur realm, addr string) Request {
 	return propose(cur, op, text, func(cur realm, made, t int64) {
 		// Delisted since the request was built: spent, never queued.
 		if !isRelayer(a) {
-			spendAtRecording(op, text, p, made, t, string(a)+" is not a listed relayer")
+			spendAtRecording(op, text, p, made, t, string(a)+" is not a listed relayer", globalScope())
 			return
 		}
 		decide(cur, op, text, p, made, t, len(core.Relayers()) <= 1, globalScope())

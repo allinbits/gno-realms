@@ -68,3 +68,29 @@ func TestRouterClientPairing(cur realm, t *testing.T) {
 		t.Errorf("not a gno client: %q", got)
 	}
 }
+
+// Each route's expected-transition graph has its own 64 places (ADR 0007
+// §1): route A's graph at the cap refuses A's next transition, and route B,
+// whose router uses the same client ids, still takes one.
+func TestGraphCapPerRoute(cur realm, t *testing.T) {
+	bound := func(key string) *routeGov {
+		g := testRoute(key)
+		c := core.CreateClient(cross(cur), ethtesting.ClientState(), ethtesting.ConsensusState())
+		core.RegisterCounterparty(cross(cur), c, [][]byte{{}}, "client-0")
+		g.identity, _ = core.ClientRouteIdentity(c)
+		g.govIdentity = g.identity
+		g.epoch = 1
+		g.epochs.Set(epochKey(1), &epochRec{client: c})
+		return g
+	}
+	a, b := bound("cap-a"), bound("cap-b")
+	local := core.CreateClient(cross(cur), ethtesting.ClientState(), ethtesting.ConsensusState())
+	core.RegisterCounterparty(cross(cur), local, [][]byte{{}}, "gnoland-n")
+	a.liveEdges = maxLive
+	if got := checkExpect(a, "client-0", "gnoland-n", local); !strings.HasPrefix(got, "the governance graph holds 64 transitions already") {
+		t.Fatalf("route A at its cap: %q", got)
+	}
+	if got := checkExpect(b, "client-0", "gnoland-n", local); got != "" {
+		t.Fatalf("route B: %q", got)
+	}
+}

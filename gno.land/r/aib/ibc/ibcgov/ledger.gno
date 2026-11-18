@@ -50,7 +50,7 @@ func emitDecision(d *decisions.Decision, state string, extra ...string) {
 // spends it at once.
 func decide(cur realm, kind, text string, params applier, made, t int64, queued bool, sc scope) *decisions.Decision {
 	if refusal := sc.check(); refusal != "" {
-		return spendAtRecording(kind, text, params, made, t, refusal)
+		return spendAtRecording(kind, text, params, made, t, refusal, sc)
 	}
 	due := t
 	if queued {
@@ -71,8 +71,13 @@ func decide(cur realm, kind, text string, params applier, made, t int64, queued 
 // spendAtRecording records a decision refused when it is recorded: spent
 // at once, its effect never applied, so the request that made it (an
 // approved proposal included) is used up, never retried later.
-func spendAtRecording(kind, text string, params applier, made, t int64, refusal string) *decisions.Decision {
+// It keeps the decision's scope, so its route stays named (DecisionRoute, the
+// event), but takes no claim and counts no pending decision.
+func spendAtRecording(kind, text string, params applier, made, t int64, refusal string, sc scope) *decisions.Decision {
 	d := ledger.Record(kind, text, params, made, t, t)
+	s := sc
+	s.claims, s.counted = nil, false
+	scopes.Set(scopeKey(d.ID), &s)
 	ledger.Spend(d, "spent: "+refusal)
 	emitDecision(d, "spent")
 	return d

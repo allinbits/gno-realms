@@ -1414,7 +1414,7 @@ func (p *ethParams) apply(cur realm, t int64) (string, string) {
 		// waits 7 days and that a hold defers, as for an emergency recovery
 		// (NewExpectRecoveryRequest). A notice over it before then is
 		// refused, and IBCAdmin sends it again.
-		text := "expect the governance epoch to move from " + p.from + " to " + p.to + ", carried here by " + p.local + " (kind 10)"
+		text := "expect route " + g.key + "'s governance epoch to move from " + p.from + " to " + p.to + ", carried here by " + p.local + " (kind 10)"
 		ep := &expectParams{route: g.key, from: p.from, to: p.to, local: p.local}
 		d := decide(cur, "expect transition", text, ep, t, t, true, routeScope(g.key, p.local))
 		if d.Spent {
@@ -2137,7 +2137,7 @@ func NewExpectRecoveryRequest(cur realm, route, oldClientID, newClientID, localC
 		// makes two decisions, each owning its own place in the intent.
 		p := &expectParams{route: g.key, from: oldClientID, to: newClientID, local: localClientID}
 		if refusal := sc.check(); refusal != "" {
-			spendAtRecording("expect recovery", text, p, made, t, refusal)
+			spendAtRecording("expect recovery", text, p, made, t, refusal, sc)
 			return
 		}
 		// An intent from the recording on: it holds the successor's place
@@ -2146,7 +2146,7 @@ func NewExpectRecoveryRequest(cur realm, route, oldClientID, newClientID, localC
 		// built): a spent decision, no intent, so an approved proposal is
 		// used up rather than left to execute again once room frees.
 		if refusal := checkExpect(g, oldClientID, newClientID, localClientID); refusal != "" {
-			spendAtRecording("expect recovery", text, p, made, t, refusal)
+			spendAtRecording("expect recovery", text, p, made, t, refusal, sc)
 			return
 		}
 		// Governance named both router clients, and the expectation is

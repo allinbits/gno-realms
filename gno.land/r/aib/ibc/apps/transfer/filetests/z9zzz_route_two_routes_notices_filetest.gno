@@ -122,7 +122,7 @@ func epochs(a, b string) string {
 func main(cur realm) {
 	client(cur, 1, "ethereum-1", "client-0")
 	client(cur, 2, "ethereum-2", "client-0")
-	nextA := client(cur, 1, "ethereum-3", "gnoland-b", noticePacket(1, "gnoland-b", "ethereum-3", 2, "gnoland-b"))
+	client(cur, 1, "ethereum-3", "gnoland-b")
 	nextB := client(cur, 2, "ethereum-4", "gnoland-b", noticePacket(1, "gnoland-b", "ethereum-4", 2, "gnoland-b"))
 	a, b := "ethereum-1", "ethereum-2"
 	// Three more successors on A's chain, to fill client-0's place on A.
@@ -130,6 +130,8 @@ func main(cur realm) {
 		client(cur, 1, "ethereum-"+n, "gnoland-p"+n)
 	}
 	client(cur, 1, "ethereum-8", "gnoland-q")
+	// A's second step, whose notice comes two epochs on.
+	nextC := client(cur, 1, "ethereum-9", "gnoland-c", noticePacket(1, "gnoland-c", "ethereum-9", 3, "gnoland-c"))
 	execute(cur, govern(cur, ibcgov.NewEnrollRouteRequest(cross(cur), a, string(collector), bridge)))
 	execute(cur, govern(cur, ibcgov.NewEnrollRouteRequest(cross(cur), b, string(collector), bridge)))
 	execute(cur, govern(cur, ibcgov.NewBindGovernanceRequest(cross(cur), a, a)))
@@ -150,6 +152,8 @@ func main(cur realm) {
 	println("A's client-0 full:", revive(func() {
 		govern(cur, ibcgov.NewEthRouteReplacementRequest(cross(cur), a, "client-0", "gnoland-q", 1, "ethereum-8"))
 	}))
+	govern(cur, ibcgov.NewEthRouteReplacementRequest(cross(cur), a, "gnoland-b", "gnoland-c", 1, "ethereum-9"))
+	expC := ibcgov.LastDecision()
 	// B's graph is its own: its client-0 takes a successor.
 	govern(cur, ibcgov.NewEthRouteReplacementRequest(cross(cur), b, "client-0", "gnoland-b", 1, "ethereum-4"))
 	expB := ibcgov.LastDecision()
@@ -158,16 +162,24 @@ func main(cur realm) {
 	advance(7*24*time.Hour + time.Second)
 	ibcgov.Execute(cross(cur), expA)
 	ibcgov.Execute(cross(cur), expB)
+	ibcgov.Execute(cross(cur), expC)
 
-	// A's notice moves A's epoch, never B's.
-	println("A's notice:", deliver(cur, nextA, 0), "|", epochs(a, b))
+	// A's notice two epochs on is proven over A's client; a path through B's
+	// client, which A's graph does not hold, is refused; A's own path moves
+	// A's epoch, never B's.
+	println("A's notice, 2 steps on:", deliver(cur, nextC, 0), "|", epochs(a, b))
+	println("a path through B's client:", revive(func() {
+		ibcgov.ApplyEpochNotice(cross(cur), 3, "ethereum-9", "gnoland-b/ethereum-4,gnoland-c/ethereum-9")
+	}), "|", epochs(a, b))
+	ibcgov.ApplyEpochNotice(cross(cur), 3, "ethereum-9", "gnoland-b/ethereum-3,gnoland-c/ethereum-9")
+	println("A's path:", epochs(a, b))
 	// A's route replacement retires A's old client only.
-	execute(cur, govern(cur, ibcgov.NewReplaceRouteRequest(cross(cur), a, "ethereum-3", 0)))
+	execute(cur, govern(cur, ibcgov.NewReplaceRouteRequest(cross(cur), a, "ethereum-9", 0)))
 	println("A's old client retired:", core.IsClientRetiredAny(a), "| B's client retired:", core.IsClientRetiredAny(b))
 	// Decisions go over each route's own epoch client.
 	govern(cur, ibcgov.NewEthUnpauseRequest(cross(cur), a, 2, ""))
 	govern(cur, ibcgov.NewEthUnpauseRequest(cross(cur), b, 2, ""))
-	println("A dispatched epoch 2 seq", ibcgov.LastSeq(a, 2), "| B epoch 1 seq", ibcgov.LastSeq(b, 1))
+	println("A dispatched epoch 3 seq", ibcgov.LastSeq(a, 3), "| B epoch 1 seq", ibcgov.LastSeq(b, 1))
 	println("B's notice:", deliver(cur, nextB, 0), "|", epochs(a, b))
 	_, permanent := ibcgov.ClientRoute("ethereum-4")
 	route, _ := ibcgov.ClientRoute("ethereum-4")
@@ -178,10 +190,12 @@ func main(cur realm) {
 // A epoch 1 over ethereum-1 | B epoch 1 over ethereum-2
 // A's kind 10 over B's next client: ibcgov: ethereum-4 does not authenticate the governance route's identity
 // A's client-0 full: ibcgov: router client client-0 has 4 expected successors already, intents included
-// B's kind 10 from its own client-0: applied - dispatched as epoch 1 seq 1; its transition is expected from decision 14 | A's and B's expectations: pending - queued 7 days | pending - queued 7 days
+// B's kind 10 from its own client-0: applied - dispatched as epoch 1 seq 1; its transition is expected from decision 16 | A's and B's expectations: pending - queued 7 days | pending - queued 7 days
 // route of each expectation: true true
-// A's notice: acknowledged | A epoch 2 over ethereum-3 | B epoch 1 over ethereum-2
+// A's notice, 2 steps on: error acknowledgement | A epoch 1 over ethereum-1 | B epoch 1 over ethereum-2
+// a path through B's client: ibcgov: step 1, client-0 -> gnoland-b over ethereum-4, is no expected transition | A epoch 1 over ethereum-1 | B epoch 1 over ethereum-2
+// A's path: A epoch 3 over ethereum-9 | B epoch 1 over ethereum-2
 // A's old client retired: true | B's client retired: false
-// A dispatched epoch 2 seq 1 | B epoch 1 seq 2
-// B's notice: acknowledged | A epoch 2 over ethereum-3 | B epoch 2 over ethereum-4
+// A dispatched epoch 3 seq 1 | B epoch 1 seq 2
+// B's notice: acknowledged | A epoch 3 over ethereum-9 | B epoch 2 over ethereum-4
 // B's new client is B's: true true

@@ -76,6 +76,7 @@ func clearAs(cur realm, who address, route, target, fn string) {
 func main(cur realm) {
 	a := chainClient(cur, 1, "client-0")
 	b := chainClient(cur, 2, "client-0")
+	c := chainClient(cur, 3, "client-0") // made before a relayer is listed
 	execute(cur, govern(cur, ibcgov.NewEnrollRouteRequest(cross(cur), a, string(collector), bridge)))
 	execute(cur, govern(cur, ibcgov.NewEnrollRouteRequest(cross(cur), b, string(collector), bridge)))
 	execute(cur, govern(cur, ibcgov.NewSetSeatsRequest(cross(cur), a, "0:"+string(a0)+",1:"+string(a1))))
@@ -103,6 +104,7 @@ func main(cur realm) {
 	clearAs(cur, a0, a, a, ibcgov.FnSends)
 	clearAs(cur, a1, a, a, ibcgov.FnSends)
 	println("day 20: A held", ibcgov.Held(a), "B held", ibcgov.Held(b), "| global since unchanged:", ibcgov.GlobalHoldSince() == since)
+	advance(time.Duration(since+21*86400-1-testing.GetContext().Time.Unix()) * time.Second)
 	println("a second before day 21:", revive(func() { ibcgov.Execute(cross(cur), global) }))
 	println("the unpause before day 21:", revive(func() { ibcgov.Execute(cross(cur), unpause) }))
 	advance(time.Duration(since+21*86400-testing.GetContext().Time.Unix()) * time.Second)
@@ -123,9 +125,33 @@ func main(cur realm) {
 	clearAs(cur, both, b, b, ibcgov.FnCredits)
 	advance(24*time.Hour + time.Second)
 	println("no hold:", ibcgov.AnyHeld(), ibcgov.GlobalHoldSince())
+	// A global decision under overlapping lingers: B's hold ends and lingers,
+	// A's starts and ends within it and lingers later; a third route enrols
+	// meanwhile. The decision waits exactly for the later linger to end.
+	later := govern(cur, ibcgov.NewCoreAddRelayerRequest(cross(cur), string(testutils.TestAddress("relayer-2"))))
+	enrolC := govern(cur, ibcgov.NewEnrollRouteRequest(cross(cur), c, string(collector), bridge))
+	advance(7*24*time.Hour + time.Second)
 	flagAs(cur, b0, b, b, ibcgov.FnSends)
 	flagAs(cur, both, b, b, ibcgov.FnSends)
 	println("a new global hold:", ibcgov.GlobalHoldSince() == testing.GetContext().Time.Unix())
+	ibcgov.Execute(cross(cur), later) // anchored
+	advance(time.Hour)
+	clearAs(cur, b0, b, b, ibcgov.FnSends)
+	clearAs(cur, both, b, b, ibcgov.FnSends)
+	advance(time.Hour)
+	flagAs(cur, a0, a, a, ibcgov.FnCredits)
+	flagAs(cur, a1, a, a, ibcgov.FnCredits)
+	advance(time.Hour)
+	clearAs(cur, a0, a, a, ibcgov.FnCredits)
+	clearAs(cur, a1, a, a, ibcgov.FnCredits)
+	end := testing.GetContext().Time.Unix() + 86400 // A's linger ends after B's
+	ibcgov.Execute(cross(cur), enrolC)
+	println("a third route enrolled during the lingers:", decided(enrolC), "| any held:", ibcgov.AnyHeld())
+	advance(time.Duration(end-1-testing.GetContext().Time.Unix()) * time.Second)
+	println("a second before the later linger ends:", revive(func() { ibcgov.Execute(cross(cur), later) }))
+	advance(time.Second)
+	ibcgov.Execute(cross(cur), later)
+	println("when it ends:", decided(later), "| any held:", ibcgov.AnyHeld())
 }
 
 // Output:
@@ -140,3 +166,6 @@ func main(cur realm) {
 // A's unpause under B's hold: applied - cleared 1 flags of route ethereum-1
 // no hold: false 0
 // a new global hold: true
+// a third route enrolled during the lingers: applied - enroll | any held: true
+// a second before the later linger ends: ibcgov: decision 10 is deferred: a guardian hold first deferred it on 1239492696, until 1241307096
+// when it ends: applied - core add relayer | any held: false

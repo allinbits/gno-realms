@@ -122,9 +122,17 @@ func main(cur realm) {
 	// A request built for the dropped incarnation is spent; the chain and the
 	// client are free again, and the key's next record is a new incarnation.
 	id := govern(cur, stale)
-	println("a request built for incarnation 1:", decided(id))
+	println("a request built for incarnation 1:", decided(id), "| its route:", ibcgov.DecisionRoute(id) == d)
 	execute(cur, govern(cur, ibcgov.NewSetSeatsRequest(cross(cur), d, "0:"+string(a1))))
 	println("re-created: incarnation", ibcgov.Incarnation(d), "seat 0", ibcgov.Seat(d, 0) == a1, "flags", len(ibcgov.Flags(d, "")))
+	// A recovery of the provisional client is the route's decision; its
+	// substitute is checked, never claimed, so a drop leaves no client of
+	// the route behind.
+	sub := chainClient(cur, 4, "client-9")
+	rec := govern(cur, ibcgov.NewRecoverClientRequest(cross(cur), d, sub))
+	r, _ := ibcgov.ClientRoute(sub)
+	println("a recovery of the provisional client:", ibcgov.DecisionRoute(rec) == d, "| its substitute claimed:", r != "")
+	govern(cur, ibcgov.NewCancelRequest(cross(cur), rec))
 
 	// Candidate flags: a seat of each of two routes flags the same candidate
 	// client; each counts toward its own route, and only A's follow the
@@ -165,10 +173,11 @@ func main(cur realm) {
 // pruned: 2
 // another decision pending: ibcgov: route ethereum-3 has pending decisions
 // dropped: applied - dropped the provisional record of route ethereum-3 (incarnation 1) | record: false
-// a request built for incarnation 1: spent - spent: route ethereum-3's record changed since the request was built (incarnation 1)
+// a request built for incarnation 1: spent - spent: route ethereum-3's record changed since the request was built (incarnation 1) | its route: true
 // re-created: incarnation 2 seat 0 true flags 0
+// a recovery of the provisional client: true | its substitute claimed: false
 // candidate flags: A's slice[("payouts seat 0 at 1242516702" string)] | B's slice[("payouts seat 0 at 1242516702" string)]
-// B flags A's claimed candidate: ibcgov: ethereum-6 belongs to route ethereum-4
-// replaced: applied - replace: client ethereum-4 retired for transfers, meters emptied, 1 flags of ethereum-6 moved to the route; governance epoch 1 stays over ethereum-4 until IBCAdmin's epoch notices arrive
+// B flags A's claimed candidate: ibcgov: ethereum-7 belongs to route ethereum-5
+// replaced: applied - replace: client ethereum-5 retired for transfers, meters emptied, 1 flags of ethereum-7 moved to the route; governance epoch 1 stays over ethereum-5 until IBCAdmin's epoch notices arrive
 // A's payouts flagged: true | B's flag stays B's: slice[("payouts seat 0 at 1242516702" string)] | B's payouts: false
 // B cleared its flag on A's new client: 0 | A's payouts still flagged: true

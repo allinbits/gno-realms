@@ -117,6 +117,7 @@ func main(cur realm) {
 	// create clients.
 	other := chainClient(cur, 1, "gnoland-y")
 	stranger := chainClient(cur, 3, "gnoland-z")
+	onB := chainClient(cur, 2, "gnoland-x") // a client of B's chain, paired with a custom id
 	execute(cur, govern(cur, ibcgov.NewEnrollRouteRequest(cross(cur), a, string(collector), bridge)))
 	execute(cur, govern(cur, ibcgov.NewEnrollRouteRequest(cross(cur), b, string(collector), bridge)))
 	execute(cur, govern(cur, ibcgov.NewBindGovernanceRequest(cross(cur), a, a)))
@@ -129,12 +130,17 @@ func main(cur realm) {
 	govern(cur, ibcgov.NewEthUnpauseRequest(cross(cur), b, 2, ""))
 	bodyA, bodyB := ibcgov.DispatchBody(a, 1, 1), ibcgov.DispatchBody(b, 1, 1)
 	println("A and B seq 1, identical bytes:", string(bodyA) == string(bodyB))
+	// Each went over its own route's client: the core holds each packet's
+	// commitment under that client.
+	tA, tB := ibcgov.DispatchTransport(a, 1, 1), ibcgov.DispatchTransport(b, 1, 1)
+	println("committed over A:", len(core.PacketCommitment(a, tA)) == 32, "| over B:", len(core.PacketCommitment(b, tB)) == 32)
 	// An acknowledgement over A's client answers A's dispatch only.
 	ackAsCore(cur, a, ibcgov.DispatchTransport(a, 1, 1), bodyA, appAck(1, 1, ibcgov.StatusRecorded, 0))
 	println("A:", state(a), "| B:", state(b))
 	ackAsCore(cur, b, ibcgov.DispatchTransport(b, 1, 1), bodyB, appAck(1, 1, ibcgov.StatusRecorded, 1))
 	ibcgov.Redispatch(cross(cur), b, 1, 1)
-	println("B re-dispatched over its own client:", state(b), "| A:", state(a))
+	tB2 := ibcgov.DispatchTransport(b, 1, 1)
+	println("B re-dispatched over its own client:", state(b), "| A:", state(a), "| committed over B:", len(core.PacketCommitment(b, tB2)) == 32, "| over A:", len(core.PacketCommitment(a, tB2)) == 32)
 	println("render:", strings.Contains(ibcgov.Render("dispatch/"+b+"/1/1"), "\"sends\":2"), ibcgov.Render("dispatch/1/1"))
 
 	// Seats are per route; one key may hold seats on both.
@@ -176,11 +182,11 @@ func main(cur realm) {
 
 	// A gno client belongs to one route: B's client is never A's local
 	// client, nor a counterparty A registers on its IBCAdmin.
-	println("B's client as A's local client:", revive(func() {
-		govern(cur, ibcgov.NewExpectRecoveryRequest(cross(cur), a, "client-0", "gnoland-x", b))
+	println("a client of B's chain as A's local client:", revive(func() {
+		govern(cur, ibcgov.NewExpectRecoveryRequest(cross(cur), a, "client-0", "gnoland-x", onB))
 	}))
-	println("B's client in A's kind 6 op 1:", revive(func() {
-		govern(cur, ibcgov.NewEthClientRequest(cross(cur), a, 1, "gnoland-x", b, "6d61696e", "0x1111111111111111111111111111111111111111", strings.Repeat("ab", 32)))
+	println("a client of B's chain in A's kind 6 op 1:", revive(func() {
+		govern(cur, ibcgov.NewEthClientRequest(cross(cur), a, 1, "gnoland-x", onB, "6d61696e", "0x1111111111111111111111111111111111111111", strings.Repeat("ab", 32)))
 	}))
 	println("another chain's client in A's kind 6 op 1:", revive(func() {
 		govern(cur, ibcgov.NewEthClientRequest(cross(cur), a, 1, "gnoland-z", stranger, "6d61696e", "0x1111111111111111111111111111111111111111", strings.Repeat("ab", 32)))
@@ -194,8 +200,9 @@ func main(cur realm) {
 // A bound, B not: 1 0
 // both bound: 1 over ethereum-1 | 1 over ethereum-2
 // A and B seq 1, identical bytes: true
+// committed over A: true | over B: true
 // A: status 1 redispatch no in flight no sends 1 | B: status 0 redispatch no in flight yes sends 1
-// B re-dispatched over its own client: status 1 redispatch no in flight yes sends 2 | A: status 1 redispatch no in flight no sends 1
+// B re-dispatched over its own client: status 1 redispatch no in flight yes sends 2 | A: status 1 redispatch no in flight no sends 1 | committed over B: true | over A: false
 // render: true null
 // seats: 2 1 -1
 // a seat of B flags A: ibcgov: not a guardian or a watch key of route ethereum-1: g1vgkkwatpwfjxjctw95c97h6lta047h6lje2lsg
@@ -208,7 +215,7 @@ func main(cur realm) {
 // unpause A: spent - spent: route ethereum-1's guardian hold stands, which spends its unpauses
 // unpause B: applied - cleared 1 flags of route ethereum-2 | B sends flagged: false
 // after A's hold: applied - collector | applied - core add relayer
-// B's client as A's local client: ibcgov: ethereum-2's counterparty is not gnoland-x
-// B's client in A's kind 6 op 1: ibcgov: the gno client ethereum-2 is paired with client-0, not gnoland-x
+// a client of B's chain as A's local client: ibcgov: ethereum-5 does not authenticate the governance route's identity
+// a client of B's chain in A's kind 6 op 1: ibcgov: ethereum-5 authenticates (chain 2, genesis validators root 0xd1ec305b97bf6336571c2348e4a8bf173684b0cdb7e55f7e6554d51f8478b5a3, router 0x1d95d544586eacb63b6154e9e45122b32ded11aa, commitment slot 0x1260944489272988d9df285149b5aa1b0f48f2136d6f416159f840a3e0747600), not route ethereum-1's (chain 1, genesis validators root 0xd1ec305b97bf6336571c2348e4a8bf173684b0cdb7e55f7e6554d51f8478b5a3, router 0x1d95d544586eacb63b6154e9e45122b32ded11aa, commitment slot 0x1260944489272988d9df285149b5aa1b0f48f2136d6f416159f840a3e0747600)
 // another chain's client in A's kind 6 op 1: ibcgov: ethereum-4 authenticates (chain 3, genesis validators root 0xd1ec305b97bf6336571c2348e4a8bf173684b0cdb7e55f7e6554d51f8478b5a3, router 0x1d95d544586eacb63b6154e9e45122b32ded11aa, commitment slot 0x1260944489272988d9df285149b5aa1b0f48f2136d6f416159f840a3e0747600), not route ethereum-1's (chain 1, genesis validators root 0xd1ec305b97bf6336571c2348e4a8bf173684b0cdb7e55f7e6554d51f8478b5a3, router 0x1d95d544586eacb63b6154e9e45122b32ded11aa, commitment slot 0x1260944489272988d9df285149b5aa1b0f48f2136d6f416159f840a3e0747600)
 // A's own client in its kind 6 op 1: applied - dispatched as epoch 1 seq 2 | claimed by true true

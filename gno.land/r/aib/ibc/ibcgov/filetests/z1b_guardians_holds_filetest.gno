@@ -211,7 +211,7 @@ func main(cur realm) {
 // - seat 3 (guardian): g1va6kzunyd9skutfn94hx2a6lta047h6l562e9h
 // - seat 4 (watch key): g1washgcmg95697h6lta047h6lta047h6l726ltc
 // - seat 5 (watch key): g1washgcmg95647h6lta047h6lta047h6lpq3k32
-// - flag: sends seat 0 at 1237678295
+// - flag: sends on ethereum\-1 seat 0 at 1237678295
 //
 //
 // ## Decisions

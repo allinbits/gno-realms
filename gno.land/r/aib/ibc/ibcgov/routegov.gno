@@ -286,9 +286,12 @@ func routeOfClient(client string) *routeGov {
 
 // scope is a decision's scope (ADR 0007 §6): route-scoped (route set, bound
 // to the incarnation it was built against) or global. claims are the gno
-// clients the decision names for its route. clients are the gno clients a
-// global decision is about, claimed by no route when it was built: a claim
-// before it executes spends it. anchor is the start of the hold that first
+// clients the decision names for its route. clients are gno clients it
+// names without claiming them: for a global decision, claimed by no route
+// when it was built (a claim before it executes spends it); for a
+// route-scoped one, a recovery's substitute, which must belong to no other
+// route. A provisional route therefore holds only its own key client for
+// good, which its drop releases. anchor is the start of the hold that first
 // deferred it once due (a seat change, or a global decision), 0 before.
 type scope struct {
 	route   string
@@ -308,25 +311,24 @@ func routeScope(route string, claims ...string) scope {
 // app.
 func globalScope() scope { return scope{} }
 
-// clientScope is the scope of a decision about the gno clients named: the
-// route's of the first that belongs to one, which every other must belong
-// to or be free for (claimed for it then), and global when none belongs to
-// a route (ADR 0007 §6: no route's guardians own them). It panics when two
-// of them belong to different routes.
-func clientScope(clients ...string) scope {
-	route := ""
-	for _, cl := range clients {
-		if c := claimOf(cl); c != nil {
-			if route != "" && c.route != route {
-				panic("ibcgov: " + cl + " belongs to route " + c.route + ", not route " + route)
-			}
-			route = c.route
-		}
+// clientScope is the scope of a decision about the gno client subject: its
+// route's when it belongs to one, global otherwise (ADR 0007 §6: no route's
+// guardians own it). others are clients it names without claiming them (a
+// recovery's substitute): each must belong to the same route, or to none,
+// when the decision is built, recorded and executed; for a global decision,
+// to none.
+func clientScope(subject string, others ...string) scope {
+	var sc scope
+	if c := claimOf(subject); c != nil {
+		sc = routeScope(c.route, subject)
+		sc.clients = others
+	} else {
+		sc = scope{clients: append([]string{subject}, others...)}
 	}
-	if route != "" {
-		return routeScope(route, clients...)
+	if refusal := sc.check(); refusal != "" {
+		panic("ibcgov: " + refusal)
 	}
-	return scope{clients: clients}
+	return sc
 }
 
 func scopeKey(id int64) string { return strconv.FormatInt(id, 36) }
@@ -347,6 +349,13 @@ func (sc *scope) check() string {
 			return "route " + sc.route + "'s record changed since the request was built (incarnation " + u64s(sc.inc) + ")"
 		}
 		for _, c := range sc.claims {
+			if refusal := checkClaim(c, sc.route); refusal != "" {
+				return refusal
+			}
+		}
+		// Clients it names without claiming them (a recovery's substitute)
+		// must belong to no other route.
+		for _, c := range sc.clients {
 			if refusal := checkClaim(c, sc.route); refusal != "" {
 				return refusal
 			}

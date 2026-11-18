@@ -128,11 +128,58 @@ func writeRoute(b *strings.Builder, g *routeGov) {
 		}
 		b.WriteString("- seat " + strconv.Itoa(i) + " (" + role + "): " + jsonmd.Text(holder) + "\n")
 	}
-	for _, f := range Flags(g.key, "") {
-		b.WriteString("- flag: " + jsonmd.Text(f) + "\n")
+	// Every flag of the route, on itself or a candidate client (one that
+	// joined another route since included): each counts toward its hold.
+	// At most flagsShown lines; the count says how many stand.
+	shown, live := 0, 0
+	g.flags.Iterate("", "", func(k string, v any) bool {
+		f := v.(*flag)
+		if !g.live(f) {
+			return false
+		}
+		live++
+		if shown == flagsShown {
+			return false
+		}
+		shown++
+		parts := strings.Split(k, "|")
+		line := parts[1] + " on " + parts[0] + " seat " + strconv.Itoa(f.seat) + " at " + itoa(f.at)
+		if len(f.keys) > 0 {
+			line += " naming " + strings.Join(f.keys, ",")
+		}
+		b.WriteString("- flag: " + jsonmd.Text(line) + "\n")
+		return false
+	})
+	if live > shown {
+		b.WriteString("- " + strconv.Itoa(live-shown) + " more flags (Flags(route, target))\n")
+	}
+	// The expected-transition graph: at most maxLive transitions and
+	// tombstones together, so it is shown whole.
+	if g.enrolled && g.epoch != 0 {
+		g.expected.Iterate("", "", func(old string, v any) bool {
+			for _, x := range v.([]expEdge) {
+				state := "intent"
+				if x.active {
+					state = "active"
+				}
+				b.WriteString("- transition: " + jsonmd.Text(old+" → "+x.to+" over "+x.local) + " (" + state + ")\n")
+			}
+			return false
+		})
+		g.tombstones.Iterate("", "", func(_ string, v any) bool {
+			t := v.(*tomb)
+			b.WriteString("- tombstone: " + jsonmd.Text(t.old+" → "+t.to+" over "+t.local) + "\n")
+			return false
+		})
+		if n := g.awaitingGov.Size(); n > 0 {
+			b.WriteString("- clients awaiting retirement for governance: " + strconv.Itoa(n) + "\n")
+		}
 	}
 	b.WriteString("\n")
 }
+
+// flagsShown bounds the flag lines of a route's section.
+const flagsShown = 64
 
 func dispatchJSON(route string, e uint32, seq uint64) string {
 	d := routeDispatch(route, e, seq)
