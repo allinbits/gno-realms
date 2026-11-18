@@ -204,9 +204,9 @@ The number of routes has no fixed cap. Each route, provisional or enrolled,
 exists only through a 7-day GovDAO decision (an enrolment, or the seat change
 that creates a provisional record), so GovDAO's vote is the bound. No path
 loops over every route: the global-decision hold check reads three numbers
-(section 6); ibcgov's Render and the transfer app's home page and `routes`
-JSON page the routes, 20 a page (the JSON with the cursor the other pages
-use); and the transfer proxy's controls-continuity check asks whether any
+(section 6); ibcgov's Render and the transfer app's home page list 20 routes
+a page, and the transfer app's `routes` JSON pages them like the other JSON
+pages (100 a page, with their cursor); and the transfer proxy's controls-continuity check asks whether any
 route exists (`Reader.HasRoutes`), in constant work.
 
 The per-route rules of ADR 0004 hold for each route separately:
