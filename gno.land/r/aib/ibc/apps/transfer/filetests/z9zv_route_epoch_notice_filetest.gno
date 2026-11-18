@@ -16,6 +16,10 @@ import (
 	"gno.land/r/aib/ibc/ibcgov"
 )
 
+// govRoute is the route this test's decisions name (ADR 0007: route-scoped
+// entry points take the route).
+var govRoute string
+
 const bridge = "0x1d95d544586eacb63b6154e9e45122b32ded11aa 0x00000000000000000000000000000000000b0002 0x00000000000000000000000000000000000b0003"
 
 var (
@@ -27,9 +31,9 @@ var (
 func flagAs(cur realm, who address, route, fn string, set bool) {
 	testing.SetRealm(testing.NewUserRealm(who))
 	if set {
-		ibcgov.SetFlag(cross(cur), route, fn, "")
+		ibcgov.SetFlag(cross(cur), govRoute, route, fn, "")
 	} else {
-		ibcgov.ClearFlag(cross(cur), route, fn)
+		ibcgov.ClearFlag(cross(cur), govRoute, route, fn)
 	}
 	testing.SetRealm(testing.NewCodeRealm("gno.land/r/aib/main"))
 }
@@ -119,7 +123,7 @@ func deliver(cur realm, s *sent, i int) string {
 }
 
 func epochNow() string {
-	return "epoch " + string(rune('0'+ibcgov.Epoch())) + " over " + ibcgov.EpochClient()
+	return "epoch " + string(rune('0'+ibcgov.Epoch(govRoute))) + " over " + ibcgov.EpochClient(govRoute)
 }
 
 // The governance epoch moves in two phases (ADR pr6375 §7.12, design review
@@ -133,6 +137,7 @@ func epochNow() string {
 // acknowledgement), and the notice of the epoch switched to already is
 // acknowledged again.
 func main(cur realm) {
+	govRoute = "ethereum-1"
 	client(cur, "ethereum-1", "client-0")
 	b := client(cur, "ethereum-2", "gnoland-b",
 		noticePacket(1, "gnoland-b", "ethereum-2", 2, "gnoland-b"), // too early
@@ -151,8 +156,8 @@ func main(cur realm) {
 		tmtesting.GenConsensusState(time.Now(), tmtesting.Hash("apphash"), tmtesting.GenValset().Hash()))
 	core.RegisterCounterparty(cross(cur), tm, [][]byte{{}}, "gnoland-9")
 	execute(cur, govern(cur, ibcgov.NewEnrollRouteRequest(cross(cur), "ethereum-1", string(collector), bridge)))
-	execute(cur, govern(cur, ibcgov.NewBindGovernanceRequest(cross(cur), "ethereum-1")))
-	execute(cur, govern(cur, ibcgov.NewSetSeatsRequest(cross(cur), "0:"+string(g0)+",1:"+string(g1))))
+	execute(cur, govern(cur, ibcgov.NewBindGovernanceRequest(cross(cur), govRoute, "ethereum-1")))
+	execute(cur, govern(cur, ibcgov.NewSetSeatsRequest(cross(cur), govRoute, "0:"+string(g0)+",1:"+string(g1))))
 	println(epochNow())
 
 	// A notice before its kind 10 is dispatched is expected nowhere: refused.
@@ -163,9 +168,9 @@ func main(cur realm) {
 	// epoch stays over the old client, which still carries governance
 	// packets, not transfers.
 	println("kind 10 carried by a Tendermint client:", revive(func() {
-		govern(cur, ibcgov.NewEthRouteReplacementRequest(cross(cur), "client-0", "gnoland-9", 1, tm))
+		govern(cur, ibcgov.NewEthRouteReplacementRequest(cross(cur), govRoute, "client-0", "gnoland-9", 1, tm))
 	}))
-	govern(cur, ibcgov.NewEthRouteReplacementRequest(cross(cur), "client-0", "gnoland-b", 1, "ethereum-2"))
+	govern(cur, ibcgov.NewEthRouteReplacementRequest(cross(cur), govRoute, "client-0", "gnoland-b", 1, "ethereum-2"))
 	// The kind 10 goes at once, but approving ethereum-2 to carry the epoch
 	// is a decision of its own that waits 7 days, deferred by a hold (Codex
 	// round 39 #2): a notice before then is refused, and sent again.
@@ -184,7 +189,7 @@ func main(cur realm) {
 	execute(cur, govern(cur, ibcgov.NewReplaceRouteRequest(cross(cur), "ethereum-1", "ethereum-2", 0)))
 	println(epochNow(), "| old retired for transfers:", core.IsClientRetiredFor("ethereum-1", "transfer"),
 		"for governance:", core.IsClientRetiredFor("ethereum-1", ibcgov.GovPort))
-	govern(cur, ibcgov.NewEthRouteSettingsRequest(cross(cur), "client-0", 0))
+	govern(cur, ibcgov.NewEthRouteSettingsRequest(cross(cur), govRoute, "client-0", 0))
 	println("a decision after the replacement:", decided(ibcgov.LastDecision()))
 
 	println("notice over x (not expected):", deliver(cur, x, 0), "|", epochNow())
@@ -206,7 +211,7 @@ func main(cur realm) {
 	// The next replacement's notice arrives before gno.land's replacement
 	// executes: the epoch moves, the old client is retired for governance
 	// and keeps the route until the replacement executes.
-	govern(cur, ibcgov.NewEthRouteReplacementRequest(cross(cur), "gnoland-b", "gnoland-c", 2, "ethereum-4"))
+	govern(cur, ibcgov.NewEthRouteReplacementRequest(cross(cur), govRoute, "gnoland-b", "gnoland-c", 2, "ethereum-4"))
 	expC := ibcgov.LastDecision()
 	replace := govern(cur, ibcgov.NewReplaceRouteRequest(cross(cur), "ethereum-1", "ethereum-4", 0))
 	execute(cur, expC)
@@ -223,7 +228,7 @@ func main(cur realm) {
 // kind 10 carried by a Tendermint client: ibcgov: 07-tendermint-6 is not an Ethereum client
 // its expectation: pending - queued 7 days
 // b's notice right after its kind 10: error acknowledgement | epoch 1 over ethereum-1
-// the expectation under a hold: ibcgov: decision 5 is deferred: a guardian hold stands since 1236382293
+// the expectation under a hold: ibcgov: decision 5 is deferred: route ethereum-1's guardian hold stands since 1236382293
 // its expectation after the hold: applied - expect the governance epoch to move from client-0 to gnoland-b over ethereum-2
 // epoch 1 over ethereum-1 | old retired for transfers: true for governance: false
 // a decision after the replacement: applied - dispatched as epoch 1 seq 2

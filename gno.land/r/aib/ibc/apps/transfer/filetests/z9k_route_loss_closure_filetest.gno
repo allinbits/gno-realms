@@ -21,6 +21,10 @@ import (
 	"gno.land/r/aib/ibc/ibcgov"
 )
 
+// govRoute is the route this test's decisions name (ADR 0007: route-scoped
+// entry points take the route).
+var govRoute string
+
 // bridge is the route's Ethereum router, ICS20 transfer and IBCAdmin: its
 // protected recipients.
 const bridge = "0x1d95d544586eacb63b6154e9e45122b32ded11aa 0x00000000000000000000000000000000000b0002 0x00000000000000000000000000000000000b0003"
@@ -84,6 +88,7 @@ func execute(cur realm, id int64) {
 // enrolls the client as a route, every step a governor decision.
 func setupRoute(cur realm) string {
 	clientID := core.CreateClient(cross(cur), ethtesting.ClientState(), ethtesting.ConsensusState())
+	govRoute = clientID
 	core.RegisterCounterparty(cross(cur), clientID, [][]byte{{}}, "client-0")
 	execute(cur, govern(cur, ibcgov.NewEnrollRouteRequest(cross(cur), clientID, string(collector), bridge)))
 	advance(7*24*time.Hour + time.Second) // keeps the timeline of the goldens
@@ -145,13 +150,13 @@ func recapitalize(cur realm, route string, id int64, amount uint256) {
 
 func flag(cur realm, g address, route, keys string) {
 	testing.SetRealm(testing.NewUserRealm(g))
-	ibcgov.SetFlag(cross(cur), route, ibcgov.FnPayouts, keys)
+	ibcgov.SetFlag(cross(cur), govRoute, route, ibcgov.FnPayouts, keys)
 	testing.SetRealm(testing.NewCodeRealm("gno.land/r/aib/main"))
 }
 
 func unflag(cur realm, g address, route string) {
 	testing.SetRealm(testing.NewUserRealm(g))
-	ibcgov.ClearFlag(cross(cur), route, ibcgov.FnPayouts)
+	ibcgov.ClearFlag(cross(cur), govRoute, route, ibcgov.FnPayouts)
 	testing.SetRealm(testing.NewCodeRealm("gno.land/r/aib/main"))
 }
 
@@ -170,7 +175,7 @@ func main(cur realm) {
 	route := setupRoute(cur)
 	execute(cur, govern(cur, ibcgov.NewSetDenomRequest(cross(cur), route, "ugnot", "unescrow", 10_000, 0, 20, 2, 25_000, 40, 10_000, "0x0000000000000000000000000000000000c0ffee", 0)))
 	execute(cur, govern(cur, ibcgov.NewSetDenomRequest(cross(cur), route, weth, "mint", 4_000, 10_000, 10, 1, 0, 0, 4_000, "", 0)))
-	execute(cur, govern(cur, ibcgov.NewSetSeatsRequest(cross(cur), "0:"+string(guardian)+",1:"+string(guardian1))))
+	execute(cur, govern(cur, ibcgov.NewSetSeatsRequest(cross(cur), govRoute, "0:"+string(guardian)+",1:"+string(guardian1))))
 	send(cur, route, 20_000, 20_020, ethReceiver)
 	pending := send(cur, route, 1_000, 1_020, ethReceiver) // in flight across the loss
 	voucher := ics20.NewDenom(weth, ics20.NewHop("transfer", route)).IBCDenom()
@@ -186,7 +191,7 @@ func main(cur realm) {
 	// Both guardians flag payouts: a hold. Alice's forged void, named, lands.
 	flag(cur, guardian, route, controls.PacketKey(route, 1))
 	flag(cur, guardian1, route, "")
-	println("held:", ibcgov.Held())
+	println("held:", ibcgov.Held(govRoute))
 	println("void:", decided(govern(cur, ibcgov.NewVoidRequest(cross(cur), route, controls.PacketKey(route, 1), true, "inc-1"))))
 	recap := govern(cur, ibcgov.NewRecapitalizeRequest(cross(cur), route, "ugnot", 2_500, "inc-1"))
 
@@ -195,7 +200,7 @@ func main(cur realm) {
 	unflag(cur, guardian, route)
 	unflag(cur, guardian1, route)
 	advance(25 * time.Hour)
-	println("held:", ibcgov.Held(), "| flagged:", ibcgov.Flagged(route, ibcgov.FnPayouts), "| closed:", controlsView().LossClosed(route),
+	println("held:", ibcgov.Held(govRoute), "| flagged:", ibcgov.Flagged(route, ibcgov.FnPayouts), "| closed:", controlsView().LossClosed(route),
 		"| claims paid:", transfer.Claim(cross(cur), route, "ugnot", 20))
 	// The loss stops new exposure only (Codex round 2 #4): no gno-native send,
 	// but voucher returns and refunds go on, under the refund meter alone.
@@ -220,7 +225,7 @@ func main(cur realm) {
 	advance(24 * time.Hour)
 	flag(cur, guardian, route, controls.PacketKey(route, 2))
 	println("void:", decided(govern(cur, ibcgov.NewVoidRequest(cross(cur), route, controls.PacketKey(route, 2), true, "inc-2"))))
-	vacate := govern(cur, ibcgov.NewSetSeatsRequest(cross(cur), "0:"))
+	vacate := govern(cur, ibcgov.NewSetSeatsRequest(cross(cur), govRoute, "0:"))
 	execute(cur, vacate)
 	println("vacate:", decided(vacate))
 	advance(24 * time.Hour)
@@ -239,6 +244,6 @@ func main(cur realm) {
 // refund: paid | sender + 1000
 // recapitalized | closed: false | claims paid: 2
 // void: applied - void
-// vacate: applied - seats 0
+// vacate: applied - seats 0 of route ethereum-1
 // flagged: false | closed: true | claims paid: 0
 // accepted | closed: false | claims paid: 0

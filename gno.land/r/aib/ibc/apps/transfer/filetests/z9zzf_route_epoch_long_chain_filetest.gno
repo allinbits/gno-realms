@@ -19,6 +19,10 @@ import (
 	"gno.land/r/aib/ibc/ibcgov"
 )
 
+// govRoute is the route this test's decisions name (ADR 0007: route-scoped
+// entry points take the route).
+var govRoute string
+
 const bridge = "0x1d95d544586eacb63b6154e9e45122b32ded11aa 0x00000000000000000000000000000000000b0002 0x00000000000000000000000000000000000b0003"
 
 var (
@@ -29,13 +33,13 @@ var (
 
 func flagAs(cur realm, who address, route, fn string) {
 	testing.SetRealm(testing.NewUserRealm(who))
-	ibcgov.SetFlag(cross(cur), route, fn, "")
+	ibcgov.SetFlag(cross(cur), govRoute, route, fn, "")
 	testing.SetRealm(testing.NewCodeRealm("gno.land/r/aib/main"))
 }
 
 func clearAs(cur realm, who address, route, fn string) {
 	testing.SetRealm(testing.NewUserRealm(who))
-	ibcgov.ClearFlag(cross(cur), route, fn)
+	ibcgov.ClearFlag(cross(cur), govRoute, route, fn)
 	testing.SetRealm(testing.NewCodeRealm("gno.land/r/aib/main"))
 }
 
@@ -163,7 +167,7 @@ func proofSlot(s *sent) uint64 {
 }
 
 func epochNow() string {
-	return "epoch " + strconv.FormatUint(uint64(ibcgov.Epoch()), 10) + " over " + ibcgov.EpochClient()
+	return "epoch " + strconv.FormatUint(uint64(ibcgov.Epoch(govRoute)), 10) + " over " + ibcgov.EpochClient(govRoute)
 }
 
 // plain creates an Ethereum client whose counterparty is the router client
@@ -179,7 +183,7 @@ func plain(cur realm, remote string) string {
 var pendingExpect []int64
 
 func kind10(cur realm, from, to string, suspectFrom uint64, local string) {
-	govern(cur, ibcgov.NewEthRouteReplacementRequest(cross(cur), from, to, suspectFrom, local))
+	govern(cur, ibcgov.NewEthRouteReplacementRequest(cross(cur), govRoute, from, to, suspectFrom, local))
 	pendingExpect = append(pendingExpect, ibcgov.LastDecision())
 }
 
@@ -197,6 +201,7 @@ func expectAll(cur realm) {
 // after a1's notice a17 is 16 steps on, and its notice, applied with its
 // path, moves the epoch there.
 func main(cur realm) {
+	govRoute = "ethereum-1"
 	client(cur, "ethereum-1", "client-0")
 	a1 := client(cur, "ethereum-2", "gnoland-a1", noticePacket(1, "gnoland-a1", "ethereum-2", 2, "gnoland-a1"))
 	var a17 *sent
@@ -210,7 +215,7 @@ func main(cur realm) {
 		}
 	}
 	execute(cur, govern(cur, ibcgov.NewEnrollRouteRequest(cross(cur), "ethereum-1", string(collector), bridge)))
-	execute(cur, govern(cur, ibcgov.NewBindGovernanceRequest(cross(cur), "ethereum-1")))
+	execute(cur, govern(cur, ibcgov.NewBindGovernanceRequest(cross(cur), govRoute, "ethereum-1")))
 	prev := "client-0"
 	for i := 1; i <= 18; i++ {
 		r := "gnoland-a" + strconv.Itoa(i)

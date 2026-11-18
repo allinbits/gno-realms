@@ -15,7 +15,6 @@ import (
 	"gno.land/p/aib/ibc/ics20/controls/v0"
 	"gno.land/p/aib/ibc/lightclient/ethereum/v0"
 	"gno.land/p/aib/ibc/types/v0"
-	"gno.land/p/nt/avl/v0"
 	"gno.land/p/nt/ufmt/v0"
 	"gno.land/r/aib/ibc/apps/transfer"
 	"gno.land/r/aib/ibc/core"
@@ -202,55 +201,9 @@ type authorization struct {
 	hash   [32]byte
 }
 
-var (
-	epoch       uint32   // the current governance epoch, 0 until the channel is bound
-	epochs      avl.Tree // epochKey -> *epochRec
-	dispatches  avl.Tree // dispatchKey -> *dispatch
-	pendingAuth *authorization
-	// expected is the governance transitions this realm expects Ethereum to
-	// make, kept apart from the transfer app's route aliases (ADR pr6375
-	// §7.12, "expected transitions"), in router client ids: for an old
-	// client, its expected successors, at most maxExpected, never
-	// overwritten or removed (an expectation never confirmed by a notice
-	// costs nothing). A kind 10 records one when it is dispatched, and
-	// NewExpectRecoveryRequest one for an emergency recovery.
-	expected avl.Tree // old router client id -> []expEdge
-	// awaitingGov is the gno clients a route replacement retired for
-	// transfers only, being on an expected path of the epoch: each is
-	// retired for good once the epoch moved off every path through it.
-	awaitingGov avl.Tree // gno client id -> true
-	// approvedLocal is every local client an expected transition approves;
-	// proven is the epoch notices the core proved over one of them, more
-	// than one step on, waiting for ApplyEpochNotice and their path.
-	approvedLocal avl.Tree // gno client id -> true
-	govPruneAfter string   // where PruneGovRetirements stopped
-	proven        avl.Tree // provenKey(epoch, client) -> *provenNotice
-	// tombstones is the transitions removed or released before an epoch
-	// switch superseded them: each keeps its local client, and those of the
-	// transitions beyond it, retained for governance (never retired for the
-	// gov port, so they can be approved again and carry their notices).
-	// Live transitions and tombstones share one budget of maxLive; a
-	// transition moving between the two (a removal, a release, a
-	// re-approval) leaves the count unchanged. A switch drops those whose
-	// old router client the new epoch client reaches through neither, and a
-	// governed purge drops one at a time (NewPurgeTombstoneRequest).
-	tombstones avl.Tree // tombKey(old, next, local) -> *tomb
-	// routerHistory is every router client governance named, from the
-	// binding on: the epoch clients' counterparties (the binding, each
-	// switch), a dispatched kind 10's old and new clients, a recorded
-	// recovery expectation's, and a dispatched kind 6 op 1's. It is the
-	// route's router clients as Ethereum's own history may have gone, kept
-	// apart from the transfer route's replacements here, which may skip
-	// one (the route moved from A to C here while Ethereum went through B,
-	// whose send records still need settling), and from the expected
-	// graph, which a switch prunes and whose paths a notice does not prove
-	// (Ethereum's own may be another, a recovery of its own among its
-	// steps). A settlement (kind 12) may name any of them, Ethereum
-	// refusing one it did not retire; a retired router client is final, so
-	// nothing leaves it. It grows by at most two ids per such decision and
-	// one per epoch, every one governed: nothing permissionless adds to it.
-	routerHistory avl.Tree // router client id -> true
-)
+// pendingAuth is the one dispatch authorization in flight: set and consumed
+// within one call (send), so it belongs to no route between transactions.
+var pendingAuth *authorization
 
 const (
 	// maxNoticeSteps bounds k, the epochs a notice moves through at once:
@@ -294,17 +247,12 @@ type expEdge struct {
 // when it is created, so an owner of an intent an epoch switch dropped
 // never owns a later one of the same transition. Each decision removes its
 // own entry when it resolves (applied, refused, spent or cancelled).
-var (
-	owned   avl.Tree // ownerKey -> true
-	intents uint64   // the last intent generation given
-)
-
 func ownerKey(old, next, local string, gen uint64, owner int64) string {
 	return old + "|" + next + "|" + local + "|" + u64s(gen) + "|" + itoa(owner)
 }
 
-func expectedOf(old string) []expEdge {
-	if v := expected.Get(old); v != nil {
+func expectedOf(g *routeGov, old string) []expEdge {
+	if v := g.expected.Get(old); v != nil {
 		return v.([]expEdge)
 	}
 	return nil
@@ -316,8 +264,8 @@ func expectedOf(old string) []expEdge {
 // route the governance channel rides. Its identity alone proves nothing (a
 // fabricated checkpoint can copy it): the decision names the client, and
 // only that client is accepted.
-func checkLocal(local, remote string) string {
-	want := govIdentity
+func checkLocal(g *routeGov, local, remote string) string {
+	want := g.govIdentity
 	got, _ := core.ClientRouteIdentity(local)
 	switch {
 	case core.ClientType(local) != ethereum.ClientType:
@@ -333,11 +281,8 @@ func checkLocal(local, remote string) string {
 	case got != want:
 		return local + " does not authenticate the governance route's identity"
 	}
-	return ""
+	return checkClaim(local, g.key)
 }
-
-// liveEdges is how many transitions are kept, pending and active.
-var liveEdges int
 
 // checkExpect is why the transition old → next over the gno client local
 // cannot be expected, or "": its old router client must be reachable from
@@ -346,18 +291,18 @@ var liveEdges int
 // already (a pending one gains an owner), and one not already live must fit
 // the old client's successors (live ones only) and, unless it is
 // tombstoned, the joint budget of maxLive.
-func checkExpect(old, next, local string) string {
-	if epoch == 0 {
-		return "the governance channel is not bound"
+func checkExpect(g *routeGov, old, next, local string) string {
+	if g.epoch == 0 {
+		return "route " + g.key + "'s governance channel is not bound"
 	}
-	remotes, _ := retained()
+	remotes, _ := retained(g)
 	if !remotes[old] {
 		return "router client " + old + " is not reachable from the governance epoch's client: Ethereum is past it" + gnoClientHint(old)
 	}
-	if refusal := checkLocal(local, next); refusal != "" {
+	if refusal := checkLocal(g, local, next); refusal != "" {
 		return refusal
 	}
-	succ := expectedOf(old)
+	succ := expectedOf(g, old)
 	for _, x := range succ {
 		if x.to == next && x.local == local {
 			// An active transition is approved already: a second kind 10 or a
@@ -376,17 +321,17 @@ func checkExpect(old, next, local string) string {
 	}
 	// A tombstoned transition approved again moves back into the graph:
 	// the joint count does not change, nor does the graph's shape.
-	if tombstones.Has(tombKey(old, next, local)) {
+	if g.tombstones.Has(tombKey(old, next, local)) {
 		return ""
 	}
 	// The graph stays acyclic, live transitions and tombstones together:
 	// Ethereum never returns to a router client it left (a kind 10 or a
 	// recovery always creates a new one), so a cycle is never a real
 	// history, and every path of the graph is simple.
-	if next == old || reaches(next, old) {
+	if next == old || reaches(g, next, old) {
 		return "router client " + next + " reaches " + old + " already: the transition would close a cycle"
 	}
-	if liveEdges+tombstones.Size() >= maxLive {
+	if g.liveEdges+g.tombstones.Size() >= maxLive {
 		return "the governance graph holds " + strconv.Itoa(maxLive) + " transitions already, intents and tombstones included: an epoch switch frees those it leaves behind, and a purge frees a tombstone"
 	}
 	return ""
@@ -401,64 +346,69 @@ func tombKey(old, next, local string) string { return old + "|" + next + "|" + l
 // entomb records the transition old → next over local, just dropped from
 // the graph, as a tombstone: it takes the place the live transition had in
 // the joint budget, so it needs no room.
-func entomb(old, next, local string) {
+func entomb(g *routeGov, old, next, local string) {
 	k := tombKey(old, next, local)
-	if tombstones.Has(k) {
+	if g.tombstones.Has(k) {
 		return
 	}
-	tombstones.Set(k, &tomb{old: old, to: next, local: local})
-	chain.Emit("GovTombstone", "from", old, "to", next, "client", local)
+	g.tombstones.Set(k, &tomb{old: old, to: next, local: local})
+	chain.Emit("GovTombstone", "route", g.key, "from", old, "to", next, "client", local)
 }
 
 // tombsOf is the tombstones leaving router client old.
-func tombsOf(old string) []*tomb {
+func tombsOf(g *routeGov, old string) []*tomb {
 	var out []*tomb
-	tombstones.Iterate(old+"|", old+"}", func(_ string, v any) bool { // '}' follows '|'
+	g.tombstones.Iterate(old+"|", old+"}", func(_ string, v any) bool { // '}' follows '|'
 		out = append(out, v.(*tomb))
 		return false
 	})
 	return out
 }
 
-// Tombstones is how many removed or released transitions still retain their
-// local clients for governance.
-func Tombstones() int { return tombstones.Size() }
+// Tombstones is how many removed or released transitions of route still
+// retain their local clients for governance.
+func Tombstones(route string) int {
+	if g := chanOf(route); g != nil {
+		return g.tombstones.Size()
+	}
+	return 0
+}
 
-func setEdges(old string, edges []expEdge) {
+func setEdges(g *routeGov, old string, edges []expEdge) {
 	if len(edges) == 0 {
-		expected.Remove(old)
+		g.expected.Remove(old)
 		return
 	}
-	expected.Set(old, edges)
+	g.expected.Set(old, edges)
 }
 
 // intend records the transition old → next over local as an intent owned by
 // the expectation decision owner (adding the owner to it when it is
 // recorded already), and returns the intent's generation, which the
 // decision keeps; its caller checked it (checkExpect).
-func intend(old, next, local string, owner int64) uint64 {
-	succ := append([]expEdge{}, expectedOf(old)...)
+func intend(g *routeGov, old, next, local string, owner int64) uint64 {
+	succ := append([]expEdge{}, expectedOf(g, old)...)
 	for i := range succ {
 		if succ[i].to == next && succ[i].local == local {
 			succ[i].owners++
-			setEdges(old, succ)
-			owned.Set(ownerKey(old, next, local, succ[i].gen, owner), true)
+			setEdges(g, old, succ)
+			g.owned.Set(ownerKey(old, next, local, succ[i].gen, owner), true)
 			return succ[i].gen
 		}
 	}
-	intents++
-	setEdges(old, append(succ, expEdge{to: next, local: local, gen: intents, owners: 1}))
-	owned.Set(ownerKey(old, next, local, intents, owner), true)
-	liveEdges++
-	tombstones.Remove(tombKey(old, next, local)) // the graph retains it again
-	chain.Emit("GovIntent", "from", old, "to", next, "client", local, "decision", itoa(owner))
-	return intents
+	g.intents++
+	setEdges(g, old, append(succ, expEdge{to: next, local: local, gen: g.intents, owners: 1}))
+	g.owned.Set(ownerKey(old, next, local, g.intents, owner), true)
+	g.liveEdges++
+	g.tombstones.Remove(tombKey(old, next, local)) // the graph retains it again
+	chain.Emit("GovIntent", "route", g.key, "from", old, "to", next, "client", local, "decision", itoa(owner))
+	return g.intents
 }
 
 // expect makes the transition old → next over local active, recording it
 // first if need be; its caller checked it (checkExpect).
-func expect(old, next, local string) {
-	succ := append([]expEdge{}, expectedOf(old)...)
+func expect(g *routeGov, old, next, local string) {
+	succ := append([]expEdge{}, expectedOf(g, old)...)
 	found := false
 	for i := range succ {
 		if succ[i].to == next && succ[i].local == local {
@@ -467,41 +417,41 @@ func expect(old, next, local string) {
 	}
 	if !found {
 		succ = append(succ, expEdge{to: next, local: local, active: true})
-		liveEdges++
+		g.liveEdges++
 	}
-	setEdges(old, succ)
-	tombstones.Remove(tombKey(old, next, local))
-	approvedLocal.Set(local, true)
-	chain.Emit("GovExpect", "from", old, "to", next, "client", local)
+	setEdges(g, old, succ)
+	g.tombstones.Remove(tombKey(old, next, local))
+	g.approvedLocal.Set(local, true)
+	chain.Emit("GovExpect", "route", g.key, "from", old, "to", next, "client", local)
 }
 
 // ownsIntent reports whether the intent old → next over local of
 // generation gen is still pending and owned by the decision owner: an epoch
 // switch that left it behind, or a release, dropped it otherwise. A keyed
 // lookup, among at most maxExpected successors.
-func ownsIntent(old, next, local string, gen uint64, owner int64) bool {
-	for _, x := range expectedOf(old) {
+func ownsIntent(g *routeGov, old, next, local string, gen uint64, owner int64) bool {
+	for _, x := range expectedOf(g, old) {
 		if x.to == next && x.local == local && !x.active && x.gen == gen {
-			return owned.Has(ownerKey(old, next, local, gen, owner))
+			return g.owned.Has(ownerKey(old, next, local, gen, owner))
 		}
 	}
 	return false
 }
 
 // disown removes owner's entry, whatever became of the intent.
-func disown(old, next, local string, gen uint64, owner int64) {
-	owned.Remove(ownerKey(old, next, local, gen, owner))
+func disown(g *routeGov, old, next, local string, gen uint64, owner int64) {
+	g.owned.Remove(ownerKey(old, next, local, gen, owner))
 }
 
 // release drops owner from the intent old → next over local: the intent
 // goes with its last owner, unless it is active, leaving a tombstone in its
 // place that keeps its local client retained for governance.
-func release(old, next, local string, gen uint64, owner int64) {
-	if !owned.Has(ownerKey(old, next, local, gen, owner)) {
+func release(g *routeGov, old, next, local string, gen uint64, owner int64) {
+	if !g.owned.Has(ownerKey(old, next, local, gen, owner)) {
 		return // not an owner (any more): nothing to release
 	}
-	disown(old, next, local, gen, owner)
-	succ := append([]expEdge{}, expectedOf(old)...)
+	disown(g, old, next, local, gen, owner)
+	succ := append([]expEdge{}, expectedOf(g, old)...)
 	for i := range succ {
 		x := succ[i]
 		if x.to != next || x.local != local || x.active || x.gen != gen {
@@ -509,12 +459,12 @@ func release(old, next, local string, gen uint64, owner int64) {
 		}
 		if x.owners > 1 {
 			succ[i].owners--
-			setEdges(old, succ)
+			setEdges(g, old, succ)
 			return
 		}
-		setEdges(old, append(succ[:i:i], succ[i+1:]...))
-		liveEdges--
-		entomb(old, next, local)
+		setEdges(g, old, append(succ[:i:i], succ[i+1:]...))
+		g.liveEdges--
+		entomb(g, old, next, local)
 		return
 	}
 }
@@ -525,11 +475,11 @@ func release(old, next, local string, gen uint64, owner int64) {
 // alike: the graph an epoch switch keeps and retention protects. Each router
 // client is expanded once, so the walk reads every transition and tombstone
 // at most once: at most maxLive in all.
-func retained() (remotes, locals map[string]bool) {
-	if epoch == 0 {
+func retained(g *routeGov) (remotes, locals map[string]bool) {
+	if g.epoch == 0 {
 		return nil, nil
 	}
-	start := core.CounterpartyClientID(EpochClient())
+	start := core.CounterpartyClientID(epochClient(g))
 	remotes, locals = map[string]bool{start: true}, map[string]bool{}
 	front := []string{start}
 	for len(front) > 0 {
@@ -542,10 +492,10 @@ func retained() (remotes, locals map[string]bool) {
 			}
 		}
 		for _, c := range front {
-			for _, x := range expectedOf(c) {
+			for _, x := range expectedOf(g, c) {
 				visit(x.to, x.local)
 			}
-			for _, t := range tombsOf(c) {
+			for _, t := range tombsOf(g, c) {
 				visit(t.to, t.local)
 			}
 		}
@@ -557,17 +507,17 @@ func retained() (remotes, locals map[string]bool) {
 // reaches reports whether router client from reaches target through live
 // transitions and tombstones: each router client expanded once, at most
 // maxLive edges read.
-func reaches(from, target string) bool {
+func reaches(g *routeGov, from, target string) bool {
 	seen := map[string]bool{from: true}
 	front := []string{from}
 	for len(front) > 0 {
 		var next []string
 		for _, c := range front {
 			tos := []string{}
-			for _, x := range expectedOf(c) {
+			for _, x := range expectedOf(g, c) {
 				tos = append(tos, x.to)
 			}
-			for _, t := range tombsOf(c) {
+			for _, t := range tombsOf(g, c) {
 				tos = append(tos, t.to)
 			}
 			for _, to := range tos {
@@ -588,28 +538,28 @@ func reaches(from, target string) bool {
 // pruneUnreachable drops every transition and tombstone whose old router
 // client the epoch client's counterparty no longer reaches through either
 // (an epoch switch left it behind, superseded): bounded by maxLive.
-func pruneUnreachable() {
-	seen, _ := retained()
+func pruneUnreachable(g *routeGov) {
+	seen, _ := retained(g)
 	var drop []string
-	expected.Iterate("", "", func(old string, v any) bool {
+	g.expected.Iterate("", "", func(old string, v any) bool {
 		if !seen[old] {
 			drop = append(drop, old)
 		}
 		return false
 	})
 	for _, old := range drop {
-		liveEdges -= len(expectedOf(old))
-		expected.Remove(old)
+		g.liveEdges -= len(expectedOf(g, old))
+		g.expected.Remove(old)
 	}
 	var dropTombs []string
-	tombstones.Iterate("", "", func(k string, v any) bool {
+	g.tombstones.Iterate("", "", func(k string, v any) bool {
 		if !seen[v.(*tomb).old] {
 			dropTombs = append(dropTombs, k)
 		}
 		return false
 	})
 	for _, k := range dropTombs {
-		tombstones.Remove(k)
+		g.tombstones.Remove(k)
 	}
 }
 
@@ -620,20 +570,20 @@ func pruneUnreachable() {
 // notice's maxNoticeSteps): such a client is never retired for the gov port, so a
 // notice over it can still arrive and the epoch's decisions still be
 // re-sent. Exact: the graph holds at most maxLive transitions.
-func onExpectedPath(c string) bool {
-	if epoch == 0 {
+func onExpectedPath(g *routeGov, c string) bool {
+	if g.epoch == 0 {
 		return false
 	}
-	if c == EpochClient() {
+	if c == epochClient(g) {
 		return true
 	}
-	_, locals := retained()
+	_, locals := retained(g)
 	return locals[c]
 }
 
 // awaitGov notes a gno client retired for transfers only, to retire for good
 // once the epoch has moved off every expected path through it.
-func awaitGov(c string) { awaitingGov.Set(c, true) }
+func awaitGov(g *routeGov, c string) { g.awaitingGov.Set(c, true) }
 
 func epochKey(e uint32) string {
 	s := strconv.FormatUint(uint64(e), 10)
@@ -645,16 +595,16 @@ func dispatchKey(e uint32, seq uint64) string {
 	return epochKey(e) + "/" + strings.Repeat("0", 20-len(s)) + s
 }
 
-func epochRecOf(e uint32) *epochRec {
-	v := epochs.Get(epochKey(e))
+func epochRecOf(g *routeGov, e uint32) *epochRec {
+	v := g.epochs.Get(epochKey(e))
 	if v == nil {
 		return nil
 	}
 	return v.(*epochRec)
 }
 
-func dispatchOf(e uint32, seq uint64) *dispatch {
-	v := dispatches.Get(dispatchKey(e, seq))
+func dispatchOf(g *routeGov, e uint32, seq uint64) *dispatch {
+	v := g.dispatches.Get(dispatchKey(e, seq))
 	if v == nil {
 		return nil
 	}
@@ -680,28 +630,60 @@ func ParseEnvelope(b []byte) (e uint32, seq uint64, kind uint8, params []byte, o
 	return binary.BigEndian.Uint32(b[1:5]), binary.BigEndian.Uint64(b[5:13]), b[13], b[envelopeHeader:], true
 }
 
-// Epoch is the current governance epoch (0 until bound), and EpochClient its
-// gno client.
-func Epoch() uint32 { return epoch }
+// chanOf is the record of the enrolled route route names (a route key or a
+// client of its transfer route), nil if none: what the channel's readers
+// take.
+func chanOf(route string) *routeGov { return enrolledGov(routeKeyOf(route)) }
 
-func EpochClient() string {
-	if r := epochRecOf(epoch); r != nil {
+// Epoch is route's current governance epoch (0 until bound), and
+// EpochClient its gno client.
+func Epoch(route string) uint32 {
+	if g := chanOf(route); g != nil {
+		return g.epoch
+	}
+	return 0
+}
+
+func EpochClient(route string) string {
+	if g := chanOf(route); g != nil {
+		return epochClient(g)
+	}
+	return ""
+}
+
+func epochClient(g *routeGov) string {
+	if r := epochRecOf(g, g.epoch); r != nil {
 		return r.client
 	}
 	return ""
 }
 
-// LastSeq is the last seq bound in epoch e.
-func LastSeq(e uint32) uint64 {
-	if r := epochRecOf(e); r != nil {
+// LastSeq is the last seq bound in route's epoch e.
+func LastSeq(route string, e uint32) uint64 {
+	if g := chanOf(route); g != nil {
+		return lastSeq(g, e)
+	}
+	return 0
+}
+
+func lastSeq(g *routeGov, e uint32) uint64 {
+	if r := epochRecOf(g, e); r != nil {
 		return r.last
 	}
 	return 0
 }
 
-// DispatchBody is the envelope bound to (e, seq), copied, or nil.
-func DispatchBody(e uint32, seq uint64) []byte {
-	if d := dispatchOf(e, seq); d != nil {
+// routeDispatch is route's dispatch (e, seq), nil if none.
+func routeDispatch(route string, e uint32, seq uint64) *dispatch {
+	if g := chanOf(route); g != nil {
+		return dispatchOf(g, e, seq)
+	}
+	return nil
+}
+
+// DispatchBody is the envelope bound to route's (e, seq), copied, or nil.
+func DispatchBody(route string, e uint32, seq uint64) []byte {
+	if d := routeDispatch(route, e, seq); d != nil {
 		return append([]byte{}, d.body...)
 	}
 	return nil
@@ -710,8 +692,8 @@ func DispatchBody(e uint32, seq uint64) []byte {
 // DispatchState says what the channel answered for (e, seq): the last app
 // acknowledgement status (0 if none), whether it may be re-dispatched, whether
 // a packet is in flight, how many times it was sent and the last event.
-func DispatchState(e uint32, seq uint64) (status uint8, redispatch, inFlight bool, sends int, event string) {
-	d := dispatchOf(e, seq)
+func DispatchState(route string, e uint32, seq uint64) (status uint8, redispatch, inFlight bool, sends int, event string) {
+	d := routeDispatch(route, e, seq)
 	if d == nil {
 		return 0, false, false, 0, ""
 	}
@@ -720,39 +702,34 @@ func DispatchState(e uint32, seq uint64) (status uint8, redispatch, inFlight boo
 
 // DispatchTransport is the core sequence of the last packet sent for (e,
 // seq), 0 if none.
-func DispatchTransport(e uint32, seq uint64) uint64 {
-	if d := dispatchOf(e, seq); d != nil {
+func DispatchTransport(route string, e uint32, seq uint64) uint64 {
+	if d := routeDispatch(route, e, seq); d != nil {
 		return d.transport
 	}
 	return 0
 }
 
-// govIdentity is the identity of the route the governance channel was bound
-// over (RouteIdentity): every client approved to carry a later epoch must
-// authenticate it.
-var govIdentity string
-
 // bindChannel opens epoch 1 over client.
-func bindChannel(client string) {
-	govIdentity = RouteIdentity(client)
-	setEpoch(1, client)
+func bindChannel(g *routeGov, client string) {
+	g.govIdentity = g.identity
+	setEpoch(g, 1, client)
 }
 
 // setEpoch opens epoch e over client (IBCAdmin's epoch notice): the earlier
 // epochs' unacknowledged decisions are never sent again.
-func setEpoch(e uint32, client string) {
-	epoch = e
-	epochs.Set(epochKey(epoch), &epochRec{client: client})
-	routerHistory.Set(core.CounterpartyClientID(client), true)
-	chain.Emit("GovEpoch", "epoch", strconv.FormatUint(uint64(epoch), 10), "client", client)
+func setEpoch(g *routeGov, e uint32, client string) {
+	g.epoch = e
+	g.epochs.Set(epochKey(g.epoch), &epochRec{client: client})
+	g.routerHistory.Set(core.CounterpartyClientID(client), true)
+	chain.Emit("GovEpoch", "route", g.key, "epoch", strconv.FormatUint(uint64(g.epoch), 10), "client", client)
 }
 
 // bind binds the next seq of the current epoch to kind and params and sends
 // it. It returns the seq.
-func bind(cur realm, decision int64, kind uint8, params []byte) (uint64, string) {
-	rec := epochRecOf(epoch)
+func bind(cur realm, g *routeGov, decision int64, kind uint8, params []byte) (uint64, string) {
+	rec := epochRecOf(g, g.epoch)
 	if rec == nil {
-		return 0, "the governance channel is not bound"
+		return 0, "route " + g.key + "'s governance channel is not bound"
 	}
 	// Every failure the core's send would raise is refused here, so the
 	// decision is spent rather than aborted and left pending.
@@ -772,21 +749,21 @@ func bind(cur realm, decision int64, kind uint8, params []byte) (uint64, string)
 		return 0, "the epoch's client " + rec.client + " is ahead of the packet's timeout"
 	}
 	seq := rec.last + 1
-	body := Envelope(epoch, seq, kind, params)
+	body := Envelope(g.epoch, seq, kind, params)
 	if len(body) > MaxEnvelope {
 		return 0, "the envelope is " + strconv.Itoa(len(body)) + " bytes, above " + strconv.Itoa(MaxEnvelope)
 	}
 	rec.last = seq
-	d := &dispatch{epoch: epoch, seq: seq, kind: kind, body: body, decision: decision}
-	dispatches.Set(dispatchKey(epoch, seq), d)
-	send(cur, d)
+	d := &dispatch{epoch: g.epoch, seq: seq, kind: kind, body: body, decision: decision}
+	g.dispatches.Set(dispatchKey(g.epoch, seq), d)
+	send(cur, g, d)
 	return seq, ""
 }
 
 // send sends d's bytes over its epoch's client, under a one-time dispatch
 // authorization OnSendPacket consumes.
-func send(cur realm, d *dispatch) {
-	rec := epochRecOf(d.epoch)
+func send(cur realm, g *routeGov, d *dispatch) {
+	rec := epochRecOf(g, d.epoch)
 	pendingAuth = &authorization{client: rec.client, epoch: d.epoch, seq: d.seq, hash: sha256.Sum256(d.body)}
 	transportSeq := core.SendPacket(cross(cur), types.MsgSendPacket{
 		SourceClient:     rec.client,
@@ -805,7 +782,7 @@ func send(cur realm, d *dispatch) {
 	d.inFlight, d.redispatch, d.transport = true, false, transportSeq
 	d.sends++
 	d.event = "sent as packet " + u64s(transportSeq)
-	chain.Emit("GovPacketSent", "epoch", strconv.FormatUint(uint64(d.epoch), 10), "seq", u64s(d.seq),
+	chain.Emit("GovPacketSent", "route", g.key, "epoch", strconv.FormatUint(uint64(d.epoch), 10), "seq", u64s(d.seq),
 		"kind", strconv.Itoa(int(d.kind)), "client", rec.client, "sequence", u64s(transportSeq))
 }
 
@@ -822,12 +799,13 @@ func send(cur realm, d *dispatch) {
 // anyone keep it deferred; it is re-sent once per governed authorization
 // (NewRetransmitRequest), which this call uses up. Anyone may call it. A past epoch's decisions are
 // never sent again.
-func Redispatch(cur realm, e uint32, seq uint64) {
-	d := dispatchOf(e, seq)
+func Redispatch(cur realm, route string, e uint32, seq uint64) {
+	g := mustEnrolledGov(route)
+	d := dispatchOf(g, e, seq)
 	if d == nil {
 		panic("ibcgov: no dispatched decision " + strconv.FormatUint(uint64(e), 10) + "/" + u64s(seq))
 	}
-	if e != epoch {
+	if e != g.epoch {
 		panic("ibcgov: epoch " + strconv.FormatUint(uint64(e), 10) + " is past: its decisions are never sent again")
 	}
 	if d.inFlight || (d.status == StatusConflict && !d.redispatch && !d.retransmit) {
@@ -836,7 +814,7 @@ func Redispatch(cur realm, e uint32, seq uint64) {
 	if d.status == StatusConflict && !d.redispatch {
 		d.retransmit = false // used once: another re-send needs another decision
 	}
-	send(cur, d)
+	send(cur, g, d)
 }
 
 // ---------------------------------------------------------------- the app
@@ -883,9 +861,19 @@ func (a *App) OnSendPacket(cur realm, sourceClient, destinationClient string, se
 // receives (see above), and refuses every other: an error acknowledgement.
 func (a *App) OnRecvPacket(cur realm, sourceClient, destinationClient string, sequence uint64, payload types.Payload) types.RecvPacketResult {
 	assertCoreCaller(cur)
-	e, status, refusal := takeNotice(cur, sourceClient, destinationClient, payload)
+	// The route is the local client's (ADR 0007 §2): a notice over a client
+	// of no enrolled route is refused, as an unknown client was.
+	route := ""
+	g := routeOfClient(destinationClient)
+	var e uint32
+	var status uint8
+	refusal := destinationClient + " is no client of an enrolled route"
+	if g != nil && g.enrolled {
+		route = g.key
+		e, status, refusal = takeNotice(cur, g, sourceClient, destinationClient, payload)
+	}
 	if refusal != "" {
-		chain.Emit("GovNotice", "client", destinationClient, "status", "refused", "reason", refusal)
+		chain.Emit("GovNotice", "route", route, "client", destinationClient, "status", "refused", "reason", refusal)
 		return types.RecvPacketResult{Status: types.PacketStatus_Failure}
 	}
 	ack := make([]byte, ackLen)
@@ -896,7 +884,7 @@ func (a *App) OnRecvPacket(cur realm, sourceClient, destinationClient string, se
 
 // takeNotice applies an epoch notice received over client from the router's
 // client source, or says why it refuses it.
-func takeNotice(cur realm, source, client string, payload types.Payload) (uint32, uint8, string) {
+func takeNotice(cur realm, g *routeGov, source, client string, payload types.Payload) (uint32, uint8, string) {
 	if payload.SourcePort != GovDestPort || payload.DestinationPort != GovPort || payload.Version != GovVersion || payload.Encoding != GovEncoding {
 		return 0, 0, "not an epoch notice payload"
 	}
@@ -906,11 +894,11 @@ func takeNotice(cur realm, source, client string, payload types.Payload) (uint32
 		return 0, 0, "a malformed epoch notice"
 	case named != source:
 		return 0, 0, "the notice names " + named + ", not " + source + ", the client it came from"
-	case epoch != 0 && e == epoch && client == EpochClient():
+	case g.epoch != 0 && e == g.epoch && client == epochClient(g):
 		return e, StatusDuplicate, "" // the switch happened already: acknowledged again
 	}
-	if epoch == 0 || e <= epoch || e-epoch > maxNoticeSteps {
-		return 0, 0, "the notice is of epoch " + strconv.FormatUint(uint64(e), 10) + ", not one of the next " + strconv.Itoa(maxNoticeSteps) + " after " + strconv.FormatUint(uint64(epoch), 10)
+	if g.epoch == 0 || e <= g.epoch || e-g.epoch > maxNoticeSteps {
+		return 0, 0, "the notice is of epoch " + strconv.FormatUint(uint64(e), 10) + ", not one of the next " + strconv.Itoa(maxNoticeSteps) + " after " + strconv.FormatUint(uint64(g.epoch), 10)
 	}
 	// Epoch current + k goes over a client reached from the epoch's through
 	// exactly k expected transitions: Ethereum raised its epoch once per
@@ -921,25 +909,25 @@ func takeNotice(cur realm, source, client string, payload types.Payload) (uint32
 	// later one is recorded as proven, and applied by anyone who names its
 	// path (ApplyEpochNotice), checked in O(k): no search of the expected
 	// graph, however it branches, ever refuses an authentic notice.
-	k := int(e - epoch)
+	k := int(e - g.epoch)
 	if k > 1 {
-		if !approvedLocal.Has(client) {
+		if !g.approvedLocal.Has(client) {
 			return 0, 0, client + " is no client approved to carry a governance epoch"
 		}
-		proven.Set(provenKey(e, client), &provenNotice{source: source, gen: core.ClientTrustGeneration(client)})
-		chain.Emit("GovNotice", "client", client, "epoch", strconv.FormatUint(uint64(e), 10), "status", "proven")
+		g.proven.Set(provenKey(e, client), &provenNotice{source: source, gen: core.ClientTrustGeneration(client)})
+		chain.Emit("GovNotice", "route", g.key, "client", client, "epoch", strconv.FormatUint(uint64(e), 10), "status", "proven")
 		return 0, 0, "epoch " + strconv.FormatUint(uint64(e), 10) + " is " + strconv.Itoa(k) + " steps on: recorded as proven, applied by ApplyEpochNotice with its path"
 	}
 	found := false
-	for _, x := range expectedOf(core.CounterpartyClientID(EpochClient())) {
+	for _, x := range expectedOf(g, core.CounterpartyClientID(epochClient(g))) {
 		if x.active && x.to == source && x.local == client {
 			found = true
 		}
 	}
 	if !found {
-		return 0, 0, "epoch " + strconv.FormatUint(uint64(e), 10) + " is expected over no transition to " + source + " carried by " + client + " from " + core.CounterpartyClientID(EpochClient())
+		return 0, 0, "epoch " + strconv.FormatUint(uint64(e), 10) + " is expected over no transition to " + source + " carried by " + client + " from " + core.CounterpartyClientID(epochClient(g))
 	}
-	switchEpoch(cur, e, client, nil)
+	switchEpoch(cur, g, e, client, nil)
 	return e, StatusRecorded, ""
 }
 
@@ -954,15 +942,15 @@ func takeNotice(cur realm, source, client string, payload types.Payload) (uint32
 // inert, as a purge keeps the clients it disconnects, since Ethereum may
 // still reach it another way (expected again, its notice applies). Its work
 // is bounded: two walks of the graph.
-func switchEpoch(cur realm, e uint32, client string, passed []string) {
-	old := EpochClient()
-	_, before := retained()
-	setEpoch(e, client)
-	pruneUnreachable()
-	_, after := retained()
+func switchEpoch(cur realm, g *routeGov, e uint32, client string, passed []string) {
+	old := epochClient(g)
+	_, before := retained(g)
+	setEpoch(g, e, client)
+	pruneUnreachable(g)
+	_, after := retained(g)
 	for c := range before {
-		if !after[c] && awaitingGov.Has(c) {
-			awaitingGov.Remove(c)
+		if !after[c] && g.awaitingGov.Has(c) {
+			g.awaitingGov.Remove(c)
 		}
 	}
 	// Only the old epoch client: the notice of a later epoch proves
@@ -973,10 +961,10 @@ func switchEpoch(cur realm, e uint32, client string, passed []string) {
 	// just adopted (the path is simple; this guards it).
 	if old != client {
 		retireForGov(cur, old)
-		awaitingGov.Remove(old)
+		g.awaitingGov.Remove(old)
 	}
 	for _, c := range passed {
-		awaitingGov.Remove(c)
+		g.awaitingGov.Remove(c)
 	}
 }
 
@@ -991,24 +979,25 @@ func switchEpoch(cur realm, e uint32, client string, passed []string) {
 // search's bounds, is kept for a later call. Each call visits n clients from
 // where the last one stopped, wrapping round at the end, so a client kept
 // never holds back those after it. It returns how many it retired.
-func PruneGovRetirements(cur realm, n int) int {
+func PruneGovRetirements(cur realm, route string, n int) int {
 	if n < 1 || n > 64 {
 		panic("ibcgov: prune 1 to 64 clients a call")
 	}
+	g := mustEnrolledGov(route)
 	// onExpectedPath, with the epoch client and the retained graph read
 	// once: the walk changes neither.
-	epochClient := EpochClient()
-	_, locals := retained()
+	ec := epochClient(g)
+	_, locals := retained(g)
 	var done []string
 	seen := 0
 	last := ""
-	stopped := awaitingGov.Iterate(after(govPruneAfter), "", func(c string, _ any) bool {
+	stopped := g.awaitingGov.Iterate(after(g.govPruneAfter), "", func(c string, _ any) bool {
 		if seen == n {
 			return true
 		}
 		seen++
 		last = c
-		if epoch == 0 || c != epochClient && !locals[c] {
+		if g.epoch == 0 || c != ec && !locals[c] {
 			done = append(done, c)
 		}
 		return false
@@ -1016,16 +1005,22 @@ func PruneGovRetirements(cur realm, n int) int {
 	if !stopped {
 		last = "" // the walk reached the end: the next starts over
 	}
-	govPruneAfter = last
+	g.govPruneAfter = last
 	for _, c := range done {
-		awaitingGov.Remove(c)
+		g.awaitingGov.Remove(c)
 		retireForGov(cur, c)
 	}
 	return len(done)
 }
 
-// AwaitingGovRetirement is how many clients wait for PruneGovRetirements.
-func AwaitingGovRetirement() int { return awaitingGov.Size() }
+// AwaitingGovRetirement is how many clients of route wait for
+// PruneGovRetirements.
+func AwaitingGovRetirement(route string) int {
+	if g := chanOf(route); g != nil {
+		return g.awaitingGov.Size()
+	}
+	return 0
+}
 
 // provenNotice is an epoch notice the core proved over a local client: the
 // router client it came from, and the local client's trust generation then.
@@ -1042,11 +1037,11 @@ func provenKey(e uint32, client string) string { return epochKey(e) + "|" + clie
 // vouching for it (Active, not retired for the gov port, at the trust
 // generation it was proven under), as ApplyEpochNotice requires; the path
 // it needs is checked by the caller.
-func applicable(e uint32, client, source string) bool {
-	if e <= epoch || e-epoch > maxNoticeSteps {
+func applicable(g *routeGov, e uint32, client, source string) bool {
+	if e <= g.epoch || e-g.epoch > maxNoticeSteps {
 		return false
 	}
-	v := proven.Get(provenKey(e, client))
+	v := g.proven.Get(provenKey(e, client))
 	if v == nil {
 		return false
 	}
@@ -1069,7 +1064,7 @@ func applicable(e uint32, client, source string) bool {
 // graph holds at most maxLive edges and a path at most maxNoticeSteps
 // steps, so each walk is at most 64 layers of 64 edges, and each notice
 // looked up is a distinct (epoch, client) pair, deduplicated first.
-func pinnedBy(from, to, local string, all bool) string {
+func pinnedBy(g *routeGov, from, to, local string, all bool) string {
 	// The transitions a path may take: active ones only, or (all) every
 	// live one and every tombstone, which an approval could make active.
 	// Read once a router client: the graph does not change during the call.
@@ -1079,13 +1074,13 @@ func pinnedBy(from, to, local string, all bool) string {
 			return out
 		}
 		var out []expEdge
-		for _, x := range expectedOf(c) {
+		for _, x := range expectedOf(g, c) {
 			if x.active || all {
 				out = append(out, x)
 			}
 		}
 		if all {
-			for _, t := range tombsOf(c) {
+			for _, t := range tombsOf(g, c) {
 				out = append(out, expEdge{to: t.to, local: t.local})
 			}
 		}
@@ -1094,7 +1089,7 @@ func pinnedBy(from, to, local string, all bool) string {
 	}
 	// The steps i - 1 (0 to 63) in which from is reached exactly.
 	var at []int
-	front := map[string]bool{core.CounterpartyClientID(EpochClient()): true}
+	front := map[string]bool{core.CounterpartyClientID(epochClient(g)): true}
 	for d := 0; d < maxNoticeSteps && len(front) > 0; d++ {
 		if front[from] {
 			at = append(at, d)
@@ -1120,7 +1115,7 @@ func pinnedBy(from, to, local string, all bool) string {
 		if steps > maxNoticeSteps {
 			return
 		}
-		w := want{epoch + uint32(steps), client, source}
+		w := want{g.epoch + uint32(steps), client, source}
 		if !seen[w] {
 			seen[w] = true
 			wants = append(wants, w)
@@ -1146,7 +1141,7 @@ func pinnedBy(from, to, local string, all bool) string {
 		front = next
 	}
 	for _, w := range wants {
-		if applicable(w.e, w.client, w.source) {
+		if applicable(g, w.e, w.client, w.source) {
 			return w.client
 		}
 	}
@@ -1159,9 +1154,14 @@ func pinnedBy(from, to, local string, all bool) string {
 // router counterparty, as comma-separated "routerClient/localClient" pairs
 // ending with the notice's source and client: each must be a recorded
 // expected transition with its local binding. Anyone may call it; it is
-// checked in O(k), k at most maxNoticeSteps, 64 (ADR pr6375 §7.12).
+// checked in O(k), k at most maxNoticeSteps, 64 (ADR pr6375 §7.12). The
+// route is client's (ADR 0007 §2): every step of path is that route's.
 func ApplyEpochNotice(cur realm, e uint32, client, path string) {
-	v := proven.Get(provenKey(e, client))
+	g := routeOfClient(client)
+	if g == nil || !g.enrolled {
+		panic("ibcgov: " + client + " is no client of an enrolled route")
+	}
+	v := g.proven.Get(provenKey(e, client))
 	if v == nil {
 		panic("ibcgov: no epoch notice of epoch " + strconv.FormatUint(uint64(e), 10) + " was proven over " + client)
 	}
@@ -1179,20 +1179,20 @@ func ApplyEpochNotice(cur realm, e uint32, client, path string) {
 	case core.ClientTrustGeneration(client) != pn.gen:
 		panic("ibcgov: " + client + "'s trust generation changed since the notice was proven: relay it again")
 	}
-	if epoch == 0 || e <= epoch || e-epoch > maxNoticeSteps {
-		panic("ibcgov: epoch " + strconv.FormatUint(uint64(e), 10) + " is not one of the next " + strconv.Itoa(maxNoticeSteps) + " after " + strconv.FormatUint(uint64(epoch), 10))
+	if g.epoch == 0 || e <= g.epoch || e-g.epoch > maxNoticeSteps {
+		panic("ibcgov: epoch " + strconv.FormatUint(uint64(e), 10) + " is not one of the next " + strconv.Itoa(maxNoticeSteps) + " after " + strconv.FormatUint(uint64(g.epoch), 10))
 	}
 	steps := splitList(path)
-	if len(steps) != int(e-epoch) {
-		panic("ibcgov: the path names " + strconv.Itoa(len(steps)) + " transitions, not " + strconv.FormatUint(uint64(e-epoch), 10))
+	if len(steps) != int(e-g.epoch) {
+		panic("ibcgov: the path names " + strconv.Itoa(len(steps)) + " transitions, not " + strconv.FormatUint(uint64(e-g.epoch), 10))
 	}
-	prev := core.CounterpartyClientID(EpochClient())
+	prev := core.CounterpartyClientID(epochClient(g))
 	var to, local string
 	var passed []string
 	// A simple path: no router client or local client twice, the epoch's
 	// own included (the graph admits no cycle, so this only guards it).
 	seenRouter := map[string]bool{prev: true}
-	seenLocal := map[string]bool{EpochClient(): true}
+	seenLocal := map[string]bool{epochClient(g): true}
 	for i, st := range steps {
 		j := strings.Index(st, "/")
 		if j < 0 {
@@ -1204,7 +1204,7 @@ func ApplyEpochNotice(cur realm, e uint32, client, path string) {
 		}
 		seenRouter[to], seenLocal[local] = true, true
 		found := false
-		for _, x := range expectedOf(prev) {
+		for _, x := range expectedOf(g, prev) {
 			if x.active && x.to == to && x.local == local {
 				found = true
 			}
@@ -1220,9 +1220,9 @@ func ApplyEpochNotice(cur realm, e uint32, client, path string) {
 	if to != source || local != client {
 		panic("ibcgov: the path ends at " + to + " over " + local + ", not the notice's " + source + " over " + client)
 	}
-	proven.Remove(provenKey(e, client))
-	switchEpoch(cur, e, client, passed)
-	chain.Emit("GovNotice", "client", client, "epoch", strconv.FormatUint(uint64(e), 10), "status", "applied")
+	g.proven.Remove(provenKey(e, client))
+	switchEpoch(cur, g, e, client, passed)
+	chain.Emit("GovNotice", "route", g.key, "client", client, "epoch", strconv.FormatUint(uint64(e), 10), "status", "applied")
 }
 
 // retireForGov retires the gno client c for governance: for good if a route
@@ -1239,12 +1239,12 @@ func retireForGov(cur realm, c string) {
 }
 
 // ownDispatch is the dispatch a packet's payload carries, if it is ours.
-func ownDispatch(payload types.Payload) *dispatch {
+func ownDispatch(g *routeGov, payload types.Payload) *dispatch {
 	e, seq, _, _, ok := ParseEnvelope(payload.Value)
 	if !ok {
 		return nil
 	}
-	d := dispatchOf(e, seq)
+	d := dispatchOf(g, e, seq)
 	if d == nil || !bytes.Equal(d.body, payload.Value) {
 		return nil
 	}
@@ -1256,28 +1256,33 @@ func ownDispatch(payload types.Payload) *dispatch {
 // and re-sending identical bytes is always safe.
 func (a *App) OnAcknowledgementPacket(cur realm, sourceClient, destinationClient string, sequence uint64, acknowledgement []byte, payload types.Payload) error {
 	assertCoreCaller(cur)
-	d := ownDispatch(payload)
+	// The route is the sending client's (ADR 0007 §2).
+	g := routeOfClient(sourceClient)
+	if g == nil {
+		return nil
+	}
+	d := ownDispatch(g, payload)
 	if d == nil {
 		return nil
 	}
 	if d.transport == sequence {
 		d.inFlight = false
 	}
-	current := d.epoch == epoch
+	current := d.epoch == g.epoch
 	if bytes.Equal(acknowledgement, types.UniversalErrorAcknowledgement()) {
 		d.redispatch = current
 		d.event = "error acknowledgement"
 		if !current {
 			d.event += " of a past epoch"
 		}
-		chain.Emit("GovAck", "epoch", strconv.FormatUint(uint64(d.epoch), 10), "seq", u64s(d.seq), "status", "error")
+		chain.Emit("GovAck", "route", g.key, "epoch", strconv.FormatUint(uint64(d.epoch), 10), "seq", u64s(d.seq), "status", "error")
 		return nil
 	}
 	e, seq, status, redispatch, ok := ParseAck(acknowledgement)
 	if !ok || e != d.epoch || seq != d.seq {
 		d.redispatch = current
 		d.event = "malformed acknowledgement"
-		chain.Emit("GovAck", "epoch", strconv.FormatUint(uint64(d.epoch), 10), "seq", u64s(d.seq), "status", "malformed")
+		chain.Emit("GovAck", "route", g.key, "epoch", strconv.FormatUint(uint64(d.epoch), 10), "seq", u64s(d.seq), "status", "malformed")
 		return nil
 	}
 	// A duplicate answering a re-send of a decision already acknowledged
@@ -1285,7 +1290,7 @@ func (a *App) OnAcknowledgementPacket(cur realm, sourceClient, destinationClient
 	if status == StatusDuplicate && d.status != 0 && d.status != StatusDuplicate {
 		d.redispatch = current && redispatch
 		d.event = "acknowledged: duplicate of a decision " + statusWord(d.status)
-		chain.Emit("GovAck", "epoch", strconv.FormatUint(uint64(d.epoch), 10), "seq", u64s(d.seq), "status", statusWord(status))
+		chain.Emit("GovAck", "route", g.key, "epoch", strconv.FormatUint(uint64(d.epoch), 10), "seq", u64s(d.seq), "status", statusWord(status))
 		return nil
 	}
 	d.status = status
@@ -1296,23 +1301,27 @@ func (a *App) OnAcknowledgementPacket(cur realm, sourceClient, destinationClient
 	if redispatch {
 		d.event += ", redispatch"
 	}
-	chain.Emit("GovAck", "epoch", strconv.FormatUint(uint64(d.epoch), 10), "seq", u64s(d.seq), "status", statusWord(d.status))
+	chain.Emit("GovAck", "route", g.key, "epoch", strconv.FormatUint(uint64(d.epoch), 10), "seq", u64s(d.seq), "status", statusWord(d.status))
 	return nil
 }
 
 // OnTimeoutPacket makes a decision of the current epoch re-dispatchable.
 func (a *App) OnTimeoutPacket(cur realm, sourceClient, destinationClient string, sequence uint64, payload types.Payload) error {
 	assertCoreCaller(cur)
-	d := ownDispatch(payload)
+	g := routeOfClient(sourceClient)
+	if g == nil {
+		return nil
+	}
+	d := ownDispatch(g, payload)
 	if d == nil {
 		return nil
 	}
 	if d.transport == sequence {
 		d.inFlight = false
 	}
-	d.redispatch = d.epoch == epoch
+	d.redispatch = d.epoch == g.epoch
 	d.event = "timed out"
-	chain.Emit("GovTimeout", "epoch", strconv.FormatUint(uint64(d.epoch), 10), "seq", u64s(d.seq))
+	chain.Emit("GovTimeout", "route", g.key, "epoch", strconv.FormatUint(uint64(d.epoch), 10), "seq", u64s(d.seq))
 	return nil
 }
 
@@ -1348,6 +1357,7 @@ func statusWord(s uint8) string {
 // ethParams is an Ethereum-bound decision: dispatched at once, its delay
 // runs in IBCAdmin (ADR pr6375 §6.6).
 type ethParams struct {
+	route  string // the route whose IBCAdmin it goes to
 	kind   uint8
 	params []byte
 	epoch  uint32 // a cancel: the epoch whose numbers it names (0: any)
@@ -1364,28 +1374,40 @@ type ethParams struct {
 	// when it is dispatched (router client ids), and the local gno client
 	// approved to carry the epoch over the new one
 	from, to, local string
+	// a kind 6 op 1: the gno client it pairs, which must authenticate the
+	// route's identity when it is dispatched
+	auth string
 }
 
 func (p *ethParams) apply(cur realm, t int64) (string, string) {
-	if p.epoch != 0 && p.epoch != epoch {
+	g := enrolledGov(p.route)
+	if g == nil {
+		return "", "no route " + p.route
+	}
+	if p.epoch != 0 && p.epoch != g.epoch {
 		return "", "the cancel names numbers of epoch " + strconv.FormatUint(uint64(p.epoch), 10) + ", which is past"
 	}
-	if refusal := checkRouterClient(p.client, p.scope); refusal != "" {
+	if refusal := checkRouterClient(g, p.client, p.scope); refusal != "" {
 		return "", refusal
 	}
-	if p.to != "" {
-		if refusal := checkExpect(p.from, p.to, p.local); refusal != "" {
+	if p.auth != "" {
+		if refusal := checkAuthenticates(g, p.auth); refusal != "" {
 			return "", refusal
 		}
 	}
-	seq, refusal := bind(cur, ledger.Last(), p.kind, p.params)
+	if p.to != "" {
+		if refusal := checkExpect(g, p.from, p.to, p.local); refusal != "" {
+			return "", refusal
+		}
+	}
+	seq, refusal := bind(cur, g, ledger.Last(), p.kind, p.params)
 	if refusal != "" {
 		return "", refusal
 	}
 	for _, id := range p.names {
-		routerHistory.Set(id, true)
+		g.routerHistory.Set(id, true)
 	}
-	note := "dispatched as epoch " + strconv.FormatUint(uint64(epoch), 10) + " seq " + u64s(seq)
+	note := "dispatched as epoch " + strconv.FormatUint(uint64(g.epoch), 10) + " seq " + u64s(seq)
 	if p.to != "" {
 		// The packet goes at once; approving the local client to carry the
 		// epoch loosens, so the expectation is a decision of its own that
@@ -1393,45 +1415,53 @@ func (p *ethParams) apply(cur realm, t int64) (string, string) {
 		// (NewExpectRecoveryRequest). A notice over it before then is
 		// refused, and IBCAdmin sends it again.
 		text := "expect the governance epoch to move from " + p.from + " to " + p.to + ", carried here by " + p.local + " (kind 10)"
-		ep := &expectParams{from: p.from, to: p.to, local: p.local}
-		d := decide(cur, "expect transition", text, ep, t, t, true)
+		ep := &expectParams{route: g.key, from: p.from, to: p.to, local: p.local}
+		d := decide(cur, "expect transition", text, ep, t, t, true, routeScope(g.key, p.local))
+		if d.Spent {
+			return note + "; its expectation was spent at once (" + d.Note + ")", ""
+		}
 		ep.owner = d.ID
-		ep.gen = intend(p.from, p.to, p.local, d.ID)
+		ep.gen = intend(g, p.from, p.to, p.local, d.ID)
 		note += "; its transition is expected from decision " + itoa(d.ID)
 	}
 	return note, ""
 }
 
-func ethRequest(cur realm, name string, kind uint8, text string, params []byte) Request {
-	return ethRequestIn(cur, name, kind, text, params, 0)
+func ethRequest(cur realm, g *routeGov, name string, kind uint8, text string, params []byte) Request {
+	return ethRequestIn(cur, g, name, kind, text, params, 0)
 }
 
-func ethRequestIn(cur realm, name string, kind uint8, text string, params []byte, bound uint32) Request {
-	return ethRequestP(cur, name, text, &ethParams{kind: kind, params: params, epoch: bound})
+func ethRequestIn(cur realm, g *routeGov, name string, kind uint8, text string, params []byte, bound uint32) Request {
+	return ethRequestP(cur, g, name, text, &ethParams{kind: kind, params: params, epoch: bound})
 }
 
 // ethRouteParams is the parameters of a decision naming the router client
 // clientID in scope, checked now (a refusal panics) and again when the
 // decision is recorded; the builder adds the encoded params.
-func ethRouteParams(kind uint8, clientID string, scope int) *ethParams {
+func ethRouteParams(g *routeGov, kind uint8, clientID string, scope int) *ethParams {
 	mustEthClientID(clientID)
-	if refusal := checkRouterClient(clientID, scope); refusal != "" {
+	if refusal := checkRouterClient(g, clientID, scope); refusal != "" {
 		panic("ibcgov: " + refusal)
 	}
 	return &ethParams{kind: kind, client: clientID, scope: scope}
 }
 
-func ethRequestP(cur realm, name, text string, p *ethParams) Request {
+// ethRequestP is route g's Ethereum-bound request: dispatched over g's
+// governance channel, to g's IBCAdmin only. claims are the gno clients it
+// names for the route (a kind 6 op 1's counterparty).
+func ethRequestP(cur realm, g *routeGov, name, text string, p *ethParams, claims ...string) Request {
+	p.route = g.key
 	kind, params := p.kind, p.params
-	if epochRecOf(epoch) == nil {
-		panic("ibcgov: the governance channel is not bound")
+	if epochRecOf(g, g.epoch) == nil {
+		panic("ibcgov: route " + g.key + "'s governance channel is not bound")
 	}
 	if envelopeHeader+len(params) > MaxEnvelope {
 		panic("ibcgov: the envelope would be " + strconv.Itoa(envelopeHeader+len(params)) + " bytes, above " + strconv.Itoa(MaxEnvelope))
 	}
-	text = "ethereum kind " + strconv.Itoa(int(kind)) + " (" + name + "): " + text
+	text = "route " + g.key + ", ethereum kind " + strconv.Itoa(int(kind)) + " (" + name + "): " + text
+	sc := routeScope(g.key, claims...)
 	return propose(cur, "eth "+name, text, func(cur realm, made, t int64) {
-		decide(cur, "eth "+name, text, p, made, t, false)
+		decide(cur, "eth "+name, text, p, made, t, false, sc)
 	})
 }
 
@@ -1485,23 +1515,23 @@ const (
 
 // epochRouterClient is the Ethereum router's current client of the route
 // the governance channel serves.
-func epochRouterClient() string { return core.CounterpartyClientID(EpochClient()) }
+func epochRouterClient(g *routeGov) string { return core.CounterpartyClientID(epochClient(g)) }
 
 // routeRouterClients is every router client of the route this chain has a
 // record of (routeRouterClient): the governance epoch's history, then the
 // counterparties of the transfer route's current and replaced clients.
-func routeRouterClients() []string {
+func routeRouterClients(g *routeGov) []string {
 	var ids []string
-	routerHistory.Iterate("", "", func(id string, _ any) bool {
+	g.routerHistory.Iterate("", "", func(id string, _ any) bool {
 		ids = append(ids, id)
 		return false
 	})
+	// The route's own transfer clients only: another route's router
+	// clients may carry the same ids (ADR 0007 §2).
 	rd := view()
-	for _, key := range rd.Routes() {
-		for _, c := range append([]string{rd.Client(key)}, rd.Replaced(key)...) {
-			if cp := core.CounterpartyClientID(c); cp != "" && !contains(ids, cp) {
-				ids = append(ids, cp)
-			}
+	for _, c := range append([]string{rd.Client(g.key)}, rd.Replaced(g.key)...) {
+		if cp := core.CounterpartyClientID(c); cp != "" && !contains(ids, cp) {
+			ids = append(ids, cp)
 		}
 	}
 	return ids
@@ -1509,9 +1539,9 @@ func routeRouterClients() []string {
 
 // knownRouterClients is every router client this realm pairs with a
 // governed client of this chain (knownRouterClient).
-func knownRouterClients() []string {
-	ids := routeRouterClients()
-	remotes, _ := retained()
+func knownRouterClients(g *routeGov) []string {
+	ids := routeRouterClients(g)
+	remotes, _ := retained(g)
 	for id := range remotes {
 		if !contains(ids, id) {
 			ids = append(ids, id)
@@ -1523,22 +1553,22 @@ func knownRouterClients() []string {
 // checkRouterClient is why clientID cannot name a router client in scope,
 // or "": a client of this chain named in its place is told the router
 // client it is paired with, the id that was meant.
-func checkRouterClient(clientID string, scope int) string {
+func checkRouterClient(g *routeGov, clientID string, scope int) string {
 	if scope == noRouterClient {
 		return ""
 	}
-	if epoch == 0 {
-		return "the governance channel is not bound"
+	if g.epoch == 0 {
+		return "route " + g.key + "'s governance channel is not bound"
 	}
 	var ids []string
 	var what string
 	switch scope {
 	case currentRouterClient:
-		ids, what = []string{epochRouterClient()}, "the Ethereum router's current client of the route, "
+		ids, what = []string{epochRouterClient(g)}, "the Ethereum router's current client of the route, "
 	case routeRouterClient:
-		ids, what = routeRouterClients(), "an Ethereum router client of the route, current or retired: "
+		ids, what = routeRouterClients(g), "an Ethereum router client of the route, current or retired: "
 	default:
-		ids, what = knownRouterClients(), "an Ethereum router client this realm pairs with a client of this chain: "
+		ids, what = knownRouterClients(g), "an Ethereum router client this realm pairs with a client of this chain: "
 	}
 	if contains(ids, clientID) {
 		return ""
@@ -1598,12 +1628,13 @@ func ethAddrText(a [20]byte) string { return ethaddr.Address(a).String() }
 // already dispatched. IBCAdmin applies
 // it at recording, whatever its own seq. It is spent if a route replacement
 // opens another epoch before it is recorded.
-func NewEthCancelRequest(cur realm, ranges string) Request {
+func NewEthCancelRequest(cur realm, route, ranges string) Request {
+	g := mustEnrolledGov(route)
 	items := splitList(ranges)
 	if len(items) == 0 || len(items) > maxCancelRanges {
 		panic("ibcgov: name 1 to " + strconv.Itoa(maxCancelRanges) + " ranges: no more fit the 1024-byte envelope")
 	}
-	last := LastSeq(epoch)
+	last := lastSeq(g, g.epoch)
 	var vals []abi.Value
 	for _, it := range items {
 		i := strings.Index(it, "-")
@@ -1612,25 +1643,26 @@ func NewEthCancelRequest(cur realm, ranges string) Request {
 			from, to = it[:i], it[i+1:]
 		}
 		f, err1 := strconv.ParseUint(from, 10, 64)
-		g, err2 := strconv.ParseUint(to, 10, 64)
-		if err1 != nil || err2 != nil || f < 1 || g < f || g > last {
+		hi, err2 := strconv.ParseUint(to, 10, 64)
+		if err1 != nil || err2 != nil || f < 1 || hi < f || hi > last {
 			panic("ibcgov: not a range of dispatched numbers (1-" + u64s(last) + "): " + it)
 		}
-		vals = append(vals, abi.Tuple(abi.Uint64(f), abi.Uint64(g)))
+		vals = append(vals, abi.Tuple(abi.Uint64(f), abi.Uint64(hi)))
 	}
-	return ethRequestIn(cur, "cancel", KindCancel, "cancel "+strings.Join(items, ",")+" of epoch "+strconv.FormatUint(uint64(epoch), 10),
-		abi.Encode(abi.Array(vals...)), epoch)
+	return ethRequestIn(cur, g, "cancel", KindCancel, "cancel "+strings.Join(items, ",")+" of epoch "+strconv.FormatUint(uint64(g.epoch), 10),
+		abi.Encode(abi.Array(vals...)), g.epoch)
 }
 
 // NewEthUnpauseRequest (kind 2) unpauses an object on Ethereum after 24 hours
 // there: object 1 is the transfer route, named by its router client
 // clientID (currentRouterClient), object 2 IBCAdmin itself (clientID
 // empty).
-func NewEthUnpauseRequest(cur realm, object int, clientID string) Request {
+func NewEthUnpauseRequest(cur realm, route string, object int, clientID string) Request {
+	g := mustEnrolledGov(route)
 	var p *ethParams
 	switch object {
 	case 1:
-		p = ethRouteParams(KindUnpause, clientID, currentRouterClient)
+		p = ethRouteParams(g, KindUnpause, clientID, currentRouterClient)
 	case 2:
 		if clientID != "" {
 			panic("ibcgov: object 2 (IBCAdmin) names no client")
@@ -1640,13 +1672,14 @@ func NewEthUnpauseRequest(cur realm, object int, clientID string) Request {
 		panic("ibcgov: object 1 (a transfer route) or 2 (IBCAdmin)")
 	}
 	p.params = abi.Encode(abi.Uint64(uint64(object)), abi.String(clientID))
-	return ethRequestP(cur, "unpause", "unpause object "+strconv.Itoa(object)+" "+clientID, p)
+	return ethRequestP(cur, g, "unpause", "unpause object "+strconv.Itoa(object)+" "+clientID, p)
 }
 
 // NewEthSeatsRequest (kind 3) sets IBCAdmin's seats: changes is a
 // comma-separated list of "seat:0xaddress" (seats 0–3 guardians, 4–5 watch
 // keys; the zero address vacates), at most two guardian seats.
-func NewEthSeatsRequest(cur realm, changes string) Request {
+func NewEthSeatsRequest(cur realm, route, changes string) Request {
+	g := mustEnrolledGov(route)
 	items := splitList(changes)
 	if len(items) == 0 || len(items) > maxEthSeatsPerCall {
 		panic("ibcgov: name 1 to 6 seat changes")
@@ -1675,7 +1708,7 @@ func NewEthSeatsRequest(cur realm, changes string) Request {
 	if guardians > maxEthGuardianSeats {
 		panic("ibcgov: a decision changes at most two guardian seats")
 	}
-	return ethRequest(cur, "seats", KindSeats, "set seats "+strings.Join(parts, ","), abi.Encode(abi.Array(vals...)))
+	return ethRequest(cur, g, "seats", KindSeats, "set seats "+strings.Join(parts, ","), abi.Encode(abi.Array(vals...)))
 }
 
 // NewEthLimitsRequest (kind 4) sets a token's limits on the route, named by
@@ -1684,14 +1717,15 @@ func NewEthSeatsRequest(cur realm, changes string) Request {
 // minimum (0 unset), in base units (the uint256 of the kind's tuple).
 // IBCAdmin applies a pure lowering at recording, anything else after 7
 // days.
-func NewEthLimitsRequest(cur realm, clientID, token string, maxPerMessage, dayCap, refundCap, sendMax, sendMin uint256) Request {
-	p := ethRouteParams(KindLimits, clientID, currentRouterClient)
+func NewEthLimitsRequest(cur realm, route, clientID, token string, maxPerMessage, dayCap, refundCap, sendMax, sendMin uint256) Request {
+	g := mustEnrolledGov(route)
+	p := ethRouteParams(g, KindLimits, clientID, currentRouterClient)
 	tok := mustEthAddr(token)
 	p.params = abi.Encode(abi.String(clientID), abi.Address(tok),
 		abi.Uint256Of(maxPerMessage), abi.Uint256Of(dayCap), abi.Uint256Of(refundCap), abi.Uint256Of(sendMax), abi.Uint256Of(sendMin))
 	text := "limits of " + ethAddrText(tok) + " on " + clientID + ": maxPerMessage=" + controls.Decimal(maxPerMessage) + " dayCap=" + controls.Decimal(dayCap) +
 		" refundCap=" + controls.Decimal(refundCap) + " sendMax=" + controls.Decimal(sendMax) + " sendMin=" + controls.Decimal(sendMin)
-	return ethRequestP(cur, "limits", text, p)
+	return ethRequestP(cur, g, "limits", text, p)
 }
 
 // NewEthVoucherRequest (kind 5) registers the GnoVoucher of a gno denom on
@@ -1700,15 +1734,16 @@ func NewEthLimitsRequest(cur realm, clientID, token string, maxPerMessage, dayCa
 // transfer app puts it on the wire (isGnoWireDenom): a native denom, or a
 // GRC20 alias; a realm-issued coin ("/gno.land/r/...:x") never travels and
 // is refused.
-func NewEthVoucherRequest(cur realm, clientID, baseDenom, voucher, codeHash string) Request {
-	p := ethRouteParams(KindVoucher, clientID, currentRouterClient)
+func NewEthVoucherRequest(cur realm, route, clientID, baseDenom, voucher, codeHash string) Request {
+	g := mustEnrolledGov(route)
+	p := ethRouteParams(g, KindVoucher, clientID, currentRouterClient)
 	if !isGnoWireDenom(baseDenom) {
 		panic("ibcgov: not a gno.land denom the transfer app sends: " + baseDenom)
 	}
 	v, h := mustEthAddr(voucher), mustHash(codeHash)
 	p.params = abi.Encode(abi.String(clientID), abi.String(baseDenom), abi.Address(v), abi.Bytes32(h))
 	text := "voucher of " + baseDenom + " on " + clientID + ": " + ethAddrText(v) + " code hash " + hex.EncodeToString(h[:])
-	return ethRequestP(cur, "voucher", text, p)
+	return ethRequestP(cur, g, "voucher", text, p)
 }
 
 // NewEthClientRequest (kind 6) adds (op 1) or migrates (op 2) a router light
@@ -1718,7 +1753,8 @@ func NewEthVoucherRequest(cur realm, clientID, baseDenom, voucher, codeHash stri
 // id that the gno client is paired with (its registered counterparty); op
 // 2 names a router client this realm pairs with a governed client
 // (knownRouterClient).
-func NewEthClientRequest(cur realm, op int, clientID, counterpartyClientID, merklePrefix, lightClient, codeHash string) Request {
+func NewEthClientRequest(cur realm, route string, op int, clientID, counterpartyClientID, merklePrefix, lightClient, codeHash string) Request {
+	g := mustEnrolledGov(route)
 	var p *ethParams
 	switch op {
 	case 1:
@@ -1732,9 +1768,18 @@ func NewEthClientRequest(cur realm, op int, clientID, counterpartyClientID, merk
 			}
 			panic("ibcgov: the gno client " + counterpartyClientID + " is paired with " + cp + ", not " + clientID)
 		}
-		p = &ethParams{kind: KindClient, names: []string{clientID}}
+		// The gno client must be the route's: it authenticates the route's
+		// identity, and belongs to no other route (ADR 0007 §2), checked
+		// again when the decision is recorded.
+		if refusal := checkAuthenticates(g, counterpartyClientID); refusal != "" {
+			panic("ibcgov: " + refusal)
+		}
+		if refusal := checkClaim(counterpartyClientID, g.key); refusal != "" {
+			panic("ibcgov: " + refusal)
+		}
+		p = &ethParams{kind: KindClient, names: []string{clientID}, auth: counterpartyClientID}
 	case 2:
-		p = ethRouteParams(KindClient, clientID, knownRouterClient)
+		p = ethRouteParams(g, KindClient, clientID, knownRouterClient)
 		if counterpartyClientID != "" {
 			mustEthClientID(counterpartyClientID)
 		}
@@ -1752,24 +1797,38 @@ func NewEthClientRequest(cur realm, op int, clientID, counterpartyClientID, merk
 	p.params = abi.Encode(abi.Uint64(uint64(op)), abi.String(clientID), abi.String(counterpartyClientID), abi.Array(prefix...), abi.Address(lc), abi.Bytes32(h))
 	text := "client op " + strconv.Itoa(op) + " " + clientID + " counterparty " + counterpartyClientID + " prefix [" +
 		strings.Join(prefixText, ",") + "] light client " + ethAddrText(lc) + " code hash " + hex.EncodeToString(h[:])
-	return ethRequestP(cur, "client", text, p)
+	if op == 1 {
+		return ethRequestP(cur, g, "client", text, p, counterpartyClientID)
+	}
+	return ethRequestP(cur, g, "client", text, p)
+}
+
+// checkAuthenticates is why the gno client c cannot be named for route g,
+// or "": it must authenticate the route's identity.
+func checkAuthenticates(g *routeGov, c string) string {
+	if got, _ := core.ClientRouteIdentity(c); got == "" || got != g.identity {
+		return c + " authenticates " + quoteIdentity(got) + ", not route " + g.key + "'s " + quoteIdentity(g.identity)
+	}
+	return ""
 }
 
 // NewEthUpgradeRequest (kind 7) upgrades a proxy to an implementation pinned
 // to its code hash, with an optional call (hex, may be empty).
-func NewEthUpgradeRequest(cur realm, proxy, implementation, codeHash, call string) Request {
+func NewEthUpgradeRequest(cur realm, route, proxy, implementation, codeHash, call string) Request {
+	g := mustEnrolledGov(route)
 	p, im, h := mustEthAddr(proxy), mustEthAddr(implementation), mustHash(codeHash)
 	c := []byte{}
 	if call != "" {
 		c = mustHexBytes(call)
 	}
 	text := "upgrade " + ethAddrText(p) + " to " + ethAddrText(im) + " code hash " + hex.EncodeToString(h[:]) + " call " + hex.EncodeToString(c)
-	return ethRequest(cur, "upgrade", KindUpgrade, text, abi.Encode(abi.Address(p), abi.Address(im), abi.Bytes32(h), abi.Bytes(c)))
+	return ethRequest(cur, g, "upgrade", KindUpgrade, text, abi.Encode(abi.Address(p), abi.Address(im), abi.Bytes32(h), abi.Bytes(c)))
 }
 
 // NewEthRoleRequest (kind 8) grants or revokes a non-admin AccessManager role
 // (the relayer allow-list). ADMIN_ROLE (0) and PUBLIC_ROLE are refused.
-func NewEthRoleRequest(cur realm, grant bool, roleID uint64, account string) Request {
+func NewEthRoleRequest(cur realm, route string, grant bool, roleID uint64, account string) Request {
+	g := mustEnrolledGov(route)
 	if roleID == adminRoleID || roleID == publicRoleID {
 		panic("ibcgov: kind 8 never names ADMIN_ROLE or PUBLIC_ROLE")
 	}
@@ -1778,7 +1837,7 @@ func NewEthRoleRequest(cur realm, grant bool, roleID uint64, account string) Req
 	if grant {
 		verb = "grant"
 	}
-	return ethRequest(cur, "role", KindRole, verb+" role "+u64s(roleID)+" to "+ethAddrText(a),
+	return ethRequest(cur, g, "role", KindRole, verb+" role "+u64s(roleID)+" to "+ethAddrText(a),
 		abi.Encode(abi.Bool(grant), abi.Uint64(roleID), abi.Address(a)))
 }
 
@@ -1787,10 +1846,11 @@ func NewEthRoleRequest(cur realm, grant bool, roleID uint64, account string) Req
 // executor's own, done afterwards through its own decisions. The migration
 // call field stays on the wire, always empty: Ethereum spends a kind 9 that
 // carries one at recording.
-func NewEthHandOverRequest(cur realm, exec, codeHash string) Request {
+func NewEthHandOverRequest(cur realm, route, exec, codeHash string) Request {
+	g := mustEnrolledGov(route)
 	e, h := mustEthAddr(exec), mustHash(codeHash)
 	text := "hand over to " + ethAddrText(e) + " code hash " + hex.EncodeToString(h[:])
-	return ethRequest(cur, "hand-over", KindHandOver, text, abi.Encode(abi.Address(e), abi.Bytes32(h), abi.Bytes([]byte{})))
+	return ethRequest(cur, g, "hand-over", KindHandOver, text, abi.Encode(abi.Address(e), abi.Bytes32(h), abi.Bytes([]byte{})))
 }
 
 // NewEthRouteReplacementRequest (kind 10) retires and freezes the router
@@ -1804,61 +1864,71 @@ func NewEthHandOverRequest(cur realm, exec, codeHash string) Request {
 // arrives (Active, not retired, its counterparty newClientID, authenticating
 // the governance route's identity, checked again when it is dispatched):
 // the notice is accepted over that client only.
-func NewEthRouteReplacementRequest(cur realm, oldClientID, newClientID string, suspectFrom uint64, localClientID string) Request {
+func NewEthRouteReplacementRequest(cur realm, route, oldClientID, newClientID string, suspectFrom uint64, localClientID string) Request {
+	g := mustEnrolledGov(route)
 	mustEthClientID(oldClientID)
 	mustCustomEthClientID(newClientID)
 	if oldClientID == newClientID {
 		panic("ibcgov: the clients differ")
 	}
-	if refusal := checkExpect(oldClientID, newClientID, localClientID); refusal != "" {
+	if refusal := checkExpect(g, oldClientID, newClientID, localClientID); refusal != "" {
 		panic("ibcgov: " + refusal)
 	}
-	return ethRequestP(cur, "route replacement", "replace route "+oldClientID+" by "+newClientID+" (carried here by "+localClientID+"), suspect from Ethereum block "+u64s(suspectFrom),
+	return ethRequestP(cur, g, "route replacement", "replace route "+oldClientID+" by "+newClientID+" (carried here by "+localClientID+"), suspect from Ethereum block "+u64s(suspectFrom),
 		&ethParams{kind: KindRouteReplace, params: abi.Encode(abi.String(oldClientID), abi.String(newClientID), abi.Uint64(suspectFrom)),
 			names: []string{oldClientID, newClientID}, from: oldClientID, to: newClientID, local: localClientID})
 }
 
 // expectParams records an expected governance transition.
 type expectParams struct {
+	route           string
 	from, to, local string
 	owner           int64  // this expectation's decision, an owner of its intent
 	gen             uint64 // the intent's generation it owns
 }
 
 func (p *expectParams) apply(cur realm, t int64) (string, string) {
+	g := enrolledGov(p.route)
+	if g == nil {
+		return "", "no route " + p.route
+	}
 	// It applies only to its own intent, still pending: an epoch switch
 	// that left the transition behind dropped it, and an approval of it is
 	// then stale.
-	if !ownsIntent(p.from, p.to, p.local, p.gen, p.owner) {
-		disown(p.from, p.to, p.local, p.gen, p.owner)
+	if !ownsIntent(g, p.from, p.to, p.local, p.gen, p.owner) {
+		disown(g, p.from, p.to, p.local, p.gen, p.owner)
 		return "", "its intent is gone (an epoch switch left the transition behind, or it was released)"
 	}
-	if refusal := checkExpect(p.from, p.to, p.local); refusal != "" {
-		release(p.from, p.to, p.local, p.gen, p.owner)
+	if refusal := checkExpect(g, p.from, p.to, p.local); refusal != "" {
+		release(g, p.from, p.to, p.local, p.gen, p.owner)
 		return "", refusal
 	}
-	disown(p.from, p.to, p.local, p.gen, p.owner)
-	expect(p.from, p.to, p.local)
+	disown(g, p.from, p.to, p.local, p.gen, p.owner)
+	expect(g, p.from, p.to, p.local)
 	return "expect the governance epoch to move from " + p.from + " to " + p.to + " over " + p.local, ""
 }
 
 // removeParams removes an active expected transition.
-type removeParams struct{ from, to, local string }
+type removeParams struct{ route, from, to, local string }
 
 func (p *removeParams) apply(cur realm, t int64) (string, string) {
-	if refusal := checkRemove(p.from, p.to, p.local); refusal != "" {
+	g := enrolledGov(p.route)
+	if g == nil {
+		return "", "no route " + p.route
+	}
+	if refusal := checkRemove(g, p.from, p.to, p.local); refusal != "" {
 		return "", refusal
 	}
-	entomb(p.from, p.to, p.local) // in its place: its client stays retained
+	entomb(g, p.from, p.to, p.local) // in its place: its client stays retained
 	var kept []expEdge
-	for _, x := range expectedOf(p.from) {
+	for _, x := range expectedOf(g, p.from) {
 		if !(x.active && x.to == p.to && x.local == p.local) {
 			kept = append(kept, x)
 		}
 	}
-	setEdges(p.from, kept)
-	liveEdges--
-	chain.Emit("GovUnexpect", "from", p.from, "to", p.to, "client", p.local)
+	setEdges(g, p.from, kept)
+	g.liveEdges--
+	chain.Emit("GovUnexpect", "route", g.key, "from", p.from, "to", p.to, "client", p.local)
 	return "no longer expect the governance epoch to move from " + p.from + " to " + p.to + " over " + p.local, ""
 }
 
@@ -1869,9 +1939,9 @@ func (p *removeParams) apply(cur realm, t int64) (string, string) {
 // pinnedBy: a notice its client no longer vouches for, or with no path of
 // the length it needs through the transition, pins nothing). It needs no
 // room: its tombstone takes its place in the joint budget.
-func checkRemove(from, to, local string) string {
+func checkRemove(g *routeGov, from, to, local string) string {
 	found := false
-	for _, x := range expectedOf(from) {
+	for _, x := range expectedOf(g, from) {
 		if x.active && x.to == to && x.local == local {
 			found = true
 		}
@@ -1879,10 +1949,10 @@ func checkRemove(from, to, local string) string {
 	if !found {
 		return "no active expected transition from " + from + " to " + to + " over " + local
 	}
-	if local == EpochClient() {
+	if local == epochClient(g) {
 		return local + " carries the governance epoch"
 	}
-	if c := pinnedBy(from, to, local, false); c != "" {
+	if c := pinnedBy(g, from, to, local, false); c != "" {
 		return "a notice proven over " + c + " may need the transition: apply it or let it lapse first"
 	}
 	return ""
@@ -1890,18 +1960,19 @@ func checkRemove(from, to, local string) string {
 
 // retransmitParams authorizes one re-send of a conflicted dispatch.
 type retransmitParams struct {
-	e   uint32
-	seq uint64
+	route string
+	e     uint32
+	seq   uint64
 }
 
 // checkRetransmit is why dispatch (e, seq) cannot be authorized for a
 // re-send after a conflict, or "".
-func checkRetransmit(e uint32, seq uint64) string {
-	d := dispatchOf(e, seq)
+func checkRetransmit(g *routeGov, e uint32, seq uint64) string {
+	d := dispatchOf(g, e, seq)
 	switch {
 	case d == nil:
 		return "no dispatched decision " + strconv.FormatUint(uint64(e), 10) + "/" + u64s(seq)
-	case e != epoch:
+	case e != g.epoch:
 		return "epoch " + strconv.FormatUint(uint64(e), 10) + " is past: its decisions are never sent again"
 	case d.status != StatusConflict || d.redispatch:
 		return "decision " + u64s(seq) + " was not answered with a conflict that bars a re-send (" + d.event + ")"
@@ -1912,10 +1983,14 @@ func checkRetransmit(e uint32, seq uint64) string {
 }
 
 func (p *retransmitParams) apply(cur realm, t int64) (string, string) {
-	if refusal := checkRetransmit(p.e, p.seq); refusal != "" {
+	g := enrolledGov(p.route)
+	if g == nil {
+		return "", "no route " + p.route
+	}
+	if refusal := checkRetransmit(g, p.e, p.seq); refusal != "" {
 		return "", refusal
 	}
-	d := dispatchOf(p.e, p.seq)
+	d := dispatchOf(g, p.e, p.seq)
 	d.retransmit = true
 	d.event += "; one re-send authorized"
 	return "authorize one re-send of epoch " + strconv.FormatUint(uint64(p.e), 10) + " seq " + u64s(p.seq) + ": anyone calls Redispatch", ""
@@ -1931,35 +2006,41 @@ func (p *retransmitParams) apply(cur realm, t int64) (string, string) {
 // deduplicates them, so the re-send records the decision if it was never
 // delivered and is answered duplicate if it was. It is used up by one
 // Redispatch; another needs another decision.
-func NewRetransmitRequest(cur realm, e uint32, seq uint64) Request {
-	if refusal := checkRetransmit(e, seq); refusal != "" {
+func NewRetransmitRequest(cur realm, route string, e uint32, seq uint64) Request {
+	g := mustEnrolledGov(route)
+	if refusal := checkRetransmit(g, e, seq); refusal != "" {
 		panic("ibcgov: " + refusal)
 	}
-	text := "authorize one re-send of the conflicted governance dispatch, epoch " + strconv.FormatUint(uint64(e), 10) + " seq " + u64s(seq)
+	text := "authorize one re-send of route " + g.key + "'s conflicted governance dispatch, epoch " + strconv.FormatUint(uint64(e), 10) + " seq " + u64s(seq)
+	sc := routeScope(g.key)
 	return propose(cur, "retransmit", text, func(cur realm, made, t int64) {
-		decide(cur, "retransmit", text, &retransmitParams{e: e, seq: seq}, made, t, false)
+		decide(cur, "retransmit", text, &retransmitParams{route: g.key, e: e, seq: seq}, made, t, false, sc)
 	})
 }
 
 // purgeParams drops a tombstone.
-type purgeParams struct{ from, to, local string }
+type purgeParams struct{ route, from, to, local string }
 
 // checkPurge is why the tombstone of the transition from → to over local
 // cannot be purged, or "": it must exist, and lie on no path a notice
 // recorded as proven may still be applied along once the transitions on it
 // are approved again (pinnedBy through live and tombstoned transitions).
-func checkPurge(from, to, local string) string {
-	if !tombstones.Has(tombKey(from, to, local)) {
+func checkPurge(g *routeGov, from, to, local string) string {
+	if !g.tombstones.Has(tombKey(from, to, local)) {
 		return "no tombstone of the transition from " + from + " to " + to + " over " + local
 	}
-	if c := pinnedBy(from, to, local, true); c != "" {
+	if c := pinnedBy(g, from, to, local, true); c != "" {
 		return "a notice proven over " + c + " may need the transition: approve it again and apply the notice, or let it lapse first"
 	}
 	return ""
 }
 
 func (p *purgeParams) apply(cur realm, t int64) (string, string) {
-	if refusal := checkPurge(p.from, p.to, p.local); refusal != "" {
+	g := enrolledGov(p.route)
+	if g == nil {
+		return "", "no route " + p.route
+	}
+	if refusal := checkPurge(g, p.from, p.to, p.local); refusal != "" {
 		return "", refusal
 	}
 	// A purge only frees capacity: it never makes a client retirable. The
@@ -1968,15 +2049,15 @@ func (p *purgeParams) apply(cur realm, t int64) (string, string) {
 	// clients kept off the graph, their gov port open and inert, retired for
 	// governance only by a switch leaving them as its old epoch client. Bounded: two walks of at
 	// most maxLive edges.
-	_, before := retained()
-	tombstones.Remove(tombKey(p.from, p.to, p.local))
-	_, after := retained()
+	_, before := retained(g)
+	g.tombstones.Remove(tombKey(p.from, p.to, p.local))
+	_, after := retained(g)
 	for c := range before {
-		if !after[c] && awaitingGov.Has(c) {
-			awaitingGov.Remove(c)
+		if !after[c] && g.awaitingGov.Has(c) {
+			g.awaitingGov.Remove(c)
 		}
 	}
-	chain.Emit("GovPurge", "from", p.from, "to", p.to, "client", p.local)
+	chain.Emit("GovPurge", "route", g.key, "from", p.from, "to", p.to, "client", p.local)
 	return "purged the tombstone of the transition from " + p.from + " to " + p.to + " over " + p.local, ""
 }
 
@@ -1992,13 +2073,15 @@ func (p *purgeParams) apply(cur realm, t int64) (string, string) {
 // Refused, when built and when it applies, while a notice recorded as
 // proven may still be applied along a path through it of the length it
 // needs, its transitions approved again.
-func NewPurgeTombstoneRequest(cur realm, oldClientID, newClientID, localClientID string) Request {
-	if refusal := checkPurge(oldClientID, newClientID, localClientID); refusal != "" {
+func NewPurgeTombstoneRequest(cur realm, route, oldClientID, newClientID, localClientID string) Request {
+	g := mustEnrolledGov(route)
+	if refusal := checkPurge(g, oldClientID, newClientID, localClientID); refusal != "" {
 		panic("ibcgov: " + refusal)
 	}
-	text := "purge the tombstone of the transition from " + oldClientID + " to " + newClientID + " over " + localClientID
+	text := "purge the tombstone of route " + g.key + "'s transition from " + oldClientID + " to " + newClientID + " over " + localClientID
+	sc := routeScope(g.key)
 	return propose(cur, "purge tombstone", text, func(cur realm, made, t int64) {
-		decide(cur, "purge tombstone", text, &purgeParams{from: oldClientID, to: newClientID, local: localClientID}, made, t, true)
+		decide(cur, "purge tombstone", text, &purgeParams{route: g.key, from: oldClientID, to: newClientID, local: localClientID}, made, t, true, sc)
 	})
 }
 
@@ -2015,13 +2098,15 @@ func NewPurgeTombstoneRequest(cur realm, oldClientID, newClientID, localClientID
 // a notice whose client is frozen, expired, recovered, converted or retired,
 // whose epoch the current one reached, or with no such path through the
 // transition, pins nothing.
-func NewRemoveExpectationRequest(cur realm, oldClientID, newClientID, localClientID string) Request {
-	if refusal := checkRemove(oldClientID, newClientID, localClientID); refusal != "" {
+func NewRemoveExpectationRequest(cur realm, route, oldClientID, newClientID, localClientID string) Request {
+	g := mustEnrolledGov(route)
+	if refusal := checkRemove(g, oldClientID, newClientID, localClientID); refusal != "" {
 		panic("ibcgov: " + refusal)
 	}
-	text := "remove the expected transition from " + oldClientID + " to " + newClientID + " over " + localClientID
+	text := "remove route " + g.key + "'s expected transition from " + oldClientID + " to " + newClientID + " over " + localClientID
+	sc := routeScope(g.key)
 	return propose(cur, "remove expectation", text, func(cur realm, made, t int64) {
-		decide(cur, "remove expectation", text, &removeParams{from: oldClientID, to: newClientID, local: localClientID}, made, t, false)
+		decide(cur, "remove expectation", text, &removeParams{route: g.key, from: oldClientID, to: newClientID, local: localClientID}, made, t, false, sc)
 	})
 }
 
@@ -2035,47 +2120,54 @@ func NewRemoveExpectationRequest(cur realm, oldClientID, newClientID, localClien
 // recovery delay.
 // An expectation never confirmed by a notice costs nothing; a router client
 // has at most 4 expected successors.
-func NewExpectRecoveryRequest(cur realm, oldClientID, newClientID, localClientID string) Request {
+func NewExpectRecoveryRequest(cur realm, route, oldClientID, newClientID, localClientID string) Request {
+	g := mustEnrolledGov(route)
 	mustEthClientID(oldClientID)
 	mustCustomEthClientID(newClientID)
 	if oldClientID == newClientID {
 		panic("ibcgov: the clients differ")
 	}
-	if refusal := checkExpect(oldClientID, newClientID, localClientID); refusal != "" {
+	if refusal := checkExpect(g, oldClientID, newClientID, localClientID); refusal != "" {
 		panic("ibcgov: " + refusal)
 	}
-	text := "expect the emergency recovery of " + oldClientID + " by " + newClientID + ", carried here by " + localClientID
+	text := "expect route " + g.key + "'s emergency recovery of " + oldClientID + " by " + newClientID + ", carried here by " + localClientID
+	sc := routeScope(g.key, localClientID)
 	return propose(cur, "expect recovery", text, func(cur realm, made, t int64) {
 		// Fresh parameters for every recording: a Request governed twice
 		// makes two decisions, each owning its own place in the intent.
-		p := &expectParams{from: oldClientID, to: newClientID, local: localClientID}
+		p := &expectParams{route: g.key, from: oldClientID, to: newClientID, local: localClientID}
+		if refusal := sc.check(); refusal != "" {
+			spendAtRecording("expect recovery", text, p, made, t, refusal)
+			return
+		}
 		// An intent from the recording on: it holds the successor's place
 		// and keeps its clients open for governance.
 		// Refused when recorded (the graph changed since the request was
 		// built): a spent decision, no intent, so an approved proposal is
 		// used up rather than left to execute again once room frees.
-		if refusal := checkExpect(oldClientID, newClientID, localClientID); refusal != "" {
+		if refusal := checkExpect(g, oldClientID, newClientID, localClientID); refusal != "" {
 			spendAtRecording("expect recovery", text, p, made, t, refusal)
 			return
 		}
 		// Governance named both router clients, and the expectation is
 		// recorded: a settlement may name them from now on, whatever becomes
 		// of it. A request spent above adds nothing.
-		routerHistory.Set(oldClientID, true)
-		routerHistory.Set(newClientID, true)
-		d := decide(cur, "expect recovery", text, p, made, t, true)
+		g.routerHistory.Set(oldClientID, true)
+		g.routerHistory.Set(newClientID, true)
+		d := decide(cur, "expect recovery", text, p, made, t, true, sc)
 		p.owner = d.ID
-		p.gen = intend(oldClientID, newClientID, localClientID, d.ID)
+		p.gen = intend(g, oldClientID, newClientID, localClientID, d.ID)
 	})
 }
 
 // NewEthRouteSettingsRequest (kind 11) sets the quarantine of the route,
 // named by its router client clientID (currentRouterClient), after a
 // validator-set transition, in seconds (0 disables it).
-func NewEthRouteSettingsRequest(cur realm, clientID string, quarantineSeconds uint64) Request {
-	p := ethRouteParams(KindRouteSettings, clientID, currentRouterClient)
+func NewEthRouteSettingsRequest(cur realm, route, clientID string, quarantineSeconds uint64) Request {
+	g := mustEnrolledGov(route)
+	p := ethRouteParams(g, KindRouteSettings, clientID, currentRouterClient)
 	p.params = abi.Encode(abi.String(clientID), abi.Uint64(quarantineSeconds))
-	return ethRequestP(cur, "route settings", "quarantine of "+clientID+": "+u64s(quarantineSeconds)+" s", p)
+	return ethRequestP(cur, g, "route settings", "quarantine of "+clientID+": "+u64s(quarantineSeconds)+" s", p)
 }
 
 // NewEthSettleRequest (kind 12) applies a reconciliation's outcomes to the
@@ -2097,8 +2189,9 @@ func NewEthRouteSettingsRequest(cur realm, clientID string, quarantineSeconds ui
 //     once.
 //
 // IBCAdmin applies it after 7 days; each send record is settled at most once.
-func NewEthSettleRequest(cur realm, clientID, items string) Request {
-	p := ethRouteParams(KindSettle, clientID, routeRouterClient)
+func NewEthSettleRequest(cur realm, route, clientID, items string) Request {
+	g := mustEnrolledGov(route)
+	p := ethRouteParams(g, KindSettle, clientID, routeRouterClient)
 	list := splitList(items)
 	if len(list) == 0 || len(list) > maxSettleItems {
 		panic("ibcgov: name 1 to " + strconv.Itoa(maxSettleItems) + " settlement items")
@@ -2128,7 +2221,7 @@ func NewEthSettleRequest(cur realm, clientID, items string) Request {
 		vals = append(vals, abi.Tuple(abi.Uint64(seq), abi.Uint64(action), abi.Uint256Of(amount)))
 	}
 	p.params = abi.Encode(abi.String(clientID), abi.Array(vals...))
-	return ethRequestP(cur, "settle", "settle sends of "+clientID+": "+strings.Join(list, ","), p)
+	return ethRequestP(cur, g, "settle", "settle sends of "+clientID+": "+strings.Join(list, ","), p)
 }
 
 // NewEthReopenRequest (kind 13) reopens the route, named by its router
@@ -2137,10 +2230,11 @@ func NewEthSettleRequest(cur realm, clientID, items string) Request {
 // days; Ethereum refuses it while any send record of the route's retired
 // client ids is open, and records every loss not recapitalized as an
 // accepted deficit.
-func NewEthReopenRequest(cur realm, clientID string) Request {
-	p := ethRouteParams(KindReopen, clientID, currentRouterClient)
+func NewEthReopenRequest(cur realm, route, clientID string) Request {
+	g := mustEnrolledGov(route)
+	p := ethRouteParams(g, KindReopen, clientID, currentRouterClient)
 	p.params = abi.Encode(abi.String(clientID))
-	return ethRequestP(cur, "reopen", "reopen the route of "+clientID, p)
+	return ethRequestP(cur, g, "reopen", "reopen the route of "+clientID, p)
 }
 
 // NewEthDisableRecoveryRequest (kind 14) disables Ethereum's emergency
@@ -2163,10 +2257,11 @@ func NewEthReopenRequest(cur realm, clientID string) Request {
 // but a decision Ethereum already holds: decide it only once the channel's
 // clients are trusted to stay healthy without that backstop (ADR pr6375
 // §13).
-func NewEthDisableRecoveryRequest(cur realm, clientID string) Request {
-	p := ethRouteParams(KindDisableRecovery, clientID, currentRouterClient)
+func NewEthDisableRecoveryRequest(cur realm, route, clientID string) Request {
+	g := mustEnrolledGov(route)
+	p := ethRouteParams(g, KindDisableRecovery, clientID, currentRouterClient)
 	p.params = abi.Encode(abi.String(clientID))
-	return ethRequestP(cur, "disable recovery", "disable Ethereum's emergency recovery for good (IBCAdmin, over "+clientID+")", p)
+	return ethRequestP(cur, g, "disable recovery", "disable Ethereum's emergency recovery for good (IBCAdmin, over "+clientID+")", p)
 }
 
 // isGnoWireDenom is the grammar of a gno.land denom as the transfer app puts

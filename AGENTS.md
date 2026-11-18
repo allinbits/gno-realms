@@ -82,7 +82,7 @@ gno.land/
     apps/transfer/            # Token transfer app proxy: entry points, store, value moves, admin (ADR 0002)
     apps/transfer/impl/ics20/v0/    # Plain ICS-20 logic (Transfer classification, callbacks, refunds); registers nothing
     apps/transfer/impl/controls/v0/ # The installed implementation: wraps ics20/v0, Ethereum clients under the route controls (ADR 0004)
-    ibcgov/                   # Governance: decision ledger, governor/yield, guardians, gov port sender (ADR 0004)
+    ibcgov/                   # Governance: decision ledger, governor/yield, and per router route (ADR 0007) its guardians, holds and gov channel (ADR 0004)
     ethrelay/                 # MsgCall wire entry points for relaying with Ethereum
     apps/testing/             # Mock IBCApp for tests
 ```

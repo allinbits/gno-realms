@@ -102,6 +102,17 @@ func (c *EthLightClient) RouteIdentity() (identity, router string) {
 	return identity, router
 }
 
+// ChainIdentity is the chain this verifier follows, the part of its route
+// identity that names the chain and not the deployment (ADR 0007, "One route
+// per counterparty chain"): the Ethereum chain id and genesis validators
+// root. Two routers on one chain share it. Fixed at creation, as
+// RouteIdentity is.
+func (c *EthLightClient) ChainIdentity() string {
+	cs := c.ClientState
+	return "ethereum chain " + strconv.FormatUint(cs.ChainID, 10) +
+		", genesis validators root 0x" + hex.EncodeToString(cs.GenesisValidatorsRoot)
+}
+
 // ethState is a verifier exposing ethereum/v0 state: this one, or a later
 // version wrapping it.
 type ethState interface {

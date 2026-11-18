@@ -16,6 +16,10 @@ import (
 	"gno.land/r/aib/ibc/ibcgov"
 )
 
+// govRoute is the route this test's decisions name (ADR 0007: route-scoped
+// entry points take the route).
+var govRoute string
+
 const bridge = "0x1d95d544586eacb63b6154e9e45122b32ded11aa 0x00000000000000000000000000000000000b0002 0x00000000000000000000000000000000000b0003"
 
 var collector = testutils.TestAddress("collector")
@@ -105,7 +109,7 @@ func deliver(cur realm, s *sent, i int) string {
 }
 
 func epochNow() string {
-	return "epoch " + string(rune('0'+ibcgov.Epoch())) + " over " + ibcgov.EpochClient()
+	return "epoch " + string(rune('0'+ibcgov.Epoch(govRoute))) + " over " + ibcgov.EpochClient(govRoute)
 }
 
 // pendingExpect is the expectation decisions the kind 10s dispatched so far
@@ -113,7 +117,7 @@ func epochNow() string {
 var pendingExpect []int64
 
 func kind10(cur realm, from, to string, suspectFrom uint64, local string) {
-	govern(cur, ibcgov.NewEthRouteReplacementRequest(cross(cur), from, to, suspectFrom, local))
+	govern(cur, ibcgov.NewEthRouteReplacementRequest(cross(cur), govRoute, from, to, suspectFrom, local))
 	pendingExpect = append(pendingExpect, ibcgov.LastDecision())
 }
 
@@ -134,13 +138,14 @@ func expectAll(cur realm) {
 // by step in O(k), whatever the graph's branching. A path through another
 // branch, or naming another local client, is refused.
 func main(cur realm) {
+	govRoute = "ethereum-1"
 	client(cur, "ethereum-1", "client-0")
 	for i, r := range []string{"gnoland-b1", "gnoland-b2", "gnoland-c1", "gnoland-c2", "gnoland-d1", "gnoland-d2"} {
 		client(cur, "ethereum-"+strconv.Itoa(i+2), r)
 	}
 	e1 := client(cur, "ethereum-8", "gnoland-e1", noticePacket(1, "gnoland-e1", "ethereum-8", 5, "gnoland-e1"))
 	execute(cur, govern(cur, ibcgov.NewEnrollRouteRequest(cross(cur), "ethereum-1", string(collector), bridge)))
-	execute(cur, govern(cur, ibcgov.NewBindGovernanceRequest(cross(cur), "ethereum-1")))
+	execute(cur, govern(cur, ibcgov.NewBindGovernanceRequest(cross(cur), govRoute, "ethereum-1")))
 	for _, t := range [][3]string{
 		{"client-0", "gnoland-b1", "ethereum-2"}, {"client-0", "gnoland-b2", "ethereum-3"},
 		{"gnoland-b1", "gnoland-c1", "ethereum-4"}, {"gnoland-b1", "gnoland-c2", "ethereum-5"},

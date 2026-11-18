@@ -18,6 +18,10 @@ import (
 	"gno.land/r/aib/ibc/ibcgov"
 )
 
+// govRoute is the route this test's decisions name (ADR 0007: route-scoped
+// entry points take the route).
+var govRoute string
+
 const freezeImpl = "gno.land/r/aib/ibc/core/impl/v1freeze"
 
 const bridge = "0x1d95d544586eacb63b6154e9e45122b32ded11aa 0x00000000000000000000000000000000000b0002 0x00000000000000000000000000000000000b0003"
@@ -31,9 +35,9 @@ var (
 func flagAs(cur realm, who address, route, fn string, set bool) {
 	testing.SetRealm(testing.NewUserRealm(who))
 	if set {
-		ibcgov.SetFlag(cross(cur), route, fn, "")
+		ibcgov.SetFlag(cross(cur), govRoute, route, fn, "")
 	} else {
-		ibcgov.ClearFlag(cross(cur), route, fn)
+		ibcgov.ClearFlag(cross(cur), govRoute, route, fn)
 	}
 	testing.SetRealm(testing.NewCodeRealm("gno.land/r/aib/main"))
 }
@@ -123,7 +127,7 @@ func deliver(cur realm, s *sent, i int) string {
 }
 
 func epochNow() string {
-	return "epoch " + string(rune('0'+ibcgov.Epoch())) + " over " + ibcgov.EpochClient()
+	return "epoch " + string(rune('0'+ibcgov.Epoch(govRoute))) + " over " + ibcgov.EpochClient(govRoute)
 }
 
 // A governed removal of an active expectation (design review r2 #2, a
@@ -136,6 +140,7 @@ func epochNow() string {
 // nothing (design review r3 #4): r1 is removed too, and its place alone
 // takes the fifth, whose notice moves the epoch.
 func main(cur realm) {
+	govRoute = "ethereum-1"
 	client(cur, "ethereum-1", "client-0")
 	for i := 1; i <= 4; i++ {
 		client(cur, "ethereum-"+strconv.Itoa(i+1), "gnoland-r"+strconv.Itoa(i))
@@ -143,12 +148,12 @@ func main(cur realm) {
 	r5 := client(cur, "ethereum-6", "gnoland-r5", noticePacket(1, "gnoland-r5", "ethereum-6", 2, "gnoland-r5"))
 	s1 := client(cur, "ethereum-7", "gnoland-s1", noticePacket(1, "gnoland-s1", "ethereum-7", 3, "gnoland-s1"))
 	execute(cur, govern(cur, ibcgov.NewEnrollRouteRequest(cross(cur), "ethereum-1", string(collector), bridge)))
-	execute(cur, govern(cur, ibcgov.NewBindGovernanceRequest(cross(cur), "ethereum-1")))
+	execute(cur, govern(cur, ibcgov.NewBindGovernanceRequest(cross(cur), govRoute, "ethereum-1")))
 	var ids []int64
 	for i := 1; i <= 4; i++ {
-		ids = append(ids, govern(cur, ibcgov.NewExpectRecoveryRequest(cross(cur), "client-0", "gnoland-r"+strconv.Itoa(i), "ethereum-"+strconv.Itoa(i+1))))
+		ids = append(ids, govern(cur, ibcgov.NewExpectRecoveryRequest(cross(cur), govRoute, "client-0", "gnoland-r"+strconv.Itoa(i), "ethereum-"+strconv.Itoa(i+1))))
 	}
-	ids = append(ids, govern(cur, ibcgov.NewExpectRecoveryRequest(cross(cur), "gnoland-r1", "gnoland-s1", "ethereum-7")))
+	ids = append(ids, govern(cur, ibcgov.NewExpectRecoveryRequest(cross(cur), govRoute, "gnoland-r1", "gnoland-s1", "ethereum-7")))
 	advance(7*24*time.Hour + time.Second)
 	for _, id := range ids {
 		ibcgov.Execute(cross(cur), id)
@@ -156,10 +161,10 @@ func main(cur realm) {
 	// s1's notice, two steps on, is recorded as proven.
 	println("s1's notice:", deliver(cur, s1, 0), "|", epochNow())
 	println("a fifth expectation:", revive(func() {
-		govern(cur, ibcgov.NewExpectRecoveryRequest(cross(cur), "client-0", "gnoland-r5", "ethereum-6"))
+		govern(cur, ibcgov.NewExpectRecoveryRequest(cross(cur), govRoute, "client-0", "gnoland-r5", "ethereum-6"))
 	}))
 	println("remove r1 (s1's proven notice may need it):", revive(func() {
-		govern(cur, ibcgov.NewRemoveExpectationRequest(cross(cur), "client-0", "gnoland-r1", "ethereum-2"))
+		govern(cur, ibcgov.NewRemoveExpectationRequest(cross(cur), govRoute, "client-0", "gnoland-r1", "ethereum-2"))
 	}))
 	// s1's verifier is replaced: its trust generation advances, and the
 	// notice proven under the last one can no longer be applied.
@@ -171,12 +176,12 @@ func main(cur realm) {
 	testing.SetRealm(testing.NewCodeRealm("gno.land/r/aib/main"))
 	execute(cur, govern(cur, ibcgov.NewCoreUpdateImplRequest(cross(cur), freezeImpl)))
 	execute(cur, govern(cur, ibcgov.NewReplaceVerifierRequest(cross(cur), "ethereum-7", ethtesting.NextVersion)))
-	id := govern(cur, ibcgov.NewRemoveExpectationRequest(cross(cur), "client-0", "gnoland-r1", "ethereum-2"))
+	id := govern(cur, ibcgov.NewRemoveExpectationRequest(cross(cur), govRoute, "client-0", "gnoland-r1", "ethereum-2"))
 	println("remove r1 (s1's notice void):", decided(id))
 	println("remove r1 again:", revive(func() {
-		govern(cur, ibcgov.NewRemoveExpectationRequest(cross(cur), "client-0", "gnoland-r1", "ethereum-2"))
+		govern(cur, ibcgov.NewRemoveExpectationRequest(cross(cur), govRoute, "client-0", "gnoland-r1", "ethereum-2"))
 	}))
-	fifth := govern(cur, ibcgov.NewExpectRecoveryRequest(cross(cur), "client-0", "gnoland-r5", "ethereum-6"))
+	fifth := govern(cur, ibcgov.NewExpectRecoveryRequest(cross(cur), govRoute, "client-0", "gnoland-r5", "ethereum-6"))
 	execute(cur, fifth)
 	println("the fifth:", decided(fifth))
 	println("r5's notice:", deliver(cur, r5, 0), "|", epochNow())

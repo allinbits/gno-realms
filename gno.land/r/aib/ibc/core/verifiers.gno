@@ -44,6 +44,27 @@ func ClientRouteIdentity(clientID string) (identity, router string) {
 	return "", ""
 }
 
+// ChainIdentifiedVerifier is a verifier that names the counterparty chain
+// it follows, apart from the deployment on it (ADR 0007): ibcgov keeps one
+// route per chain.
+type ChainIdentifiedVerifier interface {
+	ChainIdentity() string
+}
+
+// ClientChainIdentity is the chain clientID's verifier follows, "" if the
+// client is unknown or its verifier names none: for an Ethereum client its
+// chain id and genesis validators root.
+func ClientChainIdentity(clientID string) string {
+	c := store.getClient(clientID)
+	if c == nil {
+		return ""
+	}
+	if v, ok := c.lightClient.(ChainIdentifiedVerifier); ok {
+		return v.ChainIdentity()
+	}
+	return ""
+}
+
 func verifierVersionOf(lc lightclient.Interface) string {
 	if v, ok := lc.(VersionedVerifier); ok {
 		return v.VerifierVersion()

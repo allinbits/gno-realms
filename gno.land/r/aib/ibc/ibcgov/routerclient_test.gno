@@ -19,6 +19,7 @@ func TestRouterClientPairing(cur realm, t *testing.T) {
 	route := core.CreateClient(cross(cur), ethtesting.ClientState(), ethtesting.ConsensusState())
 	core.RegisterCounterparty(cross(cur), route, [][]byte{{}}, "client-0")
 	bare := core.CreateClient(cross(cur), ethtesting.ClientState(), ethtesting.ConsensusState())
+	g := testRoute(route)
 
 	if got := gnoClientHint(route); got != "; "+route+" is this chain's client, paired with client-0" {
 		t.Errorf("a paired client: %q", got)
@@ -29,11 +30,11 @@ func TestRouterClientPairing(cur realm, t *testing.T) {
 	if got := gnoClientHint("client-0"); got != "" {
 		t.Errorf("a router client: %q", got)
 	}
-	if got := checkRouterClient("", noRouterClient); got != "" {
+	if got := checkRouterClient(g, "", noRouterClient); got != "" {
 		t.Errorf("no router client named: %q", got)
 	}
 	for _, scope := range []int{currentRouterClient, routeRouterClient, knownRouterClient} {
-		if got := checkRouterClient("client-0", scope); got != "the governance channel is not bound" {
+		if got := checkRouterClient(g, "client-0", scope); got != "route "+route+"'s governance channel is not bound" {
 			t.Errorf("scope %d unbound: %q", scope, got)
 		}
 	}
@@ -41,7 +42,7 @@ func TestRouterClientPairing(cur realm, t *testing.T) {
 	// Kind 6 op 1 adds the custom id the gno client it tracks is paired with.
 	add := func(id, tracks string) string {
 		r := revive(func() {
-			NewEthClientRequest(cross(cur), 1, id, tracks, "6d61696e", "0x1111111111111111111111111111111111111111", strings.Repeat("ab", 32))
+			NewEthClientRequest(cross(cur), route, 1, id, tracks, "6d61696e", "0x1111111111111111111111111111111111111111", strings.Repeat("ab", 32))
 		})
 		if r == nil {
 			return ""

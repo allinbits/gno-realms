@@ -14,8 +14,12 @@ import (
 // pr6375 R14). Both realms gate every loosening power on a call from this
 // realm, so each power waits for its decision's delay here: upgrades,
 // relayers, recovery, approvals, client migration and membership 7 days;
-// tightening (pause, block, reject, remove) at once; unpauses at once, spent
-// under a guardian hold.
+// tightening (pause, block, reject, remove) at once; unpauses at once. Each
+// is global (ADR 0007 §6): any route's guardian hold defers it, to day 21 of
+// the global hold that first deferred it at most, and defers an unpause
+// rather than spending it. A recovery, a migration or a verifier
+// replacement of a gno client that belongs to a route is that route's
+// decision instead, deferred by its hold alone.
 
 // adminParams is a decision that makes one administrative call.
 type adminParams struct {
@@ -124,12 +128,12 @@ func contains(list []string, s string) bool {
 // one, and says so: a recovered or migrated verifier is a new trust, so the
 // route's meters start empty, as after a replacement (ADR pr6375 §7.1).
 func emptyRouteMeters(client string, t int64) string {
-	route := routeKeyOf(client)
-	if !routes.Has(route) {
+	g := enrolledGov(routeKeyOf(client))
+	if g == nil {
 		return ""
 	}
-	bumpPayoutsEpoch(route, t)
-	return ": route " + route + "'s meters emptied"
+	bumpPayoutsEpoch(g, t)
+	return ": route " + g.key + "'s meters emptied"
 }
 
 func (p *adminParams) apply(cur realm, t int64) (string, string) {
@@ -186,8 +190,9 @@ func (p *adminParams) apply(cur realm, t int64) (string, string) {
 	return p.op, ""
 }
 
-// unpauseAdminParams is an unpause of the core or of an app: at once, spent
-// under a guardian hold.
+// unpauseAdminParams is an unpause of the core or of an app: at once, and
+// under any route's guardian hold deferred to day 21 of the global hold,
+// never spent (ADR 0007 §6).
 type unpauseAdminParams struct{ port string }
 
 func (*unpauseAdminParams) unpause() {}
@@ -208,9 +213,14 @@ func (p *unpauseAdminParams) apply(cur realm, t int64) (string, string) {
 }
 
 func adminRequest(cur realm, op, text string, queued bool, args ...string) Request {
+	return adminRequestIn(cur, globalScope(), op, text, queued, args...)
+}
+
+// adminRequestIn is an administrative request of scope sc.
+func adminRequestIn(cur realm, sc scope, op, text string, queued bool, args ...string) Request {
 	p := &adminParams{op: op, args: args}
 	return propose(cur, op, text, func(cur realm, made, t int64) {
-		decide(cur, op, text, p, made, t, queued)
+		decide(cur, op, text, p, made, t, queued, sc)
 	})
 }
 
@@ -271,7 +281,7 @@ func NewCoreRemoveRelayerRequest(cur realm, addr string) Request {
 			spendAtRecording(op, text, p, made, t, string(a)+" is not a listed relayer")
 			return
 		}
-		decide(cur, op, text, p, made, t, len(core.Relayers()) <= 1)
+		decide(cur, op, text, p, made, t, len(core.Relayers()) <= 1, globalScope())
 	})
 }
 
@@ -285,12 +295,23 @@ func isRelayer(a address) bool {
 }
 
 // NewRecoverClientRequest recovers a frozen or expired core client from a
-// substitute after 7 days (see the core's recover-client.md).
+// substitute after 7 days (see the core's recover-client.md). A subject or
+// substitute that belongs to a route makes it that route's decision (ADR
+// 0007 §6), and neither may belong to another route.
 func NewRecoverClientRequest(cur realm, subjectClientID, substituteClientID string) Request {
 	if core.ClientType(subjectClientID) == "" || core.ClientType(substituteClientID) == "" {
 		panic("ibcgov: unknown client")
 	}
-	return adminRequest(cur, "core recover client", "core: recover client "+subjectClientID+" from "+substituteClientID, true, subjectClientID, substituteClientID)
+	sc := clientScope(subjectClientID, substituteClientID)
+	return adminRequestIn(cur, sc, "core recover client", scopeText(sc)+"core: recover client "+subjectClientID+" from "+substituteClientID, true, subjectClientID, substituteClientID)
+}
+
+// scopeText opens a decision's text with its route, when it has one.
+func scopeText(sc scope) string {
+	if sc.route == "" {
+		return ""
+	}
+	return "route " + sc.route + ", "
 }
 
 // NewCoreApproveAppRequest activates a pending app registration after 7 days.
@@ -315,13 +336,14 @@ func NewCorePauseRequest(cur realm) Request {
 	return adminRequest(cur, "core pause", "core: pause the packet path", false)
 }
 
-// NewCoreUnpauseRequest resumes the core's packet path at once; spent under
-// a guardian hold.
+// NewCoreUnpauseRequest resumes the core's packet path at once; under any
+// route's guardian hold it is deferred to day 21 of the global hold, never
+// spent.
 func NewCoreUnpauseRequest(cur realm) Request {
 	text := "core: unpause the packet path"
 	p := &unpauseAdminParams{}
 	return propose(cur, "core unpause", text, func(cur realm, made, t int64) {
-		decide(cur, "core unpause", text, p, made, t, false)
+		decide(cur, "core unpause", text, p, made, t, false, globalScope())
 	})
 }
 
@@ -333,8 +355,9 @@ func NewCorePauseAppRequest(cur realm, portID string) Request {
 	return adminRequest(cur, "core pause app", "core: pause the app on port "+portID, false, portID)
 }
 
-// NewCoreUnpauseAppRequest resumes the app on portID at once; spent under a
-// guardian hold.
+// NewCoreUnpauseAppRequest resumes the app on portID at once; under any
+// route's guardian hold it is deferred to day 21 of the global hold, never
+// spent.
 func NewCoreUnpauseAppRequest(cur realm, portID string) Request {
 	if core.AppPkgPath(portID) == "" {
 		panic("ibcgov: no app on port " + portID)
@@ -342,7 +365,7 @@ func NewCoreUnpauseAppRequest(cur realm, portID string) Request {
 	text := "core: unpause the app on port " + portID
 	p := &unpauseAdminParams{port: portID}
 	return propose(cur, "core unpause app", text, func(cur realm, made, t int64) {
-		decide(cur, "core unpause app", text, p, made, t, false)
+		decide(cur, "core unpause app", text, p, made, t, false, globalScope())
 	})
 }
 
@@ -402,7 +425,8 @@ func NewMigrateClientRequest(cur realm, clientID, migration, paramsHex string) R
 	default:
 		panic("ibcgov: unknown migration " + migration)
 	}
-	return adminRequest(cur, "core migrate client", text, true, clientID, migration, hex.EncodeToString(bz))
+	sc := clientScope(clientID)
+	return adminRequestIn(cur, sc, "core migrate client", scopeText(sc)+text, true, clientID, migration, hex.EncodeToString(bz))
 }
 
 // NewReplaceVerifierRequest converts the verifier of the live Ethereum

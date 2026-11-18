@@ -15,6 +15,10 @@ import (
 	"gno.land/r/aib/ibc/ibcgov"
 )
 
+// govRoute is the route this test's decisions name (ADR 0007: route-scoped
+// entry points take the route).
+var govRoute string
+
 const bridge = "0x1d95d544586eacb63b6154e9e45122b32ded11aa 0x00000000000000000000000000000000000b0002 0x00000000000000000000000000000000000b0003"
 
 var (
@@ -26,9 +30,9 @@ var (
 func flagAs(cur realm, who address, route, fn string, set bool) {
 	testing.SetRealm(testing.NewUserRealm(who))
 	if set {
-		ibcgov.SetFlag(cross(cur), route, fn, "")
+		ibcgov.SetFlag(cross(cur), govRoute, route, fn, "")
 	} else {
-		ibcgov.ClearFlag(cross(cur), route, fn)
+		ibcgov.ClearFlag(cross(cur), govRoute, route, fn)
 	}
 	testing.SetRealm(testing.NewCodeRealm("gno.land/r/aib/main"))
 }
@@ -118,7 +122,7 @@ func deliver(cur realm, s *sent, i int) string {
 }
 
 func epochNow() string {
-	return "epoch " + string(rune('0'+ibcgov.Epoch())) + " over " + ibcgov.EpochClient()
+	return "epoch " + string(rune('0'+ibcgov.Epoch(govRoute))) + " over " + ibcgov.EpochClient(govRoute)
 }
 
 // An intent lives while one of its expectation decisions is pending (Codex
@@ -129,6 +133,7 @@ func epochNow() string {
 // recovery expectation for one transition B→C: the kind 10's cancelled, the
 // recovery's applies.
 func main(cur realm) {
+	govRoute = "ethereum-1"
 	client(cur, "ethereum-1", "client-0")
 	b := client(cur, "ethereum-2", "gnoland-b", noticePacket(1, "gnoland-b", "ethereum-2", 2, "gnoland-b"))
 	c := client(cur, "ethereum-3", "gnoland-c", noticePacket(1, "gnoland-c", "ethereum-3", 3, "gnoland-c"))
@@ -138,9 +143,9 @@ func main(cur realm) {
 	client(cur, "ethereum-7", "gnoland-g")
 	client(cur, "ethereum-8", "gnoland-x")
 	execute(cur, govern(cur, ibcgov.NewEnrollRouteRequest(cross(cur), "ethereum-1", string(collector), bridge)))
-	execute(cur, govern(cur, ibcgov.NewBindGovernanceRequest(cross(cur), "ethereum-1")))
+	execute(cur, govern(cur, ibcgov.NewBindGovernanceRequest(cross(cur), govRoute, "ethereum-1")))
 	dispatch := func(from, to, local string) int64 {
-		govern(cur, ibcgov.NewEthRouteReplacementRequest(cross(cur), from, to, 1, local))
+		govern(cur, ibcgov.NewEthRouteReplacementRequest(cross(cur), govRoute, from, to, 1, local))
 		return ibcgov.LastDecision()
 	}
 	first := dispatch("client-0", "gnoland-b", "ethereum-2")
@@ -158,23 +163,23 @@ func main(cur realm) {
 
 	// A kind 10 and a recovery expectation for B→C.
 	byKind10 := dispatch("gnoland-b", "gnoland-c", "ethereum-3")
-	govern(cur, ibcgov.NewExpectRecoveryRequest(cross(cur), "gnoland-b", "gnoland-c", "ethereum-3"))
+	govern(cur, ibcgov.NewExpectRecoveryRequest(cross(cur), govRoute, "gnoland-b", "gnoland-c", "ethereum-3"))
 	byRecovery := ibcgov.LastDecision()
 	govern(cur, ibcgov.NewCancelRequest(cross(cur), byKind10))
-	late := ibcgov.NewExpectRecoveryRequest(cross(cur), "gnoland-b", "gnoland-c", "ethereum-3")
+	late := ibcgov.NewExpectRecoveryRequest(cross(cur), govRoute, "gnoland-b", "gnoland-c", "ethereum-3")
 	execute(cur, byRecovery)
 	println("the recovery's expectation:", decided(byRecovery))
 	// Once active, B→C takes no new kind 10 or recovery expectation (review
 	// of #92): refused when built, and a request built before is spent when
 	// recorded.
 	println("a kind 10 for the active B→C:", revive(func() { dispatch("gnoland-b", "gnoland-c", "ethereum-3") }))
-	println("a recovery expectation for it:", revive(func() { ibcgov.NewExpectRecoveryRequest(cross(cur), "gnoland-b", "gnoland-c", "ethereum-3") }))
+	println("a recovery expectation for it:", revive(func() { ibcgov.NewExpectRecoveryRequest(cross(cur), govRoute, "gnoland-b", "gnoland-c", "ethereum-3") }))
 	println("one built before, recorded now:", decided(govern(cur, late)))
 	println("c's notice:", deliver(cur, c, 0), "|", epochNow())
 
 	// One recovery Request governed twice records two decisions, each owning
 	// its own place (Codex round 42 #2): cancelling both frees it.
-	req := ibcgov.NewExpectRecoveryRequest(cross(cur), "gnoland-c", "gnoland-x", "ethereum-8")
+	req := ibcgov.NewExpectRecoveryRequest(cross(cur), govRoute, "gnoland-c", "gnoland-x", "ethereum-8")
 	r1 := govern(cur, req)
 	r2 := govern(cur, req)
 	dispatch("gnoland-c", "gnoland-d", "ethereum-4")

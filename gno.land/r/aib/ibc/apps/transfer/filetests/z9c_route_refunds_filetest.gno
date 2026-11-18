@@ -21,6 +21,10 @@ import (
 	"gno.land/r/aib/ibc/ibcgov"
 )
 
+// govRoute is the route this test's decisions name (ADR 0007: route-scoped
+// entry points take the route).
+var govRoute string
+
 // bridge is the route's Ethereum router, ICS20 transfer and IBCAdmin: its
 // protected recipients.
 const bridge = "0x1d95d544586eacb63b6154e9e45122b32ded11aa 0x00000000000000000000000000000000000b0002 0x00000000000000000000000000000000000b0003"
@@ -58,6 +62,7 @@ func execute(cur realm, id int64) {
 // enrolls the client as a route, every step a governor decision.
 func setupRoute(cur realm) string {
 	clientID := core.CreateClient(cross(cur), ethtesting.ClientState(), ethtesting.ConsensusState())
+	govRoute = clientID
 	core.RegisterCounterparty(cross(cur), clientID, [][]byte{{}}, "client-0")
 	execute(cur, govern(cur, ibcgov.NewEnrollRouteRequest(cross(cur), clientID, string(collector), bridge)))
 	advance(7*24*time.Hour + time.Second) // keeps the timeline of the goldens
@@ -136,7 +141,7 @@ func record(route string, seq uint64) string {
 func main(cur realm) {
 	route := setupRoute(cur)
 	execute(cur, govern(cur, ibcgov.NewSetDenomRequest(cross(cur), route, "ugnot", "unescrow", 10_000, 0, 20, 2, 25_000, 40, 2_400, "0x0000000000000000000000000000000000c0ffee", 0)))
-	execute(cur, govern(cur, ibcgov.NewSetSeatsRequest(cross(cur), "4:"+string(watch))))
+	execute(cur, govern(cur, ibcgov.NewSetSeatsRequest(cross(cur), govRoute, "4:"+string(watch))))
 	// The refund meter started empty when the denom was enabled, 7 days ago:
 	// it is full now (2400).
 	s1 := send(cur, route, 1_000, 1_020, ethReceiver)
@@ -157,7 +162,7 @@ func main(cur realm) {
 
 	// A refunds hold queues everything and pays nothing.
 	testing.SetRealm(testing.NewUserRealm(watch))
-	ibcgov.SetFlag(cross(cur), route, ibcgov.FnRefunds, "")
+	ibcgov.SetFlag(cross(cur), govRoute, route, ibcgov.FnRefunds, "")
 	advance(24 * time.Hour)
 	timeout(cur, route, s4)
 	println("timeout under a refunds hold:", record(route, s4))
@@ -165,7 +170,7 @@ func main(cur realm) {
 
 	// Lifted: the queue pays in order as the meter allows.
 	testing.SetRealm(testing.NewUserRealm(watch))
-	ibcgov.ClearFlag(cross(cur), route, ibcgov.FnRefunds)
+	ibcgov.ClearFlag(cross(cur), govRoute, route, ibcgov.FnRefunds)
 	before = ugnot(sender)
 	println("claim after the hold:", claimRefunds(cur, route), "sender +", ugnot(sender)-before)
 	println("s3:", record(route, s3))

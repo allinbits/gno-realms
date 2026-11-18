@@ -21,6 +21,10 @@ import (
 	"gno.land/r/aib/ibc/ibcgov"
 )
 
+// govRoute is the route this test's decisions name (ADR 0007: route-scoped
+// entry points take the route).
+var govRoute string
+
 // bridge is the route's Ethereum router, ICS20 transfer and IBCAdmin: its
 // protected recipients.
 const bridge = "0x1d95d544586eacb63b6154e9e45122b32ded11aa 0x00000000000000000000000000000000000b0002 0x00000000000000000000000000000000000b0003"
@@ -58,6 +62,7 @@ func execute(cur realm, id int64) {
 // enrolls the client as a route, every step a governor decision.
 func setupRoute(cur realm) string {
 	clientID := core.CreateClient(cross(cur), ethtesting.ClientState(), ethtesting.ConsensusState())
+	govRoute = clientID
 	core.RegisterCounterparty(cross(cur), clientID, [][]byte{{}}, "client-0")
 	execute(cur, govern(cur, ibcgov.NewEnrollRouteRequest(cross(cur), clientID, string(collector), bridge)))
 	advance(7*24*time.Hour + time.Second) // keeps the timeline of the goldens
@@ -104,7 +109,7 @@ func main(cur realm) {
 	route := setupRoute(cur)
 	println("before the denom:", revive(func() { send(cur, route, 100, 120, ethReceiver) }))
 	execute(cur, govern(cur, ibcgov.NewSetDenomRequest(cross(cur), route, "ugnot", "unescrow", 10_000, 0, 20, 2, 25_000, 40, 10_000, "0x0000000000000000000000000000000000c0ffee", 0)))
-	execute(cur, govern(cur, ibcgov.NewSetSeatsRequest(cross(cur), "4:"+string(watch))))
+	execute(cur, govern(cur, ibcgov.NewSetSeatsRequest(cross(cur), govRoute, "4:"+string(watch))))
 	govern(cur, ibcgov.NewRefuseRecipientsRequest(cross(cur), route, "0x1d95d544586eacb63b6154e9e45122b32ded11aa"))
 
 	println("no fee:", revive(func() { send(cur, route, 100, 100, ethReceiver) }))
@@ -128,7 +133,7 @@ func main(cur realm) {
 
 	// A sends flag stops gno-native sends at once.
 	testing.SetRealm(testing.NewUserRealm(watch))
-	ibcgov.SetFlag(cross(cur), route, ibcgov.FnSends, "")
+	ibcgov.SetFlag(cross(cur), govRoute, route, ibcgov.FnSends, "")
 	println("flagged:", revive(func() { send(cur, route, 100, 120, ethReceiver) }))
 	println(transfer.Render("routes/" + route))
 }

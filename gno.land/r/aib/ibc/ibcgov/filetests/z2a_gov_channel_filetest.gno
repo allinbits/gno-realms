@@ -15,6 +15,10 @@ import (
 	"gno.land/r/aib/ibc/ibcgov"
 )
 
+// govRoute is the route this test's decisions name (ADR 0007: route-scoped
+// entry points take the route).
+var govRoute string
+
 // bridge is the route's Ethereum router, ICS20 transfer and IBCAdmin: its
 // protected recipients.
 const bridge = "0x1d95d544586eacb63b6154e9e45122b32ded11aa 0x00000000000000000000000000000000000b0002 0x00000000000000000000000000000000000b0003"
@@ -46,6 +50,7 @@ func execute(cur realm, id int64) {
 // enrolls the client as a route, every step a governor decision.
 func setupRoute(cur realm) string {
 	clientID := core.CreateClient(cross(cur), ethtesting.ClientState(), ethtesting.ConsensusState())
+	govRoute = clientID
 	core.RegisterCounterparty(cross(cur), clientID, [][]byte{{}}, "client-0")
 	execute(cur, govern(cur, ibcgov.NewEnrollRouteRequest(cross(cur), clientID, string(collector), bridge)))
 	advance(7*24*time.Hour + time.Second) // keeps the timeline of the goldens
@@ -66,27 +71,27 @@ func appAck(epoch uint32, seq uint64, status, redispatch byte) []byte {
 // asCore delivers an acknowledgement or a timeout of a governance packet as
 // the core does after verifying it.
 func ackAsCore(cur realm, client string, seq uint64, ack []byte) {
-	transport := ibcgov.DispatchTransport(1, seq)
+	transport := ibcgov.DispatchTransport(govRoute, 1, seq)
 	testing.SetRealm(testing.NewCodeRealm("gno.land/r/aib/ibc/core"))
 	var app ibcgov.App
-	if err := app.OnAcknowledgementPacket(cross(cur), client, "client-0", transport, ack, payload(ibcgov.DispatchBody(1, seq))); err != nil {
+	if err := app.OnAcknowledgementPacket(cross(cur), client, "client-0", transport, ack, payload(ibcgov.DispatchBody(govRoute, 1, seq))); err != nil {
 		panic(err)
 	}
 	testing.SetRealm(testing.NewCodeRealm("gno.land/r/aib/main"))
 }
 
 func timeoutAsCore(cur realm, client string, seq uint64) {
-	transport := ibcgov.DispatchTransport(1, seq)
+	transport := ibcgov.DispatchTransport(govRoute, 1, seq)
 	testing.SetRealm(testing.NewCodeRealm("gno.land/r/aib/ibc/core"))
 	var app ibcgov.App
-	if err := app.OnTimeoutPacket(cross(cur), client, "client-0", transport, payload(ibcgov.DispatchBody(1, seq))); err != nil {
+	if err := app.OnTimeoutPacket(cross(cur), client, "client-0", transport, payload(ibcgov.DispatchBody(govRoute, 1, seq))); err != nil {
 		panic(err)
 	}
 	testing.SetRealm(testing.NewCodeRealm("gno.land/r/aib/main"))
 }
 
 func show(seq uint64) {
-	status, redispatch, inFlight, sends, event := ibcgov.DispatchState(1, seq)
+	status, redispatch, inFlight, sends, event := ibcgov.DispatchState(govRoute, 1, seq)
 	println("  seq", seq, "status", status, "redispatch", redispatch, "in flight", inFlight, "sends", sends, "-", event)
 }
 
@@ -100,19 +105,20 @@ func show(seq uint64) {
 // forged); IBCAdmin's duplicate answer then changes nothing.
 func main(cur realm) {
 	client := core.CreateClient(cross(cur), ethtesting.ClientState(), ethtesting.ConsensusState())
+	govRoute = client
 	core.RegisterCounterparty(cross(cur), client, [][]byte{{}}, "client-0")
-	println("before the channel is bound:", revive(func() { govern(cur, ibcgov.NewEthUnpauseRequest(cross(cur), 2, "")) }))
+	println("before the channel is bound:", revive(func() { govern(cur, ibcgov.NewEthUnpauseRequest(cross(cur), govRoute, 2, "")) }))
 	// The governance channel rides a route: enroll the client first.
 	execute(cur, govern(cur, ibcgov.NewEnrollRouteRequest(cross(cur), client, string(ibcgov.Governor()), "0x1d95d544586eacb63b6154e9e45122b32ded11aa 0x00000000000000000000000000000000000b0002 0x00000000000000000000000000000000000b0003")))
-	execute(cur, govern(cur, ibcgov.NewBindGovernanceRequest(cross(cur), client)))
-	println("epoch", ibcgov.Epoch(), "over", ibcgov.EpochClient())
+	execute(cur, govern(cur, ibcgov.NewBindGovernanceRequest(cross(cur), govRoute, client)))
+	println("epoch", ibcgov.Epoch(govRoute), "over", ibcgov.EpochClient(govRoute))
 
 	// Seq 1: dispatched at once; the core holds its commitment.
-	govern(cur, ibcgov.NewEthUnpauseRequest(cross(cur), 2, ""))
-	body := ibcgov.DispatchBody(1, 1)
+	govern(cur, ibcgov.NewEthUnpauseRequest(cross(cur), govRoute, 2, ""))
+	body := ibcgov.DispatchBody(govRoute, 1, 1)
 	commitment := core.PacketCommitment(client, 1)
 	println("dispatched seq 1:", len(body), "bytes; core commitment:", len(commitment) == 32)
-	println(ibcgov.Render("dispatch/1/1"))
+	println(ibcgov.Render("dispatch/" + govRoute + "/1/1"))
 
 	// Nobody else sends on port gov.
 	println("direct send:", revive(func() {
@@ -136,65 +142,65 @@ func main(cur realm) {
 	// the duplicate, and the decision's state stands.
 	ackAsCore(cur, client, 1, appAck(1, 1, ibcgov.StatusRecorded, 0))
 	show(1)
-	ibcgov.Redispatch(cross(cur), 1, 1)
+	ibcgov.Redispatch(cross(cur), govRoute, 1, 1)
 	show(1)
-	println("identical bytes:", string(ibcgov.DispatchBody(1, 1)) == string(body), "; transport", ibcgov.DispatchTransport(1, 1))
+	println("identical bytes:", string(ibcgov.DispatchBody(govRoute, 1, 1)) == string(body), "; transport", ibcgov.DispatchTransport(govRoute, 1, 1))
 	ackAsCore(cur, client, 1, appAck(1, 1, ibcgov.StatusDuplicate, 0))
 	show(1)
 
 	// Seq 2 times out: re-dispatchable; re-sent with identical bytes.
-	govern(cur, ibcgov.NewEthUnpauseRequest(cross(cur), 1, "client-0"))
-	println("redispatch in flight:", revive(func() { ibcgov.Redispatch(cross(cur), 1, 2) }))
+	govern(cur, ibcgov.NewEthUnpauseRequest(cross(cur), govRoute, 1, "client-0"))
+	println("redispatch in flight:", revive(func() { ibcgov.Redispatch(cross(cur), govRoute, 1, 2) }))
 	timeoutAsCore(cur, client, 2)
 	show(2)
-	before := string(ibcgov.DispatchBody(1, 2))
-	ibcgov.Redispatch(cross(cur), 1, 2)
+	before := string(ibcgov.DispatchBody(govRoute, 1, 2))
+	ibcgov.Redispatch(cross(cur), govRoute, 1, 2)
 	show(2)
-	println("identical bytes:", string(ibcgov.DispatchBody(1, 2)) == before, "; new packet commitment:", len(core.PacketCommitment(client, ibcgov.DispatchTransport(1, 2))) == 32)
+	println("identical bytes:", string(ibcgov.DispatchBody(govRoute, 1, 2)) == before, "; new packet commitment:", len(core.PacketCommitment(client, ibcgov.DispatchTransport(govRoute, 1, 2))) == 32)
 
 	// Seq 3 gets an error acknowledgement (beyond IBCAdmin's window): re-dispatchable.
-	govern(cur, ibcgov.NewEthRouteSettingsRequest(cross(cur), "client-0", 3600))
+	govern(cur, ibcgov.NewEthRouteSettingsRequest(cross(cur), govRoute, "client-0", 3600))
 	ackAsCore(cur, client, 3, types.UniversalErrorAcknowledgement())
 	show(3)
 
 	// Seq 4: a cancel beyond the window is acknowledged with redispatch = 1.
-	govern(cur, ibcgov.NewEthCancelRequest(cross(cur), "3"))
+	govern(cur, ibcgov.NewEthCancelRequest(cross(cur), govRoute, "3"))
 	ackAsCore(cur, client, 4, appAck(1, 4, ibcgov.StatusRecorded, 1))
 	show(4)
 
 	// Seq 5: a malformed acknowledgement (wrong seq) leaves it re-dispatchable;
 	// a conflict without redispatch is final, with redispatch = 1 it is sent
 	// again (redispatch = 1 means re-send, whatever the status).
-	govern(cur, ibcgov.NewEthRouteSettingsRequest(cross(cur), "client-0", 7200))
+	govern(cur, ibcgov.NewEthRouteSettingsRequest(cross(cur), govRoute, "client-0", 7200))
 	ackAsCore(cur, client, 5, appAck(1, 6, ibcgov.StatusRecorded, 0))
 	show(5)
-	ibcgov.Redispatch(cross(cur), 1, 5)
+	ibcgov.Redispatch(cross(cur), govRoute, 1, 5)
 	ackAsCore(cur, client, 5, appAck(1, 5, ibcgov.StatusConflict, 0))
 	show(5)
-	println("redispatch after a conflict:", revive(func() { ibcgov.Redispatch(cross(cur), 1, 5) }))
+	println("redispatch after a conflict:", revive(func() { ibcgov.Redispatch(cross(cur), govRoute, 1, 5) }))
 	// A conflict governance found fabricated (IBCAdmin holds no decision at
 	// seq 5, or these very bytes, and emitted no Conflict): one re-send is
 	// authorized at once, used up by the next Redispatch.
-	println("authorize a re-send of seq 4:", revive(func() { govern(cur, ibcgov.NewRetransmitRequest(cross(cur), 1, 4)) }))
-	auth := govern(cur, ibcgov.NewRetransmitRequest(cross(cur), 1, 5))
+	println("authorize a re-send of seq 4:", revive(func() { govern(cur, ibcgov.NewRetransmitRequest(cross(cur), govRoute, 1, 4)) }))
+	auth := govern(cur, ibcgov.NewRetransmitRequest(cross(cur), govRoute, 1, 5))
 	d, _ := ibcgov.Decision(auth)
 	println("authorize a re-send of seq 5:", d.State(), "-", d.Note)
-	println("authorize it twice:", revive(func() { govern(cur, ibcgov.NewRetransmitRequest(cross(cur), 1, 5)) }))
-	ibcgov.Redispatch(cross(cur), 1, 5)
+	println("authorize it twice:", revive(func() { govern(cur, ibcgov.NewRetransmitRequest(cross(cur), govRoute, 1, 5)) }))
+	ibcgov.Redispatch(cross(cur), govRoute, 1, 5)
 	show(5)
 	ackAsCore(cur, client, 5, appAck(1, 5, ibcgov.StatusConflict, 0))
 	show(5)
-	println("a second re-send without a new authorization:", revive(func() { ibcgov.Redispatch(cross(cur), 1, 5) }))
+	println("a second re-send without a new authorization:", revive(func() { ibcgov.Redispatch(cross(cur), govRoute, 1, 5) }))
 
 	// A buffered decision waits for its turn on Ethereum: nothing to do here.
-	govern(cur, ibcgov.NewEthRouteSettingsRequest(cross(cur), "client-0", 10800))
+	govern(cur, ibcgov.NewEthRouteSettingsRequest(cross(cur), govRoute, "client-0", 10800))
 	ackAsCore(cur, client, 6, appAck(1, 6, ibcgov.StatusBuffered, 0))
 	show(6)
-	println("unknown decision:", revive(func() { ibcgov.Redispatch(cross(cur), 1, 99) }))
+	println("unknown decision:", revive(func() { ibcgov.Redispatch(cross(cur), govRoute, 1, 99) }))
 }
 
 // Output:
-// before the channel is bound: ibcgov: the governance channel is not bound
+// before the channel is bound: ibcgov: no route ethereum-1
 // epoch 1 over ethereum-1
 // dispatched seq 1: 110 bytes; core commitment: true
 // {"epoch":1,"seq":1,"kind":2,"decision":3,"body":"0100000001000000000000000102000000000000000000000000000000000000000000000000000000000000000200000000000000000000000000000000000000000000000000000000000000400000000000000000000000000000000000000000000000000000000000000000","status":0,"redispatch":false,"in_flight":true,"transport":1,"sends":1,"event":"sent as packet 1"}

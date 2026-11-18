@@ -18,6 +18,10 @@ import (
 	"gno.land/r/aib/ibc/ibcgov"
 )
 
+// govRoute is the route this test's decisions name (ADR 0007: route-scoped
+// entry points take the route).
+var govRoute string
+
 const bridge = "0x1d95d544586eacb63b6154e9e45122b32ded11aa 0x00000000000000000000000000000000000b0002 0x00000000000000000000000000000000000b0003"
 
 var (
@@ -29,9 +33,9 @@ var (
 func flagAs(cur realm, who address, route, fn string, set bool) {
 	testing.SetRealm(testing.NewUserRealm(who))
 	if set {
-		ibcgov.SetFlag(cross(cur), route, fn, "")
+		ibcgov.SetFlag(cross(cur), govRoute, route, fn, "")
 	} else {
-		ibcgov.ClearFlag(cross(cur), route, fn)
+		ibcgov.ClearFlag(cross(cur), govRoute, route, fn)
 	}
 	testing.SetRealm(testing.NewCodeRealm("gno.land/r/aib/main"))
 }
@@ -121,7 +125,7 @@ func deliver(cur realm, s *sent, i int) string {
 }
 
 func epochNow() string {
-	return "epoch " + string(rune('0'+ibcgov.Epoch())) + " over " + ibcgov.EpochClient()
+	return "epoch " + string(rune('0'+ibcgov.Epoch(govRoute))) + " over " + ibcgov.EpochClient(govRoute)
 }
 
 func controlsView() controls.Reader { return transfer.ExtView("controls").(controls.Reader) }
@@ -133,6 +137,7 @@ func controlsView() controls.Reader { return transfer.ExtView("controls").(contr
 // to a client governance has moved past (retired for the gov port) is
 // refused.
 func main(cur realm) {
+	govRoute = "ethereum-1"
 	client(cur, "ethereum-1", "client-0")
 	b := client(cur, "ethereum-2", "gnoland-b", noticePacket(1, "gnoland-b", "ethereum-2", 2, "gnoland-b"))
 	c := client(cur, "ethereum-3", "gnoland-c", noticePacket(1, "gnoland-c", "ethereum-3", 3, "gnoland-c"))
@@ -140,13 +145,13 @@ func main(cur realm) {
 	client(cur, "ethereum-5", "gnoland-e")
 	client(cur, "ethereum-6", "gnoland-f")
 	execute(cur, govern(cur, ibcgov.NewEnrollRouteRequest(cross(cur), "ethereum-1", string(collector), bridge)))
-	execute(cur, govern(cur, ibcgov.NewBindGovernanceRequest(cross(cur), "ethereum-1")))
+	execute(cur, govern(cur, ibcgov.NewBindGovernanceRequest(cross(cur), govRoute, "ethereum-1")))
 	// A stale route replacement, recorded while ethereum-2 qualifies.
 	stale := govern(cur, ibcgov.NewReplaceRouteRequest(cross(cur), "ethereum-1", "ethereum-2", 0))
 
 	exp := map[string]int64{}
 	dispatch := func(from, to, local string) {
-		govern(cur, ibcgov.NewEthRouteReplacementRequest(cross(cur), from, to, 1, local))
+		govern(cur, ibcgov.NewEthRouteReplacementRequest(cross(cur), govRoute, from, to, 1, local))
 		exp[to] = ibcgov.LastDecision()
 	}
 	dispatch("client-0", "gnoland-b", "ethereum-2")

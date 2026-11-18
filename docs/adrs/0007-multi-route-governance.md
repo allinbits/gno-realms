@@ -1,11 +1,11 @@
 # ADR 0007: Independent governance per router route
 
-- Status: Proposed (design only, not implemented)
+- Status: Accepted, implemented
 - Date: 2026-11-17
 - Depends on: ADR 0004 (route controls, ibcgov), ADR 0006 (Arc light client,
   allinbits/gno-realms#98)
-- Would supersede in part: ADR 0004's one-route scope, its global guardians
-  and hold, and its route-less channel API (section 9 lists the rules)
+- Supersedes in part: ADR 0004's one-route scope, its global guardians and
+  hold, and its route-less channel API (section 9 lists the rules)
 
 ## Context
 
@@ -73,7 +73,7 @@ key, its identity and its payouts epoch):
 |---|---|
 | Channel | bound or not, `govIdentity`, `epoch`, `epochs`, `dispatches`, retransmit authorizations |
 | Expected graph | `expected`, `tombstones`, `liveEdges`, `awaitingGov`, `approvedLocal`, `proven`, `owned`, `intents`, `routerHistory`, `govPruneAfter` |
-| Guardians | `seats[SeatCount]`, `seatGen`, `seatFlags`, `genEnds`, `holdSince`, `belowSince` |
+| Guardians | `seats[SeatCount]`, `seatGen`, `seatFlags`, `flags`, `genEnds`, `pruneAfter`, `holdSince`, `belowSince` |
 
 Each route keeps every bound it has today: 64 graph places, 4 successors per
 router client, 64 notice steps, 1024-byte envelopes. Every rule of ADR 0004
@@ -91,9 +91,15 @@ What stays global, because it is shared or because it is GovDAO's:
 - `pendingAuth`, which is set and consumed within one call and so belongs to
   no route between transactions.
 
-Flags are keyed by owner route (section 5). `PruneFlags(route, n)` prunes one
-owner's flags, with a cursor per route. Pruning route B, as its drop requires,
-never walks route A's flags.
+Each record keeps its own flags (section 5), so `PruneFlags(route, n)` walks
+one route's flags only, with that route's cursor. Pruning route B, as its
+drop requires, never walks route A's flags.
+
+Read-only views: `Routes(from, n)` lists the route keys with a record,
+`IsRoute`, `IsProvisionalRoute` and `Incarnation` describe one,
+`ClientRoute(client)` names a gno client's route and whether its claim is
+permanent, `DecisionRoute(id)` a decision's route ("" for a global one), and
+`AnyHeld()` and `GlobalHoldSince()` the global hold.
 
 ### 2. Which route a client belongs to
 
@@ -197,7 +203,7 @@ support (Alternatives).
 The number of routes has no fixed cap. Each route, provisional or enrolled,
 exists only through a 7-day GovDAO decision (an enrolment, or the seat change
 that creates a provisional record), so GovDAO's vote is the bound. No path
-loops over routes: the global-decision hold check reads two numbers
+loops over routes: the global-decision hold check reads three numbers
 (section 6), and Render pages the routes.
 
 The per-route rules of ADR 0004 hold for each route separately:
@@ -248,7 +254,9 @@ another client. It is refused, when built and when it executes, unless:
   decisions, so the check reads one number, not the ledger. The count goes
   up when a decision is recorded, the decisions a builder records for it
   (such as an expectation) included, and down when one applies, is spent or
-  is cancelled.
+  is cancelled. The count is kept per route key and incarnation, not on the
+  record, so a decision recorded before the record exists (a second seat
+  change creating it, an enrolment) counts too.
 
 When a provisional record is created it permanently claims its client
 (section 2). Until enrolment, decisions about that client (recovery,
@@ -256,10 +264,10 @@ migration, verifier replacement) are therefore scoped to the provisional
 route and held by its guardians. A drop releases the claim, and only a drop
 does.
 
-**Each record has an incarnation number,** which is part of its flags' owner
-key and its generation records. A route key used again after a drop starts a
-new incarnation. Nothing left from the old one, a flag or a generation end,
-can then count toward the new record's seats. **Requests are bound to the
+**Each record has an incarnation number.** Its flags and generation records
+live in the record itself, so a route key used again after a drop starts a
+new incarnation with none: nothing left from the old one, a flag or a
+generation end, can count toward the new record's seats. **Requests are bound to the
 incarnation too.** A route-scoped Request records the incarnation it was
 built against, and is refused when recorded or executed against another.
 A GovDAO proposal built before a drop therefore cannot change the
@@ -287,19 +295,16 @@ The seat rules are those of ADR 0004 and ADR pr6375 §7.4, applied per route:
 - `seatFlags` and `seatGen` count per route, so a flag on route A never
   counts toward route B's hold. Today a flag on any route counts toward the
   single hold.
-- **Flag keys name the owning route and the target.** A flag is keyed
-  `owner|target|fn|seat`:
-  - `owner` is the route whose seat set it, as its route key and
-    incarnation, and whose seat generations, counts and hold it belongs to;
-  - `target` is the route key, or the key of a candidate client flagged
-    before it joins (below).
-
-  The same seat number on two routes, flagging the same candidate, makes two
-  flags that never collide. The readers become `Flagged(route, fn)` (the
-  owner's flags on its own route key) and `Flags(route, target)`.
-  `NewUnpauseRouteRequest(route, target, fns)` clears an owner's flags of
-  `fns` on a target. Generation checks read the owner's seats, and
-  `PruneFlags(route, n)` walks only the owner's flags.
+- **Flags belong to the route whose seat set them.** Each record keeps its
+  own flags, keyed `target|fn|seat`, `target` the route key or the key of a
+  candidate client flagged before it joins (below). Their seat
+  generations, counts and hold are that route's. The same seat number on two
+  routes, flagging the same candidate, makes two flags that never collide.
+  The readers are `Flagged(route, fn)` (the route's flags on its own key,
+  what the transfer app asks) and `Flags(route, target)` (`target` "" for
+  the route itself). `NewUnpauseRouteRequest(route, target, fns)` clears a
+  route's flags of `fns` on a target, and `PruneFlags(route, n)` walks only
+  that route's flags.
 - **Flags on candidates, before enrolment or replacement.** Today a guardian
   may flag a client that is not yet a route's: an unenrolled client, or a
   replacement candidate. `foldFlags` then moves those flags onto the route
@@ -311,7 +316,11 @@ The seat rules are those of ADR 0004 and ADR pr6375 §7.4, applied per route:
   route takes none of them: they are the first route's seats' and seat
   generations'. They stay there, still counting toward the first route's
   hold, until a seat clears them, an unpause clears them or a prune drops
-  them. Flagging a candidate does not claim it (section 2).
+  them. Such a candidate's id now names the other route, so a route's
+  `ClearFlag`, `Flags` and unpause read a target under its own id while the
+  route holds entries there, and its route key otherwise. Flagging a
+  candidate does not claim it (section 2), but a client another route
+  claims, tentatively or for good, cannot be flagged.
 
 Ethereum-side seats are per chain already: each IBCAdmin has its own, set by
 `NewEthSeatsRequest`, now dispatched to the named route.
@@ -437,10 +446,13 @@ id (section 2). The route arguments added:
 - graph readers and pruning: `Tombstones(route)`,
   `AwaitingGovRetirement(route)`, `PruneGovRetirements(route, n)`;
 - guardian readers: `Held(route)`, `HoldSince(route)`, `Seat(route, n)`,
-  `SeatOf(route, a)`.
+  `SeatOf(route, a)`, `Flags(route, target)`;
+- guardian entry points and decisions: `SetFlag(route, target, fn, keys)`,
+  `ClearFlag(route, target, fn)`, `PruneFlags(route, n)`,
+  `NewSetSeatsRequest(route, changes)`, `NewUnpauseRouteRequest(route,
+  target, fns)`, `NewDropRouteRequest(route)`.
 
-The `routes.gno` builders already take the route. `SetFlag` and `ClearFlag`
-take the route and the flagged key (section 5). `ApplyEpochNotice(e, client,
+The `routes.gno` builders already take the route. `ApplyEpochNotice(e, client,
 path)` keeps its signature: its `client` is a gno client, resolved through
 `govClients`, and every step of `path` must belong to the same route.
 
@@ -465,11 +477,15 @@ yet, ADR 0004):
 
 - **Light clients.** Each router verifier exposes `ChainIdentity()` beside
   `RouteIdentity()`: Ethereum's chain id and genesis validators root, and
-  Arc's chain id and registry. The core reads it with a new accessor,
-  `core.ClientChainIdentity`.
+  Arc's chain id and registry (added with the Arc light client,
+  allinbits/gno-realms#98: a verifier naming no chain identity is refused a
+  route). The core reads it with a new accessor, `core.ClientChainIdentity`.
 - **Route controls / transfer `impl/controls/v0`.** The send path refuses a
-  voucher of another route (section "Consequences", foreign vouchers).
-  `NewSetDenomRequest` gets the configuration restriction there.
+  voucher's GRC20 on any route (a voucher leaves only by its `ibc/` denom,
+  burnt on its own route), and the denom operation of `GovApply` refuses an
+  unescrowed denom in the voucher namespace and a minted denom allocated to
+  another route (section "Consequences", foreign vouchers). The transfer
+  realm exports `DenomPath` and `IsVoucherKey` for ibcgov's checks.
 
 Unchanged:
 
@@ -483,8 +499,8 @@ Unchanged:
 
 ### 9. Changes to ADR 0004
 
-If accepted, this ADR supersedes these parts of ADR 0004, which then gains a
-"Superseded in part by ADR 0007" note. Everything else in ADR 0004 holds per
+This ADR supersedes these parts of ADR 0004, which carries a "Superseded in
+part by ADR 0007" note. Everything else in ADR 0004 holds per
 route.
 
 - **Scope: one governance channel, one Ethereum route.** Replaced by one
@@ -545,8 +561,10 @@ route.
     counterparty token, which the route's client turns into the voucher's
     trace. A raw `ibc/<hash>` is accepted only for a voucher already
     allocated to this route. This restricts today's API, and tests pin it.
-  - **At use.** The route controls' send path refuses a token that is a
-    voucher of another route, whatever the denom configuration says.
+  - **At use.** The route controls' send path refuses a voucher's GRC20
+    registry key on every route, whatever the denom configuration says: a
+    voucher returns only by its `ibc/` denom over the route it came from,
+    which the send path already enforces.
 
   Tests cover both forms, a key enabled before its voucher exists, and a
   voucher created while a configuring decision is pending.

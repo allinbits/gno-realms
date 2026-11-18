@@ -7,30 +7,33 @@ import (
 
 	"gno.land/p/aib/decisions/v0"
 	"gno.land/p/aib/ibc/ics20/controls/v0"
-	"gno.land/p/aib/ibc/lightclient/ethereum/v0"
-	"gno.land/p/nt/avl/v0"
-	"gno.land/r/aib/ibc/apps/transfer"
 	"gno.land/r/aib/ibc/core"
 )
 
-// The guardians on gno.land (ADR pr6375 §7.4, R10): six seats, 0–3 the
-// guardians (2 and 3 the outsiders') and 4–5 the operator's watch keys, each
-// holding one gno address. A seat flags a function of a route, keyed by the
-// route key: sends (gno-native sends), credits (receives from Ethereum),
-// payouts (claim payouts) or refunds (the refunds hold of §7.13, which
-// delays error-ack and timeout refunds and the payout of queued refunds). One
-// flag pauses the function at once. Flags never stop voucher returns (burns),
-// acknowledgements or timeouts; only the refunds flag delays refunds, never
-// cancels them. A seat clears its own flag; an unpause decision clears every
-// seat's flags of a function. Clearing a payouts flag starts the route's
-// meters empty (a new payouts epoch).
+// The guardians on gno.land (ADR pr6375 §7.4, R10), per route (ADR 0007
+// §5): each route has six seats, 0–3 the guardians (2 and 3 the outsiders')
+// and 4–5 the operator's watch keys, each holding one gno address; one key
+// may hold seats on several routes, each seat independent. A seat flags a
+// function of its route, keyed by the route key: sends (gno-native sends),
+// credits (receives from the counterparty), payouts (claim payouts) or
+// refunds (the refunds hold of §7.13, which delays error-ack and timeout
+// refunds and the payout of queued refunds). One flag pauses the function
+// at once. Flags never stop voucher returns (burns), acknowledgements or
+// timeouts; only the refunds flag delays refunds, never cancels them. A seat
+// clears its own flag; an unpause decision clears every seat's flags of a
+// function. Clearing a payouts flag starts the route's meters empty (a new
+// payouts epoch). A seat may also flag a candidate client of its route
+// before it joins (an enrolment's or a replacement's), which its flags
+// follow when it joins that route.
 //
-// Two guardian seats flagging (anything) make a hold: every queued decision is
-// deferred and every unpause decision is spent. A hold ends 24 hours after
-// fewer than two guardian seats flag. A seat change, a vacancy included,
-// waits 7 days and lands through a hold no sooner than day 21 of it. A guardian's payouts flag may name the
-// packets it suspects, which makes their void immediate. Guardians delay;
-// they never veto.
+// Two guardian seats of a route flagging (anything) make the route's hold:
+// its queued decisions are deferred and its unpause decisions spent; every
+// global decision is deferred too, to day 21 of the global hold that first
+// deferred it (ADR 0007 §6). A hold ends 24 hours after fewer than two of
+// the route's guardian seats flag. A seat change, a vacancy included, waits
+// 7 days and lands through its route's hold no sooner than day 21 of it. A
+// guardian's payouts flag may name the packets it suspects, which makes
+// their void immediate. Guardians delay; they never veto.
 
 const (
 	SeatCount     = 6
@@ -43,38 +46,22 @@ const (
 
 	// holdLinger is how long a hold outlives the second flag's clearing.
 	holdLinger = decisions.Day / decisions.Factor
-	// holdReplacementWait is how long into a hold a guardian replacement
-	// waits before it can land (day 21).
+	// holdReplacementWait is how long into a hold a seat change, or a global
+	// decision, waits before it can land (day 21).
 	holdReplacementWait = 21 * decisions.Day / decisions.Factor
 )
 
-var (
-	seats [SeatCount]address
-	// flags holds the standing flags, keyed route|fn|seat.
-	flags avl.Tree // flagKey -> *flag
-	// routes are the routes ibcgov enrolled, keyed by route key.
-	routes avl.Tree // route key -> *routeRec
-
-	holdSince  int64 // when the current hold began, 0 if none
-	belowSince int64 // when it fell below two guardian seats, 0 while it has two
-
-	// A seat's generation grows when its key leaves (removal or
-	// replacement): a flag counts only while its generation is the seat's,
-	// so a departing key's flags stop counting in constant work, however
-	// many there are. seatFlags counts each seat's live flags, kept as flags
-	// are set and cleared, which the hold reads in constant work. The stale
-	// entries are removed lazily: by a later flag at the same key, an
-	// unpause, a fold, or PruneFlags, which anyone may call.
-	seatGen    [SeatCount]uint64
-	seatFlags  [SeatCount]int64
-	pruneAfter string // where PruneFlags resumes
-	// genEnds records when each ended seat generation ended, kept while
-	// entries of its flags remain: a flag reads its own generation's end, so
-	// a later generation of the seat ending does not move an earlier one's.
-	// A record goes with the last entry of its generation, so there is at
-	// most one per stale entry.
-	genEnds avl.Tree // seat|gen -> *genEnd
-)
+// A seat's generation grows when its key leaves (removal or replacement): a
+// flag counts only while its generation is the seat's, so a departing key's
+// flags stop counting in constant work, however many there are. seatFlags
+// counts each seat's live flags, kept as flags are set and cleared, which
+// the hold reads in constant work. The stale entries are removed lazily: by
+// a later flag at the same key, an unpause, a fold, or PruneFlags, which
+// anyone may call. genEnds records when each ended seat generation ended,
+// kept while entries of its flags remain: a flag reads its own generation's
+// end, so a later generation of the seat ending does not move an earlier
+// one's. A record goes with the last entry of its generation, so there is at
+// most one per stale entry. All of it is the route's own.
 
 // genEnd is when a seat generation ended and how many of its flags'
 // entries remain.
@@ -87,22 +74,6 @@ func genKey(seat int, gen uint64) string {
 	return strconv.Itoa(seat) + "|" + strconv.FormatUint(gen, 10)
 }
 
-// endedAt is when the generation of a flag that no longer counts ended.
-func (f *flag) endedAt() int64 {
-	return genEnds.Get(genKey(f.seat, f.gen)).(*genEnd).at
-}
-
-// dropStale removes the entry at k of a flag that no longer counts, and its
-// generation's record with the last of its entries.
-func dropStale(k string, f *flag) {
-	flags.Remove(k)
-	gk := genKey(f.seat, f.gen)
-	e := genEnds.Get(gk).(*genEnd)
-	if e.left--; e.left == 0 {
-		genEnds.Remove(gk)
-	}
-}
-
 type flag struct {
 	seat int
 	gen  uint64 // the seat's generation when it was set
@@ -111,40 +82,60 @@ type flag struct {
 }
 
 // live reports whether f still counts: its seat's key has not left since.
-func (f *flag) live() bool { return f.gen == seatGen[f.seat] }
+func (g *routeGov) live(f *flag) bool { return f.gen == g.seatGen[f.seat] }
 
-// routeRec is a route's record here: its payouts epoch, which the transfer
-// implementation reads to empty its meters when a payouts flag is cleared,
-// and its identity, recorded at enrolment and never changed: the history
-// every client of the route must authenticate (core.ClientRouteIdentity).
-type routeRec struct {
-	epoch    int64
-	epochAt  int64
-	identity string
+// endedAt is when the generation of a flag that no longer counts ended.
+func (g *routeGov) endedAt(f *flag) int64 {
+	return g.genEnds.Get(genKey(f.seat, f.gen)).(*genEnd).at
 }
 
-func flagKey(route, fn string, seat int) string { return route + "|" + fn + "|" + strconv.Itoa(seat) }
-func flagPrefix(route, fn string) string        { return route + "|" + fn + "|" }
+// dropStale removes the entry at k of a flag that no longer counts, and its
+// generation's record with the last of its entries.
+func (g *routeGov) dropStale(k string, f *flag) {
+	g.flags.Remove(k)
+	gk := genKey(f.seat, f.gen)
+	e := g.genEnds.Get(gk).(*genEnd)
+	if e.left--; e.left == 0 {
+		g.genEnds.Remove(gk)
+	}
+}
+
+// flagKey is a flag's key in its route's record: the target it stands on
+// (the route key, or a candidate client), the function and the seat.
+func flagKey(target, fn string, seat int) string {
+	return target + "|" + fn + "|" + strconv.Itoa(seat)
+}
+func flagPrefix(target, fn string) string { return target + "|" + fn + "|" }
 
 func isFn(fn string) bool {
 	return fn == FnSends || fn == FnCredits || fn == FnPayouts || fn == FnRefunds
 }
 
-// Seat is the address in a seat, "" if empty or out of range.
-func Seat(n int) address {
-	if n < 0 || n >= SeatCount {
+// Seat is the address in seat n of route, "" if empty, out of range or no
+// such route.
+func Seat(route string, n int) address {
+	g := govOf(routeKeyOf(route))
+	if g == nil || n < 0 || n >= SeatCount {
 		return ""
 	}
-	return seats[n]
+	return g.seats[n]
 }
 
-// SeatOf is the seat an address holds, -1 if none.
-func SeatOf(a address) int {
+// SeatOf is the seat an address holds on route, -1 if none.
+func SeatOf(route string, a address) int {
+	g := govOf(routeKeyOf(route))
+	if g == nil {
+		return -1
+	}
+	return g.seatOf(a)
+}
+
+func (g *routeGov) seatOf(a address) int {
 	if a == "" {
 		return -1
 	}
 	for i := 0; i < SeatCount; i++ {
-		if seats[i] == a {
+		if g.seats[i] == a {
 			return i
 		}
 	}
@@ -154,91 +145,103 @@ func SeatOf(a address) int {
 // IsGuardianSeat reports whether seat n is a guardian's (0–3).
 func IsGuardianSeat(n int) bool { return n >= 0 && n < GuardianSeats }
 
-// IsRoute reports whether ibcgov enrolled route.
-func IsRoute(route string) bool { return routes.Has(route) }
-
-// routeKeyOf is the stable key flags and route records are kept under for
-// id: the route's key when id is a route key or one of a route's clients,
-// current or retired (a replacement keeps the first client's id as the key),
-// and id itself otherwise (an Ethereum client no route uses yet). Every flag operation and check
-// resolves its route through it, so a flag on a client and the transfer app's
-// check on its route meet.
-func routeKeyOf(id string) string {
-	if routes.Has(id) {
-		return id
-	}
-	if rd, ok := transfer.ExtView("controls").(controls.Reader); ok {
-		if k := rd.RouteOf(id); k != "" {
-			return k
-		}
-		if k := rd.RetiredRouteOf(id); k != "" {
-			return k
-		}
-	}
-	return id
-}
-
-// foldFlags moves the flags standing under from to the route key to, when
-// from becomes one of the route's clients (a replacement), and returns how
-// many it moved. A seat's flag of a function standing under both is kept
-// once, with the earlier time and the packets both name.
-func foldFlags(from, to string, t int64) int {
+// foldFlags moves g's flags standing under the candidate from to the route
+// key, when from becomes one of the route's clients (a replacement), and
+// returns how many it moved. A seat's flag of a function standing under
+// both is kept once, with the earlier time and the packets both name. Only
+// the route's own seats' flags move: another route's flags on the same
+// client stay with that route.
+func foldFlags(g *routeGov, from string, t int64) int {
+	to := g.key
 	if from == to {
 		return 0
 	}
 	var keys []string
-	flags.Iterate(from+"|", from+"|~", func(k string, _ any) bool {
+	g.flags.Iterate(from+"|", from+"|~", func(k string, _ any) bool {
 		keys = append(keys, k)
 		return false
 	})
 	for _, k := range keys {
-		f := flags.Get(k).(*flag)
-		if !f.live() {
-			pruneFlag(k, f) // its seat's key left: it stopped counting then
+		f := g.flags.Get(k).(*flag)
+		if !g.live(f) {
+			pruneFlag(g, k, f) // its seat's key left: it stopped counting then
 			continue
 		}
-		flags.Remove(k)
+		g.flags.Remove(k)
 		fn := strings.Split(k, "|")[1]
-		if w := flags.Get(flagKey(to, fn, f.seat)); w != nil && !w.(*flag).live() {
-			pruneFlag(flagKey(to, fn, f.seat), w.(*flag))
+		if w := g.flags.Get(flagKey(to, fn, f.seat)); w != nil && !g.live(w.(*flag)) {
+			pruneFlag(g, flagKey(to, fn, f.seat), w.(*flag))
 		} else if w != nil {
-			seatFlags[f.seat]-- // merged into the route's own flag
-			g := w.(*flag)
-			if f.at < g.at {
-				g.at = f.at
+			g.seatFlags[f.seat]-- // merged into the route's own flag
+			x := w.(*flag)
+			if f.at < x.at {
+				x.at = f.at
 			}
 			for _, key := range f.keys {
-				if !contains(g.keys, key) && len(g.keys) < controls.MaxKeys {
-					g.keys = append(g.keys, key)
+				if !contains(x.keys, key) && len(x.keys) < controls.MaxKeys {
+					x.keys = append(x.keys, key)
 				}
 			}
 			continue
 		}
-		flags.Set(flagKey(to, fn, f.seat), f)
+		g.flags.Set(flagKey(to, fn, f.seat), f)
 	}
 	if len(keys) > 0 {
-		chain.Emit("FlagsMoved", "from", from, "to", to, "flags", strconv.Itoa(len(keys)))
-		updateHold(t)
+		chain.Emit("FlagsMoved", "route", g.key, "from", from, "to", to, "flags", strconv.Itoa(len(keys)))
+		updateHold(g, t)
 	}
 	return len(keys)
 }
 
-// flaggable reports whether a flag may stand on route: a route ibcgov
-// enrolled, or any Ethereum client, so a client about to become a route's
-// (by an enrolment, or as a replacement candidate) can be held beforehand:
-// its flags stay with its route.
-func flaggable(route string) bool {
-	return routes.Has(route) || core.ClientType(route) == ethereum.ClientType
+// hasFlagsOn reports whether g holds flag entries on target.
+func (g *routeGov) hasFlagsOn(target string) bool {
+	found := false
+	g.flags.Iterate(target+"|", target+"|~", func(string, any) bool {
+		found = true
+		return true
+	})
+	return found
+}
+
+// flagTarget is the key g's flags on target stand under: target itself when
+// g holds entries there (a candidate that joined another route since keeps
+// g's flags under its own id: g's seats still clear them, and an unpause of
+// g still does, ADR 0007 §5), and its route key otherwise.
+func flagTarget(g *routeGov, target string) string {
+	if target != "" && g.hasFlagsOn(target) {
+		return target
+	}
+	return routeKeyOf(target)
+}
+
+// checkTarget is why a seat of route g cannot flag target, or "": target is
+// the route itself (its key, or a client of its transfer route), or a
+// candidate router client that belongs to no other route (ADR 0007 §5).
+func checkTarget(g *routeGov, target string) string {
+	if target == g.key {
+		return ""
+	}
+	if routes.Has(target) {
+		return "a seat of route " + g.key + " flags its own route or a candidate client, not route " + target
+	}
+	if !core.IsRouterClient(target) {
+		return "no route or router client " + target
+	}
+	return checkClaim(target, g.key)
 }
 
 // Flagged reports whether any seat's flag for fn stands on route: what the
 // transfer implementation asks before sending, crediting, paying out or
 // refunding.
 func Flagged(route, fn string) bool {
-	route = routeKeyOf(route)
+	key := routeKeyOf(route)
+	g := govOf(key)
+	if g == nil {
+		return false
+	}
 	found := false
-	flags.Iterate(flagPrefix(route, fn), flagPrefix(route, fn)+"~", func(_ string, v any) bool {
-		found = v.(*flag).live()
+	g.flags.Iterate(flagPrefix(key, fn), flagPrefix(key, fn)+"~", func(_ string, v any) bool {
+		found = g.live(v.(*flag))
 		return found
 	})
 	return found
@@ -247,20 +250,19 @@ func Flagged(route, fn string) bool {
 // PayoutsEpoch is how many times a standing payouts flag on route was
 // cleared, and when the last was: the route's meters empty when it changes.
 func PayoutsEpoch(route string) (epoch, at int64) {
-	route = routeKeyOf(route)
-	v := routes.Get(route)
-	if v == nil {
+	key := routeKeyOf(route)
+	g := govOf(key)
+	if g == nil {
 		return 0, 0
 	}
-	r := v.(*routeRec)
-	epoch, at = r.epoch, r.epochAt
+	epoch, at = g.payEpoch, g.payEpochAt
 	// A payouts flag whose seat's key left was cleared then, though its
 	// entry is not removed yet: it counts as that clearing (pruneFlag books
 	// it the same way when it removes the entry).
-	flags.Iterate(flagPrefix(route, FnPayouts), flagPrefix(route, FnPayouts)+"~", func(_ string, v any) bool {
-		if f := v.(*flag); !f.live() {
+	g.flags.Iterate(flagPrefix(key, FnPayouts), flagPrefix(key, FnPayouts)+"~", func(_ string, v any) bool {
+		if f := v.(*flag); !g.live(f) {
 			epoch++
-			if e := f.endedAt(); e > at {
+			if e := g.endedAt(f); e > at {
 				at = e
 			}
 		}
@@ -272,11 +274,15 @@ func PayoutsEpoch(route string) (epoch, at int64) {
 // NamedSuspect reports whether a guardian's standing payouts flag on route
 // names the packet key: what makes its void immediate.
 func NamedSuspect(route, key string) bool {
-	route = routeKeyOf(route)
+	rk := routeKeyOf(route)
+	g := govOf(rk)
+	if g == nil {
+		return false
+	}
 	found := false
-	flags.Iterate(flagPrefix(route, FnPayouts), flagPrefix(route, FnPayouts)+"~", func(_ string, v any) bool {
+	g.flags.Iterate(flagPrefix(rk, FnPayouts), flagPrefix(rk, FnPayouts)+"~", func(_ string, v any) bool {
 		f := v.(*flag)
-		if !IsGuardianSeat(f.seat) || !f.live() {
+		if !IsGuardianSeat(f.seat) || !g.live(f) {
 			return false
 		}
 		for _, k := range f.keys {
@@ -290,52 +296,71 @@ func NamedSuspect(route, key string) bool {
 	return found
 }
 
-// Held reports whether a guardian hold stands now.
-func Held() bool { return heldAt(now()) }
+// Held reports whether route's guardian hold stands now.
+func Held(route string) bool {
+	g := govOf(routeKeyOf(route))
+	return g != nil && g.heldAt(now())
+}
 
-// HoldSince is when the current hold began, 0 if none stands.
-func HoldSince() int64 {
-	if !heldAt(now()) {
+// HoldSince is when route's current hold began, 0 if none stands.
+func HoldSince(route string) int64 {
+	g := govOf(routeKeyOf(route))
+	if g == nil || !g.heldAt(now()) {
 		return 0
 	}
-	return holdSince
+	return g.holdSince
 }
 
-func heldAt(t int64) bool {
-	if holdSince == 0 {
+func (g *routeGov) heldAt(t int64) bool {
+	if g.holdSince == 0 {
 		return false
 	}
-	return belowSince == 0 || t < belowSince+holdLinger
+	return g.belowSince == 0 || t < g.belowSince+holdLinger
 }
 
-// guardiansFlagging counts the guardian seats with a live flag, in constant
+// flagging reports whether two of g's guardian seats flag (not lingering).
+func (g *routeGov) flagging() bool { return g.holdSince != 0 && g.belowSince == 0 }
+
+// guardiansFlagging counts g's guardian seats with a live flag, in constant
 // work.
-func guardiansFlagging() int {
+func (g *routeGov) guardiansFlagging() int {
 	n := 0
 	for s := 0; s < GuardianSeats; s++ {
-		if seatFlags[s] > 0 {
+		if g.seatFlags[s] > 0 {
 			n++
 		}
 	}
 	return n
 }
 
-// updateHold re-reads the hold after a flag change at t.
-func updateHold(t int64) {
-	if holdSince != 0 && belowSince != 0 && t >= belowSince+holdLinger {
-		holdSince, belowSince = 0, 0 // the last hold ended
+// updateHold re-reads g's hold after a flag change at t, and the global
+// hold counters with it (ADR 0007 §6).
+func updateHold(g *routeGov, t int64) {
+	was := g.flagging()
+	if g.holdSince != 0 && g.belowSince != 0 && t >= g.belowSince+holdLinger {
+		g.holdSince, g.belowSince = 0, 0 // the last hold ended
 	}
-	if guardiansFlagging() >= 2 {
-		if holdSince == 0 {
-			holdSince = t
-			chain.Emit("Hold", "since", itoa(t))
+	if g.guardiansFlagging() >= 2 {
+		if g.holdSince == 0 {
+			g.holdSince = t
+			chain.Emit("Hold", "route", g.key, "since", itoa(t))
 		}
-		belowSince = 0
+		g.belowSince = 0
+		if !was {
+			if !anyHeldAt(t) {
+				globalHeldSince = t // a global hold starts
+			}
+			routesFlagging++
+		}
 		return
 	}
-	if holdSince != 0 && belowSince == 0 {
-		belowSince = t
-		chain.Emit("HoldEnding", "at", itoa(t+holdLinger))
+	if was {
+		g.belowSince = t
+		routesFlagging--
+		if end := t + holdLinger; end > lingerEnd {
+			lingerEnd = end
+		}
+		chain.Emit("HoldEnding", "route", g.key, "at", itoa(t+holdLinger))
 	}
 }
 
@@ -353,18 +378,21 @@ func parseSuspects(s string) []string {
 	return keys
 }
 
-// SetFlag sets, or re-asserts, the caller's flag on fn of route. keys names
-// the packets a guardian's payouts flag suspects (comma-separated packet
-// keys, "client/sequence" with 20 digits), "" otherwise; a re-assertion
-// replaces them. The caller is cur.Previous(): the seat's key itself.
-func SetFlag(cur realm, route, fn, keys string) {
-	seat := SeatOf(cur.Previous().Address())
+// SetFlag sets, or re-asserts, the caller's flag on fn of target, by its
+// seat of route: target is route itself, or a candidate router client of it
+// that belongs to no other route. keys names the packets a guardian's
+// payouts flag suspects (comma-separated packet keys, "client/sequence"
+// with 20 digits), "" otherwise; a re-assertion replaces them. The caller is
+// cur.Previous(): the seat's key itself.
+func SetFlag(cur realm, route, target, fn, keys string) {
+	g := mustGov(route)
+	seat := g.seatOf(cur.Previous().Address())
 	if seat < 0 {
-		panic("ibcgov: not a guardian or a watch key: " + who(0, cur.Previous()))
+		panic("ibcgov: not a guardian or a watch key of route " + g.key + ": " + who(0, cur.Previous()))
 	}
-	route = routeKeyOf(route)
-	if !flaggable(route) {
-		panic("ibcgov: no route or Ethereum client " + route)
+	target = routeKeyOf(target)
+	if refusal := checkTarget(g, target); refusal != "" {
+		panic("ibcgov: " + refusal)
 	}
 	if !isFn(fn) {
 		panic("ibcgov: the function is sends, credits, payouts or refunds, not " + fn)
@@ -374,82 +402,84 @@ func SetFlag(cur realm, route, fn, keys string) {
 		panic("ibcgov: only a guardian's payouts flag names packets")
 	}
 	t := now()
-	k := flagKey(route, fn, seat)
-	if v := flags.Get(k); v != nil && v.(*flag).live() {
-		seatFlags[seat]-- // a re-assertion replaces the live flag
+	k := flagKey(target, fn, seat)
+	if v := g.flags.Get(k); v != nil && g.live(v.(*flag)) {
+		g.seatFlags[seat]-- // a re-assertion replaces the live flag
 	} else if v != nil {
-		pruneFlag(k, v.(*flag)) // a departed key's entry at the same place
+		pruneFlag(g, k, v.(*flag)) // a departed key's entry at the same place
 	}
-	flags.Set(k, &flag{seat: seat, gen: seatGen[seat], at: t, keys: list})
-	seatFlags[seat]++
-	updateHold(t)
-	chain.Emit("Flag", "route", route, "fn", fn, "seat", strconv.Itoa(seat), "packets", strconv.Itoa(len(list)))
+	g.flags.Set(k, &flag{seat: seat, gen: g.seatGen[seat], at: t, keys: list})
+	g.seatFlags[seat]++
+	updateHold(g, t)
+	chain.Emit("Flag", "route", g.key, "target", target, "fn", fn, "seat", strconv.Itoa(seat), "packets", strconv.Itoa(len(list)))
 }
 
-// ClearFlag clears the caller's own flag on fn of route. A route with losses
-// that have no restoring decision stays closed in the transfer app whatever
-// the flags (ADR pr6375 §7.9), so clearing a flag, ending a hold, never
-// reopens it: the restoring decisions the hold would defer can then land.
-func ClearFlag(cur realm, route, fn string) {
-	seat := SeatOf(cur.Previous().Address())
+// ClearFlag clears the caller's own flag on fn of target, by its seat of
+// route. A route with losses that have no restoring decision stays closed in
+// the transfer app whatever the flags (ADR pr6375 §7.9), so clearing a flag,
+// ending a hold, never reopens it: the restoring decisions the hold would
+// defer can then land.
+func ClearFlag(cur realm, route, target, fn string) {
+	g := mustGov(route)
+	seat := g.seatOf(cur.Previous().Address())
 	if seat < 0 {
-		panic("ibcgov: not a guardian or a watch key: " + who(0, cur.Previous()))
+		panic("ibcgov: not a guardian or a watch key of route " + g.key + ": " + who(0, cur.Previous()))
 	}
-	route = routeKeyOf(route)
-	if v := flags.Get(flagKey(route, fn, seat)); v == nil || !v.(*flag).live() {
+	target = flagTarget(g, target)
+	if v := g.flags.Get(flagKey(target, fn, seat)); v == nil || !g.live(v.(*flag)) {
 		panic("ibcgov: no such flag of yours")
 	}
 	t := now()
-	clearFlag(route, fn, seat, t)
-	updateHold(t)
+	clearFlag(g, target, fn, seat, t)
+	updateHold(g, t)
 }
 
 // clearFlag clears a live flag.
-func clearFlag(route, fn string, seat int, t int64) {
-	flags.Remove(flagKey(route, fn, seat))
-	seatFlags[seat]--
-	if fn == FnPayouts {
-		bumpPayoutsEpoch(route, t)
+func clearFlag(g *routeGov, target, fn string, seat int, t int64) {
+	g.flags.Remove(flagKey(target, fn, seat))
+	g.seatFlags[seat]--
+	if fn == FnPayouts && target == g.key {
+		bumpPayoutsEpoch(g, t)
 	}
-	chain.Emit("Unflag", "route", route, "fn", fn, "seat", strconv.Itoa(seat))
+	chain.Emit("Unflag", "route", g.key, "target", target, "fn", fn, "seat", strconv.Itoa(seat))
 }
 
 // pruneFlag removes the entry of a flag whose seat's key left: it stopped
-// counting then; a payouts flag's clearing is booked as of then, as
-// PayoutsEpoch already reads it.
-func pruneFlag(k string, f *flag) {
-	ended := f.endedAt()
-	dropStale(k, f)
+// counting then; a payouts flag's clearing on the route is booked as of
+// then, as PayoutsEpoch already reads it.
+func pruneFlag(g *routeGov, k string, f *flag) {
+	ended := g.endedAt(f)
+	g.dropStale(k, f)
 	parts := strings.Split(k, "|")
-	if parts[1] == FnPayouts {
-		if v := routes.Get(parts[0]); v != nil {
-			r := v.(*routeRec)
-			r.epoch++
-			if ended > r.epochAt {
-				r.epochAt = ended
-			}
+	if parts[1] == FnPayouts && parts[0] == g.key {
+		g.payEpoch++
+		if ended > g.payEpochAt {
+			g.payEpochAt = ended
 		}
 	}
 }
 
-// PruneFlags removes up to n entries of flags whose seat's key left,
-// visiting at most n entries from where the last call stopped, and returns
-// how many it removed; anyone may call it. A departed key's flags stop
-// counting at once (seat generations); this only reclaims their storage.
-func PruneFlags(cur realm, n int) int {
+// PruneFlags removes up to n entries of route's flags whose seat's key left,
+// visiting at most n entries of that route from where its last call stopped,
+// and returns how many it removed; anyone may call it. A departed key's
+// flags stop counting at once (seat generations); this only reclaims their
+// storage. Each route has its own cursor and flags: pruning one never walks
+// another's.
+func PruneFlags(cur realm, route string, n int) int {
 	if n <= 0 || n > controls.MaxKeys {
 		panic("ibcgov: prune 1 to " + strconv.Itoa(controls.MaxKeys) + " entries a call")
 	}
+	g := mustGov(route)
 	var stale []string
 	visited := 0
 	last := ""
-	stopped := flags.Iterate(after(pruneAfter), "", func(k string, v any) bool {
+	stopped := g.flags.Iterate(after(g.pruneAfter), "", func(k string, v any) bool {
 		if visited == n {
 			return true
 		}
 		visited++
 		last = k
-		if !v.(*flag).live() {
+		if !g.live(v.(*flag)) {
 			stale = append(stale, k)
 		}
 		return false
@@ -457,9 +487,9 @@ func PruneFlags(cur realm, n int) int {
 	if !stopped {
 		last = "" // the walk reached the end: the next starts over
 	}
-	pruneAfter = last
+	g.pruneAfter = last
 	for _, k := range stale {
-		pruneFlag(k, flags.Get(k).(*flag))
+		pruneFlag(g, k, g.flags.Get(k).(*flag))
 	}
 	return len(stale)
 }
@@ -473,22 +503,20 @@ func after(cursor string) string {
 	return cursor + "\x00"
 }
 
-func bumpPayoutsEpoch(route string, t int64) {
-	if v := routes.Get(route); v != nil {
-		r := v.(*routeRec)
-		r.epoch++
-		r.epochAt = t
-	}
+func bumpPayoutsEpoch(g *routeGov, t int64) {
+	g.payEpoch++
+	g.payEpochAt = t
 }
 
-// clearFns clears every seat's flags of fns on route and returns how many.
-func clearFns(route string, fns []string, t int64) int {
+// clearFns clears every seat's flags of fns on target in g and returns how
+// many.
+func clearFns(g *routeGov, target string, fns []string, t int64) int {
 	n := 0
 	for _, fn := range fns {
 		var live []int
 		stale := map[string]*flag{}
-		flags.Iterate(flagPrefix(route, fn), flagPrefix(route, fn)+"~", func(k string, v any) bool {
-			if f := v.(*flag); f.live() {
+		g.flags.Iterate(flagPrefix(target, fn), flagPrefix(target, fn)+"~", func(k string, v any) bool {
+			if f := v.(*flag); g.live(f) {
 				live = append(live, f.seat)
 			} else {
 				stale[k] = f
@@ -496,38 +524,46 @@ func clearFns(route string, fns []string, t int64) int {
 			return false
 		})
 		for k, f := range stale {
-			pruneFlag(k, f)
+			pruneFlag(g, k, f)
 		}
 		for _, s := range live {
-			clearFlag(route, fn, s, t)
+			clearFlag(g, target, fn, s, t)
 			n++
 		}
 	}
-	updateHold(t)
+	updateHold(g, t)
 	return n
 }
 
-// clearSeat ends every flag of a seat (its key leaves), in constant work:
-// the seat's generation grows, so its flags stop counting; their entries
-// are pruned lazily.
-func clearSeat(seat int, t int64) {
-	if seatFlags[seat] > 0 {
-		genEnds.Set(genKey(seat, seatGen[seat]), &genEnd{at: t, left: seatFlags[seat]})
+// clearSeat ends every flag of a seat of g (its key leaves), in constant
+// work: the seat's generation grows, so its flags stop counting; their
+// entries are pruned lazily.
+func clearSeat(g *routeGov, seat int, t int64) {
+	if g.seatFlags[seat] > 0 {
+		g.genEnds.Set(genKey(seat, g.seatGen[seat]), &genEnd{at: t, left: g.seatFlags[seat]})
 	}
-	seatGen[seat]++
-	seatFlags[seat] = 0
-	chain.Emit("SeatFlagsEnded", "seat", strconv.Itoa(seat))
-	updateHold(t)
+	g.seatGen[seat]++
+	g.seatFlags[seat] = 0
+	chain.Emit("SeatFlagsEnded", "route", g.key, "seat", strconv.Itoa(seat))
+	updateHold(g, t)
 }
 
-// Flags lists the standing flags of a route as "fn seat <n> at <time>" lines,
-// with the packets a payouts flag names.
-func Flags(route string) []string {
-	route = routeKeyOf(route)
+// Flags lists route's standing flags on target (route itself when target is
+// "") as "fn seat <n> at <time>" lines, with the packets a payouts flag
+// names.
+func Flags(route, target string) []string {
+	g := govOf(routeKeyOf(route))
+	if g == nil {
+		return nil
+	}
+	if target == "" {
+		target = g.key
+	}
+	target = flagTarget(g, target)
 	var out []string
-	flags.Iterate(route+"|", route+"|~", func(k string, v any) bool {
+	g.flags.Iterate(target+"|", target+"|~", func(k string, v any) bool {
 		f := v.(*flag)
-		if !f.live() {
+		if !g.live(f) {
 			return false
 		}
 		line := strings.Split(k, "|")[1] + " seat " + strconv.Itoa(f.seat) + " at " + itoa(f.at)
@@ -542,39 +578,65 @@ func Flags(route string) []string {
 
 // ------------------------------------------------------------------ seats
 
-// seatsParams is a seat change: each seat in order gets its address ("" to
-// vacate). held records the seats' holders when the decision was made: a
-// removal of a seat whose occupant changed since is skipped.
+// holdBounded is implemented by a route-scoped decision its route's hold
+// defers only to day 21 of the hold that first deferred it once it was due:
+// a seat change. Global decisions are bounded the same way by the global
+// hold (Execute).
+type holdBounded interface{ boundedByHold() }
+
+// seatsParams is a seat change of one route: each seat in order gets its
+// address ("" to vacate). held records the seats' holders when the decision
+// was made: a removal of a seat whose occupant changed since is skipped. A
+// seat change naming a key no route record uses creates the route's
+// provisional record when it applies (ADR 0007 §5).
 type seatsParams struct {
-	// holdAnchor is the start of the hold that first deferred this decision
-	// once it was due (0 before): it executes from holdAnchor +
-	// holdReplacementWait whatever holds stand then, so a hold cleared and
-	// set again never moves its deadline.
-	holdAnchor int64
-	seats      []int
-	addrs      []address
-	held       []address
-	heldGen    []uint64 // each seat's generation when the request was built
+	route   string
+	seats   []int
+	addrs   []address
+	held    []address
+	heldGen []uint64 // each seat's generation when the request was built
 }
 
-// holdDeadline implements holdBounded: a seat change lands from
-// holdReplacementWait into the hold that first deferred it once it was due.
-func (p *seatsParams) holdDeadline() (anchor, deadline int64, first bool) {
-	first = p.holdAnchor == 0
-	if first {
-		p.holdAnchor = holdSince
+func (*seatsParams) boundedByHold() {}
+
+// checkProvisional is why key cannot start a provisional route record, or
+// "": a router client that is no transfer route's, not retired, belongs to
+// no other route, and whose chain is free.
+func checkProvisional(key string) string {
+	switch {
+	case !core.IsRouterClient(key):
+		return key + " is no router client"
+	case core.IsClientRetiredAny(key):
+		return key + " is retired"
 	}
-	return p.holdAnchor, p.holdAnchor + holdReplacementWait, first
+	if rd := transferView(); rd.Valid() && (rd.RouteOf(key) != "" || rd.RetiredRouteOf(key) != "") {
+		return key + " is a route's client already"
+	}
+	if refusal := checkClaim(key, key); refusal != "" {
+		return refusal
+	}
+	return checkChainFree(key, key)
 }
 
 func (p *seatsParams) apply(cur realm, t int64) (string, string) {
+	g := govOf(p.route)
+	if g == nil {
+		if refusal := checkProvisional(p.route); refusal != "" {
+			return "", refusal
+		}
+	}
 	// Re-check against live state: no address may end up in two seats.
-	next := seats
+	var cur6 [SeatCount]address
+	var gens [SeatCount]uint64
+	if g != nil {
+		cur6, gens = g.seats, g.seatGen
+	}
+	next := cur6
 	for i, s := range p.seats {
 		// A vacancy removes the very tenure it was requested against: the
 		// same key in the same generation. A seat that changed hands since,
 		// even back to that key (a new generation), is left alone.
-		if p.addrs[i] == "" && (seats[s] != p.held[i] || seatGen[s] != p.heldGen[i]) {
+		if p.addrs[i] == "" && (cur6[s] != p.held[i] || gens[s] != p.heldGen[i]) {
 			continue
 		}
 		next[s] = p.addrs[i]
@@ -582,36 +644,62 @@ func (p *seatsParams) apply(cur realm, t int64) (string, string) {
 	for i := 0; i < SeatCount; i++ {
 		for j := i + 1; j < SeatCount; j++ {
 			if next[i] != "" && next[i] == next[j] {
-				return "", "address " + string(next[i]) + " would hold seats " + strconv.Itoa(i) + " and " + strconv.Itoa(j)
+				return "", "address " + string(next[i]) + " would hold seats " + strconv.Itoa(i) + " and " + strconv.Itoa(j) + " of route " + p.route
 			}
 		}
 	}
-	var changed []string
-	for i := 0; i < SeatCount; i++ {
-		if next[i] != seats[i] {
-			clearSeat(i, t)
-			seats[i] = next[i]
-			changed = append(changed, strconv.Itoa(i))
-			chain.Emit("SeatSet", "seat", strconv.Itoa(i), "address", string(next[i]))
-		}
-	}
-	if len(changed) == 0 {
+	if next == cur6 {
 		return "", "nothing to change"
 	}
-	return "seats " + strings.Join(changed, ","), ""
+	// Only a change that applies creates the provisional record.
+	created := false
+	if g == nil {
+		g = newRecord(p.route, core.ClientChainIdentity(p.route))
+		created = true
+	}
+	var changed []string
+	for i := 0; i < SeatCount; i++ {
+		if next[i] != g.seats[i] {
+			clearSeat(g, i, t)
+			g.seats[i] = next[i]
+			changed = append(changed, strconv.Itoa(i))
+			chain.Emit("SeatSet", "route", g.key, "seat", strconv.Itoa(i), "address", string(next[i]))
+		}
+	}
+	note := "seats " + strings.Join(changed, ",") + " of route " + g.key
+	if created {
+		note += " (a provisional route record)"
+	}
+	return note, ""
 }
 
-// NewSetSeatsRequest changes guardian and watch-key seats: changes is a
-// comma-separated list of "seat:address" (seat 0–5; an empty address vacates
-// the seat). At most two guardian seats per decision; no address in two
-// seats. Every seat change, a vacancy included (ADR pr6375 §7.4), waits 7
-// days, and through a guardian hold no sooner than day 21 of it.
-func NewSetSeatsRequest(cur realm, changes string) Request {
+// NewSetSeatsRequest changes guardian and watch-key seats of route: changes
+// is a comma-separated list of "seat:address" (seat 0–5; an empty address
+// vacates the seat). At most two guardian seats per decision; no address in
+// two seats of the route. Every seat change, a vacancy included (ADR pr6375
+// §7.4), waits 7 days, and through the route's guardian hold no sooner than
+// day 21 of it. route is a route key with a record, enrolled or
+// provisional, or a router client no route uses yet: the decision then
+// creates its provisional record when it applies, reserving its chain (ADR
+// 0007 §5).
+func NewSetSeatsRequest(cur realm, route, changes string) Request {
+	key := routeKeyOf(route)
+	g := govOf(key)
+	if g == nil {
+		if refusal := checkProvisional(key); refusal != "" {
+			panic("ibcgov: " + refusal)
+		}
+	}
+	var seats [SeatCount]address
+	var gens [SeatCount]uint64
+	if g != nil {
+		seats, gens = g.seats, g.seatGen
+	}
 	items := splitList(changes)
 	if len(items) == 0 || len(items) > SeatCount {
 		panic("ibcgov: name 1 to 6 seat changes")
 	}
-	p := &seatsParams{}
+	p := &seatsParams{route: key}
 	seen := map[int]bool{}
 	guardians := 0
 	var parts []string
@@ -629,7 +717,7 @@ func NewSetSeatsRequest(cur realm, changes string) Request {
 		if raw := strings.TrimSpace(it[i+1:]); raw != "" {
 			a = mustAddr(raw)
 			if seats[n] == a {
-				panic("ibcgov: seat " + strconv.Itoa(n) + " holds " + string(a) + " already")
+				panic("ibcgov: seat " + strconv.Itoa(n) + " of route " + key + " holds " + string(a) + " already")
 			}
 		}
 		if IsGuardianSeat(n) {
@@ -638,13 +726,14 @@ func NewSetSeatsRequest(cur realm, changes string) Request {
 		p.seats = append(p.seats, n)
 		p.addrs = append(p.addrs, a)
 		p.held = append(p.held, seats[n])
-		p.heldGen = append(p.heldGen, seatGen[n])
+		p.heldGen = append(p.heldGen, gens[n])
 		parts = append(parts, strconv.Itoa(n)+"="+string(a))
 	}
 	if guardians > 2 {
 		panic("ibcgov: a decision changes at most two guardian seats")
 	}
-	// No address may end up in two seats (re-checked when it applies).
+	// No address may end up in two seats of the route (re-checked when it
+	// applies).
 	next := seats
 	for i, n := range p.seats {
 		next[n] = p.addrs[i]
@@ -652,48 +741,67 @@ func NewSetSeatsRequest(cur realm, changes string) Request {
 	for i := 0; i < SeatCount; i++ {
 		for j := i + 1; j < SeatCount; j++ {
 			if next[i] != "" && next[i] == next[j] {
-				panic("ibcgov: " + string(next[i]) + " would hold seats " + strconv.Itoa(i) + " and " + strconv.Itoa(j))
+				panic("ibcgov: " + string(next[i]) + " would hold seats " + strconv.Itoa(i) + " and " + strconv.Itoa(j) + " of route " + key)
 			}
 		}
 	}
-	text := "set seats " + strings.Join(parts, ",")
+	text := "set seats of route " + key + ": " + strings.Join(parts, ",")
+	var sc scope
+	if g == nil {
+		sc = routeScope(key, key) // claims the client for the record it creates
+	} else {
+		sc = routeScope(key)
+	}
 	return propose(cur, "set seats", text, func(cur realm, made, t int64) {
 		// Fresh parameters for every recording: each decision keeps its own
-		// hold anchor, so a Request governed twice makes two decisions that
-		// never share one.
-		q := &seatsParams{seats: p.seats, addrs: p.addrs, held: p.held, heldGen: p.heldGen}
-		decide(cur, "set seats", text, q, made, t, true)
+		// scope and hold anchor, so a Request governed twice makes two
+		// decisions that never share one.
+		q := &seatsParams{route: p.route, seats: p.seats, addrs: p.addrs, held: p.held, heldGen: p.heldGen}
+		decide(cur, "set seats", text, q, made, t, true, sc)
 	})
 }
 
 // ------------------------------------------------------------- unpausing
 
-// unpauseRouteParams clears every seat's flags of fns on a route.
+// unpauseRouteParams clears every seat's flags of fns on a target of a
+// route.
 type unpauseRouteParams struct {
-	route string
-	fns   []string
+	route  string
+	target string
+	fns    []string
 }
 
 func (*unpauseRouteParams) unpause() {}
 
 func (p *unpauseRouteParams) apply(cur realm, t int64) (string, string) {
-	// The client named may have become a route's alias since the decision.
-	n := clearFns(routeKeyOf(p.route), p.fns, t)
+	g := govOf(p.route)
+	if g == nil {
+		return "", "no route " + p.route
+	}
+	// The client named may have become the route's alias since the decision.
+	n := clearFns(g, flagTarget(g, p.target), p.fns, t)
 	if n == 0 {
 		return "", "no flag stood"
 	}
-	return "cleared " + strconv.Itoa(n) + " flags", ""
+	return "cleared " + strconv.Itoa(n) + " flags of route " + p.route, ""
 }
 
 // NewUnpauseRouteRequest clears every seat's flags of fns (comma-separated:
-// sends, credits, payouts, refunds) on route, at once (ADR pr6375 §7.4: on
-// gno.land GovDAO unpauses immediately). Spent under a guardian hold. A route
-// with losses that have no restoring decision stays closed in the transfer
-// app all the same.
-func NewUnpauseRouteRequest(cur realm, route, fns string) Request {
-	route = routeKeyOf(route)
-	if !flaggable(route) {
-		panic("ibcgov: no route or Ethereum client " + route)
+// sends, credits, payouts, refunds) of route on target (route itself, or a
+// candidate client its seats flagged), at once (ADR pr6375 §7.4: on gno.land
+// GovDAO unpauses immediately). Spent under the route's guardian hold. A
+// route with losses that have no restoring decision stays closed in the
+// transfer app all the same.
+func NewUnpauseRouteRequest(cur realm, route, target, fns string) Request {
+	g := mustGov(route)
+	if target == "" {
+		target = g.key
+	}
+	target = flagTarget(g, target)
+	if !g.hasFlagsOn(target) {
+		if refusal := checkTarget(g, target); refusal != "" {
+			panic("ibcgov: " + refusal)
+		}
 	}
 	list := splitList(fns)
 	if len(list) == 0 {
@@ -704,9 +812,74 @@ func NewUnpauseRouteRequest(cur realm, route, fns string) Request {
 			panic("ibcgov: not a function: " + fn)
 		}
 	}
-	text := "unpause " + strings.Join(list, ",") + " on route " + route
-	p := &unpauseRouteParams{route: route, fns: list}
+	text := "unpause " + strings.Join(list, ",") + " of route " + g.key + " on " + target
+	p := &unpauseRouteParams{route: g.key, target: target, fns: list}
+	sc := routeScope(g.key)
 	return propose(cur, "unpause route", text, func(cur realm, made, t int64) {
-		decide(cur, "unpause route", text, p, made, t, false)
+		decide(cur, "unpause route", text, p, made, t, false, sc)
+	})
+}
+
+// ---------------------------------------------------------------- dropping
+
+// dropParams removes a provisional route record.
+type dropParams struct{ route string }
+
+// checkDrop is why route g cannot be dropped now, or "" (ADR 0007 §5);
+// others is how many of its pending decisions other than the drop itself
+// are allowed: none.
+func checkDrop(g *routeGov, others int64, t int64) string {
+	if g.enrolled {
+		return "route " + g.key + " is enrolled: only a provisional record is dropped"
+	}
+	for i := 0; i < SeatCount; i++ {
+		if g.seats[i] != "" {
+			return "seat " + strconv.Itoa(i) + " of route " + g.key + " is occupied: vacate every seat first"
+		}
+	}
+	switch {
+	case g.heldAt(t):
+		return "route " + g.key + "'s hold stands, its 24-hour linger included"
+	case g.flags.Size() > 0 || g.genEnds.Size() > 0:
+		return "route " + g.key + " still has flag entries: clear or prune them first (PruneFlags)"
+	case pendingOf(g.key, g.inc) > others:
+		return "route " + g.key + " has pending decisions"
+	}
+	return ""
+}
+
+func (p *dropParams) apply(cur realm, t int64) (string, string) {
+	g := govOf(p.route)
+	if g == nil {
+		return "", "no route " + p.route
+	}
+	// The drop itself is pending until it applies.
+	if refusal := checkDrop(g, 1, t); refusal != "" {
+		return "", refusal
+	}
+	routes.Remove(g.key)
+	chains.Remove(g.chain)
+	if c := claimOf(g.key); c != nil && c.route == g.key {
+		govClients.Remove(g.key)
+	}
+	return "dropped the provisional record of route " + g.key + " (incarnation " + u64s(g.inc) + ")", ""
+}
+
+// NewDropRouteRequest removes route's provisional record after 7 days (ADR
+// 0007 §5): its chain and client are free again, and a later record of the
+// key is a new incarnation. Refused, when built and when it executes, while
+// a seat is occupied, a hold or its linger stands, a flag entry of the route
+// remains (stale ones included: PruneFlags), or another decision of this
+// incarnation is pending. An enrolled route is never dropped.
+func NewDropRouteRequest(cur realm, route string) Request {
+	g := mustGov(route)
+	if refusal := checkDrop(g, 0, now()); refusal != "" {
+		panic("ibcgov: " + refusal)
+	}
+	text := "drop the provisional record of route " + g.key + " (incarnation " + u64s(g.inc) + ")"
+	p := &dropParams{route: g.key}
+	sc := routeScope(g.key)
+	return propose(cur, "drop route", text, func(cur realm, made, t int64) {
+		decide(cur, "drop route", text, p, made, t, true, sc)
 	})
 }

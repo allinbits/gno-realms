@@ -13,7 +13,12 @@
   arithmetic" section below, the minted supply's int64 headroom and the
   parking of minted settlement refunds no longer apply; a denom's
   configuration also names its voucher's decimals, a change of which waits
-  7 days, see ADR 0005 "Voucher decimals").
+  7 days, see ADR 0005 "Voucher decimals"); ADR 0007 (one governance
+  channel per router route, one route per counterparty chain, and seats,
+  flags and holds per route; global decisions deferred by any route's hold
+  to day 21 of the global hold at most; the route-qualified channel,
+  guardian and Ethereum-bound API; foreign vouchers refused; its section 9
+  lists the rules replaced). Everything else below holds per route.
 - Depends on: ADR 0001, ADR 0002, ADR 0003.
 
 ## Context
@@ -44,8 +49,9 @@ registration.
 
 ### Scope: one governance channel, one Ethereum route
 
-(Proposed to be lifted by ADR 0007, independent governance per router route,
-which would keep these rules per route.)
+(Superseded by ADR 0007, independent governance per router route: one
+channel per route, one route per counterparty chain, these rules per
+route.)
 
 ibcgov has one governance channel, bound once, and serves one logical
 Ethereum transfer route, ever. IBCAdmin replaces, recovers, settles and

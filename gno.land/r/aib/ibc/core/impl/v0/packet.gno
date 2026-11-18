@@ -5,7 +5,6 @@ import (
 	"encoding/hex"
 	"time"
 
-
 	"gno.land/p/aib/ibc/host/v0"
 	"gno.land/p/aib/ibc/lightclient/extproof/v0"
 	"gno.land/p/aib/ibc/lightclient/v0"

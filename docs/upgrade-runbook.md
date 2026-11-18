@@ -284,11 +284,15 @@ from the first block, the governor yields right after the deployment.
    id, genesis validators root, router and commitments slot
    (`ibcgov.RouteIdentity(route)`), and every later replacement client must
    name the same.
-3. Seat the guardians and watch keys. All six seats start empty (seats 0–3
-   guardians, 4–5 watch keys), and an unseated key cannot flag, so no hold
-   or flag protects the route until they are seated: install them with
-   `NewSetSeatsRequest("0:g1...,1:g1...")`, at most two guardian seats a
-   decision. Every seat change waits 7 days and, under a hold, until day 21
+3. Seat the route's guardians and watch keys. Each route has its own six
+   seats (ADR 0007), which start empty (seats 0–3 guardians, 4–5 watch
+   keys), and an unseated key cannot flag, so no hold or flag protects the
+   route until they are seated: install them with
+   `NewSetSeatsRequest(R, "0:g1...,1:g1...")`, at most two guardian seats a
+   decision; one key may sit on several routes. Seats requested for a
+   router client no route uses yet create its provisional record, which
+   reserves the client's chain and which the enrolment of that client
+   adopts, so guardians can watch a route before it is enrolled. Every seat change waits 7 days and, under a hold, until day 21
    of the hold that first deferred it once due (the first `Execute` under
    that hold records the anchor and returns; a hold cleared and set again
    never moves it; Ethereum anchors from its hold history at the first
@@ -305,7 +309,7 @@ from the first block, the governor yields right after the deployment.
    here, which Ethereum no longer accepts, and no notice path can repair
    the offset; redeploy. Once the enrollment has executed, bind the
    governance channel to the route's original client with
-   `NewBindGovernanceRequest(clientID)` (7 days): the client must still be
+   `NewBindGovernanceRequest(R, clientID)` (7 days): the client must still be
    Active and the route's original client when it executes. Before
    recording it, verify the pair Ethereum's epoch 1 uses: IBCAdmin's
    `govClient()` is the router client whose counterparty is this gno client
@@ -373,10 +377,10 @@ from the first block, the governor yields right after the deployment.
    it as the old epoch client retires it for governance (ADR 0004, the governance retirement rule). The notice is accepted only
    along a transition ibcgov expects, and over the local client it names
    only: dispatching the kind 10
-   (`NewEthRouteReplacementRequest(old, new, suspectFrom, localClient)`)
+   (`NewEthRouteReplacementRequest(R, old, new, suspectFrom, localClient)`)
    records it as a decision of its own, applied after 7 days (anyone
    executes it; a hold defers it); for an emergency recovery, record
-   `NewExpectRecoveryRequest(oldRouterClient, newRouterClient, localClient)`
+   `NewExpectRecoveryRequest(R, oldRouterClient, newRouterClient, localClient)`
    (7 days, deferred by a hold) before relaying its notice (only while
    `IBCAdmin.recoveryDisabled()` is false: after a kind 14 no recovery can
    open, and such an expectation only holds a place in the graph). A notice more
@@ -413,7 +417,7 @@ from the first block, the governor yields right after the deployment.
    duplicate (status 3), one of a transition not taken or an epoch passed
    gets an error acknowledgement, and one over a client retired for
    governance is refused by the core; none changes anything.
-   Outbound decisions are re-sent the same way: `ibcgov.Redispatch(e, seq)`
+   Outbound decisions are re-sent the same way: `ibcgov.Redispatch(R, e, seq)`
    sends a current-epoch decision again, identical bytes in a fresh packet,
    whenever none of its packets is in flight, after any answer but a
    conflict. Use it when a later seq waits on Ethereum behind one gno shows
@@ -423,12 +427,12 @@ from the first block, the governor yields right after the deployment.
    (status 4, no redispatch) is not re-sent freely. If a later seq waits
    behind it, check on Ethereum whether the conflict was real: read
    `IBCAdmin.decision(e, seq)` (no decision stored, or one whose hash is
-   `keccak256` of `ibcgov.DispatchBody(e, seq)`) and look for a
+   `keccak256` of `ibcgov.DispatchBody(R, e, seq)`) and look for a
    `Conflict(e, seq, …)` event and a raised `conflictBlock()`. If IBCAdmin
    holds no decision or these very bytes and emitted no conflict, the
    acknowledgement was fabricated: decide
-   `ibcgov.NewRetransmitRequest(e, seq)` (applies at once), then anyone
-   calls `ibcgov.Redispatch(e, seq)` once; a further re-send needs a new
+   `ibcgov.NewRetransmitRequest(R, e, seq)` (applies at once), then anyone
+   calls `ibcgov.Redispatch(R, e, seq)` once; a further re-send needs a new
    decision. A real conflict (different bytes stored) is never re-sent.
 
    Removing an active expectation (`NewRemoveExpectationRequest`), or
@@ -436,7 +440,7 @@ from the first block, the governor yields right after the deployment.
    last owning decision: a transition recorded several times stays pending
    while any of its decisions does), leaves a tombstone that keeps its local client, and
    those of the transitions beyond it, from being retired for governance
-   until an epoch switch supersedes it (`ibcgov.Tombstones()` counts them),
+   until an epoch switch supersedes it (`ibcgov.Tombstones(R)` counts them),
    so the transition can be expected again and its notice still arrives
    over that client. Live transitions and tombstones share one budget of
    64; a removal, a cancellation or approving a tombstoned transition again
@@ -477,7 +481,7 @@ from the first block, the governor yields right after the deployment.
       intermediate clients and every client its pruning disconnects off the
       graph, gov port open, so a branch it left behind
       (say B→C not recorded when B's notice applied) can still be expected
-      and its notice applied; `ibcgov.PruneGovRetirements(64)` retires
+      and its notice applied; `ibcgov.PruneGovRetirements(R, 64)` retires
       nothing a switch did not retire. Purge a
       tombstone (`NewPurgeTombstoneRequest`) only for a transition Ethereum
       did not execute (advice: a purge frees capacity only, and never makes
@@ -491,7 +495,7 @@ from the first block, the governor yields right after the deployment.
    10 Ethereum already holds will establish (its genuine notice is then a
    duplicate). Otherwise the only repair is Ethereum's emergency recovery
    (enabled at launch, gone for good once a kind 14 disabled it): record its expectation from the router counterparty of
-   gno's current epoch client (`ibcgov.EpochClient()`), over a fresh healthy
+   gno's current epoch client (`ibcgov.EpochClient(R)`), over a fresh healthy
    local client, so its notice switches from there; its epoch must be above
    gno's, so a gno pushed ahead needs as many recoveries as pass it, each
    step's expectation recorded. A poisoned client is recovered in place
@@ -513,7 +517,7 @@ from the first block, the governor yields right after the deployment.
    clients a switch's pruning or a purge disconnects leave the waiting list
    (`AwaitingGovRetirement()`) and are kept off the graph, gov port open and
    inert, and a removal leaves a tombstone that keeps them on it.
-   `ibcgov.PruneGovRetirements(64)` remains as a safety net and retires
+   `ibcgov.PruneGovRetirements(R, 64)` remains as a safety net and retires
    nothing a switch did not retire; a client kept off the graph that is
    never on the epoch's path keeps its gov port for good. The local client is the new gno
    client tracking the new router client, Active, its counterparty set. A notice that
@@ -597,7 +601,7 @@ from the first block, the governor yields right after the deployment.
       Ethereum, even while the cancel itself is buffered, and a tombstoned
       decision is recorded as cancelled without the executor. Without the
       cancel, the hand-over cannot record.
-   2. Record `NewEthHandOverRequest(exec, codeHash)`. It records without
+   2. Record `NewEthHandOverRequest(R, exec, codeHash)`. It records without
       the executor, even with halted decisions behind it. Each delivery
       drains at most eight buffered decisions, so with many cancelled
       predecessors the hand-over can stay buffered after its delivery.
@@ -630,7 +634,7 @@ from the first block, the governor yields right after the deployment.
       reopening. Keep the transfer containment in place, then:
       - ask each available flagging key to clear its own flag;
       - while no hold stands, clear earlier flags and conflicts with
-        `NewEthUnpauseRequest(2, "")` (kind 2, IBCAdmin, 24 hours on
+        `NewEthUnpauseRequest(R, 2, "")` (kind 2, IBCAdmin, 24 hours on
         Ethereum);
       - replace a flagging key that is no longer available with
         `NewEthSeatsRequest` (kind 3);
@@ -662,8 +666,8 @@ Criteria, all of them (ADR pr6375 §13), before proposing it:
 The process:
 1. Check `IBCAdmin.recoveryDisabled()` is false and `recovery()` shows no
    open proposal.
-2. Record `NewEthDisableRecoveryRequest(clientID)`, `clientID` the route's
-   current router client (`core.CounterpartyClientID(ibcgov.EpochClient())`);
+2. Record `NewEthDisableRecoveryRequest(R, clientID)`, `clientID` the route's
+   current router client (`core.CounterpartyClientID(ibcgov.EpochClient(R))`);
    a stale one is refused here. Decided by the governor before the yield,
    by GovDAO after it; dispatched at once.
 3. Relay it; IBCAdmin records it (status 1). A status 5 is a refusal:
@@ -706,14 +710,16 @@ incident name (1 to 32 characters of `a-z`, `0-9`, `-`).
 1. **Contain.** Guardians and watch keys flag at once, from their seat keys:
 
    ```
-   gnokey maketx call -pkgpath gno.land/r/aib/ibc/ibcgov -func SetFlag -args R -args payouts -args "<suspect packet keys, or empty>" ... <seat-key>
+   gnokey maketx call -pkgpath gno.land/r/aib/ibc/ibcgov -func SetFlag -args R -args R -args payouts -args "<suspect packet keys, or empty>" ... <seat-key>
    ```
 
    per function (`sends`, `credits`, `payouts`, `refunds`). Two guardian
-   seats flagging make a hold: every queued decision is deferred, unpauses
-   are spent. A guardian's `payouts` flag naming packets makes their void
+   seats of the route flagging make the route's hold: its queued decisions
+   are deferred and its unpauses spent; every global decision (core and
+   transfer administration) is deferred too, to day 21 of the global hold at
+   most, a global unpause included (ADR 0007). A guardian's `payouts` flag naming packets makes their void
    immediate (`NewVoidRequest(R, keys, forged, INC)`). Check:
-   `ibcgov.Held()`, `ibcgov.Flags(R)`.
+   `ibcgov.Held(R)`, `ibcgov.Flags(R, "")`.
 2. **Cancel** any pending decision the incident makes unsafe (an upgrade, a
    denom loosening, a sweep): `NewCancelRequest(id)` applies at once, hold
    or not. Ethereum-bound decisions are cancelled on Ethereum by kind 1
@@ -749,7 +755,7 @@ incident name (1 to 32 characters of `a-z`, `0-9`, `-`).
    validators root, router and commitments slot; any other is refused), and
    register its counterparty `RNEW` (a custom id kind 6 adds on Ethereum).
 5. **Lift the hold, keep the containment.** A hold defers the replacement
-   too. The guardians clear their flags (`ClearFlag(R, fn)`), and the hold
+   too. The guardians clear their flags (`ClearFlag(R, R, fn)`), and the hold
    ends 24 hours after fewer than two guardian seats flag, while the watch
    keys keep their `sends`, `credits` and `payouts` flags: those pause the
    functions without making a hold. Keep a `refunds` flag until the
@@ -758,14 +764,14 @@ incident name (1 to 32 characters of `a-z`, `0-9`, `-`).
    would only defer the settlements that pay genuine refunds (step 9).
 6. **Replace, on both chains.** Record `NewReplaceRouteRequest(R, NEW,
    suspectFrom)` (7 days) and Ethereum's kind 10,
-   `NewEthRouteReplacementRequest(ROLD, RNEW, suspectFromBlock, NEW)` (sent at
+   `NewEthRouteReplacementRequest(R, ROLD, RNEW, suspectFromBlock, NEW)` (sent at
    once; IBCAdmin applies its own delay). The gno.land replacement closes
    `R` (voucher returns over `NEW` still go: exit only) and retires `OLD`
    for transfers; while the governance epoch runs over `OLD` it stays there,
    so the kind 10 and every decision in flight can still be re-sent
    (`Redispatch`). When IBCAdmin executes kind 10 (or Ethereum's emergency
    recovery, if `OLD` cannot carry it; then first record
-   `NewExpectRecoveryRequest(ROLD, RNEW, NEW)` here, 7 days, within
+   `NewExpectRecoveryRequest(R, ROLD, RNEW, NEW)` here, 7 days, within
    Ethereum's 30-day recovery delay) it sends the epoch notice
    over `NEW`;
    relay it (`RecvPacket` on `NEW`, port `gov`). The notice is accepted only
@@ -773,7 +779,7 @@ incident name (1 to 32 characters of `a-z`, `0-9`, `-`).
    records it as a separate "expect transition" decision; execute it
    (`ibcgov.Execute(id)`, 7 days after the dispatch, deferred by a hold)
    before relaying; the gno.land route replacement need not have executed.
-   Check: `ibcgov.Epoch()` one higher, `ibcgov.EpochClient() == NEW`,
+   Check: `ibcgov.Epoch(R)` one higher, `ibcgov.EpochClient(R) == NEW`,
    `core.IsClientRetiredFor(OLD, "gov")`; `core.IsClientRetired(OLD)`
    (retired for good) once the gno.land route replacement has executed
    too (before it, the notice retires only the gov port). A notice refused with an error
@@ -793,7 +799,7 @@ incident name (1 to 32 characters of `a-z`, `0-9`, `-`).
    one with the route's own flag of the same seat and function: the route's
    named packets come first and the merged flag keeps at most 64, so names
    beyond that are dropped silently and no longer let a void execute at
-   once. Guardians read `ibcgov.Flags(R)` after the replacement and
+   once. Guardians read `ibcgov.Flags(R, "")` after the replacement and
    re-assert (`SetFlag`) any suspect packet name that was dropped.
 
    **A repeated replacement** (`NEW` failed, or must be replaced, before the
@@ -1022,20 +1028,20 @@ incident name (1 to 32 characters of `a-z`, `0-9`, `-`).
     app's `route_gov` event says in its `note` "continue with
     transfer.ContinueReopen" (ibcgov's decision note does not carry it),
     call `transfer.ContinueReopen(R)` until it returns true. Ethereum
-    reopens by kind 13 (`NewEthReopenRequest(RNEW)`). Before proposing
+    reopens by kind 13 (`NewEthReopenRequest(R, RNEW)`). Before proposing
     it with a deficit left on an escrowed denom, decide as in step 10:
     recapitalize first, or accept that the queued refunds share the
     shortfall first in, first out. Check: `Closed(R)` false.
 12. **Clear the flags.** Precondition, as for step 11: no forged receive
     entitlement remains unvoided, since clearing `payouts` lets every open
     claim be paid. The watch keys and guardians clear their own flags
-    (`ClearFlag`), or `NewUnpauseRouteRequest(R, "sends,credits,payouts,refunds")`
+    (`ClearFlag`), or `NewUnpauseRouteRequest(R, R, "sends,credits,payouts,refunds")`
     clears every seat's at once (spent while a hold stands). Clearing
     `payouts` starts a new payouts epoch: the meters refill from empty. Then
     pay what waited: `transfer.ClaimRefunds(NEW, denom, n)` and
     `transfer.Claim(NEW, denom, n)`. Lifting the `refunds` hold on an
     escrowed denom still short of a deficit pays its queue first in, first
     out (step 10): recapitalize before clearing it if the order must not
-    decide which genuine refunds wait. Done when `ibcgov.Flags(R)` is empty,
-    `ibcgov.Held()` false, `Closed(R)` and `LossClosed(R)` false, and every
+    decide which genuine refunds wait. Done when `ibcgov.Flags(R, "")` is empty,
+    `ibcgov.Held(R)` false, `Closed(R)` and `LossClosed(R)` false, and every
     denom's `queued_refunds` drained.

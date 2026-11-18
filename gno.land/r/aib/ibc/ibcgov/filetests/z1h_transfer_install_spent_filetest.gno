@@ -8,8 +8,8 @@ import (
 	ethtesting "gno.land/p/aib/ibc/lightclient/ethereum/testing/v0"
 	"gno.land/p/nt/testutils/v0"
 	"gno.land/r/aib/ibc/apps/transfer"
-	ics20impl "gno.land/r/aib/ibc/apps/transfer/impl/ics20/v0"
 	_ "gno.land/r/aib/ibc/apps/transfer/impl/controls/v0"
+	ics20impl "gno.land/r/aib/ibc/apps/transfer/impl/ics20/v0"
 	"gno.land/r/aib/ibc/core"
 	"gno.land/r/aib/ibc/ibcgov"
 )

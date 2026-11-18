@@ -16,6 +16,10 @@ import (
 	"gno.land/r/aib/ibc/ibcgov"
 )
 
+// govRoute is the route this test's decisions name (ADR 0007: route-scoped
+// entry points take the route).
+var govRoute string
+
 // bridge is the route's Ethereum router, ICS20 transfer and IBCAdmin: its
 // protected recipients.
 const bridge = "0x1d95d544586eacb63b6154e9e45122b32ded11aa 0x00000000000000000000000000000000000b0002 0x00000000000000000000000000000000000b0003"
@@ -73,6 +77,7 @@ func execute(cur realm, id int64) {
 // enrolls the client as a route, every step a governor decision.
 func setupRoute(cur realm) string {
 	clientID := core.CreateClient(cross(cur), ethtesting.ClientState(), ethtesting.ConsensusState())
+	govRoute = clientID
 	core.RegisterCounterparty(cross(cur), clientID, [][]byte{{}}, "client-0")
 	execute(cur, govern(cur, ibcgov.NewEnrollRouteRequest(cross(cur), clientID, string(collector), bridge)))
 	advance(7*24*time.Hour + time.Second) // keeps the timeline of the goldens
@@ -85,6 +90,7 @@ func setupRoute(cur realm) string {
 // 1024-byte envelope; a longer envelope is refused when it is built.
 func main(cur realm) {
 	client := core.CreateClient(cross(cur), ethtesting.ClientState(), ethtesting.ConsensusState())
+	govRoute = client
 	core.RegisterCounterparty(cross(cur), client, [][]byte{{}}, "client-0")
 	// The gno clients paired with the router clients kind 6 adds: local is
 	// approved to carry the epoch over gnoland-2 (kind 10).
@@ -94,47 +100,49 @@ func main(cur realm) {
 	core.RegisterCounterparty(cross(cur), local3, [][]byte{{}}, "gnoland-3")
 	// The governance channel rides a route: enroll the client first.
 	execute(cur, govern(cur, ibcgov.NewEnrollRouteRequest(cross(cur), client, string(ibcgov.Governor()), "0x1d95d544586eacb63b6154e9e45122b32ded11aa 0x00000000000000000000000000000000000b0002 0x00000000000000000000000000000000000b0003")))
-	execute(cur, govern(cur, ibcgov.NewBindGovernanceRequest(cross(cur), client)))
+	execute(cur, govern(cur, ibcgov.NewBindGovernanceRequest(cross(cur), govRoute, client)))
 
-	govern(cur, ibcgov.NewEthUnpauseRequest(cross(cur), 1, "client-0"))
-	govern(cur, ibcgov.NewEthSeatsRequest(cross(cur), "0:"+a1+",4:"+a2))
-	govern(cur, ibcgov.NewEthLimitsRequest(cross(cur), "client-0", a1, 25000000000, 100000000000, 100000000000, 0, 40000000))
-	govern(cur, ibcgov.NewEthVoucherRequest(cross(cur), "client-0", "ugnot", a1, hash))
-	govern(cur, ibcgov.NewEthClientRequest(cross(cur), 1, "gnoland-2", local, "6d61696e", a1, hash))
-	govern(cur, ibcgov.NewEthUpgradeRequest(cross(cur), a1, a2, "0x"+hash, "cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd"))
-	govern(cur, ibcgov.NewEthRoleRequest(cross(cur), true, 3, a1))
-	govern(cur, ibcgov.NewEthHandOverRequest(cross(cur), a1, hash))
-	govern(cur, ibcgov.NewEthRouteReplacementRequest(cross(cur), "client-0", "gnoland-2", 1234, local))
-	govern(cur, ibcgov.NewEthRouteSettingsRequest(cross(cur), "client-0", 604800))
-	govern(cur, ibcgov.NewEthCancelRequest(cross(cur), "1-3,7"))
+	govern(cur, ibcgov.NewEthUnpauseRequest(cross(cur), govRoute, 1, "client-0"))
+	govern(cur, ibcgov.NewEthSeatsRequest(cross(cur), govRoute, "0:"+a1+",4:"+a2))
+	govern(cur, ibcgov.NewEthLimitsRequest(cross(cur), govRoute, "client-0", a1, 25000000000, 100000000000, 100000000000, 0, 40000000))
+	govern(cur, ibcgov.NewEthVoucherRequest(cross(cur), govRoute, "client-0", "ugnot", a1, hash))
+	govern(cur, ibcgov.NewEthClientRequest(cross(cur), govRoute, 1, "gnoland-2", local, "6d61696e", a1, hash))
+	govern(cur, ibcgov.NewEthUpgradeRequest(cross(cur), govRoute, a1, a2, "0x"+hash, "cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd"))
+	govern(cur, ibcgov.NewEthRoleRequest(cross(cur), govRoute, true, 3, a1))
+	govern(cur, ibcgov.NewEthHandOverRequest(cross(cur), govRoute, a1, hash))
+	govern(cur, ibcgov.NewEthRouteReplacementRequest(cross(cur), govRoute, "client-0", "gnoland-2", 1234, local))
+	govern(cur, ibcgov.NewEthRouteSettingsRequest(cross(cur), govRoute, "client-0", 604800))
+	govern(cur, ibcgov.NewEthCancelRequest(cross(cur), govRoute, "1-3,7"))
 
 	for seq := uint64(1); seq <= 11; seq++ {
-		got := hex.EncodeToString(ibcgov.DispatchBody(1, seq))
+		got := hex.EncodeToString(ibcgov.DispatchBody(govRoute, 1, seq))
 		println("seq", strconv.FormatUint(seq, 10), "matches:", got == vectors[seq], len(got)/2, "bytes")
 		if got != vectors[seq] {
 			println("  got ", got)
 			println("  want", vectors[seq])
 		}
 	}
-	println("last seq:", ibcgov.LastSeq(1))
+	println("last seq:", ibcgov.LastSeq(govRoute, 1))
 
-	govern(cur, ibcgov.NewEthClientRequest(cross(cur), 1, "gnoland-3", local3, "6d61696e,2f70762f766d3a676e6f2e6c616e642f722f6169622f6962632f636f72653a", a1, hash))
-	println("full gno prefix:", len(ibcgov.DispatchBody(1, 12)), "bytes")
+	govern(cur, ibcgov.NewEthClientRequest(cross(cur), govRoute, 1, "gnoland-3", local3, "6d61696e,2f70762f766d3a676e6f2e6c616e642f722f6169622f6962632f636f72653a", a1, hash))
+	println("full gno prefix:", len(ibcgov.DispatchBody(govRoute, 1, 12)), "bytes")
 	long := ""
 	for i := 0; i < 900; i++ {
 		long += "cd"
 	}
-	println("too long:", revive(func() { govern(cur, ibcgov.NewEthUpgradeRequest(cross(cur), a1, a2, hash, long)) }))
-	println("cancel beyond the last seq:", revive(func() { govern(cur, ibcgov.NewEthCancelRequest(cross(cur), "13")) }))
+	println("too long:", revive(func() { govern(cur, ibcgov.NewEthUpgradeRequest(cross(cur), govRoute, a1, a2, hash, long)) }))
+	println("cancel beyond the last seq:", revive(func() { govern(cur, ibcgov.NewEthCancelRequest(cross(cur), govRoute, "13")) }))
 	println("a router id of the router's own:", revive(func() {
-		govern(cur, ibcgov.NewEthRouteReplacementRequest(cross(cur), "client-0", "client-9", 1234, local))
+		govern(cur, ibcgov.NewEthRouteReplacementRequest(cross(cur), govRoute, "client-0", "client-9", 1234, local))
 	}))
-	println("ADMIN_ROLE:", revive(func() { govern(cur, ibcgov.NewEthRoleRequest(cross(cur), true, 0, a1)) }))
+	println("ADMIN_ROLE:", revive(func() { govern(cur, ibcgov.NewEthRoleRequest(cross(cur), govRoute, true, 0, a1)) }))
 	println("three guardian seats:", revive(func() {
-		govern(cur, ibcgov.NewEthSeatsRequest(cross(cur), "0:"+a1+",1:"+a1+",2:"+a2))
+		govern(cur, ibcgov.NewEthSeatsRequest(cross(cur), govRoute, "0:"+a1+",1:"+a1+",2:"+a2))
 	}))
-	println("unpause object 2 with a client:", revive(func() { govern(cur, ibcgov.NewEthUnpauseRequest(cross(cur), 2, "client-0")) }))
-	println("bad address:", revive(func() { govern(cur, ibcgov.NewEthVoucherRequest(cross(cur), "client-0", "ugnot", "0x1234", hash)) }))
+	println("unpause object 2 with a client:", revive(func() { govern(cur, ibcgov.NewEthUnpauseRequest(cross(cur), govRoute, 2, "client-0")) }))
+	println("bad address:", revive(func() {
+		govern(cur, ibcgov.NewEthVoucherRequest(cross(cur), govRoute, "client-0", "ugnot", "0x1234", hash))
+	}))
 	ranges := func(n int) string {
 		var r []string
 		for i := 0; i < n; i++ {
@@ -142,21 +150,21 @@ func main(cur realm) {
 		}
 		return strings.Join(r, ",")
 	}
-	println("fifteen cancel ranges:", revive(func() { govern(cur, ibcgov.NewEthCancelRequest(cross(cur), ranges(15))) }))
-	println("last seq after the refusals:", ibcgov.LastSeq(1))
-	govern(cur, ibcgov.NewEthCancelRequest(cross(cur), ranges(14)))
-	println("fourteen cancel ranges:", len(ibcgov.DispatchBody(1, ibcgov.LastSeq(1))), "bytes")
+	println("fifteen cancel ranges:", revive(func() { govern(cur, ibcgov.NewEthCancelRequest(cross(cur), govRoute, ranges(15))) }))
+	println("last seq after the refusals:", ibcgov.LastSeq(govRoute, 1))
+	govern(cur, ibcgov.NewEthCancelRequest(cross(cur), govRoute, ranges(14)))
+	println("fourteen cancel ranges:", len(ibcgov.DispatchBody(govRoute, 1, ibcgov.LastSeq(govRoute, 1))), "bytes")
 
 	// Kind 5 takes a gno.land denom as the transfer app sends it: a GRC20
 	// alias of a hyphenated realm path is one; a realm-issued coin and a
 	// path segment gno refuses are not.
-	govern(cur, ibcgov.NewEthVoucherRequest(cross(cur), "client-0", "gno.land:r:my-org:token.TKN", a1, hash))
-	println("hyphenated realm path dispatched:", len(ibcgov.DispatchBody(1, ibcgov.LastSeq(1))), "bytes")
+	govern(cur, ibcgov.NewEthVoucherRequest(cross(cur), govRoute, "client-0", "gno.land:r:my-org:token.TKN", a1, hash))
+	println("hyphenated realm path dispatched:", len(ibcgov.DispatchBody(govRoute, 1, ibcgov.LastSeq(govRoute, 1))), "bytes")
 	println("realm-issued coin:", revive(func() {
-		govern(cur, ibcgov.NewEthVoucherRequest(cross(cur), "client-0", "/gno.land/r/my-org/token:coin", a1, hash))
+		govern(cur, ibcgov.NewEthVoucherRequest(cross(cur), govRoute, "client-0", "/gno.land/r/my-org/token:coin", a1, hash))
 	}))
 	println("doubled hyphen:", revive(func() {
-		govern(cur, ibcgov.NewEthVoucherRequest(cross(cur), "client-0", "gno.land:r:my--org:token", a1, hash))
+		govern(cur, ibcgov.NewEthVoucherRequest(cross(cur), govRoute, "client-0", "gno.land:r:my--org:token", a1, hash))
 	}))
 }
 
