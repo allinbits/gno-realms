@@ -1,6 +1,6 @@
-# ADR 0006: Arc light client (experimental)
+# ADR 0006: Arc light client
 
-- Status: Experimental
+- Status: Proposed
 - Date: 2026-11-03
 
 ## Context
@@ -238,12 +238,12 @@ Ed25519 keys from a fixed seed, since Gno cannot sign.
   signature verifies under both; at worst a certificate with an edge-case
   signature fails here (liveness, not safety): a relayer can omit that
   signature when the rest still exceeds 2/3.
-- **One route.** ibcgov enrolls one router route in total
-  (`checkOneRoute`), so an Arc route is enrolled instead of an Ethereum one,
-  not beside it, and the governance channel binds that route's IBCAdmin.
-  A router client of no enrolled route carries no transfers (the route
-  controls refuse it). Serving both chains at once needs ibcgov to govern
-  several routes (ADR 0004).
+- **Routes.** Under ADR 0007 ibcgov governs one route per counterparty
+  chain, so an Arc route runs beside an Ethereum one, each with its own
+  governance channel and IBCAdmin. Until ADR 0007's change lands, ibcgov
+  enrolls one router route in total (`checkOneRoute`) and an Arc route
+  replaces the Ethereum one. A router client of no enrolled route carries
+  no transfers (the route controls refuse it).
 - **Not yet done**: pruning of old consensus states.
 
 ## Alternatives considered
