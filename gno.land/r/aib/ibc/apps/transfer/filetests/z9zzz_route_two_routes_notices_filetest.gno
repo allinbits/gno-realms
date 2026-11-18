@@ -174,8 +174,10 @@ func main(cur realm) {
 	ibcgov.ApplyEpochNotice(cross(cur), 3, "ethereum-9", "gnoland-b/ethereum-3,gnoland-c/ethereum-9")
 	println("A's path:", epochs(a, b))
 	// A's route replacement retires A's old client only.
-	execute(cur, govern(cur, ibcgov.NewReplaceRouteRequest(cross(cur), a, "ethereum-9", 0)))
-	println("A's old client retired:", core.IsClientRetiredAny(a), "| B's client retired:", core.IsClientRetiredAny(b))
+	repl := govern(cur, ibcgov.NewReplaceRouteRequest(cross(cur), a, "ethereum-9", 0))
+	execute(cur, repl)
+	println("A's replacement:", decided(repl))
+	println("A's old client retired for transfers:", core.IsClientRetiredFor(a, "transfer"), "| B's client retired:", core.IsClientRetiredAny(b))
 	// Decisions go over each route's own epoch client.
 	govern(cur, ibcgov.NewEthUnpauseRequest(cross(cur), a, 2, ""))
 	govern(cur, ibcgov.NewEthUnpauseRequest(cross(cur), b, 2, ""))
@@ -195,7 +197,8 @@ func main(cur realm) {
 // A's notice, 2 steps on: error acknowledgement | A epoch 1 over ethereum-1 | B epoch 1 over ethereum-2
 // a path through B's client: ibcgov: step 1, client-0 -> gnoland-b over ethereum-4, is no expected transition | A epoch 1 over ethereum-1 | B epoch 1 over ethereum-2
 // A's path: A epoch 3 over ethereum-9 | B epoch 1 over ethereum-2
-// A's old client retired: true | B's client retired: false
+// A's replacement: applied - replace: client ethereum-1 retired, meters emptied
+// A's old client retired for transfers: true | B's client retired: false
 // A dispatched epoch 3 seq 1 | B epoch 1 seq 2
 // B's notice: acknowledged | A epoch 3 over ethereum-9 | B epoch 2 over ethereum-4
 // B's new client is B's: true true

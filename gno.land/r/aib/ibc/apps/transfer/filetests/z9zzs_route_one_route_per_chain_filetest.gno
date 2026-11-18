@@ -78,8 +78,14 @@ func main(cur realm) {
 	println("replace by the pending enrolment's client:", revive(func() {
 		govern(cur, ibcgov.NewReplaceRouteRequest(cross(cur), a, b, 0))
 	}))
+	// A recovery of the pending enrolment's client is that would-be route's
+	// decision; it never makes the tentative claim permanent.
+	rec := govern(cur, ibcgov.NewRecoverClientRequest(cross(cur), b, c))
 	ibcgov.Execute(cross(cur), enrolB)
 	println("the second, requested with the first:", decided(enrolB))
+	advance(7*24*time.Hour + time.Second)
+	ibcgov.Execute(cross(cur), rec)
+	println("the recovery of its client:", decided(rec))
 	println("another client of the chain after the binding:", revive(func() {
 		govern(cur, ibcgov.NewEnrollRouteRequest(cross(cur), c, string(collector), bridge))
 	}))
@@ -106,6 +112,7 @@ func main(cur realm) {
 // bound: epoch 1 over ethereum-1
 // replace by the pending enrolment's client: ibcgov: ethereum-2 belongs to route ethereum-2
 // the second, requested with the first: spent - spent: route ethereum-1 is on ethereum chain 3151908, genesis validators root 0xd1ec305b97bf6336571c2348e4a8bf173684b0cdb7e55f7e6554d51f8478b5a3 already: one route per counterparty chain
+// the recovery of its client: spent - spent: ethereum-2 no longer belongs to route ethereum-2
 // another client of the chain after the binding: ibcgov: route ethereum-1 is on ethereum chain 3151908, genesis validators root 0xd1ec305b97bf6336571c2348e4a8bf173684b0cdb7e55f7e6554d51f8478b5a3 already: one route per counterparty chain
 // the loser's client belongs to: true
 // replaced by the loser's client: true true

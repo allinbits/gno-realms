@@ -298,6 +298,7 @@ type scope struct {
 	inc     uint64
 	claims  []string
 	clients []string
+	owned   []string // clients that must still belong to the route
 	anchor  int64
 	counted bool // counted among its incarnation's pending decisions
 }
@@ -320,7 +321,11 @@ func globalScope() scope { return scope{} }
 func clientScope(subject string, others ...string) scope {
 	var sc scope
 	if c := claimOf(subject); c != nil {
-		sc = routeScope(c.route, subject)
+		// The subject is the route's already: the decision checks that it
+		// still is, and never claims it, so administration never turns a
+		// tentative claim (a pending enrolment's) permanent.
+		sc = routeScope(c.route)
+		sc.owned = []string{subject}
 		sc.clients = others
 	} else {
 		sc = scope{clients: append([]string{subject}, others...)}
@@ -351,6 +356,11 @@ func (sc *scope) check() string {
 		for _, c := range sc.claims {
 			if refusal := checkClaim(c, sc.route); refusal != "" {
 				return refusal
+			}
+		}
+		for _, cl := range sc.owned {
+			if c := claimOf(cl); c == nil || c.route != sc.route {
+				return cl + " no longer belongs to route " + sc.route
 			}
 		}
 		// Clients it names without claiming them (a recovery's substitute)

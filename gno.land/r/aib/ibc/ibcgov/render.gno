@@ -131,14 +131,20 @@ func writeRoute(b *strings.Builder, g *routeGov) {
 	// Every flag of the route, on itself or a candidate client (one that
 	// joined another route since included): each counts toward its hold.
 	// At most flagsShown lines; the count says how many stand.
-	shown, live := 0, 0
+	// Bounded: at most flagsShown entries are read, live or stale; the
+	// total of live flags is the seats' counts.
+	var live int64
+	for i := 0; i < SeatCount; i++ {
+		live += g.seatFlags[i]
+	}
+	shown, read := 0, 0
 	g.flags.Iterate("", "", func(k string, v any) bool {
+		if read == flagsShown {
+			return true
+		}
+		read++
 		f := v.(*flag)
 		if !g.live(f) {
-			return false
-		}
-		live++
-		if shown == flagsShown {
 			return false
 		}
 		shown++
@@ -150,8 +156,8 @@ func writeRoute(b *strings.Builder, g *routeGov) {
 		b.WriteString("- flag: " + jsonmd.Text(line) + "\n")
 		return false
 	})
-	if live > shown {
-		b.WriteString("- " + strconv.Itoa(live-shown) + " more flags (Flags(route, target))\n")
+	if live > int64(shown) {
+		b.WriteString("- " + itoa(live) + " flags in all (Flags(route, target))\n")
 	}
 	// The expected-transition graph: at most maxLive transitions and
 	// tombstones together, so it is shown whole.

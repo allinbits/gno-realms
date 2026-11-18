@@ -115,6 +115,13 @@ func main(cur realm) {
 	pending := govern(cur, ibcgov.NewSetSeatsRequest(cross(cur), d, "5:"+string(a1)))
 	println("another decision pending:", revive(func() { govern(cur, ibcgov.NewDropRouteRequest(cross(cur), d)) }))
 	govern(cur, ibcgov.NewCancelRequest(cross(cur), pending))
+	// A drop valid when recorded is checked again when it executes: another
+	// decision of the incarnation recorded meanwhile spends it.
+	early := govern(cur, ibcgov.NewDropRouteRequest(cross(cur), d))
+	pending = govern(cur, ibcgov.NewSetSeatsRequest(cross(cur), d, "5:"+string(a1)))
+	execute(cur, early)
+	println("a drop executed with another decision pending:", decided(early), "| record:", ibcgov.IsProvisionalRoute(d))
+	govern(cur, ibcgov.NewCancelRequest(cross(cur), pending))
 	stale := ibcgov.NewSetSeatsRequest(cross(cur), d, "4:"+string(a0)) // built for incarnation 1
 	drop := govern(cur, ibcgov.NewDropRouteRequest(cross(cur), d))
 	execute(cur, drop)
@@ -172,12 +179,13 @@ func main(cur realm) {
 // stale flag entries: ibcgov: route ethereum-3 still has flag entries: clear or prune them first (PruneFlags)
 // pruned: 2
 // another decision pending: ibcgov: route ethereum-3 has pending decisions
+// a drop executed with another decision pending: spent - spent: route ethereum-3 has pending decisions | record: true
 // dropped: applied - dropped the provisional record of route ethereum-3 (incarnation 1) | record: false
 // a request built for incarnation 1: spent - spent: route ethereum-3's record changed since the request was built (incarnation 1) | its route: true
 // re-created: incarnation 2 seat 0 true flags 0
 // a recovery of the provisional client: true | its substitute claimed: false
-// candidate flags: A's slice[("payouts seat 0 at 1242516702" string)] | B's slice[("payouts seat 0 at 1242516702" string)]
+// candidate flags: A's slice[("payouts seat 0 at 1243121503" string)] | B's slice[("payouts seat 0 at 1243121503" string)]
 // B flags A's claimed candidate: ibcgov: ethereum-7 belongs to route ethereum-5
 // replaced: applied - replace: client ethereum-5 retired for transfers, meters emptied, 1 flags of ethereum-7 moved to the route; governance epoch 1 stays over ethereum-5 until IBCAdmin's epoch notices arrive
-// A's payouts flagged: true | B's flag stays B's: slice[("payouts seat 0 at 1242516702" string)] | B's payouts: false
+// A's payouts flagged: true | B's flag stays B's: slice[("payouts seat 0 at 1243121503" string)] | B's payouts: false
 // B cleared its flag on A's new client: 0 | A's payouts still flagged: true
