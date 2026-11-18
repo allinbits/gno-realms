@@ -89,6 +89,16 @@ func (c *ArcLightClient) RouteIdentity() (identity, router string) {
 	return identity, router
 }
 
+// ChainIdentity is the chain this verifier follows, the part of its route
+// identity that names the chain and not the deployment on it: the Arc chain
+// id and its validator registry. Two routers on one Arc chain share it, and
+// gno.land keeps one route per chain (gno-realms ADR 0007). Fixed at
+// creation, as RouteIdentity is.
+func (c *ArcLightClient) ChainIdentity() string {
+	cs := c.ClientState
+	return "arc chain " + strconv.FormatUint(cs.ChainID, 10) + ", registry 0x" + hex.EncodeToString(cs.RegistryAddress)
+}
+
 // Initialize implements lightclient.Interface. It runs once.
 func (c *ArcLightClient) Initialize(clientState lightclient.ClientState, consensusState lightclient.ConsensusState) error {
 	if c.ClientState != nil {

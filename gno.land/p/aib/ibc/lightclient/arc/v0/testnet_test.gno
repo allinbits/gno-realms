@@ -1,6 +1,8 @@
 package arc
 
 import (
+	"encoding/hex"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -270,4 +272,30 @@ func TestTestnetRecoveryAdoptsLayout(t *testing.T) {
 	if err := other.CheckRecovery(sub); err == nil {
 		t.Fatal("a substitute with another registry was accepted")
 	}
+}
+
+// The chain identity names the chain id and registry, not the router: two
+// routers on one Arc chain share it (ADR 0007, one route per chain).
+func TestTestnetChainIdentity(t *testing.T) {
+	c := newTestnetClient(t)
+	cs := c.ClientState
+	want := "arc chain " + strconv.FormatUint(cs.ChainID, 10) + ", registry 0x" + hex.EncodeToString(cs.RegistryAddress)
+	if got := c.ChainIdentity(); got != want {
+		t.Fatalf("chain identity %q, want %q", got, want)
+	}
+	other := *c
+	ocs := *cs
+	ocs.IBCContractAddress = append(make([]byte, 19), 0x09)
+	other.ClientState = &ocs
+	if other.ChainIdentity() != want {
+		t.Fatalf("another router changed the chain identity")
+	}
+	if id, _ := other.RouteIdentity(); id == mustRoute(c) {
+		t.Fatalf("another router kept the route identity")
+	}
+}
+
+func mustRoute(c *ArcLightClient) string {
+	id, _ := c.RouteIdentity()
+	return id
 }

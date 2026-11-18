@@ -150,7 +150,9 @@ on the latest trusted height; misbehaviour is two headers proving different
 blocks at one height; a recovery copies a substitute tracking the same chain
 id, registry address and router (the route identity, `RouteIdentity`), and
 adopts its registry implementation and storage location; no IBC upgrade
-path.
+path. The chain alone, its id and registry address, is `ChainIdentity`:
+ibcgov keeps one route per counterparty chain (ADR 0007), whatever its
+router.
 
 **Integration.** The core records, when it creates a client, whether its
 counterparty is an ICS26 router on an EVM chain (`Client.IsRouter`,
