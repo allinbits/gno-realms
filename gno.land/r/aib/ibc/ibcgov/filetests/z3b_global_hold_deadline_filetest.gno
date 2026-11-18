@@ -92,26 +92,32 @@ func main(cur realm) {
 	// A global unpause is deferred, not spent, and so is a later one.
 	unpause := govern(cur, ibcgov.NewCoreUnpauseRequest(cross(cur)))
 	println("core unpause under A's hold:", decided(unpause), "| core paused:", core.Paused())
+	// GovDAO vacates A's flagging seats: a seat change, landing on day 21 of
+	// A's hold.
+	vacate := govern(cur, ibcgov.NewSetSeatsRequest(cross(cur), a, "0:,1:"))
 	advance(7*24*time.Hour + time.Second)
+	ibcgov.Execute(cross(cur), vacate) // anchored at A's hold
 	ibcgov.Execute(cross(cur), global)
 	println("global decision, first deferral:", decided(global))
 
-	// Day 20: B's guardians start a hold; day 21: A's seats are cleared. The
+	// Day 20: B's guardians start a hold; day 21: A's seats are vacated. The
 	// global hold never had a gap, and the deadline does not move.
 	advance(time.Duration(since+20*86400-testing.GetContext().Time.Unix()) * time.Second)
 	flagAs(cur, b0, b, b, ibcgov.FnCredits)
 	flagAs(cur, both, b, b, ibcgov.FnCredits)
-	clearAs(cur, a0, a, a, ibcgov.FnSends)
-	clearAs(cur, a1, a, a, ibcgov.FnSends)
 	println("day 20: A held", ibcgov.Held(a), "B held", ibcgov.Held(b), "| global since unchanged:", ibcgov.GlobalHoldSince() == since)
 	advance(time.Duration(since+21*86400-1-testing.GetContext().Time.Unix()) * time.Second)
 	println("a second before day 21:", revive(func() { ibcgov.Execute(cross(cur), global) }))
 	println("the unpause before day 21:", revive(func() { ibcgov.Execute(cross(cur), unpause) }))
 	advance(time.Duration(since+21*86400-testing.GetContext().Time.Unix()) * time.Second)
+	ibcgov.Execute(cross(cur), vacate)
+	println("day 21, A's seats vacated:", decided(vacate), "| A lingers:", ibcgov.Held(a), "| global since unchanged:", ibcgov.GlobalHoldSince() == since)
 	ibcgov.Execute(cross(cur), global)
 	ibcgov.Execute(cross(cur), unpause)
 	println("day 21, B still holding:", ibcgov.Held(b), "| global:", decided(global), "| unpause:", decided(unpause), "| core paused:", core.Paused())
 
+	// A's guardians return.
+	execute(cur, govern(cur, ibcgov.NewSetSeatsRequest(cross(cur), a, "0:"+string(a0)+",1:"+string(a1))))
 	// A route unpause under its route's hold is still spent; one of another
 	// route is not.
 	unB := govern(cur, ibcgov.NewUnpauseRouteRequest(cross(cur), b, b, "credits"))
@@ -161,11 +167,12 @@ func main(cur realm) {
 // day 20: A held true B held true | global since unchanged: true
 // a second before day 21: ibcgov: decision 6 is deferred: a guardian hold first deferred it on 1236987094, until 1238801494
 // the unpause before day 21: ibcgov: decision 7 is deferred: a guardian hold first deferred it on 1236987094, until 1238801494
+// day 21, A's seats vacated: applied - seats 0,1 of route ethereum-1 | A lingers: true | global since unchanged: true
 // day 21, B still holding: true | global: applied - core add relayer | unpause: applied - core unpaused | core paused: false
 // B's unpause under B's hold: spent - spent: route ethereum-2's guardian hold stands, which spends its unpauses
 // A's unpause under B's hold: applied - cleared 1 flags of route ethereum-1
 // no hold: false 0
 // a new global hold: true
 // a third route enrolled during the lingers: applied - enroll | any held: true
-// a second before the later linger ends: ibcgov: decision 10 is deferred: a guardian hold first deferred it on 1239492696, until 1241307096
+// a second before the later linger ends: ibcgov: decision 12 is deferred: a guardian hold first deferred it on 1240097497, until 1241911897
 // when it ends: applied - core add relayer | any held: false

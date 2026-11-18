@@ -114,7 +114,14 @@ func setDenom(cur realm, route, denom, kind string) string {
 		}
 	})
 	if r == nil {
-		return "accepted"
+		// Built and recorded: report what became of the decision, applying
+		// a queued one once due.
+		id := ibcgov.LastDecision()
+		if d, _ := ibcgov.Decision(id); d.Pending() {
+			execute(cur, id)
+		}
+		d, _ := ibcgov.Decision(id)
+		return d.State() + " - " + d.Note
 	}
 	return r.(string)
 }
@@ -170,7 +177,7 @@ func main(cur realm) {
 // B, A's voucher by its registry key: ibcgov: gno.land/r/aib/ibc/apps/transfer.IBC-1 is in the voucher namespace: a voucher is configured as a minted denom on its own route only
 // B, A's voucher by its alias: ibcgov: gno.land:r:aib:ibc:apps:transfer.IBC-1 is in the voucher namespace: a voucher is configured as a minted denom on its own route only
 // B, the key allocated since: ibcgov: gno.land:r:aib:ibc:apps:transfer.IBC-1 is in the voucher namespace: a voucher is configured as a minted denom on its own route only
-// A, its own voucher by its IBC denom: accepted
+// A, its own voucher by its IBC denom: applied - denom
 // applied directly, A's voucher on B: ibc/F61E88E597F98385A59D8390409F317E80CD10ACC19C8FB56EF6CB12E85A1DAB is a voucher of transfer/ethereum-1/0x1000000000000000000000000000000000203b0d, not of route ethereum-2
 // applied directly, A's voucher alias on B: gno.land:r:aib:ibc:apps:transfer.IBC-1 is in the voucher namespace: a voucher is a minted denom of its own route only
 // send A's voucher as a GRC20 over A: gno.land/r/aib/ibc/apps/transfer.IBC-1 is a voucher: send it by its ibc/ denom, over the route it came from
