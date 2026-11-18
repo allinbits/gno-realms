@@ -208,8 +208,8 @@ loops over routes: the global-decision hold check reads three numbers
 
 The per-route rules of ADR 0004 hold for each route separately:
 
-- `NewBindGovernanceRequest(clientID)` binds the route of `clientID`
-  (`checkBindClient`).
+- `NewBindGovernanceRequest(route, clientID)` binds the route's channel to
+  `clientID`, its original and current client (`checkBindClient`).
 - No replacement precedes that route's binding (`checkBoundForReplace`).
 - Value moves only after that route's launch is proven. Its first denom
   enablement waits for that route's IBCAdmin to record gno.land's first
@@ -284,8 +284,8 @@ The seat rules are those of ADR 0004 and ADR pr6375 §7.4, applied per route:
 - `NewSetSeatsRequest(route, changes)` changes one route's seats: 7 days,
   landing through that route's hold from day 21. A new route's seats start
   vacant, as the first route's do today.
-- `SetFlag(route, fn, keys)` and `ClearFlag` require a seat **of that
-  route**. One key may hold seats on several routes; its seats are
+- `SetFlag(route, target, fn, keys)` and `ClearFlag(route, target, fn)`
+  require a seat **of that route**. One key may hold seats on several routes; its seats are
   independent. A flag it sets on route A counts toward A's hold only, and a
   seat change on one route leaves its seats on the others as they are.
 - **Holds are per route.** Two guardian seats of route R with a live flag
