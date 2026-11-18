@@ -150,19 +150,26 @@ func main(cur realm) {
 	execute(cur, govern(cur, ibcgov.NewEnrollRouteRequest(cross(cur), b, string(collector), bridge)))
 	execute(cur, govern(cur, ibcgov.NewBindGovernanceRequest(cross(cur), a, a)))
 	execute(cur, govern(cur, ibcgov.NewSetSeatsRequest(cross(cur), a, "0:"+string(a0))))
-	execute(cur, govern(cur, ibcgov.NewSetSeatsRequest(cross(cur), b, "0:"+string(b0))))
+	execute(cur, govern(cur, ibcgov.NewSetSeatsRequest(cross(cur), b, "0:"+string(b0)+",1:"+string(both))))
 	x := chainClient(cur, 1, "gnoland-x")
 	flagAs(cur, a0, a, x, ibcgov.FnPayouts)
 	flagAs(cur, b0, b, x, ibcgov.FnPayouts)
+	flagAs(cur, both, b, x, ibcgov.FnCredits)
 	println("candidate flags: A's", ibcgov.Flags(a, x), "| B's", ibcgov.Flags(b, x))
+	println("two of B's guardians on the candidate: B held", ibcgov.Held(b), "| A held", ibcgov.Held(a))
 	replace := govern(cur, ibcgov.NewReplaceRouteRequest(cross(cur), a, x, 0))
 	println("B flags A's claimed candidate:", revive(func() { flagAs(cur, b0, b, x, ibcgov.FnSends) }))
 	execute(cur, replace)
 	println("replaced:", decided(replace))
 	println("A's payouts flagged:", ibcgov.Flagged(a, ibcgov.FnPayouts), "| B's flag stays B's:", ibcgov.Flags(b, x), "| B's payouts:", ibcgov.Flagged(b, ibcgov.FnPayouts))
-	// B's seat still clears its own flag on the client that joined A.
+	println("after the join: B held", ibcgov.Held(b), "| A held", ibcgov.Held(a))
+	// B's seats still clear their own flags on the client that joined A;
+	// B's hold then lingers and ends.
 	clearAs(cur, b0, b, x, ibcgov.FnPayouts)
-	println("B cleared its flag on A's new client:", len(ibcgov.Flags(b, x)), "| A's payouts still flagged:", ibcgov.Flagged(a, ibcgov.FnPayouts))
+	clearAs(cur, both, b, x, ibcgov.FnCredits)
+	println("B cleared its flags on A's new client:", len(ibcgov.Flags(b, x)), "| A's payouts still flagged:", ibcgov.Flagged(a, ibcgov.FnPayouts), "| B lingers:", ibcgov.Held(b))
+	advance(24*time.Hour + time.Second)
+	println("a day later: B held", ibcgov.Held(b))
 }
 
 // Output:
@@ -184,8 +191,11 @@ func main(cur realm) {
 // a request built for incarnation 1: spent - spent: route ethereum-3's record changed since the request was built (incarnation 1) | its route: true
 // re-created: incarnation 2 seat 0 true flags 0
 // a recovery of the provisional client: true | its substitute claimed: false
-// candidate flags: A's slice[("payouts seat 0 at 1243121503" string)] | B's slice[("payouts seat 0 at 1243121503" string)]
+// candidate flags: A's slice[("payouts seat 0 at 1243121503" string)] | B's slice[("credits seat 1 at 1243121503" string),("payouts seat 0 at 1243121503" string)]
+// two of B's guardians on the candidate: B held true | A held false
 // B flags A's claimed candidate: ibcgov: ethereum-7 belongs to route ethereum-5
 // replaced: applied - replace: client ethereum-5 retired for transfers, meters emptied, 1 flags of ethereum-7 moved to the route; governance epoch 1 stays over ethereum-5 until IBCAdmin's epoch notices arrive
-// A's payouts flagged: true | B's flag stays B's: slice[("payouts seat 0 at 1243121503" string)] | B's payouts: false
-// B cleared its flag on A's new client: 0 | A's payouts still flagged: true
+// A's payouts flagged: true | B's flag stays B's: slice[("credits seat 1 at 1243121503" string),("payouts seat 0 at 1243121503" string)] | B's payouts: false
+// after the join: B held true | A held false
+// B cleared its flags on A's new client: 0 | A's payouts still flagged: true | B lingers: true
+// a day later: B held false
