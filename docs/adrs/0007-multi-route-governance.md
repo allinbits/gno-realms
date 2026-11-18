@@ -203,8 +203,11 @@ support (Alternatives).
 The number of routes has no fixed cap. Each route, provisional or enrolled,
 exists only through a 7-day GovDAO decision (an enrolment, or the seat change
 that creates a provisional record), so GovDAO's vote is the bound. No path
-loops over routes: the global-decision hold check reads three numbers
-(section 6), and Render pages the routes.
+loops over every route: the global-decision hold check reads three numbers
+(section 6); ibcgov's Render and the transfer app's home page and `routes`
+JSON page the routes, 20 a page (the JSON with the cursor the other pages
+use); and the transfer proxy's controls-continuity check asks whether any
+route exists (`Reader.HasRoutes`), in constant work.
 
 The per-route rules of ADR 0004 hold for each route separately:
 
@@ -480,6 +483,10 @@ yet, ADR 0004):
   Arc's chain id and registry (added with the Arc light client,
   allinbits/gno-realms#98: a verifier naming no chain identity is refused a
   route). The core reads it with a new accessor, `core.ClientChainIdentity`.
+- **Route controls registry and the transfer proxy.** `HasRoutes` and
+  `RoutesFrom` page the routes; `RoutesJSON(from)` is a page like the other
+  JSON pages, no longer one array of every route; the transfer proxy's
+  `controlsContinuity` reads `HasRoutes` instead of counting the routes.
 - **Route controls / transfer `impl/controls/v0`.** The send path refuses a
   voucher's GRC20 on any route (a voucher leaves only by its `ibc/` denom,
   burnt on its own route), and the denom operation of `GovApply` refuses an
@@ -490,7 +497,8 @@ yet, ADR 0004):
 Unchanged:
 
 - **Core and transfer proxies:** one ibcgov remains their governance
-  (`IBCGovPath`), now governing every route. No proxy or store change.
+  (`IBCGovPath`), now governing every route. No store change; the transfer
+  proxy's only change is the constant-work continuity check above.
 - **The core implementation**, apart from the accessor above.
 - **The envelope, the epoch notice, the acknowledgement format and every
   gno-eth-ibc contract.**

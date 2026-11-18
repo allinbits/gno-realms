@@ -3,6 +3,7 @@ package controls
 import (
 	"strings"
 
+	"gno.land/p/aib/ibc/ics20/controls/v0"
 	"gno.land/p/aib/jsonmd/v0"
 
 	"gno.land/p/nt/mux/v0"
@@ -14,7 +15,7 @@ import (
 // and tooling (ADR pr6375 §7.11), every JSON page inert in Markdown
 // (jsonmd.Inert: an owed sweep entry keeps a raw, attacker-chosen receiver):
 //
-//	routes                       every route
+//	routes                       the routes
 //	routes/{route}               a route: client, fee collector, refused
 //	                             recipients, and per denom its configuration,
 //	                             meters and accounting terms
@@ -23,12 +24,14 @@ import (
 //	routes/{route}/sends         send records with their outcomes, by packet key
 //	routes/{route}/losses        the loss ledger, by direction and packet key
 //
-// Each of the last four is a page {"entries":[...],"next":<cursor>}: pass
+// routes and each of the last four is a page {"entries":[...],"next":<cursor>}: pass
 // next as ?from= for the following page ("" when there is none).
 func (l *routes) Render(path string) string {
 	router := mux.NewRouter()
 	router.HandleFunc("", l.home)
-	router.HandleFunc("routes", func(w *mux.ResponseWriter, r *mux.Request) { w.Write(l.reader().RoutesJSON()) })
+	router.HandleFunc("routes", func(w *mux.ResponseWriter, r *mux.Request) {
+		w.Write(jsonmd.Inert(l.reader().RoutesJSON(r.Query.Get("from"))))
+	})
 	router.HandleFunc("routes/{route}", func(w *mux.ResponseWriter, r *mux.Request) {
 		w.Write(jsonmd.Inert(l.reader().RouteJSON(r.GetVar("route"))))
 	})
@@ -56,7 +59,12 @@ func (l *routes) home(w *mux.ResponseWriter, r *mux.Request) {
 	l.renderer().Register(v0)
 	out.WriteString(v0.Render(""))
 	out.WriteString("\n## Ethereum routes\n\n")
-	keys := l.reader().Routes()
+	// The first page of routes: there is no fixed number of them.
+	keys := l.reader().RoutesFrom("", controls.RoutesPerPage+1)
+	more := len(keys) > controls.RoutesPerPage
+	if more {
+		keys = keys[:controls.RoutesPerPage]
+	}
 	if len(keys) == 0 {
 		out.WriteString("No route enrolled: Ethereum clients carry no transfer.\n")
 	}
@@ -65,6 +73,10 @@ func (l *routes) home(w *mux.ResponseWriter, r *mux.Request) {
 		// escaped all the same, and the JSON route holds everything else.
 		out.WriteString(ufmt.Sprintf("- `%s` (client `%s`): denoms %s, see [routes/%s](:routes/%s)\n",
 			k, l.reader().Client(k), jsonmd.Text(strings.Join(l.reader().Denoms(k), ", ")), k, k))
+	}
+	if more {
+		next := l.reader().RoutesFrom(keys[len(keys)-1], 2)[1]
+		out.WriteString(ufmt.Sprintf("- more: [routes?from=%s](:routes?from=%s)\n", next, next))
 	}
 	w.Write(out.String())
 }

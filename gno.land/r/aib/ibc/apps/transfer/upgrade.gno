@@ -322,7 +322,7 @@ func controlsContinuity(keepsControls bool) string {
 	if keepsControls {
 		return ""
 	}
-	if rd, ok := store.ExtView("controls").(interface{ Routes() []string }); ok && len(rd.Routes()) > 0 {
+	if rd, ok := store.ExtView("controls").(interface{ HasRoutes() bool }); ok && rd.HasRoutes() {
 		return "transfer: an implementation without the route controls cannot replace them once a route has them"
 	}
 	return ""
