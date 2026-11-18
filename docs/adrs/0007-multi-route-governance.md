@@ -228,7 +228,8 @@ with. A provisional record:
   seats and bypass its guardians;
 - holds seats, flags and a hold, and no channel or graph;
 - has a hold that defers its own decisions (its enrolment and its seat
-  changes) and, like any route's hold, every global decision;
+  changes) and, like any route's hold, every global decision (up to the
+  global decision's day-21 deadline, section 6);
 - is adopted with its seats, flags and seat generations by the enrolment of
   its key.
 
@@ -336,7 +337,8 @@ by its route's flags, as today (`deferredBy`).
 Holds keep today's reach, and only their owner changes:
 
 - **Queued gno-side decisions** (7 days) are deferred by a hold.
-- **Gno-side unpauses** are spent by a hold.
+- **Gno-side route unpauses** are spent by their route's hold. Global
+  unpauses are deferred instead (below).
 - **Ethereum-bound decisions are dispatched at once,** as today. Their delay,
   flags and holds are the counterparty IBCAdmin's, so no gno-side hold
   touches them.
@@ -357,13 +359,36 @@ Holds keep today's reach, and only their owner changes:
   is claimed before it executes is spent ("its client now belongs to route
   R"): it was approved under the wrong hold rule.
 
-A global loosening reaches every route, so **any route's hold defers it**, and
-any route's hold spends a global unpause. Each route's guardians can therefore
-delay what affects their route; none can veto. Guardians still delay and never
-veto, per route.
+A global loosening reaches every route, so **any route's hold defers it**.
+Each route's guardians can therefore delay what affects their route; none can
+veto.
+
+**A global decision's delay is capped, as a seat change's is.** Holds on
+several routes could otherwise be chained: route A holds to day 21, GovDAO
+vacates A's seats, route B's guardians start a hold the same day, and the
+delay restarts, about 21 days for each route. So a global decision lands
+through holds from day 21 of the **global hold** that first deferred it once
+it was due, its anchor, whatever holds stand by then, on any route. The
+anchor is recorded at that first deferral and never moves, exactly as a seat
+change's (ADR 0004, ADR pr6375 §7.4). A global decision therefore waits at
+most its 7 days plus 21, however many routes there are and however their
+holds are staggered.
+
+A **global hold** is a period in which some route holds without a gap. It
+starts when a route's hold starts while no route holds or lingers, at
+`globalHeldSince`, and lasts while any route holds or lingers. A hold that
+starts on B while A's still stands or lingers continues A's global hold and
+keeps its start.
+
+**A global unpause is deferred, never spent.** A route's hold spends that
+route's unpauses, as today, because the route's own guardians answer for its
+state. A global unpause reopens the core or the transfer app for every route,
+and spending it would let one route's guardians undo it, so that GovDAO has to
+record it again and wait 7 more days, each time. It is deferred like any other
+global decision and lands from day 21 of its anchor.
 
 **The global check is constant work, however many routes exist.** ibcgov keeps
-two numbers beside the per-route hold state:
+three numbers beside the per-route hold state:
 
 - `routesFlagging`: how many routes have two or more seats flagging. A route's
   `updateHold` raises it when the route reaches two flagging seats and lowers
@@ -371,6 +396,9 @@ two numbers beside the per-route hold state:
 - `lingerEnd`: the latest end of any route's 24-hour linger. When a route falls
   below two flagging seats at t, it is raised to t + 24 hours if that is later.
   It is never lowered.
+- `globalHeldSince`: the start of the current global hold. When a route
+  reaches two flagging seats at t while `routesFlagging` is 0 and
+  `t >= lingerEnd`, it is set to t; otherwise it is left as it is.
 
 Some route is held at t exactly when `routesFlagging > 0` or `t < lingerEnd`.
 If a route is lingering, `lingerEnd` is at or past its own end, so the check
@@ -469,7 +497,9 @@ route.
   Ethereum-bound builders and channel entry points take the route.
 - **Guardians and holds** (and ADR pr6375 §7.4 as ADR 0004 applies it). Seats,
   flags, seat generations and holds are per route. A hold defers its route's
-  queued decisions and every global one (section 6).
+  queued decisions and every global one, a global decision at most to day 21
+  of the global hold that first deferred it, and a global unpause is deferred
+  rather than spent (section 6).
 - **Governance channel API and Render.** Route-qualified, as listed in
   section 7.
 - **Denoms.** A route may configure only its own vouchers and non-voucher
@@ -548,6 +578,11 @@ route.
   - **Global hold check:** route A's hold ends and lingers while route B's
     starts and clears. A global decision is deferred until the later linger
     ends, and not after it. A third route enrolled changes neither count.
+  - **Global deadline:** A holds, a global decision is deferred, A's seats
+    are vacated on day 21 while B starts a hold on day 20: the global
+    decision lands on day 21 of A's hold, not of B's. A global unpause
+    deferred by a hold lands on its deadline and is not spent; a route
+    unpause is still spent by its route's hold.
   - **Claims:** a counterparty registration (`NewEthClientRequest` op 1) on A
     naming a client of B, or one that authenticates another identity, is
     refused. In the duplicate-enrolment race, the losing enrolment's client
@@ -597,14 +632,13 @@ route.
   the guardians distinct people, and it would stop an operator trusted on
   both chains from serving both. Rejected: a key may hold seats on several
   routes, each seat independent.
+- **A separate global guardian set**, whose hold alone defers global
+  decisions. Who can delay a core change would then be one explicit group,
+  at the cost of a third set of seats, and a route's guardians could no
+  longer hold a change that harms only their route. Rejected: any route's
+  hold defers a global decision, capped at day 21 of the global hold that
+  first deferred it, which bounds the delay without another set.
 - **A fixed cap on routes** (4 was first proposed), to bound loops over
   routes. The hold counts above remove the only loop on an execution path,
   and every route already needs a GovDAO vote, so a cap would only make a
   fifth chain wait for an upgrade.
-
-## Open questions
-
-1. **Global decisions and holds.** This proposes that any route's hold defers
-   global decisions and spends global unpauses. The alternative is a separate
-   global guardian set, with seats of its own, whose hold alone defers global
-   decisions.
