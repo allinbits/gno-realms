@@ -10,7 +10,7 @@
 # Only imports of the deployed code count: the chain type-checks a package's
 # production files only, so a test or filetest import need not be deployed
 # (scripts/check-packages.sh checks the order). The test helper packages
-# (p/aib/ibc/testing, lightclient/{tendermint,ethereum}/testing,
+# (p/aib/ibc/testing, lightclient/{tendermint,ethereum,arc}/testing,
 # r/aib/ibc/apps/testing) are therefore absent, and so are the impl/v99 realms
 # (upgrade rehearsal, e2e only). grc20test stays: scripts/grc20_mint.sh and
 # grc20_approve.sh use its TEST token on the testnet.
@@ -60,10 +60,8 @@ PACKAGES=(
   # ics23 (and the crypto/bls12381 native)
   "gno.land/p/aib/ibc/lightclient/ethereum/v0:gno.land/p/aib/ibc/lightclient/ethereum/v0"
 
-  # arc/testing has no aib deps; arc depends on encoding/wire,
-  # ibc/lightclient, lightclient/ethereum, lightclient/extproof, ibc/types,
-  # ics23 (and arc/testing in its tests)
-  "gno.land/p/aib/ibc/lightclient/arc/testing/v0:gno.land/p/aib/ibc/lightclient/arc/testing/v0"
+  # depends on encoding/wire, ibc/lightclient, lightclient/ethereum,
+  # lightclient/extproof, ibc/types, ics23
   "gno.land/p/aib/ibc/lightclient/arc/v0:gno.land/p/aib/ibc/lightclient/arc/v0"
 
   # realms (stateful)
@@ -82,7 +80,7 @@ PACKAGES=(
   "gno.land/r/aib/ibc/apps/transfer:gno.land/r/aib/ibc/apps/transfer"
 
   # depends on r/aib/ibc/core, lightclient/ethereum, lightclient/arc,
-  # encoding/wire, extproof (and arc/testing in its filetest)
+  # encoding/wire, extproof
   "gno.land/r/aib/ibc/ethrelay:gno.land/r/aib/ibc/ethrelay"
 
   # the governance realm: depends on decisions, encoding/abi, encoding/ethaddr,
