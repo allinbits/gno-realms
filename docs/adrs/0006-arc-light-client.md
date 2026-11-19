@@ -128,15 +128,15 @@ client state the recovery replaced. A proof is also refused at a height
 whose state is `TrustingPeriod` seconds old or more, whether or not that
 state was pruned yet (`TestProofRefusedPastTrustingPeriod`).
 
-**Pruning**, as gno-realms#96 (pending) adds it to the Ethereum client:
-each update removes
+**Pruning**, as the Ethereum client does (ADR 0003, gno-realms#96): each
+update removes
 the oldest consensus state if no proof can use it any more, one below a
 recovery's cut-off or past the trusting period, so the store converges to
 about one trusting period of states and the deposit of the removed bytes
 is refunded to the updater. `PruneExpiredConsensusStates(limit)` removes up
 to `limit` such states in one call, for a client that accumulated them
-before (from a later core implementation's `OnInstall` migration, as #96
-has it for the Ethereum client); the core exposes no entry point for it. The latest state is never removed: `Status`, recoveries
+before (from a later core implementation's `OnInstall` migration, as for
+the Ethereum client); the core exposes no entry point for it. The latest state is never removed: `Status`, recoveries
 and renders read it. A set shared by consensus states stays stored while
 any of them does.
 
