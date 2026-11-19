@@ -64,9 +64,13 @@ of solidity-ibc-eureka (client type `ethereum`):
 - Every header and every misbehaviour builds on the latest trusted state: its
   `TrustedSlot` must equal the client state's `LatestSlot`
   (`checkLatestAnchor`). Older stored consensus states stay usable for
-  membership proofs at their heights (those from before a recovery
-  excepted; authenticating a newer state does not make them genuine, and a
-  genuine root does not make a defective verification against it sound, so
+  membership proofs at their heights while within the trust window
+  (`TrustingPeriods` sync committee periods of slots since the state's own
+  slot, whichever store holds it; past it `provenCommitment` refuses them,
+  as spectre's `validateProofHeightAboveWindow` does), those from before a
+  recovery excepted (authenticating a newer state does not make them
+  genuine, and a genuine root does not make a defective verification against
+  it sound, so
   an incident's suspect interval starts no later than the earliest stored
   root that may have been forged and the earliest proof an affected
   verifier version checked: ADR 0004, runbook §8), but never as the
@@ -250,10 +254,17 @@ unchanged.
 
 ## Consequences
 
-- Consensus-state storage grows with every accepted finalized height: each
-  advancing update stores a consensus state, and nothing prunes them. A
-  recovery only stops trusting the states below the substitute's (they no
-  longer verify proofs); they stay allocated.
+- Each advancing update stores a consensus state, and pruning is amortized:
+  `UpdateState` first removes the client's own oldest state if nothing reads
+  it any more (it is past the trust window, or below `TrustedFromSlot`, from
+  before a recovery), at most one per update, so the store converges to
+  about one trust window of states and the storage deposit of the removed
+  bytes is refunded to the updater. The latest state is always kept, expired
+  or not (`Status`, recoveries and renders read it). The stores of retired
+  verifiers (`NewFrom`'s history and overrides) are read only and never
+  pruned. `PruneExpiredConsensusStates(limit)` removes up to `limit` such
+  states in one call, for a client that accumulated them before (from an
+  implementation's `OnInstall` migration).
 - The deployment is fresh: core `impl/v0` serves Ethereum clients itself
   and carries the client migrations (a fork schedule, or a verifier
   replacement by a conversion a later core implementation compiles in, the

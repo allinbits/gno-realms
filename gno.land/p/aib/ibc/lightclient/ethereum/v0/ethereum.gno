@@ -121,7 +121,8 @@ func Retire(c *EthLightClient) *Retired {
 // (O(log previous stores), the persistent trees' insertions copying their
 // search paths): a deep copy of its client state, and r, from which it serves every
 // consensus state at or below the retired verifier's latest slot, so every
-// height it trusted stays provable. Its own consensus states, those it stores
+// height it trusted stays provable while within the trust window
+// (slotExpired). Its own consensus states, those it stores
 // from now on, are kept apart (an overlay), and nothing writes to the retired
 // verifier: r is the only reference, and it only reads.
 func NewFrom(r *Retired) *EthLightClient {
