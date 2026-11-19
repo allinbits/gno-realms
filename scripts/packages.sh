@@ -64,14 +64,14 @@ PACKAGES=(
   "gno.land/r/aib/ibc/apps/testing/grc20test:gno.land/r/aib/ibc/apps/testing/grc20test"
 
   # depends on ibc/app, ibc/host, ibc/lightclient, lightclient/tendermint,
-  # lightclient/ethereum, ibc/types, ics23, jsonpage
+  # lightclient/ethereum, ibc/types, jsonpage
   "gno.land/r/aib/ibc/core:gno.land/r/aib/ibc/core"
 
   # depends on r/aib/ibc/core (registers itself as the core logic at init)
   "gno.land/r/aib/ibc/core/impl/v0:gno.land/r/aib/ibc/core/impl/v0"
 
   # depends on encoding/proto, ibc/app, ibc/host, lightclient/tendermint,
-  # ibc/types, ics23, jsonpage, r/aib/ibc/core
+  # ibc/types, jsonpage, r/aib/ibc/core
   "gno.land/r/aib/ibc/apps/transfer:gno.land/r/aib/ibc/apps/transfer"
 
   # depends on r/aib/ibc/core, encoding/wire, lightclient/ethereum
