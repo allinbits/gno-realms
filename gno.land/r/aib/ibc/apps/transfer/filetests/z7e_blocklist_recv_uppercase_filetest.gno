@@ -141,7 +141,7 @@ func main(cur realm) {
 				Version:         transfer.V1,
 			}},
 		},
-		ProofCommitment: proof,
+		ProofCommitment: ics23.MarshalMerkleProof(proof),
 		ProofHeight:     trustedHeight,
 	}
 	// NOTE the following will show 100ugnot escrowed under clientID from the

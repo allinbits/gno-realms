@@ -191,10 +191,12 @@ func (tm *TMLightClient) UpdateState(clientMsg lightclient.ClientMessage) []type
 }
 
 // Implements lightclient.Interface
+// The proof is the protobuf encoding of an ibc-go MerkleProof, as the
+// counterparty's ABCI query returns it.
 func (tm *TMLightClient) VerifyMembership(height types.Height,
-	proofs []ics23.CommitmentProof, path types.MerklePath,
-	value []byte) error {
-	if err := ics23.CheckProofs(proofs); err != nil {
+	proof []byte, path types.MerklePath, value []byte) error {
+	proofs, err := ics23.UnmarshalMerkleProof(proof)
+	if err != nil {
 		return err
 	}
 	if tm.ClientState.LatestHeight.LT(height) {
@@ -224,9 +226,11 @@ func (tm *TMLightClient) VerifyMembership(height types.Height,
 }
 
 // Implements lightclient.Interface
+// The proof is encoded as for VerifyMembership.
 func (tm *TMLightClient) VerifyNonMembership(height types.Height,
-	proofs []ics23.CommitmentProof, path types.MerklePath) error {
-	if err := ics23.CheckProofs(proofs); err != nil {
+	proof []byte, path types.MerklePath) error {
+	proofs, err := ics23.UnmarshalMerkleProof(proof)
+	if err != nil {
 		return err
 	}
 	if tm.ClientState.LatestHeight.LT(height) {
@@ -430,8 +434,8 @@ func mismatchingClientStateField(subject, substitute *ClientState) string {
 }
 
 // Implements lightclient.Interface
-func (tm *TMLightClient) VerifyUpgradeAndUpdateState(newClient, newConsState,
-	upgradeClientProof, upgradeConsensusStateProof any) error {
+func (tm *TMLightClient) VerifyUpgradeAndUpdateState(newClient, newConsState any,
+	upgradeClientProof, upgradeConsensusStateProof []byte) error {
 	upgradedClientState, ok := newClient.(ClientState)
 	if !ok {
 		return ufmt.Errorf("upgraded client state must be tendermint.ClientState, got %T", newClient)
@@ -460,19 +464,10 @@ func (tm *TMLightClient) VerifyUpgradeAndUpdateState(newClient, newConsState,
 
 	lastHeight := tm.ClientState.LatestHeight
 
-	clientProofs, ok := upgradeClientProof.([]ics23.CommitmentProof)
-	if !ok {
-		return ufmt.Errorf("upgradeClientProof must be []ics23.CommitmentProof, got %T", upgradeClientProof)
-	}
-	if len(clientProofs) == 0 {
+	if len(upgradeClientProof) == 0 {
 		return errors.New("upgradeClientProof cannot be empty")
 	}
-
-	consensusProofs, ok := upgradeConsensusStateProof.([]ics23.CommitmentProof)
-	if !ok {
-		return ufmt.Errorf("upgradeConsensusStateProof must be []ics23.CommitmentProof, got %T", upgradeConsensusStateProof)
-	}
-	if len(consensusProofs) == 0 {
+	if len(upgradeConsensusStateProof) == 0 {
 		return errors.New("upgradeConsensusStateProof cannot be empty")
 	}
 
@@ -485,7 +480,7 @@ func (tm *TMLightClient) VerifyUpgradeAndUpdateState(newClient, newConsState,
 		ClientStateTypeURL,
 		upgradedClientState.ZeroCustomFields().ProtoMarshal(),
 	)
-	if err := tm.VerifyMembership(lastHeight, clientProofs, clientPath, clientValue); err != nil {
+	if err := tm.VerifyMembership(lastHeight, upgradeClientProof, clientPath, clientValue); err != nil {
 		return ufmt.Errorf("failed to verify upgrade client proof: %v", err)
 	}
 
@@ -496,7 +491,7 @@ func (tm *TMLightClient) VerifyUpgradeAndUpdateState(newClient, newConsState,
 		ConsensusStateTypeURL,
 		upgradedConsensusState.ProtoMarshal(),
 	)
-	if err := tm.VerifyMembership(lastHeight, consensusProofs, consensusPath, consensusValue); err != nil {
+	if err := tm.VerifyMembership(lastHeight, upgradeConsensusStateProof, consensusPath, consensusValue); err != nil {
 		return ufmt.Errorf("failed to verify upgrade consensus state proof: %v", err)
 	}
 

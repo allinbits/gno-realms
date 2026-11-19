@@ -67,7 +67,7 @@ type Logic interface {
 	CreateClient(_ int, rlm realm, relayer address, clientState lightclient.ClientState, consensusState lightclient.ConsensusState) string
 	RegisterCounterparty(_ int, rlm realm, clientID string, counterpartyMerklePrefix [][]byte, counterpartyClientID string)
 	UpdateClient(_ int, rlm realm, clientID string, clientMessage lightclient.ClientMessage)
-	UpgradeClient(_ int, rlm realm, clientID string, clientState, consensusState, proofUpgradeClient, proofUpgradeConsensusState any)
+	UpgradeClient(_ int, rlm realm, clientID string, clientState, consensusState any, proofUpgradeClient, proofUpgradeConsensusState []byte)
 	RecoverClient(_ int, rlm realm, subjectClientID, substituteClientID string)
 	SendPacket(_ int, rlm realm, msg types.MsgSendPacket) (sequence uint64)
 	RecvPacket(_ int, rlm realm, msg types.MsgRecvPacket) types.ResponseResultType

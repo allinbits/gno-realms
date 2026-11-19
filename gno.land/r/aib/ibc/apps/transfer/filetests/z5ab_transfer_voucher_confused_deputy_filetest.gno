@@ -126,7 +126,7 @@ func recvPacket(cur realm, clientID, counterpartyID string, trustedHeight types.
 				Version:         transfer.V1,
 			}},
 		},
-		ProofCommitment: proof,
+		ProofCommitment: ics23.MarshalMerkleProof(proof),
 		ProofHeight:     trustedHeight,
 	}
 

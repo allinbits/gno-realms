@@ -60,18 +60,27 @@ func writePacket(p types.Packet, height types.Height, acks [][]byte) *wire.Write
 	return w
 }
 
-// readRecv and readAck read a message as RecvPacket and Acknowledgement do.
+// readRecv and readAck read a message as RecvPacket and Acknowledgement do,
+// and decode its proof as the Ethereum client does.
 func readRecv(bz []byte) (types.Packet, types.Height, ethereum.MembershipProof) {
 	d := wire.NewReader(bz)
 	p, h := readPacket(d)
-	return p, h, readProof(d)
+	return p, h, decodeProof(readProof(d))
 }
 
 func readAck(bz []byte) (types.Packet, types.Height, [][]byte, ethereum.MembershipProof) {
 	d := wire.NewReader(bz)
 	p, h := readPacket(d)
 	acks := readBlobs(d)
-	return p, h, acks, readProof(d)
+	return p, h, acks, decodeProof(readProof(d))
+}
+
+func decodeProof(bz []byte) ethereum.MembershipProof {
+	p, err := ethereum.DecodeMembershipProof(bz)
+	if err != nil {
+		panic(err)
+	}
+	return p
 }
 
 func assertPacket(t *testing.T, want, got types.Packet) {
@@ -166,8 +175,6 @@ func TestReadRefusals(cur realm, t *testing.T) {
 		{"packet read alone, truncated inside a payload", short, func() { readPacket(wire.NewReader(full[:headLen+5])) }},
 		{"packet read alone, truncated inside the height", short, func() { readPacket(wire.NewReader(full[:heightAt+11])) }},
 		{"trailing bytes", errTrailing.Error(), recv(append(append([]byte{}, full...), 0))},
-		{"not a membership proof", "wire: list longer than the remaining bytes", recv(
-			writePacket(p, height, nil).Blob([]byte{5}).Bytes())},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

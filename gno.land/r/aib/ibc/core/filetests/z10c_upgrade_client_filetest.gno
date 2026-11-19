@@ -168,7 +168,8 @@ func main(cur realm) {
 		},
 	}
 
-	core.UpgradeClient(cross(cur), clientID, upgradedClient, upgradedConsState, clientProof, consStateProof)
+	core.UpgradeClient(cross(cur), clientID, upgradedClient, upgradedConsState,
+		ics23.MarshalMerkleProof(clientProof), ics23.MarshalMerkleProof(consStateProof))
 
 	println("upgrade succeeded")
 }

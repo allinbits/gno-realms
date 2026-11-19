@@ -8,7 +8,6 @@ import (
 
 	ethtesting "gno.land/p/aib/ibc/lightclient/ethereum/testing/v0"
 	"gno.land/p/aib/ibc/lightclient/ethereum/v0"
-	"gno.land/p/aib/ibc/lightclient/extproof/v0"
 	"gno.land/p/aib/ibc/lightclient/v0"
 	"gno.land/p/aib/ibc/types/v0"
 	"gno.land/p/nt/testutils/v0"
@@ -108,7 +107,7 @@ func deliver(cur realm, s *sent, i int) string {
 				}
 			}
 		}()
-		core.RecvPacket(cross(cur), types.MsgRecvPacket{Packet: p, ProofHeight: types.NewHeight(0, 72), Ext: extproof.Proof{Data: s.router.Proof()}})
+		core.RecvPacket(cross(cur), types.MsgRecvPacket{Packet: p, ProofHeight: types.NewHeight(0, 72), ProofCommitment: s.router.Proof()})
 		ack := core.PacketAcknowledgement(p.DestinationClient, p.Sequence)
 		switch {
 		case len(ack) == 0:

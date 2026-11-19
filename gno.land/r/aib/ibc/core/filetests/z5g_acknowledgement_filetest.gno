@@ -50,11 +50,11 @@ func main(cur realm) {
 		Acknowledgement: types.Acknowledgement{
 			AppAcknowledgements: [][]byte{[]byte("ack")},
 		},
-		ProofAcked: []ics23.CommitmentProof{
+		ProofAcked: ics23.MarshalMerkleProof([]ics23.CommitmentProof{
 			ics23.CommitmentProof_Exist{
 				Exist: &ics23.ExistenceProof{},
 			},
-		},
+		}),
 		ProofHeight: trustedHeight,
 	}
 

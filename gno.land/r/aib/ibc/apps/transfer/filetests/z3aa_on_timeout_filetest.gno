@@ -118,7 +118,7 @@ func main(cur realm) {
 				Version:         transfer.V1,
 			}},
 		},
-		ProofCommitment: recvProof,
+		ProofCommitment: ics23.MarshalMerkleProof(recvProof),
 		ProofHeight:     trustedHeight,
 	}
 	core.RecvPacket(cross(cur), recvMsg)
@@ -259,7 +259,7 @@ func main(cur realm) {
 			TimeoutTimestamp:  sendPacket.TimeoutTimestamp,
 			Payloads:          sendPacket.Payloads,
 		},
-		ProofUnreceived: proof,
+		ProofUnreceived: ics23.MarshalMerkleProof(proof),
 		ProofHeight:     msgHeader.GetHeight(),
 	}
 

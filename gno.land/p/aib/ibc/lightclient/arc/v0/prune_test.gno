@@ -167,10 +167,10 @@ func TestProofRefusedPastTrustingPeriod(t *testing.T) {
 	expiredAt := int64(stateAt(t, c, syntheticCreationHeight).Timestamp + c.ClientState.TrustingPeriod)
 
 	setTime(expiredAt - 1)
-	if err := c.VerifyMembershipProof(at, one.Proof, types.MerklePath{KeyPath: [][]byte{one.Path}}, one.Value); err != nil {
+	if err := c.VerifyMembership(at, one.Proof.Encode(), types.MerklePath{KeyPath: [][]byte{one.Path}}, one.Value); err != nil {
 		t.Fatalf("within the trusting period: %v", err)
 	}
-	if err := c.VerifyNonMembershipProof(at, three.Proof, types.MerklePath{KeyPath: [][]byte{three.Path}}); err != nil {
+	if err := c.VerifyNonMembership(at, three.Proof.Encode(), types.MerklePath{KeyPath: [][]byte{three.Path}}); err != nil {
 		t.Fatalf("absence within the trusting period: %v", err)
 	}
 
@@ -178,11 +178,11 @@ func TestProofRefusedPastTrustingPeriod(t *testing.T) {
 	if _, ok := c.GetConsensusState(at); !ok {
 		t.Fatal("the state should still be stored")
 	}
-	err := c.VerifyMembershipProof(at, one.Proof, types.MerklePath{KeyPath: [][]byte{one.Path}}, one.Value)
+	err := c.VerifyMembership(at, one.Proof.Encode(), types.MerklePath{KeyPath: [][]byte{one.Path}}, one.Value)
 	if err == nil || !strings.Contains(err.Error(), "seconds old") {
 		t.Fatalf("membership past the trusting period: %v", err)
 	}
-	err = c.VerifyNonMembershipProof(at, three.Proof, types.MerklePath{KeyPath: [][]byte{three.Path}})
+	err = c.VerifyNonMembership(at, three.Proof.Encode(), types.MerklePath{KeyPath: [][]byte{three.Path}})
 	if err == nil || !strings.Contains(err.Error(), "seconds old") {
 		t.Fatalf("absence past the trusting period: %v", err)
 	}

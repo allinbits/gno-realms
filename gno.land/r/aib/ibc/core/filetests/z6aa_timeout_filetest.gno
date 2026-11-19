@@ -186,7 +186,7 @@ func main(cur realm) {
 			TimeoutTimestamp:  sendPacket.TimeoutTimestamp,
 			Payloads:          sendPacket.Payloads,
 		},
-		ProofUnreceived: proof,
+		ProofUnreceived: ics23.MarshalMerkleProof(proof),
 		ProofHeight:     msgHeader.GetHeight(),
 	}
 

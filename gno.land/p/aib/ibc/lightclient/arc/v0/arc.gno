@@ -17,11 +17,12 @@
 //   - the block is the EVM header itself, hashed with Keccak-256, so the
 //     state root that packet proofs open is one the certificates commit to.
 //
-// See docs/adrs/0006-arc-light-client.md.
+// See docs/adrs/0008-arc-light-client.md.
 //
 // Packet commitments are proven as on Ethereum: eth_getProof storage proofs
-// of the ICS26 router's commitments mapping, in the Ext field of packet
-// messages (extproof), checked by the Ethereum client's code.
+// of the ICS26 router's commitments mapping, sent as a wire-encoded
+// ethereum.MembershipProof in the messages' proof bytes and checked by the
+// Ethereum client's code.
 package arc
 
 import (
@@ -32,10 +33,8 @@ import (
 	"time"
 
 	"gno.land/p/aib/ibc/lightclient/ethereum/v0"
-	"gno.land/p/aib/ibc/lightclient/extproof/v0"
 	"gno.land/p/aib/ibc/lightclient/v0"
 	"gno.land/p/aib/ibc/types/v0"
-	"gno.land/p/aib/ics23/v0"
 	"gno.land/p/nt/bptree/v0"
 	"gno.land/p/nt/ufmt/v0"
 )
@@ -56,7 +55,11 @@ type ArcLightClient struct {
 
 var (
 	_ lightclient.Interface = (*ArcLightClient)(nil)
-	_ extproof.Verifier     = (*ArcLightClient)(nil)
+	// The core's CounterpartyValue (and so transfer's ProveOutcome) reads a
+	// router client's proven values through this method.
+	_ interface {
+		ProvenValue(types.Height, []byte, types.MerklePath) ([]byte, error)
+	} = (*ArcLightClient)(nil)
 )
 
 // NewArcLightClient is an uninitialized client.
@@ -327,21 +330,10 @@ func (c *ArcLightClient) UpdateState(clientMsg lightclient.ClientMessage) []type
 	return []types.Height{heightAt(cons.Height)}
 }
 
-// VerifyMembership implements lightclient.Interface. This client's proofs are
-// not ICS23 proofs: relayers pass an ethereum.MembershipProof in the
-// message's Ext field, which reaches VerifyMembershipProof.
-func (c *ArcLightClient) VerifyMembership(types.Height, []ics23.CommitmentProof, types.MerklePath, []byte) error {
-	return errors.New("arc light client proofs must be passed as an extproof.Proof")
-}
-
-// VerifyNonMembership implements lightclient.Interface; see VerifyMembership.
-func (c *ArcLightClient) VerifyNonMembership(types.Height, []ics23.CommitmentProof, types.MerklePath) error {
-	return errors.New("arc light client proofs must be passed as an extproof.Proof")
-}
-
-// VerifyMembershipProof implements extproof.Verifier: value must be the
-// 32-byte value of the ICS26 commitment at path.
-func (c *ArcLightClient) VerifyMembershipProof(height types.Height, proof any, path types.MerklePath, value []byte) error {
+// VerifyMembership implements lightclient.Interface: proof is a wire-encoded
+// ethereum.MembershipProof and value the 32-byte value of the ICS26
+// commitment at path.
+func (c *ArcLightClient) VerifyMembership(height types.Height, proof []byte, path types.MerklePath, value []byte) error {
 	if value == nil {
 		value = []byte{}
 	}
@@ -352,8 +344,8 @@ func (c *ArcLightClient) VerifyMembershipProof(height types.Height, proof any, p
 	return ethereum.CheckCommitment(stored, value)
 }
 
-// VerifyNonMembershipProof implements extproof.Verifier.
-func (c *ArcLightClient) VerifyNonMembershipProof(height types.Height, proof any, path types.MerklePath) error {
+// VerifyNonMembership implements lightclient.Interface; see VerifyMembership.
+func (c *ArcLightClient) VerifyNonMembership(height types.Height, proof []byte, path types.MerklePath) error {
 	stored, err := c.ProvenValue(height, proof, path)
 	if err != nil {
 		return err
@@ -361,10 +353,11 @@ func (c *ArcLightClient) VerifyNonMembershipProof(height types.Height, proof any
 	return ethereum.CheckCommitment(stored, nil)
 }
 
-// ProvenValue is the value proof establishes for the router's commitment at
-// path at height, zero (32 zero bytes) if none is stored.
-func (c *ArcLightClient) ProvenValue(height types.Height, proof any, path types.MerklePath) ([]byte, error) {
-	mp, err := ethereum.AsMembershipProof(proof)
+// ProvenValue is the value proof, a wire-encoded ethereum.MembershipProof,
+// establishes for the router's commitment at path at height, zero (32 zero
+// bytes) if none is stored.
+func (c *ArcLightClient) ProvenValue(height types.Height, proof []byte, path types.MerklePath) ([]byte, error) {
+	mp, err := ethereum.DecodeMembershipProof(proof)
 	if err != nil {
 		return nil, err
 	}
@@ -469,7 +462,7 @@ func (c *ArcLightClient) CheckRecovery(substitute lightclient.Interface) error {
 
 // VerifyUpgradeAndUpdateState implements lightclient.Interface. Arc has no
 // IBC upgrade path; replace the client with RecoverClient instead.
-func (c *ArcLightClient) VerifyUpgradeAndUpdateState(_, _, _, _ any) error {
+func (c *ArcLightClient) VerifyUpgradeAndUpdateState(_, _ any, _, _ []byte) error {
 	return errors.New("the arc light client does not support upgrades")
 }
 

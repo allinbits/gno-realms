@@ -1,4 +1,4 @@
-# ADR 0006: Arc light client
+# ADR 0008: Arc light client
 
 - Status: Proposed
 - Date: 2026-11-03
@@ -118,9 +118,13 @@ while B is the latest; the relayer then waits for C's certificate (blocks are
 about 0.5 s). `relayer/arc` identifies B by the account proof's root and
 retries when the chain moves between proof calls.
 
-**Membership** proofs are `ethereum.MembershipProof` in the `Ext` field,
-checked by the Ethereum client's MPT code against the consensus state's
-state root (`ethereum.RouterCommitment`). That code is exported from the
+**Membership** proofs are, as for Ethereum (ADR 0006), the wire-encoded
+`ethereum.MembershipProof` in the messages' `[]byte` proof fields, decoded by
+`ethereum.DecodeMembershipProof` and checked by the Ethereum client's MPT
+code against the consensus state's state root (`ethereum.RouterCommitment`).
+`VerifyMembership`, `VerifyNonMembership` and `ProvenValue` (which
+`CounterpartyValue` and transfer's `ProveOutcome` read) take these bytes;
+bytes that do not decode, or carry trailing data, are refused. That code is exported from the
 Ethereum package (`evm.gno`) rather than copied; `mptGet` gained a variant
 over an indexed node pool (`StorageReader`). A proof is refused for any
 other value, path, state root, router, commitment slot or height than its

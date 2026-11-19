@@ -29,7 +29,7 @@ func main(cur realm) {
 		},
 		// Write the proof of packet commitment written during the SendPacket of
 		// the counterparty client.
-		ProofCommitment: []ics23.CommitmentProof{
+		ProofCommitment: ics23.MarshalMerkleProof([]ics23.CommitmentProof{
 
 			// iavl proof
 			ics23.CommitmentProof_Exist{
@@ -78,7 +78,7 @@ func main(cur realm) {
 					Path: []*ics23.InnerOp{},
 				},
 			},
-		},
+		}),
 		ProofHeight: types.NewHeight(1, 2000), // XXX update
 	}
 

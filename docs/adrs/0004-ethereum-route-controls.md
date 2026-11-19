@@ -14,6 +14,9 @@
   parking of minted settlement refunds no longer apply; a denom's
   configuration also names its voucher's decimals, a change of which waits
   7 days, see ADR 0005 "Voucher decimals").
+- Superseded in part by: ADR 0006 (proofs are `[]byte`, so they carry no
+  caller code: the rows of the entry-point guard table below about proofs,
+  `Ext` and `ics23.CheckProofs` are updated to it).
 - Depends on: ADR 0001, ADR 0002, ADR 0003.
 
 ## Context
@@ -178,7 +181,7 @@ not enrolled in these controls and are unaffected.
 | ibcgov decisions | the governor (`Govern`, MsgRun) until `Yield()`, then GovDAO proposals only (`req.Proposal()`). The governor is the account that deployed ibcgov, recorded by its `init` from `cur.Previous()` (the creator under either chain policy: an inert chain's `EnablePackage` runs `init` with the stamped creator as origin), so no source constant has to be replaced before a deployment (review of #91). The deployer holds no power beyond this seat, which it gives up for good by `Yield`; members read it on ibcgov's page (`Governor()`). Under `gno test`, which initializes imported realms with no caller, the governor is a fixed test address (`harnessGovernor`), unreachable on chain |
 | ibcgov `Execute`, `Redispatch`; transfer `Claim`, `ClaimRefunds`, `ProveOutcome`, `ContinueReopen`, `Recapitalize` | anyone |
 | ibcgov `SetFlag`, `ClearFlag` | the seat's key, on a route ibcgov enrolled or any router client (one about to become a route's); a client of a route, current or retired, names its route (flags are kept under the route key) |
-| `UpdateClient`, `RecvPacket`, `Acknowledgement`, `Timeout` on a router client (`core.IsRouterClient`: an Ethereum client, or an Arc client, ADR 0006) | anyone (R17); other clients keep the relayer whitelist |
+| `UpdateClient`, `RecvPacket`, `Acknowledgement`, `Timeout` on a router client (`core.IsRouterClient`: an Ethereum client, or an Arc client, ADR 0008) | anyone (R17); other clients keep the relayer whitelist |
 
 Candidate implementation code runs only in an authorized installation: the
 bootstrap registration, or a governed `UpdateImpl` after its 7-day delay.
@@ -230,7 +233,7 @@ are arrays, copied by value) and the consensus state (`copyConsensusState`:
 state root, both sync committee summaries); `UpdateState` copies the
 execution state root and every sync committee summary it keeps;
 `RecoverClient` copies the substitute's consensus state;
-`MigrateForkParameters` stores arrays. `ics23`, `extproof` and the merkle
+`MigrateForkParameters` stores arrays. `ics23` and the merkle
 path type keep no state: they verify against what they are given. The core
 filetest z7z mutates a client's initialization inputs and a verified
 header after the calls, and a proof against the substituted root is
@@ -247,19 +250,15 @@ func, and what guards each:
 
 | Entry point | Parameter | Guard |
 |---|---|---|
-| core `RecvPacket`, `Acknowledgement`, `Timeout` (and `types.Msg*.ValidateBasic`) | `[]ics23.CommitmentProof` | `ics23.CheckProofs` first in `ValidateBasic`: `CommitmentProof_Exist` or `_Nonexist` by value |
-| same | `Ext any` | `extproof.FromExt`: a type switch to `extproof.Proof` / `*extproof.Proof`, else ignored; its `Data any` reaches only a router client's type switch to `MembershipProof` / `*MembershipProof` (Ethereum's, and Arc's, which reuses it through `ethereum.AsMembershipProof`, ADR 0006) |
+| core `RecvPacket`, `Acknowledgement`, `Timeout` | `Ext any` | never read by `impl/v0`; the proofs are `[]byte`, which carry no code |
 | core `CreateClient` | `lightclient.ClientState`, `ConsensusState` | `checkStates`: `tendermint.ClientState` with `tendermint.ConsensusState`, `ethereum.ClientState` with `ethereum.ConsensusState`, or `arc.ClientState` with `arc.ConsensusState`, by value |
 | core `UpdateClient` | `lightclient.ClientMessage` | `checkClientMessage`: `*tendermint.MsgHeader`, `*tendermint.Misbehaviour`, `*ethereum.Header`, `*ethereum.Misbehaviour`, `*arc.Header`, `*arc.Misbehaviour` |
-| core `UpgradeClient` | four `any` | the Tendermint client asserts `tendermint.ClientState`, `tendermint.ConsensusState` and `[]ics23.CommitmentProof` before any method, and its `VerifyMembership` runs `ics23.CheckProofs`; the Ethereum client refuses |
-| core `CounterpartyValue`, transfer `ProveOutcome` | `proof any` | the router client's type switch to `MembershipProof` (Ethereum's or Arc's) |
+| core `UpgradeClient` | two `any` (the proofs are `[]byte`) | the Tendermint client asserts `tendermint.ClientState` and `tendermint.ConsensusState` before any method; the Ethereum and Arc clients refuse |
 | core `RegisterApp` | `app.IBCApp` | no method runs at registration; callbacks are crossing calls (`cross(rlm)`), so they run in the app's own realm, and a non-trusted app needs a governed approval |
 | core and transfer `RegisterImpl` | constructor func | runs only in an authorized installation, against the live store; the preflight reads the manifest and never calls it (rounds 17, 29; review of #91) |
 | core store `AddClient`, `SetLightClient`; transfer store `InitExt`, `IterateEscrow` | func | only through the store, held by the installed implementation; mutators guarded by `assertProxyRealm` |
 | light clients `Initialize`, `VerifyClientMessage`, `CheckForMisbehaviour`, `UpdateState`, `UpdateStateOnMisbehaviour`, `VerifyUpgradeAndUpdateState` | `lightclient.*` interfaces carrying caller input (states, messages, upgrade values) | type assertion or switch to the package's own concrete types before any method; reached only from the core's guarded paths |
-| light clients `RecoverClient`, `CheckRecovery` | `lightclient.Interface`: the substitute, a verifier the core already stores (never caller input) | Tendermint: assertion to `*TMLightClient`; Arc: assertion to `*ArcLightClient`; Ethereum: the structural interface `ethState` (`Ethereum() *EthLightClient`), which ethereum/v0's verifier and any installed version wrapping it implement, so a replaced client stays recoverable; only installed verifiers reach it, through the core's governed recovery |
-| tendermint `VerifyMembership`, `VerifyNonMembership` | `[]ics23.CommitmentProof` | `ics23.CheckProofs` |
-| ethereum and arc `VerifyMembershipProof`, `VerifyNonMembershipProof`, `ProvenValue` | `proof any` | type switch to `MembershipProof` / `*MembershipProof` |
+| light clients `RecoverClient`, `CheckRecovery` | `lightclient.Interface`: the substitute, a verifier the core already stores (never caller input) | Tendermint: assertion to `*TMLightClient`; Ethereum and Arc: the structural interfaces `ethState` (`Ethereum() *EthLightClient`) and `arcState` (`Arc() *ArcLightClient`), which each v0 verifier and any installed version wrapping it implement, so a replaced client stays recoverable; only installed verifiers reach it, through the core's governed recovery |
 | ibcgov `Govern` | `Request` | a struct with unexported fields, only built by ibcgov's own builders |
 | ethrelay | wire bytes | decoded internally to concrete types |
 
@@ -483,7 +482,7 @@ hold: approving a local verifier loosens, and it fits within Ethereum's
 30-day recovery delay) records an
 emergency recovery's, which ibcgov does not dispatch. The local client must
 be an Active router client (an Ethereum client, or an Arc one on an Arc
-route, ADR 0006), not retired, its counterparty the new router
+route, ADR 0008), not retired, its counterparty the new router
 client, authenticating the identity of the route the channel was bound
 over, checked when the decision is built and again when it applies; its
 identity alone proves nothing (a client created from a fabricated
@@ -1150,7 +1149,7 @@ afterwards by the new executor, through its own decisions.
 ### Changes affecting every route
 
 The controls cover router clients only (Ethereum's, and Arc's since ADR
-0006), but these changes reach every client of the
+0008), but these changes reach every client of the
 core and the transfer app, Tendermint ones included. Each is deliberate, a
 protection or a governance rule, and each has a test documenting the base
 (1e0c7c5) behaviour next to the new one:
@@ -1165,7 +1164,7 @@ protection or a governance rule, and each has a test documenting the base
 | `VoucherSend` and `VoucherApprove` (and the authority membership calls) canonicalize their address | an uppercase recipient or spender got a balance or allowance under that string, which the canonical address cannot use | transfer `z4aaaa` (Tendermint), `z9w` |
 | A voucher's grc20 symbol, and its grc20reg key `<transfer realm>.<symbol>`, are allocated from the voucher id counter when it is created (`IBC-` and the id in base 36: `IBC-1`, `IBC-2`, ...), stored with it and read by `VoucherSymbol`, `GRC20RegKey` and the renders; the full IBC hash stays its identity (its denom, the grc20reg slug), so no denom can take another's registry key | the symbol was the hash's first 11 hex characters, so a denom ground to share a future voucher's prefix registered first and made that voucher's receive abort on grc20reg's duplicate key | transfer `z9zp` (two colliding hashes, both usable); the old and new symbols and keys side by side in `z0c`, `z0d`, `z0e`, `z1aa`, `z2aaa`, `z3aa`, `z4a`, `z4aaaa`, `z5aa`, `z6a` |
 | A Tendermint light client keeps copies of what it trusts: `Initialize` deep-copies the client state (proof specifications, upgrade path) and the consensus state's root and next validators hash, `UpdateState` the header's app hash and next validators hash, `RecoverClient` the substitute's consensus state, `VerifyUpgradeAndUpdateState` the upgraded proof specifications, upgrade path and next validators hash; `NewMerkleRoot` copies its input; `Initialize` runs once | the client kept the caller's slices, so writing them after `CreateClient` or a verified `UpdateClient` moved the trusted root and state without verification | core `z7z` (Tendermint), tendermint `TestInitializeOnce` |
-| No entry point runs a caller-supplied implementation: commitment proofs must be `ics23.CommitmentProof_Exist` or `_Nonexist` by value (`ics23.CheckProofs`, in every message's `ValidateBasic` and the Tendermint client's membership and absence checks), client and consensus states and client messages the light clients' own types (core `checkStates`, `checkClientMessage`) | the core called `GetExist`, `ClientType` and `ValidateBasic` on whatever the caller passed, running its code in the core's realm context | core `z16e`, `z1b`, `z1j` (a caller's own state type, refused up front; the base's unhandled-type and client-type-naming branches are unreachable with our own types); `z1f`, `z1i`, `z2d`, `z2f` reach the base's type-mismatch and `ValidateBasic` errors with real Tendermint and Ethereum states and headers; ics23 `TestCheckProofs`; tendermint `TestVerifyRefusesOwnProofTypes` |
+| No entry point runs a caller-supplied implementation: proofs are `[]byte`, decoded by the light client (a protobuf `MerkleProof`, `ics23.UnmarshalMerkleProof`, for Tendermint; a wire `MembershipProof` for Ethereum), client and consensus states and client messages the light clients' own types (core `checkStates`, `checkClientMessage`) | the core called `GetExist`, `ClientType` and `ValidateBasic` on whatever the caller passed, running its code in the core's realm context | core `z16e`, `z1b`, `z1j` (a caller's own state type, refused up front; the base's unhandled-type and client-type-naming branches are unreachable with our own types); `z1f`, `z1i`, `z2d`, `z2f` reach the base's type-mismatch and `ValidateBasic` errors with real Tendermint and Ethereum states and headers; ics23 `TestMerkleProofMalformed`; tendermint `TestVerifyRefusesMalformedProof` |
 | An implementation is never registered, by either proxy, at the address of an Ethereum route's current fee collector (`RegisterImpl` asks the route controls' collector index: the transfer proxy its own, the core the transfer app on its port), so registering one for any client, a Tendermint one's upgrade included, first needs a governed collector change (`NewSetFeeCollectorRequest`, 7 days) when a collector names its address | any implementation registered under the proxy's prefix | transfer `z9h` |
 | Every JSON render is inert in Markdown, its strings' Markdown-active characters written as escapes: it passes through `jsonmd.Inert`, or is built with `jsonmd.Quote` (the transfer realm's `routes` endpoint returns the controls' `RoutesJSON()`, whose strings are all quoted so); the Markdown pages escape user strings | strings were JSON-quoted only, or written raw | transfer `z9v`, ibcgov `z2d`, `z1k` |
 
@@ -1441,7 +1440,7 @@ does not list before it.
     repair Ethereum already holds, then loses Ethereum-bound governance
     permanently.
 - **Pre-recovery consensus states of a Tendermint client** stay usable, as in
-  ibc-go: only the router light clients (Ethereum's, and Arc's, ADR 0006)
+  ibc-go: only the router light clients (Ethereum's, and Arc's, ADR 0008)
   mark them untrusted, and only router clients prove outcomes for
   settlement. The trust generation is
   kept for every client all the same.

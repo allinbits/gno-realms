@@ -42,21 +42,6 @@ func DecodeExecutionHeader(rlp []byte) (ExecutionHeader, []byte, error) {
 // Keccak256 is the Keccak-256 hash of b.
 func Keccak256(b []byte) []byte { return keccak(b) }
 
-// AsMembershipProof reads proof, a MembershipProof or a non-nil pointer to
-// one.
-func AsMembershipProof(proof any) (MembershipProof, error) {
-	switch p := proof.(type) {
-	case MembershipProof:
-		return p, nil
-	case *MembershipProof:
-		if p == nil {
-			return MembershipProof{}, errors.New("nil membership proof")
-		}
-		return *p, nil
-	}
-	return MembershipProof{}, ufmt.Errorf("expected ethereum.MembershipProof, got %T", proof)
-}
-
 // RouterCommitment is the value of commitments[keccak256(path)] in the ICS26
 // router at router, whose commitments mapping is at mappingSlot, in the
 // state with root stateRoot, zero (32 zero bytes) if unset, as established

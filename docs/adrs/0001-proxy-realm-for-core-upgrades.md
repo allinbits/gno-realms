@@ -5,6 +5,9 @@
 - Issue: [#22](https://github.com/allinbits/gno-realms/issues/22) (Use proxy realms)
 - Plan: [`docs/upgradability-plan.md`](../upgradability-plan.md)
 - Deciders: @tbruyelle
+- Superseded in part by: ADR 0006 (proofs are `[]byte`: `UpgradeClient`'s two
+  proofs are no longer `any`, and `impl/v0` reads no `extproof.Proof` from
+  the messages' `Ext` field, which it now leaves unread).
 
 ## Context
 

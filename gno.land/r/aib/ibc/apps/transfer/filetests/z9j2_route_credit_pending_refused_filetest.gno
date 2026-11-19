@@ -10,7 +10,6 @@ import (
 	"gno.land/p/aib/ibc/ics20/controls/v0"
 	"gno.land/p/aib/ibc/ics20/v0"
 	ethtesting "gno.land/p/aib/ibc/lightclient/ethereum/testing/v0"
-	"gno.land/p/aib/ibc/lightclient/extproof/v0"
 	"gno.land/p/aib/ibc/types/v0"
 	"gno.land/p/nt/testutils/v0"
 	"gno.land/r/aib/ibc/apps/transfer"
@@ -116,7 +115,7 @@ func main(cur realm) {
 	println("switch:", decided(switched), "| active:", transfer.ImplPath(), transfer.ImplVersion())
 
 	core.RecvPacket(cross(cur), types.MsgRecvPacket{
-		Packet: p, ProofHeight: types.NewHeight(0, 72), Ext: extproof.Proof{Data: router.Proof()},
+		Packet: p, ProofHeight: types.NewHeight(0, 72), ProofCommitment: router.Proof(),
 	})
 	_, _, pending := core.PendingAsyncAck(client, 1)
 	println("acknowledgement pending:", pending, "| voucher token:", transfer.VoucherSymbol(voucher) != "")

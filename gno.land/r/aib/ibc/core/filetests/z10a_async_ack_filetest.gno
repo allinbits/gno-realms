@@ -197,7 +197,7 @@ func main(cur realm) {
 				Version:         "v1",
 			}},
 		},
-		ProofCommitment: parentRecvProof,
+		ProofCommitment: ics23.MarshalMerkleProof(parentRecvProof),
 		ProofHeight:     trustedHeight,
 	}
 	recvRes := core.RecvPacket(cross(cur), recvPacket)
@@ -278,7 +278,7 @@ func main(cur realm) {
 		Acknowledgement: types.Acknowledgement{
 			AppAcknowledgements: [][]byte{[]byte("done")},
 		},
-		ProofAcked:  childAckProof,
+		ProofAcked:  ics23.MarshalMerkleProof(childAckProof),
 		ProofHeight: trustedHeight,
 	}
 	ackRes := core.Acknowledgement(cross(cur), ackPacket)

@@ -1,9 +1,6 @@
 package lightclient
 
-import (
-	"gno.land/p/aib/ibc/types/v0"
-	"gno.land/p/aib/ics23/v0"
-)
+import "gno.land/p/aib/ibc/types/v0"
 
 // Status represents the status of a client
 type Status = string
@@ -74,16 +71,18 @@ type Interface interface {
 	// proof of the existence of a value at a given CommitmentPath at the
 	// specified height.  The caller is expected to construct the full
 	// CommitmentPath from a CommitmentPrefix and a standardized path (as defined
-	// in ICS 24).
-	VerifyMembership(height types.Height, proofs []ics23.CommitmentProof,
+	// in ICS 24). The proof is the relayer's bytes, in the encoding the light
+	// client defines, which the client decodes itself.
+	VerifyMembership(height types.Height, proof []byte,
 		path types.MerklePath, value []byte) error
 
 	// VerifyNonMembership is a generic proof verification method which verifies
 	// the absence of a given CommitmentPath at a specified height.  The caller
 	// is expected to construct the full CommitmentPath from a CommitmentPrefix
-	// and a standardized path (as defined in ICS 24).
-	VerifyNonMembership(height types.Height,
-		proofs []ics23.CommitmentProof, path types.MerklePath) error
+	// and a standardized path (as defined in ICS 24). The proof is encoded as
+	// for VerifyMembership.
+	VerifyNonMembership(height types.Height, proof []byte,
+		path types.MerklePath) error
 
 	// Status must return the status of the client. Only Active clients are
 	// allowed to process packets.
@@ -112,8 +111,8 @@ type Interface interface {
 	// since upgrade plans committed to by the counterparty may be cancelled or
 	// modified before the last planned height.  If the upgrade is verified, the
 	// upgraded client and consensus states must be set in the client store.
-	VerifyUpgradeAndUpdateState(newClient, newConsState, upgradeClientProof,
-		upgradeConsensusStateProof any) error
+	VerifyUpgradeAndUpdateState(newClient, newConsState any,
+		upgradeClientProof, upgradeConsensusStateProof []byte) error
 }
 
 // ClientState defines the required common functions for light clients.

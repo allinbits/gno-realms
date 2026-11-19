@@ -329,7 +329,7 @@ func checkProofs(t *testing.T, c *ArcLightClient, height uint64) {
 		}
 		n++
 		path := pathOf(p.Path)
-		got, err := c.ProvenValue(at, p.Proof, path)
+		got, err := c.ProvenValue(at, p.Proof.Encode(), path)
 		if err != nil {
 			t.Fatalf("packet %d at %d: %v", p.Sequence, height, err)
 		}
@@ -337,25 +337,21 @@ func checkProofs(t *testing.T, c *ArcLightClient, height uint64) {
 			if !bytes.Equal(got, make([]byte, 32)) {
 				t.Fatalf("packet %d at %d: absent, proven %x", p.Sequence, height, got)
 			}
-			if err := c.VerifyNonMembershipProof(at, p.Proof, path); err != nil {
+			if err := c.VerifyNonMembership(at, p.Proof.Encode(), path); err != nil {
 				t.Fatalf("absence of packet %d at %d: %v", p.Sequence, height, err)
 			}
 			// Any commitment (a hash, never zero: storage cannot tell a
 			// zero word from an unset one).
-			expectProofError(t, "membership of an absent packet", c.VerifyMembershipProof(at, p.Proof, path, bytes.Repeat([]byte{1}, 32)), "differs")
+			expectProofError(t, "membership of an absent packet", c.VerifyMembership(at, p.Proof.Encode(), path, bytes.Repeat([]byte{1}, 32)), "differs")
 			continue
 		}
 		if !bytes.Equal(got, p.Value) {
 			t.Fatalf("packet %d at %d: proven %x, want %x", p.Sequence, height, got, p.Value)
 		}
-		if err := c.VerifyMembershipProof(at, p.Proof, path, p.Value); err != nil {
+		if err := c.VerifyMembership(at, p.Proof.Encode(), path, p.Value); err != nil {
 			t.Fatalf("packet %d at %d: %v", p.Sequence, height, err)
 		}
-		proof := p.Proof // by pointer too, as AsMembershipProof reads it
-		if err := c.VerifyMembershipProof(at, &proof, path, p.Value); err != nil {
-			t.Fatalf("packet %d at %d by pointer: %v", p.Sequence, height, err)
-		}
-		expectProofError(t, "absence of a stored packet", c.VerifyNonMembershipProof(at, p.Proof, path), "a commitment is stored")
+		expectProofError(t, "absence of a stored packet", c.VerifyNonMembership(at, p.Proof.Encode(), path), "a commitment is stored")
 	}
 	if n != 3 {
 		t.Fatalf("%d synthetic proofs at %d", n, height)
@@ -379,33 +375,34 @@ func TestSyntheticMembershipRefusals(t *testing.T) {
 
 	wrong := cloneBytes(one.Value)
 	wrong[31] ^= 1
-	expectProofError(t, "wrong value", c.VerifyMembershipProof(at, one.Proof, pathOf(one.Path), wrong), "differs")
-	expectProofError(t, "another packet's value", c.VerifyMembershipProof(at, one.Proof, pathOf(one.Path), two.Value), "differs")
-	expectProofError(t, "short value", c.VerifyMembershipProof(at, one.Proof, pathOf(one.Path), one.Value[:31]), "32 bytes")
+	expectProofError(t, "wrong value", c.VerifyMembership(at, one.Proof.Encode(), pathOf(one.Path), wrong), "differs")
+	expectProofError(t, "another packet's value", c.VerifyMembership(at, one.Proof.Encode(), pathOf(one.Path), two.Value), "differs")
+	expectProofError(t, "short value", c.VerifyMembership(at, one.Proof.Encode(), pathOf(one.Path), one.Value[:31]), "32 bytes")
 
 	// Packet 1's proof does not reach packet 2's slot, nor packet 3's
 	// absence proof packet 1's.
-	expectProofError(t, "wrong path", c.VerifyMembershipProof(at, one.Proof, pathOf(two.Path), two.Value), "")
-	if err := c.VerifyNonMembershipProof(at, three.Proof, pathOf(one.Path)); err == nil {
+	expectProofError(t, "wrong path", c.VerifyMembership(at, one.Proof.Encode(), pathOf(two.Path), two.Value), "")
+	if err := c.VerifyNonMembership(at, three.Proof.Encode(), pathOf(one.Path)); err == nil {
 		t.Fatal("an absence proof of packet 3 proved packet 1 absent")
 	}
-	expectProofError(t, "two-element path", c.VerifyMembershipProof(at, one.Proof, types.MerklePath{KeyPath: [][]byte{one.Path, one.Path}}, one.Value), "exactly one element")
+	expectProofError(t, "two-element path", c.VerifyMembership(at, one.Proof.Encode(), types.MerklePath{KeyPath: [][]byte{one.Path, one.Path}}, one.Value), "exactly one element")
 
 	// Block 110's proofs of the same commitments, into another state root.
 	other := syntheticCommitmentAt(t, syntheticRotationHeight, 1)
-	expectProofError(t, "another state root", c.VerifyMembershipProof(at, other.Proof, pathOf(other.Path), other.Value), "account proof")
-	expectProofError(t, "another state root (absence)", c.VerifyNonMembershipProof(at, syntheticCommitmentAt(t, syntheticRotationHeight, 3).Proof, pathOf(three.Path)), "account proof")
+	expectProofError(t, "another state root", c.VerifyMembership(at, other.Proof.Encode(), pathOf(other.Path), other.Value), "account proof")
+	expectProofError(t, "another state root (absence)", c.VerifyNonMembership(at, syntheticCommitmentAt(t, syntheticRotationHeight, 3).Proof.Encode(), pathOf(three.Path)), "account proof")
 
 	// A truncated storage proof.
 	cut := one.Proof
 	cut.StorageProof = cut.StorageProof[:len(cut.StorageProof)-1]
-	expectProofError(t, "truncated storage proof", c.VerifyMembershipProof(at, cut, pathOf(one.Path), one.Value), "storage proof")
-	expectProofError(t, "not a membership proof", c.VerifyMembershipProof(at, "proof", pathOf(one.Path), one.Value), "expected ethereum.MembershipProof")
+	expectProofError(t, "truncated storage proof", c.VerifyMembership(at, cut.Encode(), pathOf(one.Path), one.Value), "storage proof")
+	expectProofError(t, "not a membership proof", c.VerifyMembership(at, []byte("proof"), pathOf(one.Path), one.Value), "")
+	expectProofError(t, "trailing bytes", c.VerifyMembership(at, append(one.Proof.Encode(), 0), pathOf(one.Path), one.Value), "")
 
 	// Heights: none above the latest, no revision but 0, none never stored.
-	expectProofError(t, "height above the latest", c.VerifyMembershipProof(types.NewHeight(0, syntheticCreationHeight+1), one.Proof, pathOf(one.Path), one.Value), "after the latest height")
-	expectProofError(t, "revision 1", c.VerifyMembershipProof(types.NewHeight(1, syntheticCreationHeight), one.Proof, pathOf(one.Path), one.Value), "revision number")
-	expectProofError(t, "no consensus state", c.VerifyMembershipProof(types.NewHeight(0, syntheticCreationHeight-1), one.Proof, pathOf(one.Path), one.Value), "no consensus state")
+	expectProofError(t, "height above the latest", c.VerifyMembership(types.NewHeight(0, syntheticCreationHeight+1), one.Proof.Encode(), pathOf(one.Path), one.Value), "after the latest height")
+	expectProofError(t, "revision 1", c.VerifyMembership(types.NewHeight(1, syntheticCreationHeight), one.Proof.Encode(), pathOf(one.Path), one.Value), "revision number")
+	expectProofError(t, "no consensus state", c.VerifyMembership(types.NewHeight(0, syntheticCreationHeight-1), one.Proof.Encode(), pathOf(one.Path), one.Value), "no consensus state")
 
 	// Another router, or another commitment slot, is not the one proven.
 	for _, mutate := range []func(cs *ClientState){
@@ -422,7 +419,7 @@ func TestSyntheticMembershipRefusals(t *testing.T) {
 		cs := *d.ClientState
 		mutate(&cs)
 		d.ClientState = &cs
-		if err := d.VerifyMembershipProof(at, one.Proof, pathOf(one.Path), one.Value); err == nil {
+		if err := d.VerifyMembership(at, one.Proof.Encode(), pathOf(one.Path), one.Value); err == nil {
 			t.Fatal("a proof of another router or commitment slot was accepted")
 		}
 	}
@@ -438,7 +435,7 @@ func TestSyntheticProofsAfterUpdate(t *testing.T) {
 	checkProofs(t, c, syntheticCreationHeight)
 	checkProofs(t, c, syntheticRotationHeight)
 	p := syntheticCommitmentAt(t, syntheticCreationHeight, 1)
-	expectProofError(t, "block 100's proof at block 110", c.VerifyMembershipProof(types.NewHeight(0, syntheticRotationHeight), p.Proof, pathOf(p.Path), p.Value), "account proof")
+	expectProofError(t, "block 100's proof at block 110", c.VerifyMembership(types.NewHeight(0, syntheticRotationHeight), p.Proof.Encode(), pathOf(p.Path), p.Value), "account proof")
 }
 
 // TestSyntheticProofsAfterRecovery: a recovery from a substitute at block
@@ -463,11 +460,11 @@ func TestSyntheticProofsAfterRecovery(t *testing.T) {
 		}
 		at := types.NewHeight(0, p.Height)
 		if p.Value == nil {
-			expectProofError(t, "absence below the recovery", subject.VerifyNonMembershipProof(at, p.Proof, pathOf(p.Path)), "no consensus state")
+			expectProofError(t, "absence below the recovery", subject.VerifyNonMembership(at, p.Proof.Encode(), pathOf(p.Path)), "no consensus state")
 		} else {
-			expectProofError(t, "membership below the recovery", subject.VerifyMembershipProof(at, p.Proof, pathOf(p.Path), p.Value), "no consensus state")
+			expectProofError(t, "membership below the recovery", subject.VerifyMembership(at, p.Proof.Encode(), pathOf(p.Path), p.Value), "no consensus state")
 		}
-		if _, err := subject.ProvenValue(at, p.Proof, pathOf(p.Path)); err == nil {
+		if _, err := subject.ProvenValue(at, p.Proof.Encode(), pathOf(p.Path)); err == nil {
 			t.Fatal("a value proven below the recovery")
 		}
 	}

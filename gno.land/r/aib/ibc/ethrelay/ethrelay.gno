@@ -15,7 +15,8 @@
 //	Uint sequence, Str source_client, Str destination_client, Uint timeout,
 //	list<Payload>, Uint proof_revision_number, Uint proof_revision_height,
 //	[Acknowledgement only: list<blob> app_acknowledgements],
-//	blob proof (a wire-encoded ethereum.MembershipProof)
+//	blob proof (a wire-encoded ethereum.MembershipProof, passed to the core
+//	as is: the Ethereum client decodes it)
 //	Payload: Str source_port, Str destination_port, Str version, Str encoding, blob value
 //
 // where a list is a Uvarint count followed by its elements and a blob a
@@ -28,7 +29,6 @@ import (
 	"gno.land/p/aib/encoding/wire/v0"
 	"gno.land/p/aib/ibc/lightclient/arc/v0"
 	"gno.land/p/aib/ibc/lightclient/ethereum/v0"
-	"gno.land/p/aib/ibc/lightclient/extproof/v0"
 	"gno.land/p/aib/ibc/types/v0"
 	"gno.land/r/aib/ibc/core"
 )
@@ -88,7 +88,7 @@ func RecvPacket(cur realm, msg []byte) types.ResponseResultType {
 	packet, height := readPacket(d)
 	proof := readProof(d)
 	return core.RecvPacket(cross(cur), types.MsgRecvPacket{
-		Packet: packet, ProofHeight: height, Ext: extproof.Proof{Data: proof},
+		Packet: packet, ProofCommitment: proof, ProofHeight: height,
 	})
 }
 
@@ -102,8 +102,8 @@ func Acknowledgement(cur realm, msg []byte) types.ResponseResultType {
 	return core.Acknowledgement(cross(cur), types.MsgAcknowledgement{
 		Packet:          packet,
 		Acknowledgement: types.Acknowledgement{AppAcknowledgements: acks},
+		ProofAcked:      proof,
 		ProofHeight:     height,
-		Ext:             extproof.Proof{Data: proof},
 	})
 }
 
@@ -113,7 +113,7 @@ func Timeout(cur realm, msg []byte) types.ResponseResultType {
 	packet, height := readPacket(d)
 	proof := readProof(d)
 	return core.Timeout(cross(cur), types.MsgTimeout{
-		Packet: packet, ProofHeight: height, Ext: extproof.Proof{Data: proof},
+		Packet: packet, ProofUnreceived: proof, ProofHeight: height,
 	})
 }
 
@@ -164,8 +164,8 @@ func readPacket(d *wire.Reader) (types.Packet, types.Height) {
 	return p, h
 }
 
-// readProof reads the message's last field, the MembershipProof.
-func readProof(d *wire.Reader) ethereum.MembershipProof {
+// readProof reads the message's last field, the proof.
+func readProof(d *wire.Reader) []byte {
 	bz := d.Blob()
 	if d.Err() != nil {
 		panic(d.Err())
@@ -173,9 +173,5 @@ func readProof(d *wire.Reader) ethereum.MembershipProof {
 	if !d.Done() {
 		panic(errTrailing)
 	}
-	p, err := ethereum.DecodeMembershipProof(bz)
-	if err != nil {
-		panic(err)
-	}
-	return p
+	return bz
 }

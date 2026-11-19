@@ -934,8 +934,9 @@ incident name (1 to 32 characters of `a-z`, `0-9`, `-`).
 8. **Prove each outcome** through `NEW` (the route's current client), at a
    height `H = (0, slot)` of a consensus state `NEW` holds, with
    `transfer.ProveOutcome(packet, H, receiptProof, ackProof)` from a
-   `MsgRun` (the packet is the record's, the proofs `ethereum.MembershipProof`
-   values of the router's storage at `H`, from `eth_getProof` of the
+   `MsgRun` (the packet is the record's, the proofs wire-encoded
+   `ethereum.MembershipProof`s (`MembershipProof.Encode`) of the router's
+   storage at `H`, from `eth_getProof` of the
    router's commitments entries `keccak256(keccak256(path) ‖ commitmentSlot)`
    for the packet's receipt path and acknowledgement path, both under its
    destination client on the router, `ROLD`). No receipt is refundable
