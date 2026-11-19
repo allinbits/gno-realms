@@ -118,8 +118,11 @@ Gated on the governance realm; the decision is built with
   `counterpartyClientID`, `counterpartyMerklePrefix` are untouched** — that is
   the point: channels keep working with their existing identifiers and
   in-flight state.
-- Pre-recovery consensus states remain in the subject's tree but are below the
-  new `LatestHeight` and are not used to verify new packets.
+- Pre-recovery consensus states remain in the subject's tree and stay
+  trusted, as in ibc-go: a proof at one of their heights still verifies,
+  subject to the usual proof-height checks, until pruning removes them (ADR
+  0004, Known limits). Nothing requires the substitute's latest height to be
+  above the subject's, so the new `LatestHeight` may be the lower one.
 - The substitute client is **not** deleted and remains `Active`. It can be
   reused for a future recovery or left idle.
 - `recover_client` event is emitted.
@@ -152,8 +155,11 @@ parameters through the same governance action:
 
 Other parameters (`TrustLevel`, `UnbondingPeriod`, `MaxClockDrift`,
 `ProofSpecs`, `UpgradePath`) **cannot** be changed by recovery — the match
-check rejects the substitute. Changing those requires `UpgradeClient` (or a
-fresh client migration).
+check rejects the substitute. `UnbondingPeriod`, `ProofSpecs` and
+`UpgradePath` are the counterparty chain's and change with its upgrade
+(`UpgradeClient`, which also scales `TrustingPeriod` down when the unbonding
+period shrinks). `TrustLevel` and `MaxClockDrift` are this client's own
+choice: an upgrade keeps them, so changing them needs a new client.
 
 ## Ethereum clients
 

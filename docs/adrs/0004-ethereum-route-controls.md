@@ -1207,9 +1207,11 @@ does not list before it.
   authenticate; receipts identify packets.
 - Gas and storage grow per transfer (records, claims). Records are never
   pruned (a pruning policy is an open question of ADR pr6375). An Ethereum
-  client's consensus states grow likewise, one per accepted finalized
-  height, with no pruning path; a recovery only stops trusting the older
-  ones, which stay stored.
+  client's consensus states are pruned (ADR 0003): each update removes the
+  oldest one past the trust window or below a recovery's cut-off, never the
+  latest, refunding its deposit to the updater, and
+  `PruneExpiredConsensusStates` removes them in batches; a retired
+  verifier's store is read-only and never pruned.
 - Relayers must call `Claim` and `ClaimRefunds`, relay governance packets and
   call `Redispatch`. Receipt values changed from `0x02` to a hash.
 - Payouts to a recipient blocked after its credit are still paid (the
