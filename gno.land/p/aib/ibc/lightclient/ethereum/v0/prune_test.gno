@@ -123,13 +123,13 @@ func TestProofRefusedPastTrustWindow(t *testing.T) {
 	setNow(expiredAt(base))
 	_, ok := c.GetConsensusState(heightAtSlot(base))
 	urequire.True(t, ok, "the retired verifier's state is still stored")
-	urequire.ErrorContains(t, c.VerifyMembershipProof(heightAtSlot(base), MembershipProof{}, path, value),
+	urequire.ErrorContains(t, c.VerifyMembership(heightAtSlot(base), MembershipProof{}.Encode(), path, value),
 		"sync committee periods old")
-	urequire.ErrorContains(t, c.VerifyNonMembershipProof(heightAtSlot(base), MembershipProof{}, path),
+	urequire.ErrorContains(t, c.VerifyNonMembership(heightAtSlot(base), MembershipProof{}.Encode(), path),
 		"sync committee periods old")
 	// One slot earlier the window still covers it: the proof is checked.
 	setNow(expiredAt(base) - c.ClientState.SecondsPerSlot)
-	err := c.VerifyNonMembershipProof(heightAtSlot(base), MembershipProof{}, path)
+	err := c.VerifyNonMembership(heightAtSlot(base), MembershipProof{}.Encode(), path)
 	urequire.Error(t, err)
 	urequire.False(t, strings.Contains(err.Error(), "sync committee periods old"), err.Error())
 }
