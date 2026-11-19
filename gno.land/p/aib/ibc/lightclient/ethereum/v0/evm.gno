@@ -30,13 +30,11 @@ func DecodeExecutionHeader(rlp []byte) (ExecutionHeader, []byte, error) {
 	if err != nil {
 		return ExecutionHeader{}, nil, err
 	}
-	item, _ := rlpDecode(rlp) // decoded above
-	fields, _ := rlpList(item)
-	if fields[0].isList || len(fields[0].payload) != hashSize {
+	if e.parent.isList || len(e.parent.payload) != hashSize {
 		return ExecutionHeader{}, nil, errors.New("invalid execution header parent hash")
 	}
 	return ExecutionHeader{
-		ParentHash: fields[0].payload, StateRoot: e.stateRoot,
+		ParentHash: e.parent.payload, StateRoot: e.stateRoot,
 		BlockNumber: e.blockNumber, Timestamp: e.timestamp,
 	}, keccak(rlp), nil
 }

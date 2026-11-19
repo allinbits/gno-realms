@@ -240,7 +240,7 @@ func decodeExecutionHeader(rlp []byte) (executionData, error) {
 	if err != nil {
 		return executionData{}, err
 	}
-	return executionData{stateRoot: fields[3].payload, timestamp: timestamp, blockNumber: number}, nil
+	return executionData{parent: fields[0], stateRoot: fields[3].payload, timestamp: timestamp, blockNumber: number}, nil
 }
 
 // rlpUint64 reads a canonical RLP unsigned integer of at most 8 bytes.
