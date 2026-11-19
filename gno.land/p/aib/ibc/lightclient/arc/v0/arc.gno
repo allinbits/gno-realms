@@ -147,8 +147,14 @@ func now() uint64 { return uint64(time.Now().Unix()) }
 func (c *ArcLightClient) VerifyClientMessage(clientMsg lightclient.ClientMessage) error {
 	switch msg := clientMsg.(type) {
 	case *Header:
-		_, err := c.verifyHeader(msg)
-		return err
+		trusted, b, err := c.verifyHeader(msg)
+		if err != nil {
+			return err
+		}
+		// Kept for UpdateState, which clears it: a misbehaviour's headers
+		// keep nothing.
+		msg.remember(&b, trusted)
+		return nil
 	case *Misbehaviour:
 		return c.verifyMisbehaviour(msg)
 	}
@@ -227,14 +233,14 @@ func (c *ArcLightClient) derive(trusted *ConsensusState, h *Header) (b block, sa
 // the set that signed C (B's registry set) signed its certificate and, when
 // that set is not the trusted one, more than the trust level of the trusted
 // set did too (Tendermint's skipping verification).
-func (c *ArcLightClient) verifyHeader(h *Header) (block, error) {
+func (c *ArcLightClient) verifyHeader(h *Header) (*ConsensusState, block, error) {
 	trusted, err := c.checkLatestAnchor(h.TrustedHeight)
 	if err != nil {
-		return block{}, err
+		return nil, block{}, err
 	}
 	b, sameSet, err := c.derive(trusted, h)
 	if err != nil {
-		return block{}, err
+		return nil, block{}, err
 	}
 	var trustedSet *ValidatorSet
 	if !sameSet {
@@ -242,20 +248,19 @@ func (c *ArcLightClient) verifyHeader(h *Header) (block, error) {
 	}
 	// Last, as in Tendermint: the set comes from the message's proofs.
 	if err := h.Certificate.verify(b.nextValidators, trustedSet, c.ClientState.TrustLevel); err != nil {
-		return block{}, err
+		return nil, block{}, err
 	}
-	h.remember(&b, trusted)
-	return b, nil
+	return trusted, b, nil
 }
 
 func (c *ArcLightClient) verifyMisbehaviour(m *Misbehaviour) error {
 	if err := m.ValidateBasic(); err != nil {
 		return err
 	}
-	if _, err := c.verifyHeader(m.Header1); err != nil {
+	if _, _, err := c.verifyHeader(m.Header1); err != nil {
 		return ufmt.Errorf("header 1: %v", err)
 	}
-	if _, err := c.verifyHeader(m.Header2); err != nil {
+	if _, _, err := c.verifyHeader(m.Header2); err != nil {
 		return ufmt.Errorf("header 2: %v", err)
 	}
 	return nil
@@ -296,8 +301,12 @@ func (c *ArcLightClient) UpdateState(clientMsg lightclient.ClientMessage) []type
 	// updater. The trusted state is the latest, which is never pruned.
 	c.pruneOldestConsensusState()
 	var b block
-	if h.verified != nil && h.verifiedFrom == trusted {
-		b = *h.verified
+	verified, from := h.verified, h.verifiedFrom
+	// The header holds no reference to this client's states once used, so a
+	// realm keeping it keeps no pruned state alive.
+	h.remember(nil, nil)
+	if verified != nil && from == trusted {
+		b = *verified
 	} else {
 		var err error
 		if b, _, err = c.derive(trusted, h); err != nil {

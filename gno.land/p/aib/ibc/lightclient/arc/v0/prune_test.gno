@@ -187,3 +187,27 @@ func TestProofRefusedPastTrustingPeriod(t *testing.T) {
 		t.Fatalf("absence past the trusting period: %v", err)
 	}
 }
+
+// A header keeps what its verification derived only until UpdateState uses
+// it, so a realm retaining the header keeps no consensus state alive; the
+// verification of a misbehaviour's headers (verifyHeader) keeps nothing.
+func TestHeaderCacheCleared(t *testing.T) {
+	c := newSyntheticClient(t)
+	hdr := syntheticHeader(t, syntheticIdle, 0, 1, 2, 3, 4, 5)
+	if _, _, err := c.verifyHeader(hdr); err != nil {
+		t.Fatal(err)
+	}
+	if hdr.verified != nil || hdr.verifiedFrom != nil {
+		t.Fatal("verifyHeader kept a derivation")
+	}
+	if err := c.VerifyClientMessage(hdr); err != nil {
+		t.Fatal(err)
+	}
+	if hdr.verified == nil || hdr.verifiedFrom == nil {
+		t.Fatal("VerifyClientMessage kept no derivation for UpdateState")
+	}
+	c.UpdateState(hdr)
+	if hdr.verified != nil || hdr.verifiedFrom != nil {
+		t.Fatal("UpdateState left the derivation on the header")
+	}
+}
