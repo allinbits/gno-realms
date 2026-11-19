@@ -273,15 +273,26 @@ func (vs *ValidatorSet) validate() error {
 	return nil
 }
 
-// Equal reports whether vs and o hold the same validators, in order.
+// Equal reports whether vs and o hold the same validators with the same
+// powers, in any order: a certificate's signatures are matched by address,
+// so the order does not change what a set certifies, and the registry's
+// order can change without its members changing (a removal moves its last
+// entry into the gap). Each validator of o is matched at most once, so
+// equal lengths make the match exact.
 func (vs *ValidatorSet) Equal(o *ValidatorSet) bool {
-	if len(vs.Validators) != len(o.Validators) {
+	if len(vs.Validators) != len(o.Validators) || vs.TotalPower != o.TotalPower {
 		return false
 	}
-	for i, v := range vs.Validators {
-		if string(v.PubKey) != string(o.Validators[i].PubKey) || v.Power != o.Validators[i].Power {
+	powers := make(map[string]uint64, len(vs.Validators))
+	for _, v := range vs.Validators {
+		powers[string(v.PubKey)] = v.Power
+	}
+	for _, v := range o.Validators {
+		p, ok := powers[string(v.PubKey)]
+		if !ok || p != v.Power {
 			return false
 		}
+		delete(powers, string(v.PubKey))
 	}
 	return true
 }

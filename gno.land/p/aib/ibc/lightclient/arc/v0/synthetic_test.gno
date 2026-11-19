@@ -159,20 +159,33 @@ func runTrustCases(t *testing.T, msg []byte, height uint64, set []syntheticMembe
 			t.Fatalf("%s: latest height %s", tc.name, c.LatestHeight().String())
 		}
 		cons, _ := c.GetConsensusState(c.LatestHeight())
-		// T's set is shared; any other is stored anew.
-		if shared := cons.NextValidators == trusted.NextValidators; shared != sameMembers(set, syntheticTrusted) {
+		// T's set (its members and powers, in any order) is shared as
+		// stored; any other is stored anew.
+		same := sameMembers(set, syntheticTrusted)
+		if shared := cons.NextValidators == trusted.NextValidators; shared != same {
 			t.Fatalf("%s: trusted set shared %v", tc.name, shared)
+		}
+		if same {
+			set = syntheticTrusted
 		}
 		checkSet(t, tc.name, cons.NextValidators, set)
 	}
 }
 
+// sameMembers reports whether a and b hold the same keys with the same
+// powers, in any order.
 func sameMembers(a, b []syntheticMember) bool {
 	if len(a) != len(b) {
 		return false
 	}
-	for i := range a {
-		if a[i] != b[i] {
+	for _, m := range a {
+		found := false
+		for _, n := range b {
+			if m == n {
+				found = true
+			}
+		}
+		if !found {
 			return false
 		}
 	}
@@ -250,6 +263,17 @@ func TestSyntheticIdleSharesSet(t *testing.T) {
 func TestSyntheticIdleNoTrustCheck(t *testing.T) {
 	level := Fraction{9, 10}
 	runTrustCases(t, syntheticIdle, syntheticIdleHeight, syntheticIdled, &level, []trustCase{
+		{"exactly 2/3", []int{0, 1, 3}, notQuorum},
+		{"above 2/3, below the trust level", []int{0, 1, 2, 3}, ""},
+	})
+}
+
+// TestSyntheticReorderNoTrustCheck: at block 140 the registry holds T's
+// validators and powers in another order, which is T's set: only its 2/3
+// quorum applies, and the stored state shares T's set.
+func TestSyntheticReorderNoTrustCheck(t *testing.T) {
+	level := Fraction{9, 10}
+	runTrustCases(t, syntheticReorder, syntheticReorderHeight, syntheticReordered, &level, []trustCase{
 		{"exactly 2/3", []int{0, 1, 3}, notQuorum},
 		{"above 2/3, below the trust level", []int{0, 1, 2, 3}, ""},
 	})
@@ -448,4 +472,38 @@ func TestSyntheticProofsAfterRecovery(t *testing.T) {
 		}
 	}
 	checkProofs(t, subject, syntheticRotationHeight)
+}
+
+// Equal compares members and powers in any order.
+func TestValidatorSetEqual(t *testing.T) {
+	k := syntheticPubKeys
+	set := func(keys []int, powers ...uint64) *ValidatorSet {
+		t.Helper()
+		var pks [][]byte
+		for _, i := range keys {
+			pks = append(pks, k[i])
+		}
+		vs, err := NewValidatorSet(pks, powers)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return vs
+	}
+	a := set([]int{0, 1, 2}, 4, 1, 1)
+	for _, tc := range []struct {
+		name string
+		o    *ValidatorSet
+		want bool
+	}{
+		{"same order", set([]int{0, 1, 2}, 4, 1, 1), true},
+		{"another order", set([]int{2, 0, 1}, 1, 4, 1), true},
+		{"powers swapped", set([]int{0, 1, 2}, 1, 4, 1), false},
+		{"another key", set([]int{0, 1, 3}, 4, 1, 1), false},
+		{"one fewer", set([]int{0, 1}, 4, 1), false},
+		{"one more", set([]int{0, 1, 2, 3}, 4, 1, 1, 1), false},
+	} {
+		if a.Equal(tc.o) != tc.want || tc.o.Equal(a) != tc.want {
+			t.Errorf("%s: Equal is not %v", tc.name, tc.want)
+		}
+	}
 }

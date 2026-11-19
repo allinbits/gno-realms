@@ -89,11 +89,14 @@ using the certificate of B's child C = B+1:
    final (every ancestor of a final block is).
 2. The registry's account proof in B's state gives its storage root. Equal
    to T's: the set is T's (`NextValidators` shared, no set proof). Otherwise
-   the set is read from the node pool; a set read equal to T's (the
-   registry's storage can change without its active set changing) is T's
-   set: shared, and step 3's trust-level check does not apply to it
-   (`TestSyntheticIdleSharesSet`, `TestSyntheticIdleNoTrustCheck`). Only a
-   different set is copied and stored: a set is stored once per change.
+   the set is read from the node pool; a set read equal to T's, the same
+   validators with the same powers in any order (the registry's storage
+   can change without its active set changing, and a removal reorders it;
+   signatures are matched by address, so the order certifies nothing), is
+   T's set: shared as stored, and step 3's trust-level check does not
+   apply to it (`TestSyntheticIdleSharesSet`, `TestSyntheticIdleNoTrustCheck`,
+   `TestSyntheticReorderNoTrustCheck`). Only a different set is copied and
+   stored: a set is stored once per change.
 3. That set (B's, which signed C) must have signed more than 2/3; when it is
    not T's set, more than the trust level (default 1/3) of T's set must have
    signed C too: Tendermint's skipping verification. Each signature is
@@ -214,8 +217,10 @@ synthetic data (`zz_synthetic_test.gno`, written by `cmd/gen-arc-synthetic`;
 writes): a chain whose blocks 100, 110, 120 and 130 have full states, the
 registry holding a trusted set at 100, a rotated set at 110 (two validators
 out, two in, every kept power changed), the same validators with other
-powers at 120 and, at 130, the trusted set under another storage root (a
-powerless registration deactivated), each update's certificate signed by every key so that a
+powers at 120, at 130 the trusted set under another storage root (a
+powerless registration deactivated) and at 140 the trusted set in another
+order (a validator deactivated and registered again), each update's
+certificate signed by every key so that a
 test picks the signers; and the router's commitments with proofs of two
 packets and of the absence of a third. The generator builds everything from
 Arc's and Ethereum's definitions, not from the client's code: RLP headers,
