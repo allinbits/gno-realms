@@ -197,7 +197,9 @@ clients (above). It reads the exported fields of the v0 object and stores the re
 allocation reason as `AddClient` and starts the client's next trust
 generation (a governed migration that substitutes through it starts no
 second one), so a proof made under the old verifier is never settled on; the consensus-state tree can be shared by pointer, so the
-migration is O(1) per client. The store field stays typed
+migration is O(1) per client. The Ethereum verifier replacement instead keeps
+the retired verifiers' stores and indexes them (`ethereum.NewFrom`), so its
+conversion is O(log previous replacements) (ADR 0004, R16). The store field stays typed
 `lightclient.Interface` forever, so a later verifier such as `tendermint/v1`
 must still implement it and the implementation type-asserts for anything newer. `RecoverClient` and a
 new client remain the fallback when the state itself must change shape.

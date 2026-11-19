@@ -31,9 +31,10 @@ From this point `SendPacket`, `RecvPacket`, `Acknowledgement`, `Timeout` and
 `UpdateClient` all panic for this client. Any in-flight user packets are
 stuck, and no new inbound packet can be received. An asynchronous
 acknowledgement already pending can still be written (`WriteAcknowledgement`
-checks no client status, only that the core is not paused), but the
-counterparty cannot be shown it until the client is recovered. Channels using
-this client are frozen on this side until then.
+checks no client status, only that the core is not paused), and relayed: the
+counterparty verifies it with its own client of gno.land, which this client's
+status does not affect. Channels using this client are otherwise frozen on
+this side until it is recovered.
 
 ### 2. Off-chain coordination
 
@@ -195,8 +196,10 @@ The tendermint rules above do not apply to `ethereum` clients; see ADR 0003.
 ## Caveats
 
 - The substitute's `LatestHeight` is not required to be greater than the
-  subject's. Same as ibc-go — nothing enforces a "forward" recovery, though in
-  practice the substitute is always ahead.
+  subject's, so a recovery may move the client back. This differs from
+  ibc-go, whose `RecoverClient` refuses a substitute not strictly ahead of the
+  subject; here nothing enforces a "forward" recovery, though in practice the
+  substitute is always ahead.
 - Only the substitute's consensus state **at its `LatestHeight`** is copied
   into the subject. Earlier substitute consensus states are not migrated.
 - Recovery does not reset packet sequences or clear commitments — those are
