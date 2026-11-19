@@ -94,7 +94,7 @@ func (l *routes) ClaimRefunds(_ int, rlm realm, clientID, denom string, n int) i
 // receipt with an error acknowledgement, is refundable; the packet's receipt
 // with a success acknowledgement is delivered; another packet's receipt is a
 // collision. The router's receipt is keccak256(abi.encode(packet)).
-func (l *routes) ProveOutcome(_ int, rlm realm, packet types.Packet, proofHeight types.Height, receiptProof, ackProof any) {
+func (l *routes) ProveOutcome(_ int, rlm realm, packet types.Packet, proofHeight types.Height, receiptProof, ackProof []byte) {
 	reg := l.registry(0, rlm)
 	k := reg.RetiredRouteOf(packet.SourceClient)
 	if k == "" {

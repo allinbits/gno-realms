@@ -7,7 +7,6 @@ import (
 	"encoding/hex"
 
 	"gno.land/p/aib/ibc/lightclient/ethereum/v0"
-	"gno.land/p/aib/ibc/lightclient/extproof/v0"
 	"gno.land/p/aib/ibc/types/v0"
 	"gno.land/r/aib/ibc/core"
 	_ "gno.land/r/aib/ibc/core/impl/v0"
@@ -73,8 +72,8 @@ func main(cur realm) {
 			Sequence: 1, SourceClient: "client-0", DestinationClient: id, TimeoutTimestamp: 1761903000,
 			Payloads: []types.Payload{{SourcePort: "transfer", DestinationPort: "transfer", Version: "ics20-1", Encoding: "application/json", Value: []byte("{}")}},
 		},
-		ProofHeight: types.NewHeight(0, 72),
-		Ext:         extproof.Proof{Data: ethereum.MembershipProof{}},
+		ProofHeight:     types.NewHeight(0, 72),
+		ProofCommitment: ethereum.MembershipProof{}.Encode(),
 	})
 }
 

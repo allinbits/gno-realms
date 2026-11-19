@@ -208,7 +208,7 @@ func (l *logic) UpdateClient(_ int, rlm realm, clientID string, clientMessage li
 // UpgradeClient upgrades the client to a new client and consensus state,
 // verified by proofs that the counterparty chain committed to those states
 // at its UpgradePath under the current client's latest consensus root.
-func (l *logic) UpgradeClient(_ int, rlm realm, clientID string, clientState, consensusState, proofUpgradeClient, proofUpgradeConsensusState any) {
+func (l *logic) UpgradeClient(_ int, rlm realm, clientID string, clientState, consensusState any, proofUpgradeClient, proofUpgradeConsensusState []byte) {
 	if err := host.ClientIdentifierValidator(clientID); err != nil {
 		panic(err)
 	}

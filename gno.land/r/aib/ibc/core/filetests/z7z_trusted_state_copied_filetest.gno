@@ -64,7 +64,7 @@ func newClient(cur realm, apphash []byte) (string, tendermint.ClientState, tende
 // recv is "received" or why the core refused the packet.
 func recv(cur realm, p types.Packet, proof []ics23.CommitmentProof, h types.Height) string {
 	if r := revive(func() {
-		core.RecvPacket(cross(cur), types.MsgRecvPacket{Packet: p, ProofCommitment: proof, ProofHeight: h})
+		core.RecvPacket(cross(cur), types.MsgRecvPacket{Packet: p, ProofCommitment: ics23.MarshalMerkleProof(proof), ProofHeight: h})
 	}); r != nil {
 		if e, ok := r.(error); ok {
 			return "refused: " + e.Error()

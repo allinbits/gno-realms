@@ -108,7 +108,7 @@ func main(cur realm) {
 		Acknowledgement: types.Acknowledgement{
 			AppAcknowledgements: [][]byte{[]byte(`{"result":"AQ=="}`)},
 		},
-		ProofAcked:  proof,
+		ProofAcked:  ics23.MarshalMerkleProof(proof),
 		ProofHeight: trustedHeight,
 	}
 

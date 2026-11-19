@@ -210,7 +210,7 @@ func main(cur realm) {
 				Version:         "v1",
 			}},
 		},
-		ProofCommitment: parentRecvProof,
+		ProofCommitment: ics23.MarshalMerkleProof(parentRecvProof),
 		ProofHeight:     trustedHeight,
 	}
 	recvRes := core.RecvPacket(cross(cur), recvPacket)
@@ -339,7 +339,7 @@ func main(cur realm) {
 			TimeoutTimestamp:  sendPacket.TimeoutTimestamp,
 			Payloads:          sendPacket.Payloads,
 		},
-		ProofUnreceived: childTimeoutProof,
+		ProofUnreceived: ics23.MarshalMerkleProof(childTimeoutProof),
 		ProofHeight:     msgHeader.GetHeight(),
 	}
 	timeoutRes := core.Timeout(cross(cur), timeoutPacket)

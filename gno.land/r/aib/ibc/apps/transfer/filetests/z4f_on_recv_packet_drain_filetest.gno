@@ -155,7 +155,7 @@ func main(cur realm) {
 	// The decisive assertion is that clientA's escrow is untouched.
 	res := core.RecvPacket(cross(cur), types.MsgRecvPacket{
 		Packet:          packet,
-		ProofCommitment: proof,
+		ProofCommitment: ics23.MarshalMerkleProof(proof),
 		ProofHeight:     proofHeight,
 	})
 

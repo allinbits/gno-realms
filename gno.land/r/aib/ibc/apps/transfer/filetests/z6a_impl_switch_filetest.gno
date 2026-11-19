@@ -13,8 +13,8 @@ import (
 	"gno.land/p/aib/ics23/v0"
 	"gno.land/p/nt/testutils/v0"
 	"gno.land/r/aib/ibc/apps/transfer"
-	ics20impl "gno.land/r/aib/ibc/apps/transfer/impl/ics20/v0"
 	_ "gno.land/r/aib/ibc/apps/transfer/impl/controls/v0"
+	ics20impl "gno.land/r/aib/ibc/apps/transfer/impl/ics20/v0"
 	"gno.land/r/aib/ibc/core"
 	_ "gno.land/r/aib/ibc/core/impl/v0"
 )
@@ -125,7 +125,7 @@ func main(cur realm) {
 				Version:         transfer.V1,
 			}},
 		},
-		ProofCommitment: proof,
+		ProofCommitment: ics23.MarshalMerkleProof(proof),
 		ProofHeight:     trustedHeight,
 	}
 	// ibc/CAEF9CA8CE6C302D73A831A49E34E59149D3A9AD96CCEBDFBF62F6D5710D92D8

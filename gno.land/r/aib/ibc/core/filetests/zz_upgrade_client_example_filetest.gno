@@ -136,7 +136,7 @@ func main(cur realm) {
 
 	core.UpgradeClient(cross(cur), clientID,
 		upgradedClient, upgradedConsState,
-		proofUpgradeClient, proofUpgradeConsState,
+		ics23.MarshalMerkleProof(proofUpgradeClient), ics23.MarshalMerkleProof(proofUpgradeConsState),
 	)
 }
 

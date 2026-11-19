@@ -151,7 +151,7 @@ func main(cur realm) {
 			// This UNIVERSAL_ERROR_ACKNOWLEDGEMENT error should trigger a refund
 			AppAcknowledgements: [][]byte{types.UniversalErrorAcknowledgement()},
 		},
-		ProofAcked:  proofAcked,
+		ProofAcked:  ics23.MarshalMerkleProof(proofAcked),
 		ProofHeight: msgHeader.GetHeight(),
 	}
 

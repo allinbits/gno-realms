@@ -64,7 +64,7 @@ func (l *upgradeTestLogic) UpdateClient(_ int, rlm realm, clientID string, msg l
 	panic("upgradeTestLogic.UpdateClient: not implemented")
 }
 
-func (l *upgradeTestLogic) UpgradeClient(_ int, rlm realm, clientID string, clientState, consensusState, proofUpgradeClient, proofUpgradeConsensusState any) {
+func (l *upgradeTestLogic) UpgradeClient(_ int, rlm realm, clientID string, clientState, consensusState any, proofUpgradeClient, proofUpgradeConsensusState []byte) {
 	panic("upgradeTestLogic.UpgradeClient: not implemented")
 }
 

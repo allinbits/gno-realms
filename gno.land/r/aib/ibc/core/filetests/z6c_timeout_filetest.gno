@@ -54,11 +54,11 @@ func main(cur realm) {
 			TimeoutTimestamp:  1,
 			Payloads:          sendPacket.Payloads,
 		},
-		ProofUnreceived: []ics23.CommitmentProof{
+		ProofUnreceived: ics23.MarshalMerkleProof([]ics23.CommitmentProof{
 			ics23.CommitmentProof_Nonexist{
 				Nonexist: &ics23.NonExistenceProof{},
 			},
-		},
+		}),
 		ProofHeight: trustedHeight,
 	}
 

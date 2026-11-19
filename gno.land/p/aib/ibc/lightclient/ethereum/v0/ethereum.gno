@@ -7,9 +7,9 @@
 // It ports the Ethereum light client of cosmos/solidity-ibc-eureka
 // (packages/ethereum/light-client), and supports Electra and later forks.
 //
-// Its storage proofs are not ICS23 proofs, so it implements
-// extproof.Verifier and relayers pass a MembershipProof in the Ext field of
-// packet messages.
+// Its storage proofs are not ICS23 proofs: relayers pass the wire encoding
+// of a MembershipProof (DecodeMembershipProof) as the proof of packet
+// messages.
 package ethereum
 
 import (
@@ -22,10 +22,8 @@ import (
 
 	"crypto/bls12381"
 
-	"gno.land/p/aib/ibc/lightclient/extproof/v0"
 	"gno.land/p/aib/ibc/lightclient/v0"
 	"gno.land/p/aib/ibc/types/v0"
-	"gno.land/p/aib/ics23/v0"
 	"gno.land/p/nt/avl/v0"
 	"gno.land/p/nt/bptree/v0"
 	"gno.land/p/nt/ufmt/v0"
@@ -55,10 +53,7 @@ type EthLightClient struct {
 	overrides *avl.Node
 }
 
-var (
-	_ lightclient.Interface = (*EthLightClient)(nil)
-	_ extproof.Verifier     = (*EthLightClient)(nil)
-)
+var _ lightclient.Interface = (*EthLightClient)(nil)
 
 func NewEthLightClient() *EthLightClient {
 	return &EthLightClient{ConsensusStateByHeight: bptree.NewBPTree32()}
@@ -743,21 +738,10 @@ func (c *EthLightClient) UpdateState(clientMsg lightclient.ClientMessage) []type
 	return []types.Height{heightAtSlot(finalizedSlot)}
 }
 
-// VerifyMembership implements lightclient.Interface. This client's proofs are
-// not ICS23 proofs: relayers must pass a MembershipProof in the message's Ext
-// field, which reaches VerifyMembershipProof.
-func (c *EthLightClient) VerifyMembership(types.Height, []ics23.CommitmentProof, types.MerklePath, []byte) error {
-	return errors.New("ethereum light client proofs must be passed as an extproof.Proof")
-}
-
-// VerifyNonMembership implements lightclient.Interface; see VerifyMembership.
-func (c *EthLightClient) VerifyNonMembership(types.Height, []ics23.CommitmentProof, types.MerklePath) error {
-	return errors.New("ethereum light client proofs must be passed as an extproof.Proof")
-}
-
-// VerifyMembershipProof implements extproof.Verifier: value must be the
-// 32-byte value of the ICS26 commitment at path.
-func (c *EthLightClient) VerifyMembershipProof(height types.Height, proof any, path types.MerklePath, value []byte) error {
+// VerifyMembership implements lightclient.Interface: proof is a wire-encoded
+// MembershipProof and value the 32-byte value of the ICS26 commitment at
+// path.
+func (c *EthLightClient) VerifyMembership(height types.Height, proof []byte, path types.MerklePath, value []byte) error {
 	if len(value) != hashSize {
 		return ufmt.Errorf("commitment value must be 32 bytes, got %d", len(value))
 	}
@@ -771,8 +755,8 @@ func (c *EthLightClient) VerifyMembershipProof(height types.Height, proof any, p
 	return nil
 }
 
-// VerifyNonMembershipProof implements extproof.Verifier.
-func (c *EthLightClient) VerifyNonMembershipProof(height types.Height, proof any, path types.MerklePath) error {
+// VerifyNonMembership implements lightclient.Interface; see VerifyMembership.
+func (c *EthLightClient) VerifyNonMembership(height types.Height, proof []byte, path types.MerklePath) error {
 	stored, err := c.provenCommitment(height, proof, path)
 	if err != nil {
 		return err
@@ -785,18 +769,10 @@ func (c *EthLightClient) VerifyNonMembershipProof(height types.Height, proof any
 
 // provenCommitment returns the value of the router's commitments[keccak256(path)]
 // at height, zero if unset, as established by proof.
-func (c *EthLightClient) provenCommitment(height types.Height, proof any, path types.MerklePath) ([]byte, error) {
-	var mp MembershipProof
-	switch p := proof.(type) {
-	case MembershipProof:
-		mp = p
-	case *MembershipProof:
-		if p == nil {
-			return nil, errors.New("nil membership proof")
-		}
-		mp = *p
-	default:
-		return nil, ufmt.Errorf("expected ethereum.MembershipProof, got %T", proof)
+func (c *EthLightClient) provenCommitment(height types.Height, proof []byte, path types.MerklePath) ([]byte, error) {
+	mp, err := DecodeMembershipProof(proof)
+	if err != nil {
+		return nil, err
 	}
 	if height.RevisionNumber != 0 {
 		return nil, ufmt.Errorf("revision number must be 0, got %d", height.RevisionNumber)
@@ -1011,7 +987,7 @@ func sameChainAndRouter(a, b *ClientState) bool {
 
 // Implements lightclient.Interface. Ethereum has no IBC upgrade path; replace
 // the client with RecoverClient instead.
-func (c *EthLightClient) VerifyUpgradeAndUpdateState(_, _, _, _ any) error {
+func (c *EthLightClient) VerifyUpgradeAndUpdateState(_, _ any, _, _ []byte) error {
 	return errors.New("the ethereum light client does not support upgrades")
 }
 

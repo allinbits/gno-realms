@@ -34,7 +34,7 @@ func ClaimRefunds(cur realm, clientID, denom string, n int) int {
 // (membership or absence) and ackProof its acknowledgement when the receipt
 // is the packet's. The record keeps the outcome (delivered, refundable,
 // collision); a settlement's action must match it. Anyone may call it.
-func ProveOutcome(cur realm, packet types.Packet, proofHeight types.Height, receiptProof, ackProof any) {
+func ProveOutcome(cur realm, packet types.Packet, proofHeight types.Height, receiptProof, ackProof []byte) {
 	mustControls().ProveOutcome(0, cur, packet, proofHeight, receiptProof, ackProof)
 }
 

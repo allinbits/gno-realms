@@ -118,7 +118,7 @@ func main(cur realm) {
 				Version:         transfer.V1,
 			}},
 		},
-		ProofCommitment: recvProof,
+		ProofCommitment: ics23.MarshalMerkleProof(recvProof),
 		ProofHeight:     trustedHeight,
 	}
 	core.RecvPacket(cross(cur), recvMsg)
@@ -233,7 +233,7 @@ func main(cur realm) {
 			// This UNIVERSAL_ERROR_ACKNOWLEDGEMENT error should trigger a refund
 			AppAcknowledgements: [][]byte{types.UniversalErrorAcknowledgement()},
 		},
-		ProofAcked:  proofAcked,
+		ProofAcked:  ics23.MarshalMerkleProof(proofAcked),
 		ProofHeight: msgHeader.GetHeight(),
 	}
 

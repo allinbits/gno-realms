@@ -91,7 +91,7 @@ func UpdateClient(cur realm, clientID string, clientMessage lightclient.ClientMe
 // verified by proofs that the counterparty chain committed to those states
 // at its UpgradePath under the current client's latest consensus root.
 // Relayers only.
-func UpgradeClient(cur realm, clientID string, clientState, consensusState, proofUpgradeClient, proofUpgradeConsensusState any) {
+func UpgradeClient(cur realm, clientID string, clientState, consensusState any, proofUpgradeClient, proofUpgradeConsensusState []byte) {
 	ensureNotRetired(clientID)
 	ensureAuthorizedRelayer()
 	gen := ClientTrustGeneration(clientID)
@@ -322,7 +322,7 @@ func ClientTimestampAt(clientID string, height types.Height) (uint64, error) {
 // valueProver is implemented by a light client that reads a counterparty
 // commitment's value from a proof (the Ethereum client).
 type valueProver interface {
-	ProvenValue(height types.Height, proof any, path types.MerklePath) ([]byte, error)
+	ProvenValue(height types.Height, proof []byte, path types.MerklePath) ([]byte, error)
 }
 
 // CounterpartyValue is the value proof establishes for key in clientID's
@@ -330,7 +330,7 @@ type valueProver interface {
 // prefixed with the counterparty's merkle prefix as registered: what a
 // reconciliation reads of the destination's receipt and acknowledgement
 // (ADR pr6375 §7.12). It changes nothing.
-func CounterpartyValue(clientID string, height types.Height, proof any, key []byte) ([]byte, error) {
+func CounterpartyValue(clientID string, height types.Height, proof []byte, key []byte) ([]byte, error) {
 	c := store.getClient(clientID)
 	if c == nil {
 		return nil, ufmt.Errorf("client %s not found", clientID)

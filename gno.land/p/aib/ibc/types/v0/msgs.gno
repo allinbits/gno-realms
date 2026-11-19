@@ -6,7 +6,6 @@ import (
 	"errors"
 
 	"gno.land/p/aib/ibc/host/v0"
-	"gno.land/p/aib/ics23/v0"
 	"gno.land/p/nt/ufmt/v0"
 	"gno.land/p/onbloc/json/v0"
 )
@@ -57,23 +56,19 @@ func (msg *MsgSendPacket) ValidateBasic() error {
 
 // MsgRecvPacket receives an incoming IBC packet.
 type MsgRecvPacket struct {
-	Packet          Packet
-	ProofCommitment []ics23.CommitmentProof
+	Packet Packet
+	// ProofCommitment proves the packet commitment on the counterparty, in
+	// the encoding of the verifying light client (see ProofAcked).
+	ProofCommitment []byte
 	ProofHeight     Height
 	// Ext carries data a later core implementation may need on this
 	// entry point. The proxy signatures are frozen, so this is the only
-	// place a new message field can be added.
-	// impl/v0 reads an extproof.Proof here: a client-specific proof (an
-	// Ethereum storage proof) its client checks through extproof.Verifier.
+	// place a new message field can be added. Unused by impl/v0.
 	Ext any
 }
 
 // ValidateBasic performs basic checks on a MsgRecvPacket.
 func (msg *MsgRecvPacket) ValidateBasic() error {
-	// Before anything else touches a proof: no caller-supplied code runs.
-	if err := ics23.CheckProofs(msg.ProofCommitment); err != nil {
-		return err
-	}
 	if len(msg.ProofCommitment) == 0 {
 		return ufmt.Errorf("proof commitment can not be empty")
 	}
@@ -84,29 +79,23 @@ func (msg *MsgRecvPacket) ValidateBasic() error {
 type MsgAcknowledgement struct {
 	Packet          Packet
 	Acknowledgement Acknowledgement
-	ProofAcked      []ics23.CommitmentProof
-	ProofHeight     Height
+	// ProofAcked proves the acknowledgement commitment on the counterparty.
+	// Like every proof, its bytes are opaque to the core and decoded by the
+	// light client that verifies them: a protobuf MerkleProof for a
+	// Tendermint client, as in ibc-go, a wire-encoded MembershipProof for an
+	// Ethereum client.
+	ProofAcked  []byte
+	ProofHeight Height
 	// Ext carries data a later core implementation may need on this
 	// entry point. The proxy signatures are frozen, so this is the only
-	// place a new message field can be added.
-	// impl/v0 reads an extproof.Proof here: a client-specific proof (an
-	// Ethereum storage proof) its client checks through extproof.Verifier.
+	// place a new message field can be added. Unused by impl/v0.
 	Ext any
 }
 
 // ValidateBasic performs basic checks on a MsgAcknowledgement.
 func (msg *MsgAcknowledgement) ValidateBasic() error {
-	// Before anything else touches a proof: no caller-supplied code runs.
-	if err := ics23.CheckProofs(msg.ProofAcked); err != nil {
-		return err
-	}
 	if len(msg.ProofAcked) == 0 {
 		return errors.New("cannot submit an empty acknowledgement proof")
-	}
-	for i, proof := range msg.ProofAcked {
-		if proof.GetExist() == nil {
-			return ufmt.Errorf("invalid commitment proof #%d: proof.GetExists() is nil", i)
-		}
 	}
 
 	if err := msg.Acknowledgement.Validate(); err != nil {
@@ -187,22 +176,18 @@ func (a *AppAcknowledgement) UnmarshalJSON(bz []byte) error {
 
 // MsgTimeout receives timed-out packet
 type MsgTimeout struct {
-	Packet          Packet
-	ProofUnreceived []ics23.CommitmentProof
+	Packet Packet
+	// ProofUnreceived proves the absence of a packet receipt on the
+	// counterparty (see ProofAcked).
+	ProofUnreceived []byte
 	ProofHeight     Height
 	// Ext carries data a later core implementation may need on this
 	// entry point. The proxy signatures are frozen, so this is the only
-	// place a new message field can be added.
-	// impl/v0 reads an extproof.Proof here: a client-specific proof (an
-	// Ethereum storage proof) its client checks through extproof.Verifier.
+	// place a new message field can be added. Unused by impl/v0.
 	Ext any
 }
 
 func (msg *MsgTimeout) ValidateBasic() error {
-	// Before anything else touches a proof: no caller-supplied code runs.
-	if err := ics23.CheckProofs(msg.ProofUnreceived); err != nil {
-		return err
-	}
 	if len(msg.ProofUnreceived) == 0 {
 		return errors.New("cannot submit an empty timeout proof")
 	}
