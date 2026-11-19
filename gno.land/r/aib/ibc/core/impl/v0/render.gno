@@ -103,7 +103,10 @@ func (rd *Renderer) Home(w *mux.ResponseWriter, r *mux.Request) {
 			)
 			switch c.Type() {
 			case lightclient.Tendermint:
-				tm := lc.(*tendermint.TMLightClient)
+				tm, ok := tmVerifier(lc)
+				if !ok {
+					break // a verifier version this implementation cannot render
+				}
 				nConsStates = tm.ConsensusStateByHeight.Size()
 				if cs, found := tm.GetConsensusState(tm.LatestHeight()); found {
 					heightTime = cs.Timestamp.UTC().Format(time.RFC3339)
@@ -282,7 +285,11 @@ func (rd *Renderer) ClientConsensusState(w *mux.ResponseWriter, r *mux.Request) 
 	}
 	switch c.Type() {
 	case lightclient.Tendermint:
-		lc := c.LightClient().(*tendermint.TMLightClient)
+		lc, ok := tmVerifier(c.LightClient())
+		if !ok {
+			RenderNode(w, NodeError("client %s's verifier keeps no tendermint/v0 state", id))
+			return
+		}
 		cs, found := lc.GetConsensusState(height)
 		if !found {
 			RenderNode(w, NodeError("consensus state not found for height %s", height))
@@ -448,7 +455,10 @@ func ClientJSON(c core.Client) *json.Node {
 	m["counterparty_merke_prefix"] = json.ArrayNode("", prefixes)
 	switch c.Type() {
 	case lightclient.Tendermint:
-		lc := c.LightClient().(*tendermint.TMLightClient)
+		lc, ok := tmVerifier(c.LightClient())
+		if !ok {
+			break // a verifier version this implementation cannot render
+		}
 		m["client_state"] = json.ObjectNode("", map[string]*json.Node{
 			"chain_id":         json.StringNode("", lc.ClientState.ChainID),
 			"latest_height":    RenderHeight(lc.ClientState.LatestHeight),
@@ -481,7 +491,10 @@ func ClientJSON(c core.Client) *json.Node {
 func ConsensusStatesJSON(c core.Client, r *mux.Request) *json.Node {
 	switch c.Type() {
 	case lightclient.Tendermint:
-		lc := c.LightClient().(*tendermint.TMLightClient)
+		lc, ok := tmVerifier(c.LightClient())
+		if !ok {
+			return NodeError("client %s's verifier keeps no tendermint/v0 state", c.ID())
+		}
 		return jsonpage.Render(lc.ConsensusStateByHeight, r, func(k string, v any) *json.Node {
 			cs := v.(*tendermint.ConsensusState)
 			height := types.ParseHeightNatSort(k)
@@ -509,6 +522,21 @@ func ConsensusStatesJSON(c core.Client, r *mux.Request) *json.Node {
 		})
 	}
 	return NodeError("unhandled client type %s", c.Type())
+}
+
+// tmState is a verifier exposing tendermint/v0 state: the v0 verifier
+// itself, or a later version wrapping it.
+type tmState interface {
+	Tendermint() *tendermint.TMLightClient
+}
+
+// tmVerifier is the tendermint/v0 state of a Tendermint client's verifier.
+func tmVerifier(lc lightclient.Interface) (*tendermint.TMLightClient, bool) {
+	if v, ok := lc.(tmState); ok {
+		tm := v.Tendermint()
+		return tm, tm != nil
+	}
+	return nil, false
 }
 
 // ethState is a verifier exposing ethereum/v0 state: the v0 verifier

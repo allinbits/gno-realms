@@ -97,8 +97,13 @@ Gated on the governance realm; the decision is built with
 
 `p/aib/ibc/lightclient/tendermint/v0/tendermint.gno`:
 
-1. Type-assert substitute to `*TMLightClient`.
-2. `isMatchingClientState` check.
+1. Read the substitute's tendermint/v0 state through `Tendermint()`: the v0
+   verifier itself, or a later verifier version wrapping it (`tmState`), so a
+   client whose verifier was replaced stays usable as a substitute. Any other
+   verifier is refused.
+2. `isMatchingClientState` check, then `ValidateBasic` on the substitute's
+   client state: a later version validated it with its own code, so what the
+   subject adopts is held to v0's rules too.
 3. Fetch `substitute.GetConsensusState(substitute.LatestHeight)`.
 4. Copy into subject: `ChainID`, `LatestHeight`, `TrustingPeriod`; reset
    `FrozenHeight`.
