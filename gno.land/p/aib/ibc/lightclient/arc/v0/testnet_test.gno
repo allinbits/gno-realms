@@ -83,20 +83,28 @@ func TestTestnetUpdate(t *testing.T) {
 }
 
 // TestTestnetUpdateReadsSet forgets the trusted registry root, so the update
-// reads the set from its nodes and, as that set is then not the trusted
-// one by identity, the skipping check runs too.
+// reads the set from its nodes (without them it fails); the set read equals
+// the trusted one, so it counts as T's set and the stored state shares it.
 func TestTestnetUpdateReadsSet(t *testing.T) {
 	setTime(arctesting.Time)
 	c := newTestnetClient(t)
 	trusted, _ := c.GetConsensusState(c.LatestHeight())
 	trusted.RegistryStorageRoot = make([]byte, 32)
 	h, _ := DecodeHeader(arctesting.Header)
+	noNodes, _ := DecodeHeader(arctesting.Header)
+	noNodes.SetNodes = nil
+	if _, _, err := c.derive(trusted, noNodes); err == nil {
+		t.Fatal("the set was not read from the nodes")
+	}
+	if _, sameSet, err := c.derive(trusted, h); err != nil || !sameSet {
+		t.Fatalf("derive: same set %v, %v", sameSet, err)
+	}
 	if err := update(c, h); err != nil {
 		t.Fatalf("update: %v", err)
 	}
 	cons, _ := c.GetConsensusState(c.LatestHeight())
-	if cons.NextValidators == trusted.NextValidators || !cons.NextValidators.Equal(trusted.NextValidators) {
-		t.Fatal("expected an equal set, read anew")
+	if cons.NextValidators != trusted.NextValidators {
+		t.Fatal("an equal set was stored again, not shared")
 	}
 }
 
@@ -271,6 +279,39 @@ func TestTestnetRecoveryAdoptsLayout(t *testing.T) {
 	sub.ClientState = &ocs
 	if err := other.CheckRecovery(sub); err == nil {
 		t.Fatal("a substitute with another registry was accepted")
+	}
+}
+
+// laterVerifier stands for a later verifier version (arc/v1) that wraps the
+// v0 one and exposes its state through Arc.
+type laterVerifier struct{ *ArcLightClient }
+
+// TestTestnetRecoveryFromLaterVersion recovers from a substitute of a later
+// verifier version wrapping arc/v0, reading its state through Arc, and
+// refuses one whose client state is invalid.
+func TestTestnetRecoveryFromLaterVersion(t *testing.T) {
+	setTime(arctesting.Time)
+	subject := newTestnetClient(t)
+	inner := newTestnetClient(t)
+	h, _ := DecodeHeader(arctesting.Header)
+	if err := update(inner, h); err != nil {
+		t.Fatal(err)
+	}
+	sub := laterVerifier{inner}
+	if err := subject.RecoverClient(sub); err != nil {
+		t.Fatalf("recovery from a later version: %v", err)
+	}
+	if subject.LatestHeight() != inner.LatestHeight() {
+		t.Fatalf("latest height %s", subject.LatestHeight().String())
+	}
+
+	other := newTestnetClient(t)
+	bad := *inner.ClientState
+	bad.TrustingPeriod = 0
+	inner.ClientState = &bad
+	err := other.CheckRecovery(sub)
+	if err == nil || !strings.Contains(err.Error(), "substitute client state") {
+		t.Fatalf("a substitute with an invalid client state: %v", err)
 	}
 }
 

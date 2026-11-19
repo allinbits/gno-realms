@@ -159,11 +159,24 @@ func runTrustCases(t *testing.T, msg []byte, height uint64, set []syntheticMembe
 			t.Fatalf("%s: latest height %s", tc.name, c.LatestHeight().String())
 		}
 		cons, _ := c.GetConsensusState(c.LatestHeight())
-		if cons.NextValidators == trusted.NextValidators {
-			t.Fatalf("%s: the trusted set was kept", tc.name)
+		// T's set is shared; any other is stored anew.
+		if shared := cons.NextValidators == trusted.NextValidators; shared != sameMembers(set, syntheticTrusted) {
+			t.Fatalf("%s: trusted set shared %v", tc.name, shared)
 		}
 		checkSet(t, tc.name, cons.NextValidators, set)
 	}
+}
+
+func sameMembers(a, b []syntheticMember) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }
 
 const (
@@ -206,6 +219,39 @@ func TestSyntheticReweight(t *testing.T) {
 		{"trusted power above the level", []int{1, 2, 3, 4}, ""},
 		// 8 of T's 9, more than 2/3 by T's powers, but 5 of the new 12.
 		{"new powers below 2/3", []int{0, 2, 3, 4, 5}, notQuorum},
+	})
+}
+
+// TestSyntheticIdleSharesSet updates to block 130, whose registry's storage
+// changed while the set it holds did not: the new consensus state shares
+// the trusted set, stored once, rather than a copy.
+func TestSyntheticIdleSharesSet(t *testing.T) {
+	c := newSyntheticClient(t)
+	trusted, _ := c.GetConsensusState(heightAt(syntheticCreationHeight))
+	if err := update(c, syntheticHeader(t, syntheticIdle, 0, 1, 2, 3, 4, 5)); err != nil {
+		t.Fatal(err)
+	}
+	got, ok := c.GetConsensusState(heightAt(syntheticIdleHeight))
+	if !ok {
+		t.Fatal("no consensus state at the idle block")
+	}
+	if bytes.Equal(got.RegistryStorageRoot, trusted.RegistryStorageRoot) {
+		t.Fatal("the idle block's registry storage root should differ")
+	}
+	checkSet(t, "idle", got.NextValidators, syntheticIdled)
+	if got.NextValidators != trusted.NextValidators {
+		t.Fatal("an unchanged set was copied, not shared")
+	}
+}
+
+// TestSyntheticIdleNoTrustCheck: at block 130 the set is T's under another
+// registry root, so only its 2/3 quorum applies, not the trust level: at
+// level 9/10, keys 0 to 3 (7 of 9) suffice, and 6 of 9 do not.
+func TestSyntheticIdleNoTrustCheck(t *testing.T) {
+	level := Fraction{9, 10}
+	runTrustCases(t, syntheticIdle, syntheticIdleHeight, syntheticIdled, &level, []trustCase{
+		{"exactly 2/3", []int{0, 1, 3}, notQuorum},
+		{"above 2/3, below the trust level", []int{0, 1, 2, 3}, ""},
 	})
 }
 

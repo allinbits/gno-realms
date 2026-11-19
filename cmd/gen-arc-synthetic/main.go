@@ -13,7 +13,10 @@
 //     rotated set N, which drops two of T's validators, adds two and
 //     changes the others' powers;
 //   - block 120 (Reweight, certified by block 121): the registry holds T's
-//     validators with changed powers only.
+//     validators with changed powers only;
+//   - block 130 (Idle, certified by block 131): the registry's storage
+//     changed (key 8, active with no power, deactivated) but the set it
+//     holds is T.
 //
 // Each certificate carries a precommit by every key of the pool, so a test
 // picks the signers of a case by filtering them. The router's storage, the
@@ -91,8 +94,10 @@ const (
 	creationHeight = 100
 	rotationHeight = 110
 	reweightHeight = 120
+	idleHeight     = 130
 	rotationRound  = 1
 	reweightRound  = 0
+	idleRound      = 0
 	keyCount       = 9 // keys 0..7 sign; key 8 is registered without power
 	signingKeys    = 8
 	fillerAccounts = 24
@@ -314,8 +319,8 @@ func (b block) commitmentProof(path []byte) (accountProof, storageProof [][]byte
 }
 
 type chain struct {
-	creation, rotation, reweight block
-	trusted, rotated, reweighted []member
+	creation, rotation, reweight, idle  block
+	trusted, rotated, reweighted, idled []member
 }
 
 func newChain() chain {
@@ -345,6 +350,11 @@ func newChain() chain {
 	}
 	c.reweight = newBlock(reweightHeight, rew)
 	c.reweighted = rew.members()
+
+	idle := reg.clone()
+	idle.deactivate(pubKey(8))
+	c.idle = newBlock(idleHeight, idle)
+	c.idled = idle.members()
 	return c
 }
 
@@ -380,8 +390,8 @@ func generate() ([]byte, error) {
 	w.f("// seed: the cases the testnet fixture cannot give. See cmd/gen-arc-synthetic\n")
 	w.f("// for how each is built.\n\npackage arc\n\nimport \"gno.land/p/aib/ibc/lightclient/ethereum/v0\"\n\n")
 	w.f("const (\n")
-	w.f("// syntheticCreationHeight, syntheticRotationHeight and syntheticReweightHeight\n// are the blocks of Creation, Rotation and Reweight.\n")
-	w.f("syntheticCreationHeight = %d\nsyntheticRotationHeight = %d\nsyntheticReweightHeight = %d\n", creationHeight, rotationHeight, reweightHeight)
+	w.f("// syntheticCreationHeight, syntheticRotationHeight, syntheticReweightHeight\n// and syntheticIdleHeight are the blocks of Creation, Rotation, Reweight and\n// Idle.\n")
+	w.f("syntheticCreationHeight = %d\nsyntheticRotationHeight = %d\nsyntheticReweightHeight = %d\nsyntheticIdleHeight = %d\n", creationHeight, rotationHeight, reweightHeight, idleHeight)
 	w.f("// syntheticTime is a clock at which every synthetic block is past and the\n// client not expired.\nsyntheticTime = %d\n)\n", genesisTime+60)
 
 	w.f("\n// syntheticCreation creates a client (chain %d, trust level %d/%d, trusting\n// period %d s, drift %d s) at block %d, whose registry holds syntheticTrusted.\nvar syntheticCreation = %s\n",
@@ -390,6 +400,8 @@ func generate() ([]byte, error) {
 		creationHeight, rotationHeight, rotationHeight+1, rotationRound, hx(c.rotation.headerMessage(creationHeight, rotationRound)))
 	w.f("\n// syntheticReweight updates from block %d to block %d, whose registry holds\n// syntheticReweighted, with the certificate of block %d (round %d): a precommit\n// by every key 0 to 7, in key order.\nvar syntheticReweight = %s\n",
 		creationHeight, reweightHeight, reweightHeight+1, reweightRound, hx(c.reweight.headerMessage(creationHeight, reweightRound)))
+	w.f("\n// syntheticIdle updates from block %d to block %d, whose registry's storage\n// changed but holds syntheticTrusted (syntheticIdled), with the certificate of\n// block %d (round %d): a precommit by every key 0 to 7, in key order.\nvar syntheticIdle = %s\n",
+		creationHeight, idleHeight, idleHeight+1, idleRound, hx(c.idle.headerMessage(creationHeight, idleRound)))
 
 	w.f("\n// syntheticPubKeys are the validators' Ed25519 public keys, by key index.\nvar syntheticPubKeys = [][]byte{\n")
 	for i := 0; i < keyCount; i++ {
@@ -399,6 +411,7 @@ func generate() ([]byte, error) {
 	w.members("syntheticTrusted", "syntheticTrusted is the set block 100's registry holds, in registry order.", c.trusted)
 	w.members("syntheticRotated", "syntheticRotated is the set block 110's registry holds: keys 4 and 5\n// deactivated, 6 and 7 registered, every kept power changed.", c.rotated)
 	w.members("syntheticReweighted", "syntheticReweighted is the set block 120's registry holds: syntheticTrusted's\n// keys, keys 0 and 1 with other powers.", c.reweighted)
+	w.members("syntheticIdled", "syntheticIdled is the set block 130's registry holds: syntheticTrusted, under\n// another storage root.", c.idled)
 
 	w.f("\n// syntheticCommitments are proofs of the router's commitments at %q 0x01\n// sequence, in the states of blocks %d and %d: of sequences 1 and 2, stored,\n// and of the absence of sequence 3 (Value nil).\nvar syntheticCommitments = []syntheticCommitment{\n",
 		clientID, creationHeight, rotationHeight)

@@ -89,7 +89,11 @@ using the certificate of B's child C = B+1:
    final (every ancestor of a final block is).
 2. The registry's account proof in B's state gives its storage root. Equal
    to T's: the set is T's (`NextValidators` shared, no set proof). Otherwise
-   the set is read from the node pool.
+   the set is read from the node pool; a set read equal to T's (the
+   registry's storage can change without its active set changing) is T's
+   set: shared, and step 3's trust-level check does not apply to it
+   (`TestSyntheticIdleSharesSet`, `TestSyntheticIdleNoTrustCheck`). Only a
+   different set is copied and stored: a set is stored once per change.
 3. That set (B's, which signed C) must have signed more than 2/3; when it is
    not T's set, more than the trust level (default 1/3) of T's set must have
    signed C too: Tendermint's skipping verification. Each signature is
@@ -120,7 +124,31 @@ other value, path, state root, router, commitment slot or height than its
 own (`TestSyntheticMembership`, `TestSyntheticMembershipRefusals`), and
 after a recovery for any height below the substitute's
 (`TestSyntheticProofsAfterRecovery`): those states were trusted by the
-client state the recovery replaced.
+client state the recovery replaced. A proof is also refused at a height
+whose state is `TrustingPeriod` seconds old or more, whether or not that
+state was pruned yet (`TestProofRefusedPastTrustingPeriod`).
+
+**Pruning**, as gno-realms#96 (pending) adds it to the Ethereum client:
+each update removes
+the oldest consensus state if no proof can use it any more, one below a
+recovery's cut-off or past the trusting period, so the store converges to
+about one trusting period of states and the deposit of the removed bytes
+is refunded to the updater. `PruneExpiredConsensusStates(limit)` removes up
+to `limit` such states in one call, for a client that accumulated them
+before (from a later core implementation's `OnInstall` migration, as #96
+has it for the Ethereum client); the core exposes no entry point for it. The latest state is never removed: `Status`, recoveries
+and renders read it. A set shared by consensus states stays stored while
+any of them does.
+
+**Storing the set, not its hash.** Tendermint's client stores a hash of the
+next validator set because its header commits one and carries the set
+anyway. Arc's blocks commit to no hash of the set, so with a stored hash
+the relayer would send the full set (a 32-byte key and a power per
+validator: about 1 KB at Arc testnet's 21, up to about 10 KB at
+`MaxValidators`) and the client would decode and hash it on
+every update, the usual unchanged-registry one included, which today sends
+none (about 15M gas). Storing it costs one deposit per set change, which
+pruning refunds once no state holds it.
 
 **The registry's implementation is pinned.** The client reads the set by the
 layout of the registry implementation it was created with: creation reads the
@@ -148,9 +176,15 @@ Arc's validators accept a proposer's timestamp up to 30 seconds ahead
 **Other rules**, as the Ethereum client: updates and misbehaviour must build
 on the latest trusted height; misbehaviour is two headers proving different
 blocks at one height; a recovery copies a substitute tracking the same chain
-id, registry address and router (the route identity, `RouteIdentity`), and
-adopts its registry implementation and storage location; no IBC upgrade
-path. The chain alone, its id and registry address, is `ChainIdentity`:
+id, registry address and router (the route identity, `RouteIdentity`), with
+a valid client state, and adopts its registry implementation and storage
+location; no IBC upgrade path. The substitute may be a later verifier
+version wrapping arc/v0: recoveries and the core's renders read the v0
+state through `Arc()`, as the Ethereum client's do through `Ethereum()`
+(`TestTestnetRecoveryFromLaterVersion`). The renders treat a verifier that
+keeps no arc/v0 state as the Ethereum ones do, instead of panicking: the
+consensus-state routes return an error, and the client route leaves out
+the client and consensus state. The chain alone, its id and registry address, is `ChainIdentity`:
 ibcgov keeps one route per counterparty chain (ADR 0007), whatever its
 router.
 
@@ -171,15 +205,17 @@ verifier replacements (`core impl/v0`, ibcgov `core migrate client`). `r/aib/ibc
 `CreateArcClient`, `UpdateArcClient` and `SubmitArcMisbehaviour`; its packet
 functions serve both chains (same proof format).
 
-**Test data.** The testnet fixture (`arc/testing/v0`, recorded by
+**Test data.** The testnet fixture (`arc/testing/v0`, a test helper that
+`scripts/packages.sh` does not deploy, recorded by
 gno-eth-ibc's `relayer/cmd/arc-fixtures`) gives a creation and an update
 whose set did not change, and no commitment proofs. The rest comes from
 synthetic data (`zz_synthetic_test.gno`, written by `cmd/gen-arc-synthetic`;
 `go test -C cmd/gen-arc-synthetic` checks that the committed file is what it
-writes): a chain whose blocks 100, 110 and 120 have full states, the
+writes): a chain whose blocks 100, 110, 120 and 130 have full states, the
 registry holding a trusted set at 100, a rotated set at 110 (two validators
-out, two in, every kept power changed) and the same validators with other
-powers at 120, each update's certificate signed by every key so that a
+out, two in, every kept power changed), the same validators with other
+powers at 120 and, at 130, the trusted set under another storage root (a
+powerless registration deactivated), each update's certificate signed by every key so that a
 test picks the signers; and the router's commitments with proofs of two
 packets and of the absence of a third. The generator builds everything from
 Arc's and Ethereum's definitions, not from the client's code: RLP headers,
@@ -244,7 +280,6 @@ Ed25519 keys from a fixed seed, since Gno cannot sign.
   enrolls one router route in total (`checkOneRoute`) and an Arc route
   replaces the Ethereum one. A router client of no enrolled route carries
   no transfers (the route controls refuse it).
-- **Not yet done**: pruning of old consensus states.
 
 ## Alternatives considered
 

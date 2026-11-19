@@ -73,8 +73,16 @@ func heightAt(n uint64) types.Height { return types.NewHeight(0, n) }
 // VerifierVersion names this verifier.
 func (c *ArcLightClient) VerifierVersion() string { return Version }
 
-// Arc is the v0 verifier itself, for renders.
+// Arc is the v0 verifier itself: a later verifier version that wraps it
+// keeps exposing its state, so renders and recoveries read it whatever wraps
+// it.
 func (c *ArcLightClient) Arc() *ArcLightClient { return c }
+
+// arcState is a verifier exposing arc/v0 state: this one, or a later version
+// wrapping it.
+type arcState interface {
+	Arc() *ArcLightClient
+}
 
 // RouteIdentity is the history this verifier authenticates: the Arc chain
 // (its chain id and validator registry), the ICS26 router and its
@@ -166,9 +174,11 @@ func (c *ArcLightClient) checkLatestAnchor(trustedHeight uint64) (*ConsensusStat
 	return trusted, nil
 }
 
-func (c *ArcLightClient) expired(latest *ConsensusState) bool {
+// expired reports whether cons is TrustingPeriod seconds old or more: it
+// then serves no proof, and the client expires when its latest state is.
+func (c *ArcLightClient) expired(cons *ConsensusState) bool {
 	t := now()
-	return t >= latest.Timestamp && t-latest.Timestamp >= c.ClientState.TrustingPeriod
+	return t >= cons.Timestamp && t-cons.Timestamp >= c.ClientState.TrustingPeriod
 }
 
 // derive checks everything a header proves except the certificate's
@@ -202,6 +212,13 @@ func (c *ArcLightClient) derive(trusted *ConsensusState, h *Header) (b block, sa
 	}
 	if b.exec.Timestamp > now()+cs.MaxClockDrift {
 		return block{}, false, errors.New("block timestamp is in the future")
+	}
+	// The same set as the trusted one, under an unchanged registry root
+	// (the same pointer) or a changed one (the registry's storage can change
+	// without its active set changing): it is T's set, so the trust-level
+	// check does not apply, and the trusted one is shared, stored once.
+	if b.nextValidators != trusted.NextValidators && b.nextValidators.Equal(trusted.NextValidators) {
+		b.nextValidators = trusted.NextValidators
 	}
 	return b, b.nextValidators == trusted.NextValidators, nil
 }
@@ -272,6 +289,12 @@ func (c *ArcLightClient) UpdateState(clientMsg lightclient.ClientMessage) []type
 	if !ok {
 		panic("trusted consensus state disappeared")
 	}
+	// Amortized pruning, as the Ethereum and Tendermint clients do: each
+	// update removes at most the oldest consensus state, if no proof can use
+	// it any more, so the store converges to about one trusting period of
+	// states and the storage deposit of the removed bytes is refunded to the
+	// updater. The trusted state is the latest, which is never pruned.
+	c.pruneOldestConsensusState()
 	var b block
 	if h.verified != nil && h.verifiedFrom == trusted {
 		b = *h.verified
@@ -283,6 +306,8 @@ func (c *ArcLightClient) UpdateState(clientMsg lightclient.ClientMessage) []type
 	}
 	cons := b.consensusState()
 	cons = copyConsensusState(cons)
+	// T's set (derive shares an equal one) is stored once; only a new set is
+	// copied and stored.
 	if cons.NextValidators != trusted.NextValidators {
 		cons.NextValidators = copyValidatorSet(cons.NextValidators)
 	}
@@ -344,6 +369,12 @@ func (c *ArcLightClient) ProvenValue(height types.Height, proof any, path types.
 	if !ok {
 		return nil, ufmt.Errorf("no consensus state at height %d", height.RevisionHeight)
 	}
+	// A state past the trusting period is refused even while it is still
+	// stored, so pruning never decides whether a proof verifies, only which
+	// of the two errors refuses it.
+	if c.expired(cons) {
+		return nil, ufmt.Errorf("proof height %d is more than %d seconds old", height.RevisionHeight, c.ClientState.TrustingPeriod)
+	}
 	return ethereum.RouterCommitment(cons.StateRoot, c.ClientState.IBCContractAddress, c.ClientState.IBCCommitmentSlot, mp, path)
 }
 
@@ -381,7 +412,7 @@ func (c *ArcLightClient) RecoverClient(substitute lightclient.Interface) error {
 	if err := c.CheckRecovery(substitute); err != nil {
 		return err
 	}
-	sub := substitute.(*ArcLightClient)
+	sub := substitute.(arcState).Arc()
 	cons, _ := sub.GetConsensusState(sub.LatestHeight())
 	copied := copyConsensusState(*cons)
 	copied.NextValidators = copyValidatorSet(cons.NextValidators)
@@ -398,18 +429,25 @@ func (c *ArcLightClient) RecoverClient(substitute lightclient.Interface) error {
 	return nil
 }
 
-// CheckRecovery is why RecoverClient would refuse substitute, or nil.
+// CheckRecovery is why RecoverClient would refuse substitute, or nil; it
+// changes nothing, so a governed recovery is refused deterministically
+// before it runs.
 func (c *ArcLightClient) CheckRecovery(substitute lightclient.Interface) error {
-	sub, ok := substitute.(*ArcLightClient)
+	// The v0 verifier, or a later version wrapping it.
+	s, ok := substitute.(arcState)
 	if !ok {
 		return ufmt.Errorf("substitute must be an arc client, got %T", substitute)
 	}
+	sub := s.Arc()
 	a, b := c.ClientState, sub.ClientState
 	// The registry's implementation and storage location may differ: a
 	// recovery is how the client follows a registry upgrade that moved them.
 	if a.ChainID != b.ChainID || !bytes.Equal(a.RegistryAddress, b.RegistryAddress) ||
 		!bytes.Equal(a.IBCContractAddress, b.IBCContractAddress) || !bytes.Equal(a.IBCCommitmentSlot, b.IBCCommitmentSlot) {
 		return errors.New("substitute client tracks a different chain, registry or router")
+	}
+	if err := b.ValidateBasic(); err != nil {
+		return ufmt.Errorf("substitute client state: %v", err)
 	}
 	if b.LatestHeight <= a.LatestHeight {
 		return errors.New("substitute must be ahead of the subject")
@@ -428,6 +466,46 @@ func (c *ArcLightClient) VerifyUpgradeAndUpdateState(_, _, _, _ any) error {
 
 func (c *ArcLightClient) setConsensusState(cons *ConsensusState) {
 	c.ConsensusStateByHeight.Set(heightAt(cons.Height).StringNatSort(), cons)
+}
+
+// pruneOldestConsensusState removes the lowest consensus state if nothing
+// reads it any more, and reports whether it did: one below TrustedFromHeight
+// (from before a recovery), or one past the trusting period (expired), which
+// ProvenValue refuses. Keys sort by height, so only the first entry is
+// examined and the cost per call is constant. The latest state is never
+// removed, expired or not: Status, recoveries and renders read it.
+func (c *ArcLightClient) pruneOldestConsensusState() bool {
+	if c.ConsensusStateByHeight.Size() == 0 {
+		return false
+	}
+	key, v := c.ConsensusStateByHeight.GetByIndex(0)
+	cons := v.(*ConsensusState)
+	if cons.Height >= c.ClientState.LatestHeight {
+		return false
+	}
+	if cons.Height >= c.TrustedFromHeight && !c.expired(cons) {
+		return false
+	}
+	c.ConsensusStateByHeight.Remove(key)
+	return true
+}
+
+// PruneExpiredConsensusStates removes up to limit of the consensus states
+// pruneOldestConsensusState would, oldest first, and returns how many it
+// removed. UpdateState already prunes one per update; this bulk variant
+// catches up on a client that accumulated states, in batches bounded by
+// limit so that a long history does not exhaust a transaction's gas. A
+// later state is never older (updates refuse a timestamp before the
+// trusted one), so stopping at the first one kept finds them all.
+//
+// Call it on the stored client (the core's verifier): it deletes under the
+// receiver's storage realm, which refunds the deposit to the caller.
+func (c *ArcLightClient) PruneExpiredConsensusStates(limit int) int {
+	n := 0
+	for n < limit && c.pruneOldestConsensusState() {
+		n++
+	}
+	return n
 }
 
 // GetConsensusState returns the consensus state at height, if any and still
