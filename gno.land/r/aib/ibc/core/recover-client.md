@@ -29,8 +29,11 @@ by GovDAO after.
 
 From this point `SendPacket`, `RecvPacket`, `Acknowledgement`, `Timeout` and
 `UpdateClient` all panic for this client. Any in-flight user packets are
-stuck, and any inbound packets cannot be acknowledged. Channels using this
-client are frozen on this side until the client is recovered.
+stuck, and no new inbound packet can be received. An asynchronous
+acknowledgement already pending can still be written (`WriteAcknowledgement`
+checks no client status, only that the core is not paused), but the
+counterparty cannot be shown it until the client is recovered. Channels using
+this client are frozen on this side until then.
 
 ### 2. Off-chain coordination
 

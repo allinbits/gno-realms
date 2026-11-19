@@ -187,7 +187,10 @@ Light-client state is a set of core-owned objects whose methods are bound to
 the `/p/` version that created them. Verification stays in `/p/`, versioned
 (`p/aib/ibc/lightclient/tendermint/v0`, `/v1`, ...). A new implementation that
 needs a new verifier converts each stored client lazily, on its first use,
-or through a governed migration of that one client (`MigrateClient`), never
+or through a governed migration of that one client (`MigrateClient`; ibcgov
+builds migrations for Ethereum clients only, `ethereum-fork-schedule` and
+`ethereum-verifier`, so a Tendermint client converts lazily, or once
+governance gains a Tendermint migration kind), never
 all of them in `OnInstall`, whose work stays bounded whatever the number of
 clients (above). It reads the exported fields of the v0 object and stores the result with
 `SetLightClient`, which takes the `/p/` conversion function for the same
