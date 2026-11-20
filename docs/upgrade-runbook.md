@@ -558,8 +558,8 @@ from the first block, the governor yields right after the deployment.
    `NewRecoverClientRequest(clientID, substituteID)` (7 days). A Frozen
    client is recovered first, then converted.
 
-   **Handing over IBCAdmin's executor.** `NewEthHandOverRequest(exec,
-   codeHash)` (kind 9) only moves IBCAdmin's executor pin to the
+   **Handing over IBCAdmin's executor.** `NewEthHandOverRequest(R, exec,
+   codeHash)` (kind 9) only moves route R's IBCAdmin's executor pin to the
    new executor's address and code hash; it carries no migration call
    (Ethereum spends at recording a kind 9 that carries one). Any migration
    is done afterwards by the new executor through its own decisions.

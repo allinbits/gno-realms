@@ -86,9 +86,6 @@ func (p *adminParams) check() string {
 		if err != nil {
 			return "params are not hex"
 		}
-		if core.ClientType(a[0]) != ethereum.ClientType {
-			return a[0] + " is no Ethereum client"
-		}
 		return core.CheckMigrateClient(a[0], a[1], bz)
 	case "transfer update impl":
 		return transfer.CheckUpdateImpl(a[0])
@@ -295,9 +292,10 @@ func isRelayer(a address) bool {
 }
 
 // NewRecoverClientRequest recovers a frozen or expired core client from a
-// substitute after 7 days (see the core's recover-client.md). A subject or
-// substitute that belongs to a route makes it that route's decision (ADR
-// 0007 §6), and neither may belong to another route.
+// substitute after 7 days (see the core's recover-client.md). A subject that
+// belongs to a route makes it that route's decision (ADR 0007 §6), and the
+// substitute may then belong to no other route; a subject of no route makes
+// it a global decision, whose substitute may belong to no route at all.
 func NewRecoverClientRequest(cur realm, subjectClientID, substituteClientID string) Request {
 	if core.ClientType(subjectClientID) == "" || core.ClientType(substituteClientID) == "" {
 		panic("ibcgov: unknown client")
@@ -388,13 +386,21 @@ func NewCoreRemoveMemberRequest(cur realm, addr string) Request {
 	return adminRequest(cur, "core remove member", "core: remove authority member "+string(a), false, string(a))
 }
 
-// NewMigrateClientRequest migrates the verifier of a live core client after
-// 7 days (ADR pr6375 R16, §6.12): for migration "ethereum-fork-schedule",
+// NewMigrateClientRequest migrates the verifier of a live core client of
+// any type after 7 days (ADR pr6375 R16, §6.12, ADR 0007 §6): the client
+// keeps its id and its type, and the active core implementation decides
+// which migrations it supports (core.CheckMigrateClient, checked when the
+// decision executes: one it does not support is spent then). Moving a route to a client of
+// another type is not a migration but a route replacement. Two migrations
+// are spelled out in the decision's text: for "ethereum-fork-schedule",
 // paramsHex is the hex of ethereum.EncodeForkParameters of the new schedule,
-// which the decision's text spells out fork by fork; it should land before
-// the fork epoch, and may land after it (ethereum.CheckForkParameters); for
-// "ethereum-verifier" (see NewReplaceVerifierRequest),
-// paramsHex is the hex of the target verifier version.
+// listed fork by fork; it should land before the fork epoch, and may land
+// after it (ethereum.CheckForkParameters); for "ethereum-verifier" (see
+// NewReplaceVerifierRequest), paramsHex is the hex of the target verifier
+// version. Any other migration (a name of 1 to 64 characters of a-z, 0-9
+// and '-') is forwarded as named, its text giving the name and paramsHex,
+// so a later core implementation can migrate an Arc or Tendermint client,
+// or a client type added later, with no change here.
 func NewMigrateClientRequest(cur realm, clientID, migration, paramsHex string) Request {
 	if core.ClientType(clientID) == "" {
 		panic("ibcgov: unknown client " + clientID)
@@ -423,10 +429,28 @@ func NewMigrateClientRequest(cur realm, clientID, migration, paramsHex string) R
 		}
 		text = "core: convert the verifier of client " + clientID + " (" + core.VerifierVersion(clientID) + ") to " + string(bz) + " with the active core implementation's conversion"
 	default:
-		panic("ibcgov: unknown migration " + migration)
+		if !isMigrationName(migration) {
+			panic("ibcgov: a migration name is 1 to 64 characters of a-z, 0-9 and '-'")
+		}
+		text = "core: migrate client " + clientID + " (" + core.ClientType(clientID) + ") with migration " + migration + " (params 0x" + hex.EncodeToString(bz) + ")"
 	}
 	sc := clientScope(clientID)
 	return adminRequestIn(cur, sc, "core migrate client", scopeText(sc)+text, true, clientID, migration, hex.EncodeToString(bz))
+}
+
+// isMigrationName reports whether s is 1 to 64 characters of a-z, 0-9 and
+// '-': a migration's name is written into the decision's text as is.
+func isMigrationName(s string) bool {
+	if len(s) == 0 || len(s) > 64 {
+		return false
+	}
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if !(c >= 'a' && c <= 'z' || c >= '0' && c <= '9' || c == '-') {
+			return false
+		}
+	}
+	return true
 }
 
 // NewReplaceVerifierRequest converts the verifier of the live Ethereum

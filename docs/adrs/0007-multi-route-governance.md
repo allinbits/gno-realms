@@ -340,7 +340,8 @@ one.
 - the graph builders (expect, remove, purge, retransmit);
 - seats and route unpauses;
 - `NewRecoverClientRequest`, `NewMigrateClientRequest` and
-  `NewReplaceVerifierRequest` on a client that belongs to a route.
+  `NewReplaceVerifierRequest` on a client that belongs to a route, of any
+  client type (section 9, client migrations).
 
 A route-scoped decision is deferred only by its route's hold, and spent only
 by its route's hold if it is an unpause. A payout decision is also deferred
@@ -368,8 +369,11 @@ Holds keep today's reach, and only their owner changes:
   claimed. No route's guardians own such a client, so the global rule
   applies, and any route's hold defers it. Once the client is claimed, the
   same decision is route-scoped. A decision recorded as global whose client
-  is claimed before it executes is spent ("its client now belongs to route
-  R"): it was approved under the wrong hold rule.
+  is claimed before it executes is spent ("X belongs to route R: a decision
+  of no route cannot name a route's client"): it was approved under the
+  wrong hold rule. Such a decision cannot name a route's client from the
+  start either: a recovery of a client of no route whose substitute is a
+  route's client is refused.
 
 A global loosening reaches every route, so **any route's hold defers it**.
 Each route's guardians can therefore delay what affects their route; none can
@@ -528,6 +532,19 @@ route.
   section 7.
 - **Denoms.** A route may configure only its own vouchers and non-voucher
   denoms (Consequences, foreign vouchers), and the send path enforces it.
+- **Client migrations, any client type.** `NewMigrateClientRequest` no
+  longer refuses a client that is not Ethereum or a migration it does not
+  know: ibcgov is immutable, so it forwards any migration (a name of 1 to 64
+  characters of `a-z`, `0-9` and `-`, with hex params) to the core, and the
+  active core implementation decides (`core.CheckMigrateClient` when the
+  decision executes: a migration it does not support spends it, z1c). A migration replaces a client's verifier in place: the client
+  keeps its id and the type it was created with, so moving a route to a
+  client of another type is a route replacement, never a migration. The
+  two Ethereum migrations keep their readable decision text; any other is
+  written as its name and params. An Arc or Tendermint verifier conversion
+  then needs only a core implementation that declares it, installed by a
+  governed `UpdateImpl`, and the migration is a decision of its client's
+  route, 7 days, as Ethereum's are.
 
 ## Consequences
 

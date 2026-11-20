@@ -140,6 +140,12 @@ func main(cur realm) {
 	r, _ := ibcgov.ClientRoute(sub)
 	println("a recovery of the provisional client:", ibcgov.DecisionRoute(rec) == d, "| its substitute claimed:", r != "")
 	govern(cur, ibcgov.NewCancelRequest(cross(cur), rec))
+	// The other way round, a subject of no route with a route's client as
+	// its substitute, is refused: only the subject makes a recovery a
+	// route's decision.
+	println("a route's client as the substitute of a client of no route:", revive(func() {
+		govern(cur, ibcgov.NewRecoverClientRequest(cross(cur), sub, d))
+	}))
 
 	// Candidate flags: a seat of each of two routes flags the same candidate
 	// client; each counts toward its own route, and only A's follow the
@@ -191,6 +197,7 @@ func main(cur realm) {
 // a request built for incarnation 1: spent - spent: route ethereum-3's record changed since the request was built (incarnation 1) | its route: true
 // re-created: incarnation 2 seat 0 true flags 0
 // a recovery of the provisional client: true | its substitute claimed: false
+// a route's client as the substitute of a client of no route: ibcgov: ethereum-3 belongs to route ethereum-3: a decision of no route cannot name a route's client
 // candidate flags: A's slice[("payouts seat 0 at 1243121503" string)] | B's slice[("credits seat 1 at 1243121503" string),("payouts seat 0 at 1243121503" string)]
 // two of B's guardians on the candidate: B held true | A held false
 // B flags A's claimed candidate: ibcgov: ethereum-7 belongs to route ethereum-5

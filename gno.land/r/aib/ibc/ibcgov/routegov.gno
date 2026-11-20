@@ -374,7 +374,7 @@ func (sc *scope) check() string {
 	}
 	for _, cl := range sc.clients {
 		if c := claimOf(cl); c != nil {
-			return "its client " + cl + " now belongs to route " + c.route
+			return cl + " belongs to route " + c.route + ": a decision of no route cannot name a route's client"
 		}
 	}
 	return ""

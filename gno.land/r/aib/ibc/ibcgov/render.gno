@@ -80,12 +80,19 @@ func home(from string) string {
 	if routes.Size() == 0 {
 		b.WriteString("No route enrolled.\n")
 	}
-	keys := Routes(from, routesPerPage)
+	// One route past the page tells whether there is a next page, so the
+	// link never leads to an empty one.
+	keys := Routes(from, routesPerPage+1)
+	more := len(keys) > routesPerPage
+	if more {
+		keys = keys[:routesPerPage]
+	}
 	for _, k := range keys {
 		writeRoute(&b, govOf(k))
 	}
-	if len(keys) == routesPerPage {
-		b.WriteString("\nMore routes: ?from=" + jsonmd.Text(keys[len(keys)-1]) + "\n")
+	if more {
+		last := keys[len(keys)-1]
+		b.WriteString("\n- more: [routes after " + jsonmd.Text(last) + "](:?from=" + url.QueryEscape(last) + ")\n")
 	}
 	b.WriteString("\n## Decisions\n\n")
 	b.WriteString(ledger.Page())

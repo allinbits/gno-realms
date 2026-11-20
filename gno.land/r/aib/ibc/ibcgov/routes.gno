@@ -506,7 +506,9 @@ func checkForeignDenom(route, denom, kind string) string {
 // NewSetDenomRequest enables a denom on route or changes its limits (ADR
 // pr6375 §7.1, §7.8, §9): kind "unescrow" (a gno-native token: denom is its
 // escrow denom, "ugnot" or a GRC20 alias) or "mint" (an Ethereum token: denom
-// is its voucher's IBC denom); capFloor the day cap floor (unescrow) or day
+// is its token's Ethereum address, 0x…, or, once the route allocated its
+// voucher on a first receive, that voucher's ibc/ denom; a new token, whose
+// voucher does not exist yet, must be named by its address); capFloor the day cap floor (unescrow) or day
 // cap (mint); supplyCap the voucher supply cap (mint, else 0); fee and its
 // floor; sendMax and sendMin (unescrow, else 0); refundCap the refund meter's
 // day cap; remoteToken (unescrow, else "") the token's GnoVoucher on Ethereum,
@@ -514,9 +516,10 @@ func checkForeignDenom(route, denom, kind string) string {
 // decimals of the token on Ethereum, 0 to 18, which its voucher is created
 // with on its first receive (ADR 0005, "Voucher decimals": an ICS20 packet
 // carries no token metadata). Amounts are base units of the
-// denom, as uint256 (an 18-decimal token's limits are set in its own units). For a minted denom, denom may be the token's Ethereum address
-// (0x…): the voucher denom is then computed, ibc/<sha256("transfer/<route>/
-// <lower-case address>")>, the denom this chain keys the token's vouchers by.
+// denom, as uint256 (an 18-decimal token's limits are set in its own units).
+// A minted denom named by its address is configured under its computed
+// voucher denom, ibc/<sha256("transfer/<route>/<lower-case address>")>, the
+// denom this chain keys the token's vouchers by.
 // A change that only tightens applies at once; a new denom or any loosening
 // waits 7 days, a change of the decimals too. Once the voucher exists its
 // decimals never change: a configuration naming others is refused here and
