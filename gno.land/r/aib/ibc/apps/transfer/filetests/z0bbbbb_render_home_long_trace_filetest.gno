@@ -104,10 +104,10 @@ func recv(cur realm, clientID, base, receiver string) string {
 	core.RegisterCounterparty(cross(cur), clientID, [][]byte{[]byte("iavlStoreKey"), []byte("prefix2")}, counterpartyID)
 	core.RecvPacket(cross(cur), types.MsgRecvPacket{
 		Packet: packet,
-		ProofCommitment: []ics23.CommitmentProof{
+		ProofCommitment: ics23.MarshalMerkleProof([]ics23.CommitmentProof{
 			ics23.CommitmentProof_Exist{Exist: iavl},
 			ics23.CommitmentProof_Exist{Exist: multi},
-		},
+		}),
 		ProofHeight: types.NewHeight(2, 2),
 	})
 	return clientID

@@ -15,7 +15,7 @@ CI runs unit + e2e tests on every push (`.github/workflows/test.yml`).
 
 Under the hood:
 - `go tool gno test ./gno.land/...` runs all Gno tests (unit tests + filetests)
-- `go test -C ./cmd/gen-block-signatures`, `go test -C ./cmd/gen-proof` and `go test -C ./cmd/gen-eth-synthetic` run Go tests (the last checks that the synthetic Ethereum light-client data is current)
+- `go test -C ./cmd/gen-block-signatures`, `go test -C ./cmd/gen-proof`, `go test -C ./cmd/gen-eth-synthetic` and `go test -C ./cmd/gen-arc-synthetic` run Go tests (the last two check that the synthetic Ethereum and Arc light-client data is current)
 
 **Important:** Always use `go tool gno test`, not a standalone `gno` binary. The pinned `gnolang/gno@master` commit is resolved via `go mod` replace directives, so `go tool gno` picks up the correct version automatically. A standalone `gno` may be a different (older) release and miss features the realms rely on.
 
@@ -54,6 +54,7 @@ cmd/                          # Go CLI tools
   gen-proof/                  # Generate IBC proof structures
   gen-eth-fixtures/           # Convert eureka Ethereum light-client fixtures to Gno test data
   gen-eth-synthetic/          # Synthetic Ethereum light-client test data built from the specs (blst, fixed seed)
+  gen-arc-synthetic/          # Synthetic Arc light-client test data: blocks, registry and router tries, certificates (Ed25519, fixed seed)
 gno.land/
   p/aib/                      # Packages (stateless libraries)
     ibc/app/v0/               # IBCApp interface definition
@@ -64,7 +65,7 @@ gno.land/
     ibc/lightclient/tendermint/v0/      # Tendermint light client implementation
     ibc/lightclient/tendermint/testing/v0/ # Test helpers: NewMsgHeader, GenValset, etc.
     ibc/testing/v0/           # ICS-23 proof test helpers
-    ics23/v0/                 # ICS-23 Merkle proof verification
+    ics23/v0/                 # ICS-23 Merkle proof verification, MerkleProof protobuf codec
     encoding/v0/              # Uint64 big-endian encoding
     encoding/proto/v0/        # Protobuf varint/field encoding
     merkle/v0/                # RFC-6962 Merkle tree
@@ -95,6 +96,7 @@ gno.land/
 - Register apps with `core.RegisterApp(cur, portID, app)`: immediate for realms under `gno.land/r/aib/`, pending until a `core.ApproveApp` decision of ibcgov for any other realm
 
 **lightclient.Interface** (`p/aib/ibc/lightclient/v0/lightclient.gno`): 12 methods including `Initialize`, `VerifyClientMessage`, `UpdateState`, `VerifyMembership`, `VerifyNonMembership`, `Status`, `LatestHeight`
+- Proofs are opaque `[]byte` everywhere (message proof fields, `VerifyMembership`, `UpgradeClient`, `CounterpartyValue`), as in ibc-go (ADR 0006), decoded by the verifying client: the Tendermint client takes a protobuf ibc-go `MerkleProof` (`ics23.UnmarshalMerkleProof`), the Ethereum and Arc clients a wire-encoded `ethereum.MembershipProof` (`DecodeMembershipProof`). Filetests build ICS-23 proofs as Gno literals and pass `ics23.MarshalMerkleProof(proof)`; Ethereum ones pass `MembershipProof.Encode()` or `ethtesting.Router.Proof()`
 
 ### IBC v2 Packet Lifecycle
 

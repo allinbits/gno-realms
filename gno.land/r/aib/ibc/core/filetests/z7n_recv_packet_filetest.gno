@@ -50,11 +50,11 @@ func main(cur realm) {
 				},
 			},
 		},
-		ProofCommitment: []ics23.CommitmentProof{
+		ProofCommitment: ics23.MarshalMerkleProof([]ics23.CommitmentProof{
 			ics23.CommitmentProof_Exist{
 				Exist: &ics23.ExistenceProof{},
 			},
-		},
+		}),
 		ProofHeight: trustedHeight,
 	}
 

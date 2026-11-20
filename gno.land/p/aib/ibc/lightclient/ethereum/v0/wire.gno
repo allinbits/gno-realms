@@ -90,6 +90,18 @@ func DecodeMembershipProof(bz []byte) (MembershipProof, error) {
 	return p, d.done()
 }
 
+// Encode returns the wire encoding of p, which DecodeMembershipProof reads.
+func (p MembershipProof) Encode() []byte {
+	w := wire.NewWriter()
+	for _, list := range [][][]byte{p.AccountProof, p.StorageProof} {
+		w.Uvarint(uint64(len(list)))
+		for _, b := range list {
+			w.Blob(b)
+		}
+	}
+	return w.Bytes()
+}
+
 // count reads a list length, rejecting one the remaining bytes cannot hold
 // (every element takes at least one byte) before anything is allocated.
 func (d *decoder) count() int {

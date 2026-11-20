@@ -6,7 +6,6 @@ import (
 	"testing"
 
 	"gno.land/p/aib/ibc/lightclient/ethereum/v0"
-	"gno.land/p/aib/ibc/lightclient/extproof/v0"
 	"gno.land/p/aib/ibc/types/v0"
 	"gno.land/r/aib/ibc/core"
 	_ "gno.land/r/aib/ibc/core/impl/v0"
@@ -77,9 +76,9 @@ func main(cur realm) {
 	}))
 	println("recv:", revive(func() {
 		core.RecvPacket(cross(cur), types.MsgRecvPacket{
-			Packet:      types.Packet{Sequence: 1, SourceClient: "client-0", DestinationClient: id, TimeoutTimestamp: 1761903000, Payloads: []types.Payload{payload}},
-			ProofHeight: types.NewHeight(0, 72),
-			Ext:         extproof.Proof{Data: ethereum.MembershipProof{}},
+			Packet:          types.Packet{Sequence: 1, SourceClient: "client-0", DestinationClient: id, TimeoutTimestamp: 1761903000, Payloads: []types.Payload{payload}},
+			ProofHeight:     types.NewHeight(0, 72),
+			ProofCommitment: ethereum.MembershipProof{}.Encode(),
 		})
 	}))
 	println("ack:", revive(func() {
@@ -87,14 +86,14 @@ func main(cur realm) {
 			Packet:          types.Packet{Sequence: 1, SourceClient: id, DestinationClient: "client-0", TimeoutTimestamp: 1761903000, Payloads: []types.Payload{payload}},
 			Acknowledgement: types.Acknowledgement{AppAcknowledgements: [][]byte{[]byte("ok")}},
 			ProofHeight:     types.NewHeight(0, 72),
-			Ext:             extproof.Proof{Data: ethereum.MembershipProof{}},
+			ProofAcked:      ethereum.MembershipProof{}.Encode(),
 		})
 	}))
 	println("timeout:", revive(func() {
 		core.Timeout(cross(cur), types.MsgTimeout{
-			Packet:      types.Packet{Sequence: 1, SourceClient: id, DestinationClient: "client-0", TimeoutTimestamp: 1761903000, Payloads: []types.Payload{payload}},
-			ProofHeight: types.NewHeight(0, 72),
-			Ext:         extproof.Proof{Data: ethereum.MembershipProof{}},
+			Packet:          types.Packet{Sequence: 1, SourceClient: id, DestinationClient: "client-0", TimeoutTimestamp: 1761903000, Payloads: []types.Payload{payload}},
+			ProofHeight:     types.NewHeight(0, 72),
+			ProofUnreceived: ethereum.MembershipProof{}.Encode(),
 		})
 	}))
 	// Creating a client still needs a listed relayer.

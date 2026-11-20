@@ -110,7 +110,7 @@ func main(cur realm) {
 				Version:         transfer.V1,
 			}},
 		},
-		ProofCommitment: proof,
+		ProofCommitment: ics23.MarshalMerkleProof(proof),
 		ProofHeight:     trustedHeight,
 	}
 	voucherDenom := ics20.NewDenom("0x457df1a9866af7b6a78eeba9291fc3e58b4d864b", ics20.NewHop(transfer.PortID, clientID)).IBCDenom()

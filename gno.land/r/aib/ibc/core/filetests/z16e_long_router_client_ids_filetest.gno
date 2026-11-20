@@ -7,7 +7,6 @@ import (
 	"time"
 
 	ethtesting "gno.land/p/aib/ibc/lightclient/ethereum/testing/v0"
-	"gno.land/p/aib/ibc/lightclient/extproof/v0"
 	"gno.land/p/aib/ibc/types/v0"
 	appstesting "gno.land/r/aib/ibc/apps/testing"
 	"gno.land/r/aib/ibc/core"
@@ -38,7 +37,7 @@ func main(cur realm) {
 		router.CommitPacket(in)
 		id := core.CreateClient(cross(cur), ethtesting.ClientState(), ethtesting.ConsensusStateWithRoot(router.StateRoot()))
 		core.RegisterCounterparty(cross(cur), id, [][]byte{{}}, remote)
-		core.RecvPacket(cross(cur), types.MsgRecvPacket{Packet: in, ProofHeight: types.NewHeight(0, 72), Ext: extproof.Proof{Data: router.Proof()}})
+		core.RecvPacket(cross(cur), types.MsgRecvPacket{Packet: in, ProofHeight: types.NewHeight(0, 72), ProofCommitment: router.Proof()})
 		seq := core.SendPacket(cross(cur), types.MsgSendPacket{SourceClient: id,
 			TimeoutTimestamp: uint64(time.Now().Add(time.Hour).Unix()), Payloads: []types.Payload{payload()}})
 		println(n, "characters:", id == local, "| received:", len(core.PacketReceipt(id, 1)) > 0, "| sent:", seq, len(core.PacketCommitment(id, seq)) > 0)

@@ -52,7 +52,7 @@ func main(cur realm) {
 			DestinationClient: "",
 			Payloads:          sendPacket.Payloads,
 		},
-		ProofAcked:  []ics23.CommitmentProof{},
+		ProofAcked:  ics23.MarshalMerkleProof([]ics23.CommitmentProof{}),
 		ProofHeight: trustedHeight,
 	}
 

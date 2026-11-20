@@ -125,7 +125,7 @@ func main(cur realm) {
 				Version:         transfer.V1,
 			}},
 		},
-		ProofCommitment: proof,
+		ProofCommitment: ics23.MarshalMerkleProof(proof),
 		ProofHeight:     trustedHeight,
 	}
 	// ibc/CAEF9CA8CE6C302D73A831A49E34E59149D3A9AD96CCEBDFBF62F6D5710D92D8

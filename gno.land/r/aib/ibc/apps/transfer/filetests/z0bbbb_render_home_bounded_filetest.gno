@@ -45,7 +45,7 @@ func main(cur realm) {
 		core.RegisterCounterparty(cross(cur), clientID, [][]byte{[]byte("iavlStoreKey"), []byte("prefix2")}, counterpartyID)
 		res := core.RecvPacket(cross(cur), types.MsgRecvPacket{
 			Packet:          packet,
-			ProofCommitment: proof,
+			ProofCommitment: ics23.MarshalMerkleProof(proof),
 			ProofHeight:     types.NewHeight(2, 2),
 		})
 		if res != types.RESPONSE_SUCCESS {

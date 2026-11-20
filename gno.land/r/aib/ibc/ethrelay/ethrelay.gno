@@ -1,5 +1,7 @@
 // Package ethrelay is the MsgCall entry point for relaying between gno.land
-// and Ethereum. Each function takes its message as a []byte argument in the
+// and the EVM chains running the ICS26 router: Ethereum, and Arc (the
+// *Arc* functions; Arc packet messages use RecvPacket, Acknowledgement and
+// Timeout as Ethereum's do, with the same storage proofs). Each function takes its message as a []byte argument in the
 // wire format (gno.land/p/aib/encoding/wire), which the VM base64-decodes
 // natively, decodes it and forwards it to the IBC core. Relaying through
 // MsgRun instead would charge preprocessing gas for every byte of the
@@ -13,7 +15,8 @@
 //	Uint sequence, Str source_client, Str destination_client, Uint timeout,
 //	list<Payload>, Uint proof_revision_number, Uint proof_revision_height,
 //	[Acknowledgement only: list<blob> app_acknowledgements],
-//	blob proof (a wire-encoded ethereum.MembershipProof)
+//	blob proof (a wire-encoded ethereum.MembershipProof, passed to the core
+//	as is: the Ethereum client decodes it)
 //	Payload: Str source_port, Str destination_port, Str version, Str encoding, blob value
 //
 // where a list is a Uvarint count followed by its elements and a blob a
@@ -24,8 +27,8 @@ import (
 	"errors"
 
 	"gno.land/p/aib/encoding/wire/v0"
+	"gno.land/p/aib/ibc/lightclient/arc/v0"
 	"gno.land/p/aib/ibc/lightclient/ethereum/v0"
-	"gno.land/p/aib/ibc/lightclient/extproof/v0"
 	"gno.land/p/aib/ibc/types/v0"
 	"gno.land/r/aib/ibc/core"
 )
@@ -49,13 +52,43 @@ func SubmitMisbehaviour(cur realm, clientID string, misbehaviour []byte) {
 	core.UpdateClient(cross(cur), clientID, m)
 }
 
-// RecvPacket delivers a packet sent on Ethereum.
+// CreateArcClient creates an Arc client from a wire-encoded creation
+// message (arc.DecodeCreation) and returns its id. As for any client, the
+// first trusted block is the creator's to choose.
+func CreateArcClient(cur realm, msg []byte) string {
+	cs, cons, err := arc.DecodeCreation(msg)
+	if err != nil {
+		panic(err)
+	}
+	return core.CreateClient(cross(cur), cs, cons)
+}
+
+// UpdateArcClient updates the Arc client clientID with a wire-encoded
+// arc.Header.
+func UpdateArcClient(cur realm, clientID string, header []byte) {
+	h, err := arc.DecodeHeader(header)
+	if err != nil {
+		panic(err)
+	}
+	core.UpdateClient(cross(cur), clientID, h)
+}
+
+// SubmitArcMisbehaviour submits a wire-encoded arc.Misbehaviour.
+func SubmitArcMisbehaviour(cur realm, clientID string, misbehaviour []byte) {
+	m, err := arc.DecodeMisbehaviour(misbehaviour)
+	if err != nil {
+		panic(err)
+	}
+	core.UpdateClient(cross(cur), clientID, m)
+}
+
+// RecvPacket delivers a packet sent on Ethereum or Arc.
 func RecvPacket(cur realm, msg []byte) types.ResponseResultType {
 	d := wire.NewReader(msg)
 	packet, height := readPacket(d)
 	proof := readProof(d)
 	return core.RecvPacket(cross(cur), types.MsgRecvPacket{
-		Packet: packet, ProofHeight: height, Ext: extproof.Proof{Data: proof},
+		Packet: packet, ProofCommitment: proof, ProofHeight: height,
 	})
 }
 
@@ -69,8 +102,8 @@ func Acknowledgement(cur realm, msg []byte) types.ResponseResultType {
 	return core.Acknowledgement(cross(cur), types.MsgAcknowledgement{
 		Packet:          packet,
 		Acknowledgement: types.Acknowledgement{AppAcknowledgements: acks},
+		ProofAcked:      proof,
 		ProofHeight:     height,
-		Ext:             extproof.Proof{Data: proof},
 	})
 }
 
@@ -80,7 +113,7 @@ func Timeout(cur realm, msg []byte) types.ResponseResultType {
 	packet, height := readPacket(d)
 	proof := readProof(d)
 	return core.Timeout(cross(cur), types.MsgTimeout{
-		Packet: packet, ProofHeight: height, Ext: extproof.Proof{Data: proof},
+		Packet: packet, ProofUnreceived: proof, ProofHeight: height,
 	})
 }
 
@@ -131,8 +164,8 @@ func readPacket(d *wire.Reader) (types.Packet, types.Height) {
 	return p, h
 }
 
-// readProof reads the message's last field, the MembershipProof.
-func readProof(d *wire.Reader) ethereum.MembershipProof {
+// readProof reads the message's last field, the proof.
+func readProof(d *wire.Reader) []byte {
 	bz := d.Blob()
 	if d.Err() != nil {
 		panic(d.Err())
@@ -140,9 +173,5 @@ func readProof(d *wire.Reader) ethereum.MembershipProof {
 	if !d.Done() {
 		panic(errTrailing)
 	}
-	p, err := ethereum.DecodeMembershipProof(bz)
-	if err != nil {
-		panic(err)
-	}
-	return p
+	return bz
 }

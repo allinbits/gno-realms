@@ -11,7 +11,6 @@ import (
 	"gno.land/p/aib/ibc/ics20/controls/v0"
 	"gno.land/p/aib/ibc/ics20/v0"
 	ethtesting "gno.land/p/aib/ibc/lightclient/ethereum/testing/v0"
-	"gno.land/p/aib/ibc/lightclient/extproof/v0"
 	"gno.land/p/aib/ibc/types/v0"
 	"gno.land/p/nt/testutils/v0"
 	"gno.land/r/aib/ibc/apps/transfer"
@@ -83,7 +82,7 @@ func ethPacket(client string, seq uint64, token, receiver string, amount uint256
 // relay delivers p through the core with a proof of the router's commitment.
 func relay(cur realm, router *ethtesting.Router, p types.Packet) {
 	core.RecvPacket(cross(cur), types.MsgRecvPacket{
-		Packet: p, ProofHeight: types.NewHeight(0, 72), Ext: extproof.Proof{Data: router.Proof()},
+		Packet: p, ProofHeight: types.NewHeight(0, 72), ProofCommitment: router.Proof(),
 	})
 }
 

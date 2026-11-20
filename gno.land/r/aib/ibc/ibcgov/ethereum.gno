@@ -13,7 +13,6 @@ import (
 	"gno.land/p/aib/encoding/ethaddr/v0"
 	"gno.land/p/aib/ibc/app/v0"
 	"gno.land/p/aib/ibc/ics20/controls/v0"
-	"gno.land/p/aib/ibc/lightclient/ethereum/v0"
 	"gno.land/p/aib/ibc/types/v0"
 	"gno.land/p/nt/ufmt/v0"
 	"gno.land/r/aib/ibc/apps/transfer"
@@ -259,7 +258,8 @@ func expectedOf(g *routeGov, old string) []expEdge {
 }
 
 // checkLocal is why the gno client local cannot carry the governance epoch
-// over the router client remote, or "": it must be an Active Ethereum client,
+// over the router client remote, or "": it must be an Active router client
+// (an Ethereum or Arc client, core.IsRouterClient),
 // not retired, its counterparty remote, authenticating the identity of the
 // route the governance channel rides. Its identity alone proves nothing (a
 // fabricated checkpoint can copy it): the decision names the client, and
@@ -268,8 +268,8 @@ func checkLocal(g *routeGov, local, remote string) string {
 	want := g.govIdentity
 	got, _ := core.ClientRouteIdentity(local)
 	switch {
-	case core.ClientType(local) != ethereum.ClientType:
-		return local + " is not an Ethereum client"
+	case !core.IsRouterClient(local):
+		return local + " is not an Ethereum or Arc client"
 	case core.IsClientRetiredFor(local, GovPort):
 		return local + " is retired"
 	case core.ClientStatus(local) != "Active":

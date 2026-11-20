@@ -198,7 +198,7 @@ func main(cur realm) {
 				Version:         "v1",
 			}},
 		},
-		ProofCommitment: parentRecvProof,
+		ProofCommitment: ics23.MarshalMerkleProof(parentRecvProof),
 		ProofHeight:     trustedHeight,
 	}
 	recvRes := core.RecvPacket(cross(cur), recvPacket)

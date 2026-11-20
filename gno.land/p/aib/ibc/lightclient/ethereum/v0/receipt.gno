@@ -26,6 +26,6 @@ func PacketReceiptCommitment(p types.Packet) []byte {
 // path at height, zero (32 zero bytes) if none is stored: what a
 // reconciliation reads to tell a delivered, refundable or collided packet
 // apart.
-func (c *EthLightClient) ProvenValue(height types.Height, proof any, path types.MerklePath) ([]byte, error) {
+func (c *EthLightClient) ProvenValue(height types.Height, proof []byte, path types.MerklePath) ([]byte, error) {
 	return c.provenCommitment(height, proof, path)
 }

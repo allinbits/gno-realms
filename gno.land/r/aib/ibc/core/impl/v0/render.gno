@@ -8,6 +8,7 @@ import (
 
 	"gno.land/p/aib/jsonmd/v0"
 
+	"gno.land/p/aib/ibc/lightclient/arc/v0"
 	"gno.land/p/aib/ibc/lightclient/ethereum/v0"
 	"gno.land/p/aib/ibc/lightclient/tendermint/v0"
 	"gno.land/p/aib/ibc/lightclient/v0"
@@ -301,6 +302,18 @@ func (rd *Renderer) ClientConsensusState(w *mux.ResponseWriter, r *mux.Request) 
 			return
 		}
 		RenderNode(w, RenderEthConsensusState(height, cs))
+	case arc.ClientType:
+		lc, ok := arcVerifier(c.LightClient())
+		if !ok {
+			RenderNode(w, NodeError("client %s's verifier keeps no arc/v0 state", id))
+			return
+		}
+		cs, found := lc.GetConsensusState(height)
+		if !found {
+			RenderNode(w, NodeError("consensus state not found for height %s", height))
+			return
+		}
+		RenderNode(w, RenderArcConsensusState(height, cs))
 	}
 }
 
@@ -474,6 +487,15 @@ func ClientJSON(c core.Client) *json.Node {
 		if found {
 			m["last_consensus_state"] = RenderEthConsensusState(lc.LatestHeight(), lastConsState)
 		}
+	case arc.ClientType:
+		lc, ok := arcVerifier(c.LightClient())
+		if !ok {
+			break // a verifier version this implementation cannot render
+		}
+		m["client_state"] = RenderArcClientState(lc.LatestHeight(), lc.ClientState)
+		if cons, found := lc.GetConsensusState(lc.LatestHeight()); found {
+			m["last_consensus_state"] = RenderArcConsensusState(lc.LatestHeight(), cons)
+		}
 	}
 	return json.ObjectNode("", m)
 }
@@ -507,6 +529,22 @@ func ConsensusStatesJSON(c core.Client, r *mux.Request) *json.Node {
 			}
 			return RenderEthConsensusState(height, cs)
 		})
+	case arc.ClientType:
+		lc, ok := arcVerifier(c.LightClient())
+		if !ok {
+			return NodeError("client %s's verifier keeps no arc/v0 state", c.ID())
+		}
+		return jsonpage.Render(lc.ConsensusStateByHeight, r, func(k string, v any) *json.Node {
+			cs := v.(*arc.ConsensusState)
+			height := types.ParseHeightNatSort(k)
+			if cs.Height < lc.TrustedFromHeight {
+				return json.ObjectNode("", map[string]*json.Node{
+					"height":  RenderHeight(height),
+					"trusted": json.BoolNode("", false),
+				})
+			}
+			return RenderArcConsensusState(height, cs)
+		})
 	}
 	return NodeError("unhandled client type %s", c.Type())
 }
@@ -521,6 +559,20 @@ type ethState interface {
 func ethVerifier(lc lightclient.Interface) (*ethereum.EthLightClient, bool) {
 	if v, ok := lc.(ethState); ok {
 		return v.Ethereum(), true
+	}
+	return nil, false
+}
+
+// arcState is a verifier exposing arc/v0 state: the v0 verifier itself, or a
+// later version wrapping it.
+type arcState interface {
+	Arc() *arc.ArcLightClient
+}
+
+// arcVerifier is the arc/v0 state of an Arc client's verifier.
+func arcVerifier(lc lightclient.Interface) (*arc.ArcLightClient, bool) {
+	if v, ok := lc.(arcState); ok {
+		return v.Arc(), true
 	}
 	return nil, false
 }
@@ -636,13 +688,13 @@ func RenderStrings(s []string) *json.Node {
 // RenderNode writes n as JSON, inert in Markdown (jsonmd.Inert): its strings
 // may carry a path segment of the request or a relayer's identifier.
 // The encoder's Go escapes for control characters and invalid UTF-8 are
-// first made valid JSON (see jsonpage.ValidEscapes).
+// first made valid JSON (see jsonmd.ValidEscapes).
 func RenderNode(w *mux.ResponseWriter, n *json.Node) {
 	bz, err := json.Marshal(n)
 	if err != nil {
 		panic(err)
 	}
-	w.Write(jsonmd.Inert(string(jsonpage.ValidEscapes(bz))))
+	w.Write(jsonmd.Inert(string(jsonmd.ValidEscapes(bz))))
 }
 
 func NodeErrorClientNotFound(id string) *json.Node {

@@ -34,6 +34,7 @@ test: lint
 	go test -C ./cmd/gen-block-signatures
 	go test -C ./cmd/gen-proof
 	go test -C ./cmd/gen-eth-synthetic
+	go test -C ./cmd/gen-arc-synthetic
 
 # Download gno module dependencies by starting a local gnodev from the fork.
 # This is needed because some dependencies (e.g. p/onbloc/*) are not available

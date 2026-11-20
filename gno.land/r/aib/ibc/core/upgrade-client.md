@@ -47,10 +47,12 @@ upgraded chain hasn't produced any blocks yet at commit time.
 
 Once the chain has reached the upgrade height, a relayer reads the
 committed states and the corresponding ICS-23 membership proofs and
-calls `UpgradeClient`. Each proof is a chained `[]ics23.CommitmentProof`
-matching the client's `ProofSpecs` (typically 2 proofs: an IAVL
-existence proof for the inner key and a multistore existence proof for
-the store name).
+calls `UpgradeClient`. Each proof is the protobuf encoding of an ibc-go
+`MerkleProof`, as the counterparty's ABCI query returns it: a chain of
+ICS-23 commitment proofs matching the client's `ProofSpecs` (typically 2:
+an IAVL existence proof for the inner key and a multistore existence
+proof for the store name). `ics23.MarshalMerkleProof` builds one from
+Gno values.
 
 ### 3. Verification
 

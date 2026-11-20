@@ -9,7 +9,6 @@ import (
 	"gno.land/p/aib/encoding/ethaddr/v0"
 	"gno.land/p/aib/ibc/ics20/controls/v0"
 	"gno.land/p/aib/ibc/ics20/v0"
-	"gno.land/p/aib/ibc/lightclient/ethereum/v0"
 	"gno.land/r/aib/ibc/apps/transfer"
 	"gno.land/r/aib/ibc/core"
 )
@@ -211,8 +210,8 @@ func mustKeys(list string) []string {
 // state a route's key would no longer reach.
 func checkRouteClient(client string) string {
 	switch {
-	case core.ClientType(client) != ethereum.ClientType:
-		return client + " is not an Ethereum client"
+	case !core.IsRouterClient(client):
+		return client + " is not an Ethereum or Arc client"
 	case core.IsClientRetiredAny(client):
 		// Retired on any port, governance's included (an epoch notice moved
 		// past it): a client Ethereum retired takes no route.
@@ -904,14 +903,15 @@ func (p *bindParams) apply(cur realm, t int64) (string, string) {
 }
 
 // checkBindClient is why client cannot carry route g's governance channel,
-// "" if it can: an Active router client with its counterparty registered,
-// the route's original and current client. The channel always rides its
+// "" if it can: an Active router client (an Ethereum or Arc client) with
+// its counterparty registered, the route's original and current client. The
+// channel always rides its
 // route, so a replacement of the route, the way out of a client that
 // freezes or expires, moves the channel's epoch with it.
 func checkBindClient(g *routeGov, client string) string {
 	switch {
-	case core.ClientType(client) != ethereum.ClientType:
-		return client + " is not an Ethereum client"
+	case !core.IsRouterClient(client):
+		return client + " is not an Ethereum or Arc client"
 	case core.IsClientRetiredFor(client, GovPort):
 		return client + " is retired"
 	case core.ClientStatus(client) != "Active":

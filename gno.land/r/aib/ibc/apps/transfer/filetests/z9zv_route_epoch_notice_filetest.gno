@@ -6,7 +6,6 @@ import (
 	"time"
 
 	ethtesting "gno.land/p/aib/ibc/lightclient/ethereum/testing/v0"
-	"gno.land/p/aib/ibc/lightclient/extproof/v0"
 	tmtesting "gno.land/p/aib/ibc/lightclient/tendermint/testing/v0"
 	"gno.land/p/aib/ibc/types/v0"
 	"gno.land/p/nt/testutils/v0"
@@ -108,7 +107,7 @@ func deliver(cur realm, s *sent, i int) string {
 				}
 			}
 		}()
-		core.RecvPacket(cross(cur), types.MsgRecvPacket{Packet: p, ProofHeight: types.NewHeight(0, 72), Ext: extproof.Proof{Data: s.router.Proof()}})
+		core.RecvPacket(cross(cur), types.MsgRecvPacket{Packet: p, ProofHeight: types.NewHeight(0, 72), ProofCommitment: s.router.Proof()})
 		ack := core.PacketAcknowledgement(p.DestinationClient, p.Sequence)
 		switch {
 		case len(ack) == 0:
@@ -225,7 +224,7 @@ func main(cur realm) {
 // Output:
 // epoch 1 over ethereum-1
 // notice over b before its kind 10: error acknowledgement | epoch 1 over ethereum-1
-// kind 10 carried by a Tendermint client: ibcgov: 07-tendermint-6 is not an Ethereum client
+// kind 10 carried by a Tendermint client: ibcgov: 07-tendermint-6 is not an Ethereum or Arc client
 // its expectation: pending - queued 7 days
 // b's notice right after its kind 10: error acknowledgement | epoch 1 over ethereum-1
 // the expectation under a hold: ibcgov: decision 5 is deferred: route ethereum-1's guardian hold stands since 1236382293

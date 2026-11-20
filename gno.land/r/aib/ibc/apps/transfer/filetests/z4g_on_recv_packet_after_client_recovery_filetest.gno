@@ -244,7 +244,7 @@ func main(cur realm) {
 	// core.RecvPacket's Active gate (client revived).
 	res := core.RecvPacket(cross(cur), types.MsgRecvPacket{
 		Packet:          packet,
-		ProofCommitment: proof,
+		ProofCommitment: ics23.MarshalMerkleProof(proof),
 		ProofHeight:     proofHeight,
 	})
 

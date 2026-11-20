@@ -82,7 +82,7 @@ type ControlsLogic interface {
 	ClaimRefunds(_ int, rlm realm, clientID, denom string, n int) int
 	// ProveOutcome stores the destination's outcome of a retired client's
 	// send, proven through the route's replacement client.
-	ProveOutcome(_ int, rlm realm, packet types.Packet, proofHeight types.Height, receiptProof, ackProof any)
+	ProveOutcome(_ int, rlm realm, packet types.Packet, proofHeight types.Height, receiptProof, ackProof []byte)
 	// ContinueReopen runs the next batch of a route's reopening and
 	// reports whether the route is open.
 	ContinueReopen(_ int, rlm realm, route string) bool

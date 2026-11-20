@@ -392,7 +392,7 @@ from the first block, the governor yields right after the deployment.
    graph's 64 transitions, as long as its whole path is recorded here: no
    cap on Ethereum's side is assumed. A transition Ethereum cancelled or
    never executed is removed at once with
-   `NewRemoveExpectationRequest(oldRouterClient, newRouterClient,
+   `NewRemoveExpectationRequest(R, oldRouterClient, newRouterClient,
    localClient)`, freeing its place; it is refused only while a notice
    proven over a client the transition leads to could still be applied (its
    epoch past the current, its client Active, not retired, at the same
@@ -515,7 +515,7 @@ from the first block, the governor yields right after the deployment.
    kept (whoever applies a notice names its path, which proves nothing
    about which clients Ethereum passed). A switch, a purge or a removal never retires the others: the
    clients a switch's pruning or a purge disconnects leave the waiting list
-   (`AwaitingGovRetirement()`) and are kept off the graph, gov port open and
+   (`AwaitingGovRetirement(R)`) and are kept off the graph, gov port open and
    inert, and a removal leaves a tombstone that keeps them on it.
    `ibcgov.PruneGovRetirements(R, 64)` remains as a safety net and retires
    nothing a switch did not retire; a client kept off the graph that is
@@ -940,8 +940,9 @@ incident name (1 to 32 characters of `a-z`, `0-9`, `-`).
 8. **Prove each outcome** through `NEW` (the route's current client), at a
    height `H = (0, slot)` of a consensus state `NEW` holds, with
    `transfer.ProveOutcome(packet, H, receiptProof, ackProof)` from a
-   `MsgRun` (the packet is the record's, the proofs `ethereum.MembershipProof`
-   values of the router's storage at `H`, from `eth_getProof` of the
+   `MsgRun` (the packet is the record's, the proofs wire-encoded
+   `ethereum.MembershipProof`s (`MembershipProof.Encode`) of the router's
+   storage at `H`, from `eth_getProof` of the
    router's commitments entries `keccak256(keccak256(path) ‖ commitmentSlot)`
    for the packet's receipt path and acknowledgement path, both under its
    destination client on the router, `ROLD`). No receipt is refundable

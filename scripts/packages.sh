@@ -10,7 +10,7 @@
 # Only imports of the deployed code count: the chain type-checks a package's
 # production files only, so a test or filetest import need not be deployed
 # (scripts/check-packages.sh checks the order). The test helper packages
-# (p/aib/ibc/testing, lightclient/{tendermint,ethereum}/testing,
+# (p/aib/ibc/testing, lightclient/{tendermint,ethereum,arc}/testing,
 # r/aib/ibc/apps/testing) are therefore absent, and so are the impl/v99 realms
 # (upgrade rehearsal, e2e only). grc20test stays: scripts/grc20_mint.sh and
 # grc20_approve.sh use its TEST token on the testnet.
@@ -32,7 +32,7 @@ PACKAGES=(
   # depends on encoding/proto
   "gno.land/p/aib/ics23/v0:gno.land/p/aib/ics23/v0"
 
-  # depends on encoding, encoding/proto, ibc/host, ics23
+  # depends on encoding, encoding/proto, ibc/host
   "gno.land/p/aib/ibc/types/v0:gno.land/p/aib/ibc/types/v0"
 
   # depends on encoding/proto, ibc/host, ibc/types (ICS-20 types of the transfer app)
@@ -45,37 +45,41 @@ PACKAGES=(
 
   # depends on ibc/types
   "gno.land/p/aib/ibc/app/v0:gno.land/p/aib/ibc/app/v0"
-  "gno.land/p/aib/ibc/lightclient/extproof/v0:gno.land/p/aib/ibc/lightclient/extproof/v0"
 
   # depends on encoding/wire, ibc/host, ibc/types (the Ethereum route controls)
   "gno.land/p/aib/ibc/ics20/controls/v0:gno.land/p/aib/ibc/ics20/controls/v0"
 
-  # depends on ibc/types, ics23
+  # depends on ibc/types
   "gno.land/p/aib/ibc/lightclient/v0:gno.land/p/aib/ibc/lightclient/v0"
 
   # depends on encoding/proto, ibc/lightclient, ibc/types, ics23, merkle
   "gno.land/p/aib/ibc/lightclient/tendermint/v0:gno.land/p/aib/ibc/lightclient/tendermint/v0"
 
-  # depends on encoding/wire, ibc/lightclient, lightclient/extproof, ibc/types,
-  # ics23 (and the crypto/bls12381 native)
+  # depends on encoding/wire, ibc/lightclient, ibc/types (and the
+  # crypto/bls12381 native)
   "gno.land/p/aib/ibc/lightclient/ethereum/v0:gno.land/p/aib/ibc/lightclient/ethereum/v0"
+
+  # depends on encoding/wire, ibc/lightclient, lightclient/ethereum,
+  # ibc/types
+  "gno.land/p/aib/ibc/lightclient/arc/v0:gno.land/p/aib/ibc/lightclient/arc/v0"
 
   # realms (stateful)
   # grc20test has no aib deps (a TEST token with open Mint, testnet only)
   "gno.land/r/aib/ibc/apps/testing/grc20test:gno.land/r/aib/ibc/apps/testing/grc20test"
 
   # depends on ibc/app, ibc/host, ibc/lightclient, lightclient/tendermint,
-  # lightclient/ethereum, ibc/types, ics23, jsonpage
+  # lightclient/ethereum, ibc/types, jsonpage
   "gno.land/r/aib/ibc/core:gno.land/r/aib/ibc/core"
 
   # depends on r/aib/ibc/core (registers itself as the core logic at init)
   "gno.land/r/aib/ibc/core/impl/v0:gno.land/r/aib/ibc/core/impl/v0"
 
   # depends on encoding/proto, ibc/app, ibc/host, lightclient/tendermint,
-  # ibc/types, ics23, jsonpage, r/aib/ibc/core
+  # ibc/types, jsonpage, r/aib/ibc/core
   "gno.land/r/aib/ibc/apps/transfer:gno.land/r/aib/ibc/apps/transfer"
 
-  # depends on r/aib/ibc/core, lightclient/ethereum, encoding/wire, extproof
+  # depends on r/aib/ibc/core, encoding/wire, lightclient/ethereum,
+  # lightclient/arc
   "gno.land/r/aib/ibc/ethrelay:gno.land/r/aib/ibc/ethrelay"
 
   # the governance realm: depends on decisions, encoding/abi, encoding/ethaddr,

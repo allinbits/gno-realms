@@ -106,7 +106,7 @@ func main(cur realm) {
 		Acknowledgement: types.Acknowledgement{
 			AppAcknowledgements: [][]byte{[]byte(`not json`)},
 		},
-		ProofAcked:  proofAcked,
+		ProofAcked:  ics23.MarshalMerkleProof(proofAcked),
 		ProofHeight: trustedHeight,
 	}
 

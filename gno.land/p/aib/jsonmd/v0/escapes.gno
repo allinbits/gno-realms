@@ -1,4 +1,4 @@
-package jsonpage
+package jsonmd
 
 // ValidEscapes returns js, a JSON document, with the escapes in its string
 // literals that JSON does not have rewritten as JSON escapes.
@@ -39,9 +39,9 @@ func ValidEscapes(js []byte) []byte {
 			i++
 			switch e := js[i]; e {
 			case 'a':
-				out = appendUnicodeEscape(out, 0x07)
+				out = appendU(out, 0x07)
 			case 'v':
-				out = appendUnicodeEscape(out, 0x0b)
+				out = appendU(out, 0x0b)
 			case 'x':
 				b, ok := parseHex(js, i+1, 2)
 				if !ok {
@@ -50,9 +50,9 @@ func ValidEscapes(js []byte) []byte {
 				}
 				i += 2
 				if b < 0x80 {
-					out = appendUnicodeEscape(out, b)
+					out = appendU(out, rune(b))
 				} else {
-					out = appendUnicodeEscape(out, 0xfffd)
+					out = appendU(out, 0xfffd)
 				}
 			case 'U':
 				r, ok := parseHex(js, i+1, 8)
@@ -66,7 +66,7 @@ func ValidEscapes(js []byte) []byte {
 					// rejects the surrogate pair \u would need.
 					out = append(out, string(rune(r))...)
 				} else {
-					out = appendUnicodeEscape(out, r)
+					out = appendU(out, rune(r))
 				}
 			default:
 				// Escapes JSON shares with Go: \" \\ \b \f \n \r \t \u.
@@ -77,12 +77,6 @@ func ValidEscapes(js []byte) []byte {
 		}
 	}
 	return out
-}
-
-// appendUnicodeEscape appends \uNNNN for r, which must be at most 0xffff.
-func appendUnicodeEscape(out []byte, r uint32) []byte {
-	const hex = "0123456789abcdef"
-	return append(out, '\\', 'u', hex[r>>12&0xf], hex[r>>8&0xf], hex[r>>4&0xf], hex[r&0xf])
 }
 
 // parseHex parses the n hex digits of js starting at i.

@@ -7,9 +7,9 @@
 // It ports the Ethereum light client of cosmos/solidity-ibc-eureka
 // (packages/ethereum/light-client), and supports Electra and later forks.
 //
-// Its storage proofs are not ICS23 proofs, so it implements
-// extproof.Verifier and relayers pass a MembershipProof in the Ext field of
-// packet messages.
+// Its storage proofs are not ICS23 proofs: relayers pass the wire encoding
+// of a MembershipProof (DecodeMembershipProof) as the proof of packet
+// messages.
 package ethereum
 
 import (
@@ -22,10 +22,8 @@ import (
 
 	"crypto/bls12381"
 
-	"gno.land/p/aib/ibc/lightclient/extproof/v0"
 	"gno.land/p/aib/ibc/lightclient/v0"
 	"gno.land/p/aib/ibc/types/v0"
-	"gno.land/p/aib/ics23/v0"
 	"gno.land/p/nt/avl/v0"
 	"gno.land/p/nt/bptree/v0"
 	"gno.land/p/nt/ufmt/v0"
@@ -55,10 +53,7 @@ type EthLightClient struct {
 	overrides *avl.Node
 }
 
-var (
-	_ lightclient.Interface = (*EthLightClient)(nil)
-	_ extproof.Verifier     = (*EthLightClient)(nil)
-)
+var _ lightclient.Interface = (*EthLightClient)(nil)
 
 func NewEthLightClient() *EthLightClient {
 	return &EthLightClient{ConsensusStateByHeight: bptree.NewBPTree32()}
@@ -132,7 +127,8 @@ func Retire(c *EthLightClient) *Retired {
 // (O(log previous stores), the persistent trees' insertions copying their
 // search paths): a deep copy of its client state, and r, from which it serves every
 // consensus state at or below the retired verifier's latest slot, so every
-// height it trusted stays provable. Its own consensus states, those it stores
+// height it trusted stays provable while within the trust window
+// (slotExpired). Its own consensus states, those it stores
 // from now on, are kept apart (an overlay), and nothing writes to the retired
 // verifier: r is the only reference, and it only reads.
 func NewFrom(r *Retired) *EthLightClient {
@@ -563,6 +559,9 @@ func (c *EthLightClient) validateLightClientHeader(h LightClientHeader) error {
 
 // executionData is what the client keeps of an execution block.
 type executionData struct {
+	// parent is the header's first field as decoded, unchecked: only
+	// DecodeExecutionHeader reads it, and checks it.
+	parent      rlpItem
 	stateRoot   []byte
 	timestamp   uint64
 	blockNumber uint64
@@ -594,7 +593,7 @@ func (c *EthLightClient) verifyFinalizedExecution(u LightClientUpdate) error {
 func (c *EthLightClient) finalizedExecution(u LightClientUpdate) (executionData, error) {
 	h := u.FinalizedHeader
 	if !h.hashForm() {
-		return executionData{h.Execution.StateRoot, h.Execution.Timestamp, h.Execution.BlockNumber}, nil
+		return executionData{stateRoot: h.Execution.StateRoot, timestamp: h.Execution.Timestamp, blockNumber: h.Execution.BlockNumber}, nil
 	}
 	return decodeExecutionHeader(u.FinalizedExecutionHeader)
 }
@@ -696,6 +695,12 @@ func (c *EthLightClient) UpdateState(clientMsg lightclient.ClientMessage) []type
 	if !ok {
 		panic("trusted consensus state disappeared")
 	}
+	// Amortized pruning, as the tendermint client does: each update removes
+	// at most the oldest consensus state, if no proof can use it any more, so
+	// the store converges to about one trust window of states and the storage
+	// deposit of the removed bytes is refunded to the updater. The trusted
+	// state is the latest, which is never pruned.
+	c.pruneOldestConsensusState()
 	u := h.ConsensusUpdate
 	if u.FinalizedHeader.Beacon.Slot <= trusted.Slot {
 		// A next-committee-only update (see verifyHeader): record the
@@ -747,21 +752,10 @@ func (c *EthLightClient) UpdateState(clientMsg lightclient.ClientMessage) []type
 	return []types.Height{heightAtSlot(finalizedSlot)}
 }
 
-// VerifyMembership implements lightclient.Interface. This client's proofs are
-// not ICS23 proofs: relayers must pass a MembershipProof in the message's Ext
-// field, which reaches VerifyMembershipProof.
-func (c *EthLightClient) VerifyMembership(types.Height, []ics23.CommitmentProof, types.MerklePath, []byte) error {
-	return errors.New("ethereum light client proofs must be passed as an extproof.Proof")
-}
-
-// VerifyNonMembership implements lightclient.Interface; see VerifyMembership.
-func (c *EthLightClient) VerifyNonMembership(types.Height, []ics23.CommitmentProof, types.MerklePath) error {
-	return errors.New("ethereum light client proofs must be passed as an extproof.Proof")
-}
-
-// VerifyMembershipProof implements extproof.Verifier: value must be the
-// 32-byte value of the ICS26 commitment at path.
-func (c *EthLightClient) VerifyMembershipProof(height types.Height, proof any, path types.MerklePath, value []byte) error {
+// VerifyMembership implements lightclient.Interface: proof is a wire-encoded
+// MembershipProof and value the 32-byte value of the ICS26 commitment at
+// path.
+func (c *EthLightClient) VerifyMembership(height types.Height, proof []byte, path types.MerklePath, value []byte) error {
 	if len(value) != hashSize {
 		return ufmt.Errorf("commitment value must be 32 bytes, got %d", len(value))
 	}
@@ -775,8 +769,8 @@ func (c *EthLightClient) VerifyMembershipProof(height types.Height, proof any, p
 	return nil
 }
 
-// VerifyNonMembershipProof implements extproof.Verifier.
-func (c *EthLightClient) VerifyNonMembershipProof(height types.Height, proof any, path types.MerklePath) error {
+// VerifyNonMembership implements lightclient.Interface; see VerifyMembership.
+func (c *EthLightClient) VerifyNonMembership(height types.Height, proof []byte, path types.MerklePath) error {
 	stored, err := c.provenCommitment(height, proof, path)
 	if err != nil {
 		return err
@@ -789,18 +783,10 @@ func (c *EthLightClient) VerifyNonMembershipProof(height types.Height, proof any
 
 // provenCommitment returns the value of the router's commitments[keccak256(path)]
 // at height, zero if unset, as established by proof.
-func (c *EthLightClient) provenCommitment(height types.Height, proof any, path types.MerklePath) ([]byte, error) {
-	var mp MembershipProof
-	switch p := proof.(type) {
-	case MembershipProof:
-		mp = p
-	case *MembershipProof:
-		if p == nil {
-			return nil, errors.New("nil membership proof")
-		}
-		mp = *p
-	default:
-		return nil, ufmt.Errorf("expected ethereum.MembershipProof, got %T", proof)
+func (c *EthLightClient) provenCommitment(height types.Height, proof []byte, path types.MerklePath) ([]byte, error) {
+	mp, err := DecodeMembershipProof(proof)
+	if err != nil {
+		return nil, err
 	}
 	if height.RevisionNumber != 0 {
 		return nil, ufmt.Errorf("revision number must be 0, got %d", height.RevisionNumber)
@@ -811,6 +797,13 @@ func (c *EthLightClient) provenCommitment(height types.Height, proof any, path t
 	cons, ok := c.GetConsensusState(height)
 	if !ok {
 		return nil, ufmt.Errorf("no consensus state at slot %d", height.RevisionHeight)
+	}
+	// A state past the trust window is refused even while it is still
+	// stored, so pruning never decides whether a proof verifies (only which
+	// of the two errors refuses it), and whatever store holds it: a retired
+	// verifier's (history, overrides) is never pruned.
+	if c.slotExpired(height.RevisionHeight) {
+		return nil, ufmt.Errorf("proof slot %d is more than %d sync committee periods old", height.RevisionHeight, TrustingPeriods)
 	}
 	if len(path.KeyPath) != 1 {
 		return nil, ufmt.Errorf("path must have exactly one element, got %d", len(path.KeyPath))
@@ -849,17 +842,24 @@ func hasSupermajority(u LightClientUpdate) bool {
 // not period numbers, so the window is the same wherever in a period the
 // latest trusted slot falls.
 func (c *EthLightClient) expired() bool {
+	return c.slotExpired(c.ClientState.LatestSlot)
+}
+
+// slotExpired reports whether more than TrustingPeriods sync committee
+// periods' worth of slots have passed since slot: a consensus state at slot
+// no longer serves any proof, and the client expires when its latest does.
+func (c *EthLightClient) slotExpired(slot uint64) bool {
 	cs := c.ClientState
 	elapsed, ok := cs.elapsedSlots(now())
 	if !ok {
 		return false // before genesis no window has started
 	}
-	// The latest slot's age, computed from slots since genesis so that
-	// nothing wraps: an absolute current slot can pass 2^64 (slotAtTimestamp
-	// then reports none), and LatestSlot plus the window can too.
+	// The slot's age, computed from slots since genesis so that nothing
+	// wraps: an absolute current slot can pass 2^64 (slotAtTimestamp then
+	// reports none), and slot plus the window can too.
 	since := uint64(0)
-	if cs.LatestSlot > cs.GenesisSlot {
-		since = cs.LatestSlot - cs.GenesisSlot
+	if slot > cs.GenesisSlot {
+		since = slot - cs.GenesisSlot
 	}
 	return elapsed > since && elapsed-since > cs.trustWindow()
 }
@@ -1001,12 +1001,55 @@ func sameChainAndRouter(a, b *ClientState) bool {
 
 // Implements lightclient.Interface. Ethereum has no IBC upgrade path; replace
 // the client with RecoverClient instead.
-func (c *EthLightClient) VerifyUpgradeAndUpdateState(_, _, _, _ any) error {
+func (c *EthLightClient) VerifyUpgradeAndUpdateState(_, _ any, _, _ []byte) error {
 	return errors.New("the ethereum light client does not support upgrades")
 }
 
 func (c *EthLightClient) setConsensusState(cons *ConsensusState) {
 	c.ConsensusStateByHeight.Set(heightAtSlot(cons.Slot).StringNatSort(), cons)
+}
+
+// pruneOldestConsensusState removes the client's own lowest-slot consensus
+// state if nothing reads it any more, and reports whether it did: one below
+// TrustedFromSlot (from before a recovery), or one past the trust window
+// (slotExpired), which provenCommitment refuses. Keys sort by slot, so only
+// the first entry is examined and the cost per call is constant. The latest
+// state is never removed, expired or not: Status, recoveries and renders read
+// it. Retired verifiers' stores (history, overrides) are read-only and never
+// pruned.
+func (c *EthLightClient) pruneOldestConsensusState() bool {
+	if c.ConsensusStateByHeight.Size() == 0 {
+		return false
+	}
+	key, v := c.ConsensusStateByHeight.GetByIndex(0)
+	slot := v.(*ConsensusState).Slot
+	if slot >= c.ClientState.LatestSlot {
+		return false
+	}
+	if slot >= c.TrustedFromSlot && !c.slotExpired(slot) {
+		return false
+	}
+	c.ConsensusStateByHeight.Remove(key)
+	return true
+}
+
+// PruneExpiredConsensusStates removes up to limit of the consensus states
+// pruneOldestConsensusState would, oldest first, and returns how many it
+// removed. UpdateState already prunes one per update; this bulk variant
+// catches up on clients that accumulated states before that, e.g. from an
+// implementation's OnInstall migration, in batches bounded by limit so that
+// a long history does not exhaust a transaction's gas. Slots increase with
+// the keys and a later state is never older, so stopping at the first one
+// kept finds them all.
+//
+// Call it on the stored client (the core's verifier): it deletes under the
+// receiver's storage realm, which refunds the deposit to the caller.
+func (c *EthLightClient) PruneExpiredConsensusStates(limit int) int {
+	n := 0
+	for n < limit && c.pruneOldestConsensusState() {
+		n++
+	}
+	return n
 }
 
 // GetConsensusState returns the consensus state at height, if any and still
