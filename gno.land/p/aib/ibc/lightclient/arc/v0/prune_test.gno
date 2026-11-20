@@ -157,6 +157,30 @@ func TestUpdateStatePrunes(t *testing.T) {
 	}
 }
 
+// An update past a burst prunes more than the one state it adds, so the
+// store shrinks back once updates are sparse: three states nothing reads,
+// two removed and one added, and the third is left for the next update.
+func TestUpdateStateShrinksBacklog(t *testing.T) {
+	c := newSyntheticClient(t)
+	trusted := stateAt(t, c, syntheticCreationHeight)
+	for i := uint64(1); i <= 3; i++ {
+		stale := copyConsensusState(*trusted)
+		stale.Height = syntheticCreationHeight - i
+		c.setConsensusState(&stale)
+	}
+	c.TrustedFromHeight = syntheticCreationHeight
+
+	if err := update(c, syntheticHeader(t, syntheticIdle, 0, 1, 2, 3, 4, 5)); err != nil {
+		t.Fatal(err)
+	}
+	if n := c.ConsensusStateByHeight.Size(); n != 3 {
+		t.Fatalf("%d states, want 3: four, two pruned, one added", n)
+	}
+	if got := oldestHeight(c); got != syntheticCreationHeight-1 {
+		t.Fatalf("oldest %d, want %d", got, syntheticCreationHeight-1)
+	}
+}
+
 // A proof at a height whose state is past the trusting period is refused
 // whether or not that state was pruned yet; one second earlier it verifies.
 func TestProofRefusedPastTrustingPeriod(t *testing.T) {

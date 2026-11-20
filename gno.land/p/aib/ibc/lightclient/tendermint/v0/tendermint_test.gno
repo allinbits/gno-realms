@@ -345,8 +345,11 @@ func TestPruneExpiredConsensusStates(t *testing.T) {
 		return tm
 	}
 
-	t.Run("UpdateState prunes only the oldest expired consensus state", func(t *testing.T) {
+	t.Run("UpdateState prunes up to two expired consensus states", func(t *testing.T) {
 		tm := setup()
+		// A third expired state, at height 0: an update past a burst
+		// removes two, more than the one it adds, and leaves the third.
+		tm.SetConsensusState(types.NewHeight(0, 0), newConsState(expired.Add(-time.Minute)))
 		header := &tendermint.MsgHeader{Header: &tendermint.Header{
 			ChainID: chainID,
 			Height:  10,
@@ -355,6 +358,7 @@ func TestPruneExpiredConsensusStates(t *testing.T) {
 		}}
 		tm.UpdateState(header)
 
+		uassert.False(t, tm.HasConsensusState(types.NewHeight(0, 0)))
 		uassert.False(t, tm.HasConsensusState(types.NewHeight(0, 1)))
 		uassert.True(t, tm.HasConsensusState(types.NewHeight(0, 2)))
 		uassert.True(t, tm.HasConsensusState(types.NewHeight(0, 3)))

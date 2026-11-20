@@ -137,10 +137,13 @@ state was pruned yet (`TestProofRefusedPastTrustingPeriod`).
 
 **Pruning**, as the Ethereum client does (ADR 0003, gno-realms#96): each
 update removes
-the oldest consensus state if no proof can use it any more, one below a
-recovery's cut-off or past the trusting period, so the store converges to
-about one trusting period of states and the deposit of the removed bytes
-is refunded to the updater. `PruneExpiredConsensusStates(limit)` removes up
+up to two of the oldest consensus states no proof can use any more (below a
+recovery's cut-off or past the trusting period), and the deposit of the
+removed bytes is refunded to the updater. Two, more than the one state an
+update adds, so that after a burst of updates the store shrinks back, by one
+per update, to about one trusting period of states
+(`TestUpdateStateShrinksBacklog`); removing one at most would keep it at its
+peak size. `PruneExpiredConsensusStates(limit)` removes up
 to `limit` such states in one call, for a client that accumulated them
 before (from a later core implementation's `OnInstall` migration, as for
 the Ethereum client); the core exposes no entry point for it. The latest state is never removed: `Status`, recoveries
