@@ -190,10 +190,14 @@ func TestClientStateBounds(t *testing.T) {
 		t.Fatal(err)
 	}
 	for name, mutate := range map[string]func(*ClientState){
-		"trust level 1":   func(c *ClientState) { c.TrustLevel = Fraction{1, 1} },
-		"trust below 1/3": func(c *ClientState) { c.TrustLevel = Fraction{1, 4} },
-		"huge drift":      func(c *ClientState) { c.MaxClockDrift = ^uint64(0) },
+		"trust level 1":     func(c *ClientState) { c.TrustLevel = Fraction{1, 1} },
+		"trust below 1/3":   func(c *ClientState) { c.TrustLevel = Fraction{1, 4} },
+		"huge drift":        func(c *ClientState) { c.MaxClockDrift = ^uint64(0) },
 		"no implementation": func(c *ClientState) { c.RegistryImplementation = nil },
+		// A stalled client stays Active, and so unrecoverable, until it
+		// expires: the trusting period is capped at 14 days.
+		"trusting period past 14 days": func(c *ClientState) { c.TrustingPeriod = 14*24*3600 + 1 },
+		"no trusting period":           func(c *ClientState) { c.TrustingPeriod = 0 },
 	} {
 		c := cs.clone()
 		mutate(&c)
@@ -203,6 +207,11 @@ func TestClientStateBounds(t *testing.T) {
 	}
 	if err := cs.ValidateBasic(); err != nil {
 		t.Fatal(err)
+	}
+	c := cs.clone()
+	c.TrustingPeriod = 14 * 24 * 3600
+	if err := c.ValidateBasic(); err != nil {
+		t.Fatalf("a 14-day trusting period: %v", err)
 	}
 }
 

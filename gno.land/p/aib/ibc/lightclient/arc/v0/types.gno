@@ -21,10 +21,15 @@ const (
 	// bound: past this many the client stops at the next set change.
 	MaxValidators = 256
 
-	// MaxClockDrift and TrustingPeriod bound the client's configuration, in
-	// seconds, so that now()+MaxClockDrift cannot wrap.
-	maxClockDrift  = 3600
-	maxTrustPeriod = 365 * 24 * 3600
+	// maxClockDrift bounds MaxClockDrift, in seconds, so that
+	// now()+MaxClockDrift cannot wrap.
+	maxClockDrift = 3600
+	// maxTrustPeriod bounds TrustingPeriod, in seconds: 14 days. A client
+	// that stops verifying (the registry's implementation changed, or one
+	// block rotated out too much of the set) stays Active until it expires,
+	// and the core recovers only a Frozen or Expired client, so this bounds
+	// how long such a client waits for its governed recovery.
+	maxTrustPeriod = 14 * 24 * 3600
 )
 
 // RegistryAddress is the address of Arc's ValidatorRegistry proxy, whose
@@ -58,16 +63,17 @@ type ClientState struct {
 	LatestHeight uint64
 	IsFrozen     bool
 	// TrustingPeriod is how long, in seconds, the validator set of the
-	// latest trusted block is trusted to sign a later block. Arc is
-	// permissioned, with no unbonding or slashing: this bounds how long
-	// rotated-out keys keep the client's trust when no update brings it
-	// past the rotation, and should be short.
+	// latest trusted block is trusted to sign a later block, at most 14
+	// days. Arc is permissioned, with no unbonding or slashing: this bounds
+	// how long rotated-out keys keep the client's trust when no update
+	// brings it past the rotation, and how long a stalled client waits
+	// before it can be recovered.
 	TrustingPeriod uint64
 	// MaxClockDrift bounds, in seconds, how far ahead of gno.land's clock a
 	// block's timestamp may be. Arc's validators accept a proposer's
 	// timestamp up to 30 seconds ahead of their clocks (skew_gate.rs), and
-	// gno.land's block time trails real time: leave room for both. It is
-	// block's timestamp may be.
+	// gno.land's block time trails real time: leave room for both. At most
+	// an hour; the relayer's default is 90 seconds.
 	MaxClockDrift uint64
 	// TrustLevel is the share of the trusted set's power that must sign a
 	// block more than one height ahead whose validator set changed, as in

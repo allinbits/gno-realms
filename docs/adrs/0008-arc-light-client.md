@@ -176,7 +176,11 @@ check multiplying in 128 bits. Both are checked when a set is read and again
 by `ConsensusState.ValidateBasic` on a created one, whose sum is checked
 before each addition so that it cannot wrap (`TestValidatorSetValidateBounds`); trust level in [1/3, 1) (the check is "more
 than", which nothing passes at 1); `MaxClockDrift` at most an hour and
-`TrustingPeriod` at most a year. The relayer's default drift is 90 seconds:
+`TrustingPeriod` at most 14 days, the relayer's default. A client that stops
+verifying (a registry upgrade, or a rotation too large for one update) stays
+Active until it expires, and the core recovers only a Frozen or Expired
+client: the cap bounds how long such a client waits for its governed
+recovery. The relayer's default drift is 90 seconds:
 Arc's validators accept a proposer's timestamp up to 30 seconds ahead
 (`skew_gate.rs`), and gno.land's block time trails real time.
 
@@ -191,9 +195,9 @@ state through `Arc()`, as the Ethereum client's do through `Ethereum()`
 (`TestTestnetRecoveryFromLaterVersion`). The renders treat a verifier that
 keeps no arc/v0 state as the Ethereum ones do, instead of panicking: the
 consensus-state routes return an error, and the client route leaves out
-the client and consensus state. The chain alone, its id and registry address, is `ChainIdentity`:
-ibcgov keeps one route per counterparty chain (ADR 0007), whatever its
-router.
+the client and consensus state. The chain alone, its id and registry address, is `ChainIdentity`,
+for ADR 0007 (gno-realms #100), under which ibcgov keeps one route per
+counterparty chain, whatever its router.
 
 **Integration.** The core records, when it creates a client, whether its
 counterparty is an ICS26 router on an EVM chain (`Client.IsRouter`,
@@ -249,7 +253,8 @@ Ed25519 keys from a fixed seed, since Gno cannot sign.
   in the consensus layer (arc-node) itself would not be seen.
 - **No accountability.** Arc is permissioned, with no unbonding or slashing:
   `TrustingPeriod` only bounds how long rotated-out keys keep the client's
-  trust while no update brings it past the rotation, and should be short.
+  trust while no update brings it past the rotation, and is short: at most
+  14 days.
 - **A large rotation in one block stalls the client.** An update proves a
   block B by the certificate of B+1, which B's own set signs; the trusted
   state pins no next set (Arc's header commits to none), so when B's set is
@@ -283,12 +288,14 @@ Ed25519 keys from a fixed seed, since Gno cannot sign.
   signature verifies under both; at worst a certificate with an edge-case
   signature fails here (liveness, not safety): a relayer can omit that
   signature when the rest still exceeds 2/3.
-- **Routes.** Under ADR 0007 ibcgov governs one route per counterparty
-  chain, so an Arc route runs beside an Ethereum one, each with its own
-  governance channel and IBCAdmin. Until ADR 0007's change lands, ibcgov
-  enrolls one router route in total (`checkOneRoute`) and an Arc route
-  replaces the Ethereum one. A router client of no enrolled route carries
-  no transfers (the route controls refuse it).
+- **Routes.** ibcgov enrolls one router route in total (`checkOneRoute`):
+  once an Ethereum route is enrolled, an Arc route can be neither enrolled
+  beside it nor take its place, since a replacement client must
+  authenticate the route's recorded identity (chain id and router,
+  `checkIdentity`). An Arc route needs a deployment with no Ethereum route
+  until ADR 0007 (gno-realms #100) gives each router route its own
+  governance. A router client of no enrolled route carries no transfers (the
+  route controls refuse it).
 
 ## Alternatives considered
 
