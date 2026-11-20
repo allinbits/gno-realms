@@ -5,6 +5,7 @@ import (
 	"errors"
 
 	"gno.land/p/aib/ibc/host/v0"
+	"gno.land/p/aib/ibc/lightclient/arc/v0"
 	"gno.land/p/aib/ibc/lightclient/ethereum/v0"
 	"gno.land/p/aib/ibc/lightclient/tendermint/v0"
 	"gno.land/p/aib/ibc/lightclient/v0"
@@ -28,12 +29,12 @@ func (l *logic) mustClient(clientID string) core.Client {
 // CreateClient's next check, on our own types' methods.
 func checkStates(cs lightclient.ClientState, cons lightclient.ConsensusState) error {
 	switch cs.(type) {
-	case tendermint.ClientState, ethereum.ClientState:
+	case tendermint.ClientState, ethereum.ClientState, arc.ClientState:
 	default:
 		return errors.New("the client state must be a light client's own type")
 	}
 	switch cons.(type) {
-	case tendermint.ConsensusState, ethereum.ConsensusState:
+	case tendermint.ConsensusState, ethereum.ConsensusState, arc.ConsensusState:
 	default:
 		return errors.New("the consensus state must be a light client's own type")
 	}
@@ -44,7 +45,8 @@ func checkStates(cs lightclient.ClientState, cons lightclient.ConsensusState) er
 // package's own concrete type, before any of its methods runs.
 func checkClientMessage(m lightclient.ClientMessage) error {
 	switch m.(type) {
-	case *tendermint.MsgHeader, *tendermint.Misbehaviour, *ethereum.Header, *ethereum.Misbehaviour:
+	case *tendermint.MsgHeader, *tendermint.Misbehaviour, *ethereum.Header, *ethereum.Misbehaviour,
+		*arc.Header, *arc.Misbehaviour:
 		return nil
 	}
 	return errors.New("the client message must be a light client's own type")
@@ -72,8 +74,8 @@ func (l *logic) CreateClient(_ int, rlm realm, relayer address, clientState ligh
 		panic(err)
 	}
 	// Each light client type this implementation knows, and whether its
-	// counterparty is an ICS26 router: an Ethereum client's is the Solidity
-	// stack's. A later EVM chain adds its light client here, router true,
+	// counterparty is an ICS26 router: an Ethereum or Arc client's is the
+	// Solidity stack's. A later EVM chain adds its light client here, router true,
 	// and no application changes (core.IsRouterClient).
 	var (
 		newLightClient func() lightclient.Interface
@@ -84,6 +86,8 @@ func (l *logic) CreateClient(_ int, rlm realm, relayer address, clientState ligh
 		newLightClient = tendermint.NewLightClient
 	case ethereum.ClientType:
 		newLightClient, router = ethereum.NewLightClient, true
+	case arc.ClientType:
+		newLightClient, router = arc.NewLightClient, true
 	default:
 		panic("unhandled light client type " + typ)
 	}

@@ -180,8 +180,8 @@ not enrolled in these controls and are unaffected.
 | `core.Unpause`, `UnpauseApp`, `ApproveApp`, `AddRelayer`, `RemoveRelayer`, `RecoverClient`, `UpdateImpl`, `MigrateClient`, `RetireClient`, membership; `transfer.UnblockAddress`, `UpdateImpl`, membership, `GovApply` | ibcgov only (`cur.Previous().PkgPath() == IBCGovPath`) |
 | ibcgov decisions | the governor (`Govern`, MsgRun) until `Yield()`, then GovDAO proposals only (`req.Proposal()`). The governor is the account that deployed ibcgov, recorded by its `init` from `cur.Previous()` (the creator under either chain policy: an inert chain's `EnablePackage` runs `init` with the stamped creator as origin), so no source constant has to be replaced before a deployment (review of #91). The deployer holds no power beyond this seat, which it gives up for good by `Yield`; members read it on ibcgov's page (`Governor()`). Under `gno test`, which initializes imported realms with no caller, the governor is a fixed test address (`harnessGovernor`), unreachable on chain |
 | ibcgov `Execute`, `Redispatch`; transfer `Claim`, `ClaimRefunds`, `ProveOutcome`, `ContinueReopen`, `Recapitalize` | anyone |
-| ibcgov `SetFlag`, `ClearFlag` | the seat's key, on a route ibcgov enrolled or any Ethereum client (one about to become a route's); a client of a route, current or retired, names its route (flags are kept under the route key) |
-| `UpdateClient`, `RecvPacket`, `Acknowledgement`, `Timeout` on an Ethereum client | anyone (R17); other clients keep the relayer whitelist |
+| ibcgov `SetFlag`, `ClearFlag` | the seat's key, on a route ibcgov enrolled or any router client (one about to become a route's); a client of a route, current or retired, names its route (flags are kept under the route key) |
+| `UpdateClient`, `RecvPacket`, `Acknowledgement`, `Timeout` on a router client (`core.IsRouterClient`: an Ethereum client, or an Arc client, ADR 0008) | anyone (R17); other clients keep the relayer whitelist |
 
 Candidate implementation code runs only in an authorized installation: the
 bootstrap registration, or a governed `UpdateImpl` after its 7-day delay.
@@ -251,14 +251,14 @@ func, and what guards each:
 | Entry point | Parameter | Guard |
 |---|---|---|
 | core `RecvPacket`, `Acknowledgement`, `Timeout` | `Ext any` | never read by `impl/v0`; the proofs are `[]byte`, which carry no code |
-| core `CreateClient` | `lightclient.ClientState`, `ConsensusState` | `checkStates`: `tendermint.ClientState` with `tendermint.ConsensusState`, or `ethereum.ClientState` with `ethereum.ConsensusState`, by value |
-| core `UpdateClient` | `lightclient.ClientMessage` | `checkClientMessage`: `*tendermint.MsgHeader`, `*tendermint.Misbehaviour`, `*ethereum.Header`, `*ethereum.Misbehaviour` |
-| core `UpgradeClient` | two `any` (the proofs are `[]byte`) | the Tendermint client asserts `tendermint.ClientState` and `tendermint.ConsensusState` before any method; the Ethereum client refuses |
+| core `CreateClient` | `lightclient.ClientState`, `ConsensusState` | `checkStates`: `tendermint.ClientState` with `tendermint.ConsensusState`, `ethereum.ClientState` with `ethereum.ConsensusState`, or `arc.ClientState` with `arc.ConsensusState`, by value |
+| core `UpdateClient` | `lightclient.ClientMessage` | `checkClientMessage`: `*tendermint.MsgHeader`, `*tendermint.Misbehaviour`, `*ethereum.Header`, `*ethereum.Misbehaviour`, `*arc.Header`, `*arc.Misbehaviour` |
+| core `UpgradeClient` | two `any` (the proofs are `[]byte`) | the Tendermint client asserts `tendermint.ClientState` and `tendermint.ConsensusState` before any method; the Ethereum and Arc clients refuse |
 | core `RegisterApp` | `app.IBCApp` | no method runs at registration; callbacks are crossing calls (`cross(rlm)`), so they run in the app's own realm, and a non-trusted app needs a governed approval |
 | core and transfer `RegisterImpl` | constructor func | runs only in an authorized installation, against the live store; the preflight reads the manifest and never calls it (rounds 17, 29; review of #91) |
 | core store `AddClient`, `SetLightClient`; transfer store `InitExt`, `IterateEscrow` | func | only through the store, held by the installed implementation; mutators guarded by `assertProxyRealm` |
 | light clients `Initialize`, `VerifyClientMessage`, `CheckForMisbehaviour`, `UpdateState`, `UpdateStateOnMisbehaviour`, `VerifyUpgradeAndUpdateState` | `lightclient.*` interfaces carrying caller input (states, messages, upgrade values) | type assertion or switch to the package's own concrete types before any method; reached only from the core's guarded paths |
-| light clients `RecoverClient`, `CheckRecovery` | `lightclient.Interface`: the substitute, a verifier the core already stores (never caller input) | Tendermint: assertion to `*TMLightClient`; Ethereum: the structural interface `ethState` (`Ethereum() *EthLightClient`), which ethereum/v0's verifier and any installed version wrapping it implement, so a replaced client stays recoverable; only installed verifiers reach it, through the core's governed recovery |
+| light clients `RecoverClient`, `CheckRecovery` | `lightclient.Interface`: the substitute, a verifier the core already stores (never caller input) | Tendermint: assertion to `*TMLightClient`; Ethereum and Arc: the structural interfaces `ethState` (`Ethereum() *EthLightClient`) and `arcState` (`Arc() *ArcLightClient`), which each v0 verifier and any installed version wrapping it implement, so a replaced client stays recoverable; only installed verifiers reach it, through the core's governed recovery |
 | ibcgov `Govern` | `Request` | a struct with unexported fields, only built by ibcgov's own builders |
 | ethrelay | wire bytes | decoded internally to concrete types |
 
@@ -481,7 +481,8 @@ and
 hold: approving a local verifier loosens, and it fits within Ethereum's
 30-day recovery delay) records an
 emergency recovery's, which ibcgov does not dispatch. The local client must
-be an Active Ethereum client, not retired, its counterparty the new router
+be an Active router client (an Ethereum client, or an Arc one on an Arc
+route, ADR 0008), not retired, its counterparty the new router
 client, authenticating the identity of the route the channel was bound
 over, checked when the decision is built and again when it applies; its
 identity alone proves nothing (a client created from a fabricated
@@ -1147,7 +1148,8 @@ afterwards by the new executor, through its own decisions.
 
 ### Changes affecting every route
 
-The controls are Ethereum-only, but these changes reach every client of the
+The controls cover router clients only (Ethereum's, and Arc's since ADR
+0008), but these changes reach every client of the
 core and the transfer app, Tendermint ones included. Each is deliberate, a
 protection or a governance rule, and each has a test documenting the base
 (1e0c7c5) behaviour next to the new one:
@@ -1206,10 +1208,12 @@ does not list before it.
 - Every send and every receive has a packet-keyed record a reconciliation can
   authenticate; receipts identify packets.
 - Gas and storage grow per transfer (records, claims). Records are never
-  pruned (a pruning policy is an open question of ADR pr6375). An Ethereum
-  client's consensus states grow likewise, one per accepted finalized
-  height, with no pruning path; a recovery only stops trusting the older
-  ones, which stay stored.
+  pruned (a pruning policy is an open question of ADR pr6375). A router
+  client's consensus states are pruned (ADR 0003 for Ethereum, ADR 0008 for
+  Arc): each update removes the oldest one past the trust window or below a
+  recovery's cut-off, never the latest, refunding its deposit to the
+  updater, and `PruneExpiredConsensusStates` removes them in batches; a
+  retired Ethereum verifier's store is read-only and never pruned.
 - Relayers must call `Claim` and `ClaimRefunds`, relay governance packets and
   call `Redispatch`. Receipt values changed from `0x02` to a hash.
 - Payouts to a recipient blocked after its credit are still paid (the
@@ -1438,8 +1442,9 @@ does not list before it.
     repair Ethereum already holds, then loses Ethereum-bound governance
     permanently.
 - **Pre-recovery consensus states of a Tendermint client** stay usable, as in
-  ibc-go: only the Ethereum light client marks them untrusted, and only
-  Ethereum clients prove outcomes for settlement. The trust generation is
+  ibc-go: only the router light clients (Ethereum's, and Arc's, ADR 0008)
+  mark them untrusted, and only router clients prove outcomes for
+  settlement. The trust generation is
   kept for every client all the same.
 - **Deleted for a fresh deployment.** Round 8 removed the legacy
   fallback: `Registry.Legacy`, `Route.Legacy`, `Denom.Legacy`,

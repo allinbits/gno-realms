@@ -5,7 +5,6 @@ import (
 	"chain/runtime/unsafe"
 
 	"gno.land/p/aib/authority/v0"
-	"gno.land/p/aib/ibc/lightclient/ethereum/v0"
 	"gno.land/p/aib/ibc/types/v0"
 	"gno.land/p/nt/bptree/v0"
 	"gno.land/p/nt/ufmt/v0"
@@ -251,12 +250,13 @@ func ensureAuthorizedRelayer() address {
 }
 
 // ensureRelayerFor is ensureAuthorizedRelayer for a message whose proof is
-// checked against clientID. Relaying for an Ethereum client is permissionless
+// checked against clientID. Relaying for a router client (an Ethereum or Arc
+// client, IsRouterClient) is permissionless
 // (ADR pr6375 R17): its updates, receives, acknowledgements and timeouts are
 // all proof-checked, and a refund must never wait on a listed relayer, so the
 // whitelist does not apply. Any other client keeps the whitelist.
 func ensureRelayerFor(clientID string) address {
-	if c := store.getClient(clientID); c != nil && c.typ == ethereum.ClientType {
+	if c := store.getClient(clientID); c != nil && c.router {
 		return unsafe.OriginCaller()
 	}
 	return ensureAuthorizedRelayer()

@@ -548,6 +548,9 @@ func (c *EthLightClient) validateLightClientHeader(h LightClientHeader) error {
 
 // executionData is what the client keeps of an execution block.
 type executionData struct {
+	// parent is the header's first field as decoded, unchecked: only
+	// DecodeExecutionHeader reads it, and checks it.
+	parent      rlpItem
 	stateRoot   []byte
 	timestamp   uint64
 	blockNumber uint64
@@ -579,7 +582,7 @@ func (c *EthLightClient) verifyFinalizedExecution(u LightClientUpdate) error {
 func (c *EthLightClient) finalizedExecution(u LightClientUpdate) (executionData, error) {
 	h := u.FinalizedHeader
 	if !h.hashForm() {
-		return executionData{h.Execution.StateRoot, h.Execution.Timestamp, h.Execution.BlockNumber}, nil
+		return executionData{stateRoot: h.Execution.StateRoot, timestamp: h.Execution.Timestamp, blockNumber: h.Execution.BlockNumber}, nil
 	}
 	return decodeExecutionHeader(u.FinalizedExecutionHeader)
 }
