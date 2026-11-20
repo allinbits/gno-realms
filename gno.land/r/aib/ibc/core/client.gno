@@ -320,7 +320,7 @@ func ClientTimestampAt(clientID string, height types.Height) (uint64, error) {
 }
 
 // valueProver is implemented by a light client that reads a counterparty
-// commitment's value from a proof (the Ethereum client).
+// commitment's value from a proof (the router clients: Ethereum, Arc).
 type valueProver interface {
 	ProvenValue(height types.Height, proof []byte, path types.MerklePath) ([]byte, error)
 }

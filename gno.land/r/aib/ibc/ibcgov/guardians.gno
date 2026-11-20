@@ -7,7 +7,6 @@ import (
 
 	"gno.land/p/aib/decisions/v0"
 	"gno.land/p/aib/ibc/ics20/controls/v0"
-	"gno.land/p/aib/ibc/lightclient/ethereum/v0"
 	"gno.land/p/nt/avl/v0"
 	"gno.land/r/aib/ibc/apps/transfer"
 	"gno.land/r/aib/ibc/core"
@@ -228,7 +227,7 @@ func foldFlags(from, to string, t int64) int {
 // (by an enrolment, or as a replacement candidate) can be held beforehand:
 // its flags stay with its route.
 func flaggable(route string) bool {
-	return routes.Has(route) || core.ClientType(route) == ethereum.ClientType
+	return routes.Has(route) || core.IsRouterClient(route)
 }
 
 // Flagged reports whether any seat's flag for fn stands on route: what the
