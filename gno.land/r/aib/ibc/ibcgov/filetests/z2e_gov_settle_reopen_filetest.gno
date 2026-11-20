@@ -14,6 +14,10 @@ import (
 	"gno.land/r/aib/ibc/ibcgov"
 )
 
+// govRoute is the route this test's decisions name (ADR 0007: route-scoped
+// entry points take the route).
+var govRoute string
+
 // advance moves the block time on by d.
 func advance(d time.Duration) {
 	ctx := testing.GetContext()
@@ -56,15 +60,16 @@ var vectors = map[uint64]string{
 // epoch to the new client, its reopening.
 func main(cur realm) {
 	client := core.CreateClient(cross(cur), ethtesting.ClientState(), ethtesting.ConsensusState())
+	govRoute = client
 	core.RegisterCounterparty(cross(cur), client, [][]byte{{}}, "client-0")
 	local := core.CreateClient(cross(cur), ethtesting.ClientState(), ethtesting.ConsensusState())
 	core.RegisterCounterparty(cross(cur), local, [][]byte{{}}, "gnoland-2")
 	// The governance channel rides a route: enroll the client first.
 	execute(cur, govern(cur, ibcgov.NewEnrollRouteRequest(cross(cur), client, string(ibcgov.Governor()), "0x1d95d544586eacb63b6154e9e45122b32ded11aa 0x00000000000000000000000000000000000b0002 0x00000000000000000000000000000000000b0003")))
-	execute(cur, govern(cur, ibcgov.NewBindGovernanceRequest(cross(cur), client)))
+	execute(cur, govern(cur, ibcgov.NewBindGovernanceRequest(cross(cur), govRoute, client)))
 
-	govern(cur, ibcgov.NewEthSettleRequest(cross(cur), "client-0", "1:1:25000000000,2:2:0,3:3:0,4:4:123456789012345678901234567890"))
-	println("seq 1 matches:", hex.EncodeToString(ibcgov.DispatchBody(1, 1)) == vectors[1])
+	govern(cur, ibcgov.NewEthSettleRequest(cross(cur), govRoute, "client-0", "1:1:25000000000,2:2:0,3:3:0,4:4:123456789012345678901234567890"))
+	println("seq 1 matches:", hex.EncodeToString(ibcgov.DispatchBody(govRoute, 1, 1)) == vectors[1])
 
 	for _, items := range []string{
 		"1:4:0",       // a forged refund paid nothing
@@ -77,10 +82,10 @@ func main(cur realm) {
 		"1:1:x",       // not a number
 		"1:3:0,2:3:0,3:3:0,4:3:0,5:3:0,6:3:0,7:3:0,8:3:0,9:3:0", // more than 8
 	} {
-		println(items+":", revive(func() { govern(cur, ibcgov.NewEthSettleRequest(cross(cur), "client-0", items)) }))
+		println(items+":", revive(func() { govern(cur, ibcgov.NewEthSettleRequest(cross(cur), govRoute, "client-0", items)) }))
 	}
-	println("settle of no router client:", revive(func() { govern(cur, ibcgov.NewEthSettleRequest(cross(cur), "abc", "1:3:0")) }))
-	println("reopen of no router client:", revive(func() { govern(cur, ibcgov.NewEthReopenRequest(cross(cur), "channel-1")) }))
+	println("settle of no router client:", revive(func() { govern(cur, ibcgov.NewEthSettleRequest(cross(cur), govRoute, "abc", "1:3:0")) }))
+	println("reopen of no router client:", revive(func() { govern(cur, ibcgov.NewEthReopenRequest(cross(cur), govRoute, "channel-1")) }))
 
 	// Eight items with the longest client id still fit the envelope: a
 	// settlement names a router client of the route's lineage, here the one
@@ -90,8 +95,8 @@ func main(cur realm) {
 	core.RegisterCounterparty(cross(cur), longClient, [][]byte{{}}, long)
 	execute(cur, govern(cur, ibcgov.NewReplaceRouteRequest(cross(cur), client, longClient, 0)))
 	eight := "1:1:340282366920938463463374607431768211455,2:4:340282366920938463463374607431768211455,3:3:0,4:3:0,5:3:0,6:3:0,7:3:0,8:2:0"
-	govern(cur, ibcgov.NewEthSettleRequest(cross(cur), long, eight))
-	println("eight items:", len(ibcgov.DispatchBody(1, 2)), "bytes")
+	govern(cur, ibcgov.NewEthSettleRequest(cross(cur), govRoute, long, eight))
+	println("eight items:", len(ibcgov.DispatchBody(govRoute, 1, 2)), "bytes")
 
 	// The recovery's order on the channel: the route replacement (kind 10)
 	// in the epoch it retires, then, once IBCAdmin's epoch notice moved the
@@ -101,36 +106,36 @@ func main(cur realm) {
 	// retired, and the switch abandons epoch 1's pending decisions, never
 	// sent again. A reopen before names a router client the route is not
 	// on.
-	govern(cur, ibcgov.NewEthRouteReplacementRequest(cross(cur), "client-0", "gnoland-2", 1, local))
+	govern(cur, ibcgov.NewEthRouteReplacementRequest(cross(cur), govRoute, "client-0", "gnoland-2", 1, local))
 	expect := ibcgov.LastDecision()
-	_, _, kind, _, _ := ibcgov.ParseEnvelope(ibcgov.DispatchBody(1, 3))
+	_, _, kind, _, _ := ibcgov.ParseEnvelope(ibcgov.DispatchBody(govRoute, 1, 3))
 	println("seq 3 kind", kind)
-	govern(cur, ibcgov.NewEthSettleRequest(cross(cur), "client-0", "1:3:0")) // epoch 1 seq 4: abandoned below
-	println("reopen before the switch:", revive(func() { govern(cur, ibcgov.NewEthReopenRequest(cross(cur), "gnoland-2")) }))
+	govern(cur, ibcgov.NewEthSettleRequest(cross(cur), govRoute, "client-0", "1:3:0")) // epoch 1 seq 4: abandoned below
+	println("reopen before the switch:", revive(func() { govern(cur, ibcgov.NewEthReopenRequest(cross(cur), govRoute, "gnoland-2")) }))
 	execute(cur, expect)
 	np := types.Payload{SourcePort: ibcgov.GovDestPort, DestinationPort: ibcgov.GovPort, Version: ibcgov.GovVersion, Encoding: ibcgov.GovEncoding, Value: ibcgov.EpochNotice(2, "gnoland-2")}
 	testing.SetRealm(testing.NewCodeRealm("gno.land/r/aib/ibc/core"))
 	var app ibcgov.App
 	app.OnRecvPacket(cross(cur), "gnoland-2", local, 1, np)
 	testing.SetRealm(testing.NewCodeRealm("gno.land/r/aib/main"))
-	println("epoch", ibcgov.Epoch(), "over", ibcgov.EpochClient())
-	println("the settlement of epoch 1:", revive(func() { ibcgov.Redispatch(cross(cur), 1, 4) }))
-	d, _ := ibcgov.Decision(govern(cur, ibcgov.NewEthSettleRequest(cross(cur), "client-0", "1:3:0")))
+	println("epoch", ibcgov.Epoch(govRoute), "over", ibcgov.EpochClient(govRoute))
+	println("the settlement of epoch 1:", revive(func() { ibcgov.Redispatch(cross(cur), govRoute, 1, 4) }))
+	d, _ := ibcgov.Decision(govern(cur, ibcgov.NewEthSettleRequest(cross(cur), govRoute, "client-0", "1:3:0")))
 	println("settle in the new epoch:", d.Note)
-	d, _ = ibcgov.Decision(govern(cur, ibcgov.NewEthReopenRequest(cross(cur), "gnoland-2")))
+	d, _ = ibcgov.Decision(govern(cur, ibcgov.NewEthReopenRequest(cross(cur), govRoute, "gnoland-2")))
 	println("reopen in the new epoch:", d.Note)
-	println("seq 2's kind and params match:", hex.EncodeToString(ibcgov.DispatchBody(2, 2))[26:] == vectors[2][26:])
+	println("seq 2's kind and params match:", hex.EncodeToString(ibcgov.DispatchBody(govRoute, 2, 2))[26:] == vectors[2][26:])
 
 	// A genuine refund paid in full settles with a zero payment (Codex round
 	// 3 #5).
-	govern(cur, ibcgov.NewEthSettleRequest(cross(cur), "client-0", "7:1:0"))
-	println("zero payment dispatched:", ibcgov.LastSeq(2))
+	govern(cur, ibcgov.NewEthSettleRequest(cross(cur), govRoute, "client-0", "7:1:0"))
+	println("zero payment dispatched:", ibcgov.LastSeq(govRoute, 2))
 
 	// A packet the core would refuse to send spends its decision, binding no
 	// number (Codex round 2 #3).
 	govern(cur, ibcgov.NewCorePauseRequest(cross(cur)))
-	d, _ = ibcgov.Decision(govern(cur, ibcgov.NewEthReopenRequest(cross(cur), "gnoland-2")))
-	println("while the core is paused:", d.State(), "-", d.Note, "| last seq", ibcgov.LastSeq(2))
+	d, _ = ibcgov.Decision(govern(cur, ibcgov.NewEthReopenRequest(cross(cur), govRoute, "gnoland-2")))
+	println("while the core is paused:", d.State(), "-", d.Note, "| last seq", ibcgov.LastSeq(govRoute, 2))
 }
 
 // Output:

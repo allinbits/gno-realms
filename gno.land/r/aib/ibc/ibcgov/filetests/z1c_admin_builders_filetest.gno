@@ -132,7 +132,16 @@ func main(cur realm) {
 	println(d.Text)
 	execute(cur, mig)
 	println(decided(mig))
-	println("unknown migration:", revive(func() { govern(cur, ibcgov.NewMigrateClientRequest(cross(cur), client, "nope", "")) }))
+	// Any other migration is forwarded to the core as named, for any client
+	// type: the active implementation (impl/v0) has none called "nope", so
+	// the decision is spent when it executes.
+	nope := govern(cur, ibcgov.NewMigrateClientRequest(cross(cur), client, "nope", "0102"))
+	d, _ = ibcgov.Decision(nope)
+	println(d.Text)
+	execute(cur, nope)
+	d, _ = ibcgov.Decision(nope)
+	println(decided(nope), "("+d.Note+")")
+	println("bad migration name:", revive(func() { govern(cur, ibcgov.NewMigrateClientRequest(cross(cur), client, "No Pe", "")) }))
 	println("recover an unknown client:", revive(func() { govern(cur, ibcgov.NewRecoverClientRequest(cross(cur), client, "ethereum-9")) }))
 }
 
@@ -159,5 +168,7 @@ func main(cur realm) {
 // wrong namespace: ibcgov: an implementation lives under gno.land/r/aib/ibc/core/impl/, not gno.land/r/aib/ibc/apps/transfer/impl/controls/v0
 // core: migrate client ethereum-1 to the fork schedule genesis=10000038@slot0,altair=20000038@0,bellatrix=30000038@0,capella=40000038@0,deneb=50000038@0,electra=60000038@0,fulu=70000038@1,gloas=80000038@1000000
 // core migrate client: applied
-// unknown migration: ibcgov: unknown migration nope
+// core: migrate client ethereum-1 (ethereum) with migration nope (params 0x0102)
+// core migrate client: spent (spent: unknown client migration "nope")
+// bad migration name: ibcgov: a migration name is 1 to 64 characters of a-z, 0-9 and '-'
 // recover an unknown client: ibcgov: unknown client

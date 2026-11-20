@@ -142,6 +142,13 @@ func (l *routes) Transfer(_ int, rlm realm, sent []chain.Coin, clientID, receive
 		if len(sent) > 0 {
 			panic("GRC20 transfer must not include native coins")
 		}
+		// A voucher leaves only by its ibc/ denom, burnt on its own route: as
+		// a GRC20 it would be escrowed on another route as that route's
+		// gno-native token, tying the route's backing to another's (ADR 0007,
+		// foreign vouchers).
+		if transfer.IsVoucherKey(denom) {
+			panic(ufmt.Sprintf("%s is a voucher: send it by its ibc/ denom, over the route it came from", denom))
+		}
 		alias := transfer.GRC20Alias(denom)
 		acc := l.mustSendable(rt, alias, amount)
 		checkRecipient(rt, receiver, acc.Config.Remote)

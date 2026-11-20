@@ -6,10 +6,10 @@ import (
 	"testing"
 	"time"
 
-	ethtesting "gno.land/p/aib/ibc/lightclient/ethereum/testing/v0"
-	tmtesting "gno.land/p/aib/ibc/lightclient/tendermint/testing/v0"
 	"gno.land/p/aib/ibc/ics20/abi/v0"
 	"gno.land/p/aib/ibc/ics20/v0"
+	ethtesting "gno.land/p/aib/ibc/lightclient/ethereum/testing/v0"
+	tmtesting "gno.land/p/aib/ibc/lightclient/tendermint/testing/v0"
 	"gno.land/p/aib/ibc/types/v0"
 
 	"gno.land/r/aib/ibc/apps/transfer"

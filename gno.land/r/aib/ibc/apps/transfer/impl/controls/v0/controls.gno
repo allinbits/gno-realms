@@ -292,6 +292,15 @@ func (l *routes) GovApply(_ int, rlm realm, op string, params []byte) string {
 		if minted != (p.Config.Kind == controls.KindMint) {
 			return "a minted denom is a voucher's ibc/ denom, an unescrowed one is not"
 		}
+		// A voucher of one route is never a denom of another (ADR 0007): no
+		// unescrowed denom in the voucher namespace, allocated or not, and a
+		// minted denom already allocated is this route's.
+		if !minted && transfer.IsVoucherKey(p.Denom) {
+			return p.Denom + " is in the voucher namespace: a voucher is a minted denom of its own route only"
+		}
+		if d, ok := l.store.Denom(p.Denom); minted && ok && !d.HasPrefix(transfer.PortID, rt.Key) {
+			return p.Denom + " is a voucher of " + d.Path() + ", not of route " + rt.Key
+		}
 		// A minted denom's vouchers already in circulation (minted by
 		// the plain app) count against its supply cap from the start.
 		var outstanding uint256

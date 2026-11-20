@@ -15,6 +15,10 @@ import (
 	"gno.land/r/aib/ibc/ibcgov"
 )
 
+// govRoute is the route this test's decisions name (ADR 0007: route-scoped
+// entry points take the route).
+var govRoute string
+
 // bridge is the route's Ethereum router, ICS20 transfer and IBCAdmin: its
 // protected recipients.
 const bridge = "0x1d95d544586eacb63b6154e9e45122b32ded11aa 0x00000000000000000000000000000000000b0002 0x00000000000000000000000000000000000b0003"
@@ -84,6 +88,7 @@ func execute(cur realm, id int64) {
 // enrolls the client as a route, every step a governor decision.
 func setupRoute(cur realm) string {
 	clientID := core.CreateClient(cross(cur), ethtesting.ClientState(), ethtesting.ConsensusState())
+	govRoute = clientID
 	core.RegisterCounterparty(cross(cur), clientID, [][]byte{{}}, "client-0")
 	execute(cur, govern(cur, ibcgov.NewEnrollRouteRequest(cross(cur), clientID, string(collector), bridge)))
 	advance(7*24*time.Hour + time.Second) // keeps the timeline of the goldens
@@ -97,7 +102,7 @@ func payload(body []byte) types.Payload {
 func ackAsCore(cur realm, client string, seq uint64, ack []byte) {
 	testing.SetRealm(testing.NewCodeRealm("gno.land/r/aib/ibc/core"))
 	var app ibcgov.App
-	if err := app.OnAcknowledgementPacket(cross(cur), client, "client-0", ibcgov.DispatchTransport(1, seq), ack, payload(ibcgov.DispatchBody(1, seq))); err != nil {
+	if err := app.OnAcknowledgementPacket(cross(cur), client, "client-0", ibcgov.DispatchTransport(govRoute, 1, seq), ack, payload(ibcgov.DispatchBody(govRoute, 1, seq))); err != nil {
 		panic(err)
 	}
 	testing.SetRealm(testing.NewCodeRealm("gno.land/r/aib/main"))
@@ -118,40 +123,41 @@ func mustHex(s string) []byte {
 // far ahead) only check the acknowledgement format, on decisions of ours.
 func main(cur realm) {
 	client := core.CreateClient(cross(cur), ethtesting.ClientState(), ethtesting.ConsensusState())
+	govRoute = client
 	core.RegisterCounterparty(cross(cur), client, [][]byte{{}}, "client-0")
 	// kind 6 names a second gno client as the counterparty of the new router client.
 	core.CreateClient(cross(cur), ethtesting.ClientState(), ethtesting.ConsensusState())
 	core.RegisterCounterparty(cross(cur), "ethereum-2", [][]byte{{}}, "gnoland-2") // the epoch notice's client, below
 	// The governance channel rides a route: enroll the client first.
 	execute(cur, govern(cur, ibcgov.NewEnrollRouteRequest(cross(cur), client, string(ibcgov.Governor()), "0x1d95d544586eacb63b6154e9e45122b32ded11aa 0x00000000000000000000000000000000000b0002 0x00000000000000000000000000000000000b0003")))
-	execute(cur, govern(cur, ibcgov.NewBindGovernanceRequest(cross(cur), client)))
+	execute(cur, govern(cur, ibcgov.NewBindGovernanceRequest(cross(cur), govRoute, client)))
 
-	govern(cur, ibcgov.NewEthUnpauseRequest(cross(cur), 1, "client-0"))
-	govern(cur, ibcgov.NewEthSeatsRequest(cross(cur), "0:0x1111111111111111111111111111111111111111,4:0x2222222222222222222222222222222222222222"))
-	govern(cur, ibcgov.NewEthLimitsRequest(cross(cur), "client-0", "0x3333333333333333333333333333333333333333", 25000000000, 100000000000, 100000000000, 0, 0))
-	govern(cur, ibcgov.NewEthVoucherRequest(cross(cur), "client-0", "ufoo", "0x4444444444444444444444444444444444444444", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"))
-	govern(cur, ibcgov.NewEthClientRequest(cross(cur), 1, "gnoland-2", "ethereum-2", "6d61696e,2f70762f766d3a676e6f2e6c616e642f722f6169622f6962632f636f72653a",
+	govern(cur, ibcgov.NewEthUnpauseRequest(cross(cur), govRoute, 1, "client-0"))
+	govern(cur, ibcgov.NewEthSeatsRequest(cross(cur), govRoute, "0:0x1111111111111111111111111111111111111111,4:0x2222222222222222222222222222222222222222"))
+	govern(cur, ibcgov.NewEthLimitsRequest(cross(cur), govRoute, "client-0", "0x3333333333333333333333333333333333333333", 25000000000, 100000000000, 100000000000, 0, 0))
+	govern(cur, ibcgov.NewEthVoucherRequest(cross(cur), govRoute, "client-0", "ufoo", "0x4444444444444444444444444444444444444444", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"))
+	govern(cur, ibcgov.NewEthClientRequest(cross(cur), govRoute, 1, "gnoland-2", "ethereum-2", "6d61696e,2f70762f766d3a676e6f2e6c616e642f722f6169622f6962632f636f72653a",
 		"0x5555555555555555555555555555555555555555", "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"))
-	govern(cur, ibcgov.NewEthUpgradeRequest(cross(cur), "0x6666666666666666666666666666666666666666", "0x7777777777777777777777777777777777777777",
+	govern(cur, ibcgov.NewEthUpgradeRequest(cross(cur), govRoute, "0x6666666666666666666666666666666666666666", "0x7777777777777777777777777777777777777777",
 		"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc", ""))
-	govern(cur, ibcgov.NewEthRoleRequest(cross(cur), true, 1, "0x8888888888888888888888888888888888888888"))
-	govern(cur, ibcgov.NewEthHandOverRequest(cross(cur), "0x9999999999999999999999999999999999999999", "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"))
-	govern(cur, ibcgov.NewEthRouteReplacementRequest(cross(cur), "client-0", "gnoland-2", 21000000, "ethereum-2"))
+	govern(cur, ibcgov.NewEthRoleRequest(cross(cur), govRoute, true, 1, "0x8888888888888888888888888888888888888888"))
+	govern(cur, ibcgov.NewEthHandOverRequest(cross(cur), govRoute, "0x9999999999999999999999999999999999999999", "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"))
+	govern(cur, ibcgov.NewEthRouteReplacementRequest(cross(cur), govRoute, "client-0", "gnoland-2", 21000000, "ethereum-2"))
 	expect := ibcgov.LastDecision() // the transition's expectation, applied after 7 days
-	govern(cur, ibcgov.NewEthRouteSettingsRequest(cross(cur), "client-0", 1209600))
-	govern(cur, ibcgov.NewEthCancelRequest(cross(cur), "2-3"))
-	govern(cur, ibcgov.NewEthRouteSettingsRequest(cross(cur), "client-0", 86400))    // seq 12, for the "spent" acknowledgement
-	govern(cur, ibcgov.NewEthRouteSettingsRequest(cross(cur), "client-0", 86400))    // seq 13, the buffered vector's bytes
-	govern(cur, ibcgov.NewEthSettleRequest(cross(cur), "client-0", "1:1:100,2:2:0")) // seq 14
+	govern(cur, ibcgov.NewEthRouteSettingsRequest(cross(cur), govRoute, "client-0", 1209600))
+	govern(cur, ibcgov.NewEthCancelRequest(cross(cur), govRoute, "2-3"))
+	govern(cur, ibcgov.NewEthRouteSettingsRequest(cross(cur), govRoute, "client-0", 86400))    // seq 12, for the "spent" acknowledgement
+	govern(cur, ibcgov.NewEthRouteSettingsRequest(cross(cur), govRoute, "client-0", 86400))    // seq 13, the buffered vector's bytes
+	govern(cur, ibcgov.NewEthSettleRequest(cross(cur), govRoute, "client-0", "1:1:100,2:2:0")) // seq 14
 	// Seq 15: a kind 13 of the route's router client. The vector's reopens
 	// gnoland-2, the kind 10's new client, which this realm names only once
 	// the epoch moved there (checked at the end).
-	govern(cur, ibcgov.NewEthReopenRequest(cross(cur), "client-0"))                  // seq 15
-	govern(cur, ibcgov.NewEthSettleRequest(cross(cur), "client-0", "3:1:0"))         // seq 16: a refund paid in full
-	govern(cur, ibcgov.NewEthSettleRequest(cross(cur), "client-0", "7:5:100000000")) // seq 17: a forged receive
+	govern(cur, ibcgov.NewEthReopenRequest(cross(cur), govRoute, "client-0"))                  // seq 15
+	govern(cur, ibcgov.NewEthSettleRequest(cross(cur), govRoute, "client-0", "3:1:0"))         // seq 16: a refund paid in full
+	govern(cur, ibcgov.NewEthSettleRequest(cross(cur), govRoute, "client-0", "7:5:100000000")) // seq 17: a forged receive
 
 	for _, v := range ethVectors {
-		ours := hex.EncodeToString(ibcgov.DispatchBody(v.epoch, v.seq))
+		ours := hex.EncodeToString(ibcgov.DispatchBody(govRoute, v.epoch, v.seq))
 		switch v.name {
 		case "conflict-at-seq-1", "spent-unknown-kind", "cancel-beyond-window":
 			println(v.name, ": not ours (another sender's bytes, an unknown kind, or seq", v.seq, ")")
@@ -179,7 +185,7 @@ func main(cur realm) {
 			continue
 		}
 		ackAsCore(cur, client, v.seq, mustHex(v.ack))
-		status, redispatch, _, _, event := ibcgov.DispatchState(1, v.seq)
+		status, redispatch, _, _, event := ibcgov.DispatchState(govRoute, 1, v.seq)
 		println(v.name, ": seq", v.seq, "status", status, "redispatch", redispatch, "-", event)
 	}
 
@@ -200,13 +206,13 @@ func main(cur realm) {
 		var app ibcgov.App
 		res := app.OnRecvPacket(cross(cur), "gnoland-2", "ethereum-2", uint64(i+1), np)
 		testing.SetRealm(testing.NewCodeRealm("gno.land/r/aib/main"))
-		println("notice", i+1, ": status", res.Status, "| ack equal:", hex.EncodeToString(res.Acknowledgement) == want, "| epoch", ibcgov.Epoch(), "over", ibcgov.EpochClient())
+		println("notice", i+1, ": status", res.Status, "| ack equal:", hex.EncodeToString(res.Acknowledgement) == want, "| epoch", ibcgov.Epoch(govRoute), "over", ibcgov.EpochClient(govRoute))
 	}
 
 	// The kind 13 vector, at epoch 2 over gnoland-2 now: its kind and params
 	// are the vector's past the epoch and seq of its fresh IBCAdmin.
-	govern(cur, ibcgov.NewEthReopenRequest(cross(cur), "gnoland-2"))
-	ours := hex.EncodeToString(ibcgov.DispatchBody(2, 1))
+	govern(cur, ibcgov.NewEthReopenRequest(cross(cur), govRoute, "gnoland-2"))
+	ours := hex.EncodeToString(ibcgov.DispatchBody(govRoute, 2, 1))
 	for _, v := range ethVectors {
 		if v.name == "kind13-reopen" {
 			println(v.name, ": kind and params equal", ours[26:] == v.envelope[26:])

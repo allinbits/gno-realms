@@ -19,6 +19,7 @@ func TestRouterClientPairing(cur realm, t *testing.T) {
 	route := core.CreateClient(cross(cur), ethtesting.ClientState(), ethtesting.ConsensusState())
 	core.RegisterCounterparty(cross(cur), route, [][]byte{{}}, "client-0")
 	bare := core.CreateClient(cross(cur), ethtesting.ClientState(), ethtesting.ConsensusState())
+	g := testRoute(route)
 
 	if got := gnoClientHint(route); got != "; "+route+" is this chain's client, paired with client-0" {
 		t.Errorf("a paired client: %q", got)
@@ -29,11 +30,11 @@ func TestRouterClientPairing(cur realm, t *testing.T) {
 	if got := gnoClientHint("client-0"); got != "" {
 		t.Errorf("a router client: %q", got)
 	}
-	if got := checkRouterClient("", noRouterClient); got != "" {
+	if got := checkRouterClient(g, "", noRouterClient); got != "" {
 		t.Errorf("no router client named: %q", got)
 	}
 	for _, scope := range []int{currentRouterClient, routeRouterClient, knownRouterClient} {
-		if got := checkRouterClient("client-0", scope); got != "the governance channel is not bound" {
+		if got := checkRouterClient(g, "client-0", scope); got != "route "+route+"'s governance channel is not bound" {
 			t.Errorf("scope %d unbound: %q", scope, got)
 		}
 	}
@@ -41,7 +42,7 @@ func TestRouterClientPairing(cur realm, t *testing.T) {
 	// Kind 6 op 1 adds the custom id the gno client it tracks is paired with.
 	add := func(id, tracks string) string {
 		r := revive(func() {
-			NewEthClientRequest(cross(cur), 1, id, tracks, "6d61696e", "0x1111111111111111111111111111111111111111", strings.Repeat("ab", 32))
+			NewEthClientRequest(cross(cur), route, 1, id, tracks, "6d61696e", "0x1111111111111111111111111111111111111111", strings.Repeat("ab", 32))
 		})
 		if r == nil {
 			return ""
@@ -65,5 +66,31 @@ func TestRouterClientPairing(cur realm, t *testing.T) {
 	}
 	if got := add("gnoland-2", "gnoland-2"); got != "ibcgov: the counterparty gnoland-2 is not a gno client" {
 		t.Errorf("not a gno client: %q", got)
+	}
+}
+
+// Each route's expected-transition graph has its own 64 places (ADR 0007
+// §1): route A's graph at the cap refuses A's next transition, and route B,
+// whose router uses the same client ids, still takes one.
+func TestGraphCapPerRoute(cur realm, t *testing.T) {
+	bound := func(key string) *routeGov {
+		g := testRoute(key)
+		c := core.CreateClient(cross(cur), ethtesting.ClientState(), ethtesting.ConsensusState())
+		core.RegisterCounterparty(cross(cur), c, [][]byte{{}}, "client-0")
+		g.identity, _ = core.ClientRouteIdentity(c)
+		g.govIdentity = g.identity
+		g.epoch = 1
+		g.epochs.Set(epochKey(1), &epochRec{client: c})
+		return g
+	}
+	a, b := bound("cap-a"), bound("cap-b")
+	local := core.CreateClient(cross(cur), ethtesting.ClientState(), ethtesting.ConsensusState())
+	core.RegisterCounterparty(cross(cur), local, [][]byte{{}}, "gnoland-n")
+	a.liveEdges = maxLive
+	if got := checkExpect(a, "client-0", "gnoland-n", local); !strings.HasPrefix(got, "the governance graph holds 64 transitions already") {
+		t.Fatalf("route A at its cap: %q", got)
+	}
+	if got := checkExpect(b, "client-0", "gnoland-n", local); got != "" {
+		t.Fatalf("route B: %q", got)
 	}
 }

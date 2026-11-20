@@ -21,6 +21,10 @@ import (
 	"gno.land/r/aib/ibc/ibcgov"
 )
 
+// govRoute is the route this test's decisions name (ADR 0007: route-scoped
+// entry points take the route).
+var govRoute string
+
 // bridge is the route's Ethereum router, ICS20 transfer and IBCAdmin: its
 // protected recipients.
 const bridge = "0x1d95d544586eacb63b6154e9e45122b32ded11aa 0x00000000000000000000000000000000000b0002 0x00000000000000000000000000000000000b0003"
@@ -64,6 +68,7 @@ func execute(cur realm, id int64) {
 // enrolls the client as a route, every step a governor decision.
 func setupRoute(cur realm) string {
 	clientID := core.CreateClient(cross(cur), ethtesting.ClientState(), ethtesting.ConsensusState())
+	govRoute = clientID
 	core.RegisterCounterparty(cross(cur), clientID, [][]byte{{}}, "client-0")
 	execute(cur, govern(cur, ibcgov.NewEnrollRouteRequest(cross(cur), clientID, string(collector), bridge)))
 	advance(7*24*time.Hour + time.Second) // keeps the timeline of the goldens
@@ -104,13 +109,13 @@ func ugnot(a address) int64 { return banker.NewReadonlyBanker().GetCoin(a, "ugno
 
 func flag(cur realm, who address, route, fn string) {
 	testing.SetRealm(testing.NewUserRealm(who))
-	ibcgov.SetFlag(cross(cur), route, fn, "")
+	ibcgov.SetFlag(cross(cur), govRoute, route, fn, "")
 	testing.SetRealm(testing.NewCodeRealm("gno.land/r/aib/main"))
 }
 
 func unflag(cur realm, who address, route, fn string) {
 	testing.SetRealm(testing.NewUserRealm(who))
-	ibcgov.ClearFlag(cross(cur), route, fn)
+	ibcgov.ClearFlag(cross(cur), govRoute, route, fn)
 	testing.SetRealm(testing.NewCodeRealm("gno.land/r/aib/main"))
 }
 

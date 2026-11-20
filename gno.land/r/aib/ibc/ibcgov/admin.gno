@@ -14,8 +14,12 @@ import (
 // pr6375 R14). Both realms gate every loosening power on a call from this
 // realm, so each power waits for its decision's delay here: upgrades,
 // relayers, recovery, approvals, client migration and membership 7 days;
-// tightening (pause, block, reject, remove) at once; unpauses at once, spent
-// under a guardian hold.
+// tightening (pause, block, reject, remove) at once; unpauses at once. Each
+// is global (ADR 0007 §6): any route's guardian hold defers it, to day 21 of
+// the global hold that first deferred it at most, and defers an unpause
+// rather than spending it. A recovery, a migration or a verifier
+// replacement of a gno client that belongs to a route is that route's
+// decision instead, deferred by its hold alone.
 
 // adminParams is a decision that makes one administrative call.
 type adminParams struct {
@@ -82,9 +86,6 @@ func (p *adminParams) check() string {
 		if err != nil {
 			return "params are not hex"
 		}
-		if core.ClientType(a[0]) != ethereum.ClientType {
-			return a[0] + " is no Ethereum client"
-		}
 		return core.CheckMigrateClient(a[0], a[1], bz)
 	case "transfer update impl":
 		return transfer.CheckUpdateImpl(a[0])
@@ -124,12 +125,12 @@ func contains(list []string, s string) bool {
 // one, and says so: a recovered or migrated verifier is a new trust, so the
 // route's meters start empty, as after a replacement (ADR pr6375 §7.1).
 func emptyRouteMeters(client string, t int64) string {
-	route := routeKeyOf(client)
-	if !routes.Has(route) {
+	g := enrolledGov(routeKeyOf(client))
+	if g == nil {
 		return ""
 	}
-	bumpPayoutsEpoch(route, t)
-	return ": route " + route + "'s meters emptied"
+	bumpPayoutsEpoch(g, t)
+	return ": route " + g.key + "'s meters emptied"
 }
 
 func (p *adminParams) apply(cur realm, t int64) (string, string) {
@@ -186,8 +187,9 @@ func (p *adminParams) apply(cur realm, t int64) (string, string) {
 	return p.op, ""
 }
 
-// unpauseAdminParams is an unpause of the core or of an app: at once, spent
-// under a guardian hold.
+// unpauseAdminParams is an unpause of the core or of an app: at once, and
+// under any route's guardian hold deferred to day 21 of the global hold,
+// never spent (ADR 0007 §6).
 type unpauseAdminParams struct{ port string }
 
 func (*unpauseAdminParams) unpause() {}
@@ -208,9 +210,14 @@ func (p *unpauseAdminParams) apply(cur realm, t int64) (string, string) {
 }
 
 func adminRequest(cur realm, op, text string, queued bool, args ...string) Request {
+	return adminRequestIn(cur, globalScope(), op, text, queued, args...)
+}
+
+// adminRequestIn is an administrative request of scope sc.
+func adminRequestIn(cur realm, sc scope, op, text string, queued bool, args ...string) Request {
 	p := &adminParams{op: op, args: args}
 	return propose(cur, op, text, func(cur realm, made, t int64) {
-		decide(cur, op, text, p, made, t, queued)
+		decide(cur, op, text, p, made, t, queued, sc)
 	})
 }
 
@@ -268,10 +275,10 @@ func NewCoreRemoveRelayerRequest(cur realm, addr string) Request {
 	return propose(cur, op, text, func(cur realm, made, t int64) {
 		// Delisted since the request was built: spent, never queued.
 		if !isRelayer(a) {
-			spendAtRecording(op, text, p, made, t, string(a)+" is not a listed relayer")
+			spendAtRecording(op, text, p, made, t, string(a)+" is not a listed relayer", globalScope())
 			return
 		}
-		decide(cur, op, text, p, made, t, len(core.Relayers()) <= 1)
+		decide(cur, op, text, p, made, t, len(core.Relayers()) <= 1, globalScope())
 	})
 }
 
@@ -285,12 +292,24 @@ func isRelayer(a address) bool {
 }
 
 // NewRecoverClientRequest recovers a frozen or expired core client from a
-// substitute after 7 days (see the core's recover-client.md).
+// substitute after 7 days (see the core's recover-client.md). A subject that
+// belongs to a route makes it that route's decision (ADR 0007 §6), and the
+// substitute may then belong to no other route; a subject of no route makes
+// it a global decision, whose substitute may belong to no route at all.
 func NewRecoverClientRequest(cur realm, subjectClientID, substituteClientID string) Request {
 	if core.ClientType(subjectClientID) == "" || core.ClientType(substituteClientID) == "" {
 		panic("ibcgov: unknown client")
 	}
-	return adminRequest(cur, "core recover client", "core: recover client "+subjectClientID+" from "+substituteClientID, true, subjectClientID, substituteClientID)
+	sc := clientScope(subjectClientID, substituteClientID)
+	return adminRequestIn(cur, sc, "core recover client", scopeText(sc)+"core: recover client "+subjectClientID+" from "+substituteClientID, true, subjectClientID, substituteClientID)
+}
+
+// scopeText opens a decision's text with its route, when it has one.
+func scopeText(sc scope) string {
+	if sc.route == "" {
+		return ""
+	}
+	return "route " + sc.route + ", "
 }
 
 // NewCoreApproveAppRequest activates a pending app registration after 7 days.
@@ -315,13 +334,14 @@ func NewCorePauseRequest(cur realm) Request {
 	return adminRequest(cur, "core pause", "core: pause the packet path", false)
 }
 
-// NewCoreUnpauseRequest resumes the core's packet path at once; spent under
-// a guardian hold.
+// NewCoreUnpauseRequest resumes the core's packet path at once; under any
+// route's guardian hold it is deferred to day 21 of the global hold, never
+// spent.
 func NewCoreUnpauseRequest(cur realm) Request {
 	text := "core: unpause the packet path"
 	p := &unpauseAdminParams{}
 	return propose(cur, "core unpause", text, func(cur realm, made, t int64) {
-		decide(cur, "core unpause", text, p, made, t, false)
+		decide(cur, "core unpause", text, p, made, t, false, globalScope())
 	})
 }
 
@@ -333,8 +353,9 @@ func NewCorePauseAppRequest(cur realm, portID string) Request {
 	return adminRequest(cur, "core pause app", "core: pause the app on port "+portID, false, portID)
 }
 
-// NewCoreUnpauseAppRequest resumes the app on portID at once; spent under a
-// guardian hold.
+// NewCoreUnpauseAppRequest resumes the app on portID at once; under any
+// route's guardian hold it is deferred to day 21 of the global hold, never
+// spent.
 func NewCoreUnpauseAppRequest(cur realm, portID string) Request {
 	if core.AppPkgPath(portID) == "" {
 		panic("ibcgov: no app on port " + portID)
@@ -342,7 +363,7 @@ func NewCoreUnpauseAppRequest(cur realm, portID string) Request {
 	text := "core: unpause the app on port " + portID
 	p := &unpauseAdminParams{port: portID}
 	return propose(cur, "core unpause app", text, func(cur realm, made, t int64) {
-		decide(cur, "core unpause app", text, p, made, t, false)
+		decide(cur, "core unpause app", text, p, made, t, false, globalScope())
 	})
 }
 
@@ -365,13 +386,21 @@ func NewCoreRemoveMemberRequest(cur realm, addr string) Request {
 	return adminRequest(cur, "core remove member", "core: remove authority member "+string(a), false, string(a))
 }
 
-// NewMigrateClientRequest migrates the verifier of a live core client after
-// 7 days (ADR pr6375 R16, §6.12): for migration "ethereum-fork-schedule",
+// NewMigrateClientRequest migrates the verifier of a live core client of
+// any type after 7 days (ADR pr6375 R16, §6.12, ADR 0007 §6): the client
+// keeps its id and its type, and the active core implementation decides
+// which migrations it supports (core.CheckMigrateClient, checked when the
+// decision executes: one it does not support is spent then). Moving a route to a client of
+// another type is not a migration but a route replacement. Two migrations
+// are spelled out in the decision's text: for "ethereum-fork-schedule",
 // paramsHex is the hex of ethereum.EncodeForkParameters of the new schedule,
-// which the decision's text spells out fork by fork; it should land before
-// the fork epoch, and may land after it (ethereum.CheckForkParameters); for
-// "ethereum-verifier" (see NewReplaceVerifierRequest),
-// paramsHex is the hex of the target verifier version.
+// listed fork by fork; it should land before the fork epoch, and may land
+// after it (ethereum.CheckForkParameters); for "ethereum-verifier" (see
+// NewReplaceVerifierRequest), paramsHex is the hex of the target verifier
+// version. Any other migration (a name of 1 to 64 characters of a-z, 0-9
+// and '-') is forwarded as named, its text giving the name and paramsHex,
+// so a later core implementation can migrate an Arc or Tendermint client,
+// or a client type added later, with no change here.
 func NewMigrateClientRequest(cur realm, clientID, migration, paramsHex string) Request {
 	if core.ClientType(clientID) == "" {
 		panic("ibcgov: unknown client " + clientID)
@@ -400,9 +429,28 @@ func NewMigrateClientRequest(cur realm, clientID, migration, paramsHex string) R
 		}
 		text = "core: convert the verifier of client " + clientID + " (" + core.VerifierVersion(clientID) + ") to " + string(bz) + " with the active core implementation's conversion"
 	default:
-		panic("ibcgov: unknown migration " + migration)
+		if !isMigrationName(migration) {
+			panic("ibcgov: a migration name is 1 to 64 characters of a-z, 0-9 and '-'")
+		}
+		text = "core: migrate client " + clientID + " (" + core.ClientType(clientID) + ") with migration " + migration + " (params 0x" + hex.EncodeToString(bz) + ")"
 	}
-	return adminRequest(cur, "core migrate client", text, true, clientID, migration, hex.EncodeToString(bz))
+	sc := clientScope(clientID)
+	return adminRequestIn(cur, sc, "core migrate client", scopeText(sc)+text, true, clientID, migration, hex.EncodeToString(bz))
+}
+
+// isMigrationName reports whether s is 1 to 64 characters of a-z, 0-9 and
+// '-': a migration's name is written into the decision's text as is.
+func isMigrationName(s string) bool {
+	if len(s) == 0 || len(s) > 64 {
+		return false
+	}
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if !(c >= 'a' && c <= 'z' || c >= '0' && c <= '9' || c == '-') {
+			return false
+		}
+	}
+	return true
 }
 
 // NewReplaceVerifierRequest converts the verifier of the live Ethereum

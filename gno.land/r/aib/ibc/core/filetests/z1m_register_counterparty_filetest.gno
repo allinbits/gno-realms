@@ -17,7 +17,7 @@ func main(cur realm) {
 	clientState := tmtesting.NewClientState("chain-id-2", types.NewHeight(2, 2))
 	consensusState := tmtesting.GenConsensusState(time.Now(), tmtesting.Hash("apphash"), tmtesting.GenValset().Hash())
 	clientID := core.CreateClient(cross(cur), clientState, consensusState)
-	core.RegisterCounterparty(cross(cur), clientID, [][]byte{[]byte("ibc"), []byte("")}, strings.Repeat("a", 54) + "-tendermint-1")
+	core.RegisterCounterparty(cross(cur), clientID, [][]byte{[]byte("ibc"), []byte("")}, strings.Repeat("a", 54)+"-tendermint-1")
 }
 
 // Error:

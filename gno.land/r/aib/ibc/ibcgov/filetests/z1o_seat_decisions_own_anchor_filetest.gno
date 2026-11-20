@@ -13,6 +13,10 @@ import (
 	"gno.land/r/aib/ibc/ibcgov"
 )
 
+// govRoute is the route this test's decisions name (ADR 0007: route-scoped
+// entry points take the route).
+var govRoute string
+
 // bridge is the route's Ethereum router, ICS20 transfer and IBCAdmin: its
 // protected recipients.
 const bridge = "0x1d95d544586eacb63b6154e9e45122b32ded11aa 0x00000000000000000000000000000000000b0002 0x00000000000000000000000000000000000b0003"
@@ -53,6 +57,7 @@ func execute(cur realm, id int64) {
 // enrolls the client as a route, every step a governor decision.
 func setupRoute(cur realm) string {
 	clientID := core.CreateClient(cross(cur), ethtesting.ClientState(), ethtesting.ConsensusState())
+	govRoute = clientID
 	core.RegisterCounterparty(cross(cur), clientID, [][]byte{{}}, "client-0")
 	execute(cur, govern(cur, ibcgov.NewEnrollRouteRequest(cross(cur), clientID, string(collector), bridge)))
 	advance(7*24*time.Hour + time.Second) // keeps the timeline of the goldens
@@ -62,13 +67,13 @@ func setupRoute(cur realm) string {
 // flagAs sets a flag as the key of a seat.
 func flagAs(cur realm, who address, route, fn, keys string) {
 	testing.SetRealm(testing.NewUserRealm(who))
-	ibcgov.SetFlag(cross(cur), route, fn, keys)
+	ibcgov.SetFlag(cross(cur), govRoute, route, fn, keys)
 	testing.SetRealm(testing.NewCodeRealm("gno.land/r/aib/main"))
 }
 
 func clearAs(cur realm, who address, route, fn string) {
 	testing.SetRealm(testing.NewUserRealm(who))
-	ibcgov.ClearFlag(cross(cur), route, fn)
+	ibcgov.ClearFlag(cross(cur), govRoute, route, fn)
 	testing.SetRealm(testing.NewCodeRealm("gno.land/r/aib/main"))
 }
 
@@ -79,12 +84,12 @@ func clearAs(cur realm, who address, route, fn string) {
 // at the new hold, so it does not land then: it never inherits D1's anchor.
 func main(cur realm) {
 	route := setupRoute(cur)
-	execute(cur, govern(cur, ibcgov.NewSetSeatsRequest(cross(cur), "0:"+string(g0)+",1:"+string(g1))))
-	execute(cur, govern(cur, ibcgov.NewSetSeatsRequest(cross(cur), "2:"+string(g2)+",3:"+string(g3))))
+	execute(cur, govern(cur, ibcgov.NewSetSeatsRequest(cross(cur), govRoute, "0:"+string(g0)+",1:"+string(g1))))
+	execute(cur, govern(cur, ibcgov.NewSetSeatsRequest(cross(cur), govRoute, "2:"+string(g2)+",3:"+string(g3))))
 	flagAs(cur, g0, route, ibcgov.FnSends, "")
 	flagAs(cur, g1, route, ibcgov.FnSends, "")
-	first := ibcgov.HoldSince()
-	req := ibcgov.NewSetSeatsRequest(cross(cur), "3:"+string(g3new))
+	first := ibcgov.HoldSince(govRoute)
+	req := ibcgov.NewSetSeatsRequest(cross(cur), govRoute, "3:"+string(g3new))
 	d1 := govern(cur, req)
 	d2 := govern(cur, req)
 	advance(7*24*time.Hour + time.Second)
@@ -98,16 +103,16 @@ func main(cur realm) {
 	at(20)
 	advance(time.Second)
 	flagAs(cur, g1, route, ibcgov.FnSends, "")
-	println("a new hold since day 20:", ibcgov.Held(), ibcgov.HoldSince() > first)
+	println("a new hold since day 20:", ibcgov.Held(govRoute), ibcgov.HoldSince(govRoute) > first)
 	at(21)
 	ibcgov.Execute(cross(cur), d2) // D2's first deferral: anchored at day 20
 	d, _ := ibcgov.Decision(d2)
-	println("D2 on day 21 of the first hold:", d.State(), "| seat 3 replaced:", ibcgov.Seat(3) == g3new)
+	println("D2 on day 21 of the first hold:", d.State(), "| seat 3 replaced:", ibcgov.Seat(govRoute, 3) == g3new)
 	at(41)
 	advance(time.Second)
 	ibcgov.Execute(cross(cur), d2)
 	d, _ = ibcgov.Decision(d2)
-	println("D2 on day 21 of its own hold:", d.State(), "| seat 3 replaced:", ibcgov.Seat(3) == g3new)
+	println("D2 on day 21 of its own hold:", d.State(), "| seat 3 replaced:", ibcgov.Seat(govRoute, 3) == g3new)
 }
 
 // Output:

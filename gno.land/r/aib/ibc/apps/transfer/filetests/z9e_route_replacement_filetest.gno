@@ -22,6 +22,10 @@ import (
 	"gno.land/r/aib/ibc/ibcgov"
 )
 
+// govRoute is the route this test's decisions name (ADR 0007: route-scoped
+// entry points take the route).
+var govRoute string
+
 // bridge is the route's Ethereum router, ICS20 transfer and IBCAdmin: its
 // protected recipients.
 const bridge = "0x1d95d544586eacb63b6154e9e45122b32ded11aa 0x00000000000000000000000000000000000b0002 0x00000000000000000000000000000000000b0003"
@@ -63,6 +67,7 @@ func execute(cur realm, id int64) {
 // enrolls the client as a route, every step a governor decision.
 func setupRoute(cur realm) string {
 	clientID := core.CreateClient(cross(cur), ethtesting.ClientState(), ethtesting.ConsensusState())
+	govRoute = clientID
 	core.RegisterCounterparty(cross(cur), clientID, [][]byte{{}}, "client-0")
 	execute(cur, govern(cur, ibcgov.NewEnrollRouteRequest(cross(cur), clientID, string(collector), bridge)))
 	advance(7*24*time.Hour + time.Second) // keeps the timeline of the goldens
@@ -168,7 +173,7 @@ func main(cur realm) {
 	route := setupRoute(cur) // ethereum-1
 	execute(cur, govern(cur, ibcgov.NewSetDenomRequest(cross(cur), route, "ugnot", "unescrow", 10_000, 0, 20, 2, 25_000, 40, 10_000, "0x0000000000000000000000000000000000c0ffee", 0)))
 	execute(cur, govern(cur, ibcgov.NewSetDenomRequest(cross(cur), route, weth, "mint", 4_000, 10_000, 10, 1, 0, 0, 4_000, "", 0)))
-	execute(cur, govern(cur, ibcgov.NewBindGovernanceRequest(cross(cur), route)))
+	execute(cur, govern(cur, ibcgov.NewBindGovernanceRequest(cross(cur), govRoute, route)))
 	voucher := ics20.NewDenom(weth, ics20.NewHop("transfer", route)).IBCDenom()
 
 	send(cur, route, 1_000, 1_020, ethReceiver)
@@ -178,8 +183,8 @@ func main(cur realm) {
 	execute(cur, govern(cur, ibcgov.NewVoidRequest(cross(cur), route, controls.PacketKey(route, 2), false, "inc-1")))
 	transfer.Claim(cross(cur), route, voucher, 20)
 	println("bob's vouchers:", transfer.VoucherBalanceOf(voucher, bob), "| carol:", claimState(route, 2))
-	govern(cur, ibcgov.NewEthUnpauseRequest(cross(cur), 2, ""))
-	println("governance epoch", ibcgov.Epoch(), "over", ibcgov.EpochClient(), "last seq", ibcgov.LastSeq(1))
+	govern(cur, ibcgov.NewEthUnpauseRequest(cross(cur), govRoute, 2, ""))
+	println("governance epoch", ibcgov.Epoch(govRoute), "over", ibcgov.EpochClient(govRoute), "last seq", ibcgov.LastSeq(govRoute, 1))
 
 	// The new client: an Active Ethereum client with its counterparty.
 	// The Ethereum router received the old client's send 1 and acknowledged
@@ -203,8 +208,8 @@ func main(cur realm) {
 	// The governance epoch stays over the old client until IBCAdmin's epoch
 	// notice arrives over the new one (z9zv): its decision in flight is not
 	// sent again while a packet of it is out.
-	println("governance epoch", ibcgov.Epoch(), "over", ibcgov.EpochClient(), "| epoch 1's seq 1 again:",
-		revive(func() { ibcgov.Redispatch(cross(cur), 1, 1) }))
+	println("governance epoch", ibcgov.Epoch(govRoute), "over", ibcgov.EpochClient(govRoute), "| epoch 1's seq 1 again:",
+		revive(func() { ibcgov.Redispatch(cross(cur), govRoute, 1, 1) }))
 
 	// The old client carries nothing more.
 	println("send over the old client:", revive(func() { send(cur, route, 100, 120, ethReceiver) }))

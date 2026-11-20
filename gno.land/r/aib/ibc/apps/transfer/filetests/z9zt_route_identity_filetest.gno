@@ -15,6 +15,10 @@ import (
 	"gno.land/r/aib/ibc/ibcgov"
 )
 
+// govRoute is the route this test's decisions name (ADR 0007: route-scoped
+// entry points take the route).
+var govRoute string
+
 const bridge = "0x1d95d544586eacb63b6154e9e45122b32ded11aa 0x00000000000000000000000000000000000b0002 0x00000000000000000000000000000000000b0003"
 
 var collector = testutils.TestAddress("collector")
@@ -63,6 +67,7 @@ const opaqueImpl = "gno.land/r/aib/ibc/core/impl/v1opaque"
 // identity when it executes leaves the decision spent.
 func main(cur realm) {
 	route := client(cur, ethtesting.ClientState())
+	govRoute = route
 	println("bridge of another router:", revive(func() {
 		govern(cur, ibcgov.NewEnrollRouteRequest(cross(cur), route, string(collector),
 			"0x00000000000000000000000000000000000b0001 0x00000000000000000000000000000000000b0002 0x00000000000000000000000000000000000b0003"))
@@ -70,7 +75,7 @@ func main(cur realm) {
 	execute(cur, govern(cur, ibcgov.NewEnrollRouteRequest(cross(cur), route, string(collector), bridge)))
 	// Replacements need the governance channel bound, over the route's
 	// original client.
-	execute(cur, govern(cur, ibcgov.NewBindGovernanceRequest(cross(cur), route)))
+	execute(cur, govern(cur, ibcgov.NewBindGovernanceRequest(cross(cur), govRoute, route)))
 	println("identity:", ibcgov.RouteIdentity(route))
 
 	// Genuine clients of another router, another commitments slot, another
