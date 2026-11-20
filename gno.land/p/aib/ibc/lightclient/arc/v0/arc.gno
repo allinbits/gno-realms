@@ -298,11 +298,11 @@ func (c *ArcLightClient) UpdateState(clientMsg lightclient.ClientMessage) []type
 		panic("trusted consensus state disappeared")
 	}
 	// Amortized pruning, as the Ethereum and Tendermint clients do: each
-	// update removes at most the oldest consensus state, if no proof can use
-	// it any more, so the store converges to about one trusting period of
-	// states and the storage deposit of the removed bytes is refunded to the
-	// updater. The trusted state is the latest, which is never pruned.
-	c.pruneOldestConsensusState()
+	// update removes up to prunePerUpdate of the oldest consensus states no
+	// proof can use any more and the storage deposit of the removed bytes is
+	// refunded to the updater. The trusted state is the latest, which is
+	// never pruned.
+	c.PruneExpiredConsensusStates(prunePerUpdate)
 	var b block
 	verified, from := h.verified, h.verifiedFrom
 	// The header holds no reference to this client's states once used, so a
@@ -470,6 +470,13 @@ func (c *ArcLightClient) setConsensusState(cons *ConsensusState) {
 	c.ConsensusStateByHeight.Set(heightAt(cons.Height).StringNatSort(), cons)
 }
 
+// prunePerUpdate is how many consensus states an update may prune. It
+// must be more than the one state an update adds: then an update past a
+// burst removes more than it adds, and the store shrinks back to about one
+// trusting period of states, by one per update, once updates become sparse
+// again. With one, the store would keep its peak size for good.
+const prunePerUpdate = 2
+
 // pruneOldestConsensusState removes the lowest consensus state if nothing
 // reads it any more, and reports whether it did: one below TrustedFromHeight
 // (from before a recovery), or one past the trusting period (expired), which
@@ -494,7 +501,7 @@ func (c *ArcLightClient) pruneOldestConsensusState() bool {
 
 // PruneExpiredConsensusStates removes up to limit of the consensus states
 // pruneOldestConsensusState would, oldest first, and returns how many it
-// removed. UpdateState already prunes one per update; this bulk variant
+// removed. UpdateState prunes up to prunePerUpdate; this bulk variant
 // catches up on a client that accumulated states, in batches bounded by
 // limit so that a long history does not exhaust a transaction's gas. A
 // later state is never older (updates refuse a timestamp before the

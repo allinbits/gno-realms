@@ -685,11 +685,10 @@ func (c *EthLightClient) UpdateState(clientMsg lightclient.ClientMessage) []type
 		panic("trusted consensus state disappeared")
 	}
 	// Amortized pruning, as the tendermint client does: each update removes
-	// at most the oldest consensus state, if no proof can use it any more, so
-	// the store converges to about one trust window of states and the storage
-	// deposit of the removed bytes is refunded to the updater. The trusted
-	// state is the latest, which is never pruned.
-	c.pruneOldestConsensusState()
+	// up to prunePerUpdate of the oldest consensus states no proof can use
+	// any more and the storage deposit of the removed bytes is refunded to
+	// the updater. The trusted state is the latest, which is never pruned.
+	c.PruneExpiredConsensusStates(prunePerUpdate)
 	u := h.ConsensusUpdate
 	if u.FinalizedHeader.Beacon.Slot <= trusted.Slot {
 		// A next-committee-only update (see verifyHeader): record the
@@ -998,6 +997,13 @@ func (c *EthLightClient) setConsensusState(cons *ConsensusState) {
 	c.ConsensusStateByHeight.Set(heightAtSlot(cons.Slot).StringNatSort(), cons)
 }
 
+// prunePerUpdate is how many consensus states an update may prune. It
+// must be more than the one state an update adds: then an update past a
+// burst removes more than it adds, and the store shrinks back to about one
+// trust window of states, by one per update, once updates become sparse
+// again. With one, the store would keep its peak size for good.
+const prunePerUpdate = 2
+
 // pruneOldestConsensusState removes the client's own lowest-slot consensus
 // state if nothing reads it any more, and reports whether it did: one below
 // TrustedFromSlot (from before a recovery), or one past the trust window
@@ -1024,7 +1030,7 @@ func (c *EthLightClient) pruneOldestConsensusState() bool {
 
 // PruneExpiredConsensusStates removes up to limit of the consensus states
 // pruneOldestConsensusState would, oldest first, and returns how many it
-// removed. UpdateState already prunes one per update; this bulk variant
+// removed. UpdateState prunes up to prunePerUpdate; this bulk variant
 // catches up on clients that accumulated states before that, e.g. from an
 // implementation's OnInstall migration, in batches bounded by limit so that
 // a long history does not exhaust a transaction's gas. Slots increase with

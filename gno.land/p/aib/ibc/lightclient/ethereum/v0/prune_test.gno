@@ -110,6 +110,27 @@ func TestUpdateStatePrunes(t *testing.T) {
 	urequire.Equal(t, f.consensusState.Slot, oldestSlot(c))
 }
 
+// An update past a burst prunes more than the one state it adds, so the
+// store shrinks back once updates are sparse: three states nothing reads,
+// two removed and one added, and the third is left for the next update.
+func TestUpdateStateShrinksBacklog(t *testing.T) {
+	f := fixtureErc20()
+	c := NewEthLightClient()
+	urequire.NoError(t, c.Initialize(f.clientState, f.consensusState))
+	for i := uint64(1); i <= 3; i++ {
+		stale := copyConsensusState(f.consensusState)
+		stale.Slot = f.consensusState.Slot - i
+		c.setConsensusState(&stale)
+	}
+	c.TrustedFromSlot = f.consensusState.Slot
+
+	hdr := updates(f)[0]
+	urequire.NoError(t, verifyAt(c, hdr))
+	c.UpdateState(hdr)
+	urequire.Equal(t, 3, c.ConsensusStateByHeight.Size(), "four, two pruned, one added")
+	urequire.Equal(t, f.consensusState.Slot-1, oldestSlot(c))
+}
+
 // A proof at a slot past the trust window is refused whether or not its
 // state was pruned yet, and whatever store holds it: a retired verifier's
 // history is never pruned.
