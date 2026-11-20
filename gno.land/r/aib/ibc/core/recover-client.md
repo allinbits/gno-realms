@@ -29,8 +29,12 @@ by GovDAO after.
 
 From this point `SendPacket`, `RecvPacket`, `Acknowledgement`, `Timeout` and
 `UpdateClient` all panic for this client. Any in-flight user packets are
-stuck, and any inbound packets cannot be acknowledged. Channels using this
-client are frozen on this side until the client is recovered.
+stuck, and no new inbound packet can be received. An asynchronous
+acknowledgement already pending can still be written (`WriteAcknowledgement`
+checks no client status, only that the core is not paused), and relayed: the
+counterparty verifies it with its own client of gno.land, which this client's
+status does not affect. Channels using this client are otherwise frozen on
+this side until it is recovered.
 
 ### 2. Off-chain coordination
 
@@ -97,8 +101,13 @@ Gated on the governance realm; the decision is built with
 
 `p/aib/ibc/lightclient/tendermint/v0/tendermint.gno`:
 
-1. Type-assert substitute to `*TMLightClient`.
-2. `isMatchingClientState` check.
+1. Read the substitute's tendermint/v0 state through `Tendermint()`: the v0
+   verifier itself, or a later verifier version wrapping it (`tmState`), so a
+   client whose verifier was replaced stays usable as a substitute. Any other
+   verifier is refused.
+2. `isMatchingClientState` check, then `ValidateBasic` on the substitute's
+   client state: a later version validated it with its own code, so what the
+   subject adopts is held to v0's rules too.
 3. Fetch `substitute.GetConsensusState(substitute.LatestHeight)`.
 4. Copy into subject: `ChainID`, `LatestHeight`, `TrustingPeriod`; reset
    `FrozenHeight`.
@@ -113,8 +122,11 @@ Gated on the governance realm; the decision is built with
   `counterpartyClientID`, `counterpartyMerklePrefix` are untouched** — that is
   the point: channels keep working with their existing identifiers and
   in-flight state.
-- Pre-recovery consensus states remain in the subject's tree but are below the
-  new `LatestHeight` and are not used to verify new packets.
+- Pre-recovery consensus states remain in the subject's tree and stay
+  trusted, as in ibc-go: a proof at one of their heights still verifies,
+  subject to the usual proof-height checks, until pruning removes them (ADR
+  0004, Known limits). Nothing requires the substitute's latest height to be
+  above the subject's, so the new `LatestHeight` may be the lower one.
 - The substitute client is **not** deleted and remains `Active`. It can be
   reused for a future recovery or left idle.
 - `recover_client` event is emitted.
@@ -147,8 +159,11 @@ parameters through the same governance action:
 
 Other parameters (`TrustLevel`, `UnbondingPeriod`, `MaxClockDrift`,
 `ProofSpecs`, `UpgradePath`) **cannot** be changed by recovery — the match
-check rejects the substitute. Changing those requires `UpgradeClient` (or a
-fresh client migration).
+check rejects the substitute. `UnbondingPeriod`, `ProofSpecs` and
+`UpgradePath` are the counterparty chain's and change with its upgrade
+(`UpgradeClient`, which also scales `TrustingPeriod` down when the unbonding
+period shrinks). `TrustLevel` and `MaxClockDrift` are this client's own
+choice: an upgrade keeps them, so changing them needs a new client.
 
 ## Ethereum clients
 
@@ -181,8 +196,10 @@ The tendermint rules above do not apply to `ethereum` clients; see ADR 0003.
 ## Caveats
 
 - The substitute's `LatestHeight` is not required to be greater than the
-  subject's. Same as ibc-go — nothing enforces a "forward" recovery, though in
-  practice the substitute is always ahead.
+  subject's, so a recovery may move the client back. This differs from
+  ibc-go, whose `RecoverClient` refuses a substitute not strictly ahead of the
+  subject; here nothing enforces a "forward" recovery, though in practice the
+  substitute is always ahead.
 - Only the substitute's consensus state **at its `LatestHeight`** is copied
   into the subject. Earlier substitute consensus states are not migrated.
 - Recovery does not reset packet sequences or clear commitments — those are

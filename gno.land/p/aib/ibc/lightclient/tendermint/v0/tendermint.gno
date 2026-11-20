@@ -34,6 +34,17 @@ func NewLightClient() lightclient.Interface {
 
 var _ lightclient.Interface = (*TMLightClient)(nil)
 
+// tmState is a verifier exposing tendermint/v0 state: this one, or a later
+// version wrapping it.
+type tmState interface {
+	Tendermint() *TMLightClient
+}
+
+// Tendermint is the tendermint/v0 state of this verifier: itself. A later
+// verifier version wrapping v0 returns the client it wraps, so a recovery
+// from it, and the core's renders of it, read its state.
+func (tm *TMLightClient) Tendermint() *TMLightClient { return tm }
+
 // Implements lightclient.Interface. It runs once, on a client not yet
 // initialized: a stored client's trusted state is never replaced through it.
 func (tm *TMLightClient) Initialize(clientState lightclient.ClientState, consensusState lightclient.ConsensusState) error {
@@ -317,7 +328,7 @@ func (tm *TMLightClient) RecoverClient(substitute lightclient.Interface) error {
 	if err := tm.CheckRecovery(substitute); err != nil {
 		return err
 	}
-	sub := substitute.(*TMLightClient)
+	sub := substitute.(tmState).Tendermint()
 	subLatest := sub.ClientState.LatestHeight
 	subConsState, _ := sub.GetConsensusState(subLatest)
 
@@ -352,12 +363,23 @@ func (tm *TMLightClient) CheckRecovery(substitute lightclient.Interface) error {
 	if substitute == nil {
 		return errors.New("substitute must not be nil")
 	}
-	sub, ok := substitute.(*TMLightClient)
+	// The v0 verifier, or a later version wrapping it.
+	s, ok := substitute.(tmState)
 	if !ok {
-		return ufmt.Errorf("substitute client type mismatch: expected *TMLightClient, got %T", substitute)
+		return ufmt.Errorf("substitute client type mismatch: expected a tendermint client, got %T", substitute)
+	}
+	sub := s.Tendermint()
+	if sub == nil || sub.ClientState == nil {
+		return errors.New("substitute keeps no tendermint/v0 state")
 	}
 	if field := mismatchingClientStateField(tm.ClientState, sub.ClientState); field != "" {
 		return ufmt.Errorf("subject and substitute client states differ on %s", field)
+	}
+	// A later version's state was validated by its own code; check what
+	// the subject adopts of it (chain id, trusting period, latest height)
+	// against v0's rules too.
+	if err := sub.ClientState.ValidateBasic(); err != nil {
+		return ufmt.Errorf("substitute client state: %v", err)
 	}
 	subLatest := sub.ClientState.LatestHeight
 	if _, found := sub.GetConsensusState(subLatest); !found {
