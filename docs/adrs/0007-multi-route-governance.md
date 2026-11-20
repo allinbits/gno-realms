@@ -2,7 +2,7 @@
 
 - Status: Accepted, implemented
 - Date: 2026-11-17
-- Depends on: ADR 0004 (route controls, ibcgov), ADR 0006 (Arc light client,
+- Depends on: ADR 0004 (route controls, ibcgov), ADR 0008 (Arc light client,
   allinbits/gno-realms#98)
 - Supersedes in part: ADR 0004's one-route scope, its global guardians and
   hold, and its route-less channel API (section 9 lists the rules)
@@ -19,7 +19,7 @@ route it governs over (its kind 10 and its emergency recovery name that
 route's client). A second route would therefore have no governed replacement
 or recovery path.
 
-With the Arc light client (ADR 0006), gno.land should be able to run an
+With the Arc light client (ADR 0008), gno.land should be able to run an
 Ethereum route and an Arc route **at the same time**. They are two different
 IBC links, each to its own chain, with its own ICS26 router and IBCAdmin.
 
