@@ -195,9 +195,9 @@ state through `Arc()`, as the Ethereum client's do through `Ethereum()`
 (`TestTestnetRecoveryFromLaterVersion`). The renders treat a verifier that
 keeps no arc/v0 state as the Ethereum ones do, instead of panicking: the
 consensus-state routes return an error, and the client route leaves out
-the client and consensus state. The chain alone, its id and registry address, is `ChainIdentity`,
-for ADR 0007 (gno-realms #100), under which ibcgov keeps one route per
-counterparty chain, whatever its router.
+the client and consensus state. The chain alone, its id and registry address, is `ChainIdentity`:
+ibcgov keeps one route per counterparty chain, whatever its router (ADR
+0007).
 
 **Integration.** The core records, when it creates a client, whether its
 counterparty is an ICS26 router on an EVM chain (`Client.IsRouter`,
@@ -288,14 +288,13 @@ Ed25519 keys from a fixed seed, since Gno cannot sign.
   signature verifies under both; at worst a certificate with an edge-case
   signature fails here (liveness, not safety): a relayer can omit that
   signature when the rest still exceeds 2/3.
-- **Routes.** ibcgov enrolls one router route in total (`checkOneRoute`):
-  once an Ethereum route is enrolled, an Arc route can be neither enrolled
-  beside it nor take its place, since a replacement client must
-  authenticate the route's recorded identity (chain id and router,
-  `checkIdentity`). An Arc route needs a deployment with no Ethereum route
-  until ADR 0007 (gno-realms #100) gives each router route its own
-  governance. A router client of no enrolled route carries no transfers (the
-  route controls refuse it).
+- **Routes.** Under ADR 0007 ibcgov governs one route per counterparty
+  chain, so an Arc route runs beside an Ethereum one, each with its own
+  governance channel, IBCAdmin, seats and holds. An Arc client never takes
+  an Ethereum route's place, nor the reverse: a replacement client must
+  authenticate the route's recorded identity (chain, registry or genesis
+  root, and router: `checkIdentity`). A router client of no enrolled route
+  carries no transfers (the route controls refuse it).
 
 ## Alternatives considered
 

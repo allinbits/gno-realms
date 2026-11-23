@@ -525,8 +525,11 @@ func TestReaderJSON(t *testing.T) {
 	if c, ok := rd.DenomConfig("ethereum-1", "ugnot"); !ok || c != gnot() {
 		t.Fatalf("config")
 	}
-	if rd.RoutesJSON() == "[]" {
-		t.Fatalf("routes json")
+	if rj := rd.RoutesJSON(""); !strings.Contains(rj, `"route":"ethereum-1"`) || !strings.HasSuffix(rj, `"next":""}`) {
+		t.Fatalf("routes json %s", rj)
+	}
+	if !rd.HasRoutes() {
+		t.Fatalf("has routes")
 	}
 	// The JSON escapes what the counterparty wrote, and nothing of it is
 	// active in Markdown (Codex round 6 #6).
@@ -1457,5 +1460,33 @@ func TestForgedVoidLossesPreflighted(t *testing.T) {
 	}
 	if d.Totals.OpenUnrecovered != maxAmount-2 || rt.Incident("ibc/WETH", "inc-2").OpenUnrecovered != 3 {
 		t.Fatalf("booked %+v", d.Totals)
+	}
+}
+
+// The routes are listed by pages, whatever their number (gno-realms ADR
+// 0007): RoutesFrom from a key on, RoutesJSON PageLines a page with the next
+// page's first key as its cursor.
+func TestRoutesPaged(t *testing.T) {
+	reg := NewRegistry()
+	if reg.HasRoutes() {
+		t.Fatalf("an empty registry has routes")
+	}
+	for i := 0; i < PageLines+3; i++ {
+		k := "r-" + strconv.Itoa(1000+i)
+		if _, err := reg.Enroll(k, collector, 1, 1); err != nil {
+			t.Fatal(err)
+		}
+	}
+	rd := reg.ReadOnly().(Reader)
+	if got := rd.RoutesFrom("r-1001", 2); len(got) != 2 || got[0] != "r-1001" || got[1] != "r-1002" {
+		t.Fatalf("from a key: %v", got)
+	}
+	first := rd.RoutesJSON("")
+	cursor := "r-" + strconv.Itoa(1000+PageLines)
+	if !strings.HasSuffix(first, `"next":"`+cursor+`"}`) {
+		t.Fatalf("first page's cursor: %s", first[len(first)-40:])
+	}
+	if second := rd.RoutesJSON(cursor); strings.Count(second, `"route":`) != 3 || !strings.HasSuffix(second, `"next":""}`) {
+		t.Fatalf("second page: %d routes", strings.Count(second, `"route":`))
 	}
 }

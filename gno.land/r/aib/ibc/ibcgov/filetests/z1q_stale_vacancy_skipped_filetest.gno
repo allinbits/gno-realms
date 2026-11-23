@@ -13,6 +13,10 @@ import (
 	"gno.land/r/aib/ibc/ibcgov"
 )
 
+// govRoute is the route this test's decisions name (ADR 0007: route-scoped
+// entry points take the route).
+var govRoute string
+
 // bridge is the route's Ethereum router, ICS20 transfer and IBCAdmin: its
 // protected recipients.
 const bridge = "0x1d95d544586eacb63b6154e9e45122b32ded11aa 0x00000000000000000000000000000000000b0002 0x00000000000000000000000000000000000b0003"
@@ -53,6 +57,7 @@ func execute(cur realm, id int64) {
 // enrolls the client as a route, every step a governor decision.
 func setupRoute(cur realm) string {
 	clientID := core.CreateClient(cross(cur), ethtesting.ClientState(), ethtesting.ConsensusState())
+	govRoute = clientID
 	core.RegisterCounterparty(cross(cur), clientID, [][]byte{{}}, "client-0")
 	execute(cur, govern(cur, ibcgov.NewEnrollRouteRequest(cross(cur), clientID, string(collector), bridge)))
 	advance(7*24*time.Hour + time.Second) // keeps the timeline of the goldens
@@ -62,13 +67,13 @@ func setupRoute(cur realm) string {
 // flagAs sets a flag as the key of a seat.
 func flagAs(cur realm, who address, route, fn, keys string) {
 	testing.SetRealm(testing.NewUserRealm(who))
-	ibcgov.SetFlag(cross(cur), route, fn, keys)
+	ibcgov.SetFlag(cross(cur), govRoute, route, fn, keys)
 	testing.SetRealm(testing.NewCodeRealm("gno.land/r/aib/main"))
 }
 
 func clearAs(cur realm, who address, route, fn string) {
 	testing.SetRealm(testing.NewUserRealm(who))
-	ibcgov.ClearFlag(cross(cur), route, fn)
+	ibcgov.ClearFlag(cross(cur), govRoute, route, fn)
 	testing.SetRealm(testing.NewCodeRealm("gno.land/r/aib/main"))
 }
 
@@ -78,19 +83,19 @@ func clearAs(cur realm, who address, route, fn string) {
 // (the seat's generation moved on), and A keeps the seat and its flag.
 func main(cur realm) {
 	route := setupRoute(cur)
-	execute(cur, govern(cur, ibcgov.NewSetSeatsRequest(cross(cur), "0:"+string(g0)+",1:"+string(g1))))
-	execute(cur, govern(cur, ibcgov.NewSetSeatsRequest(cross(cur), "2:"+string(g2)+",3:"+string(g3))))
-	vacancy := govern(cur, ibcgov.NewSetSeatsRequest(cross(cur), "2:"))
-	toB := govern(cur, ibcgov.NewSetSeatsRequest(cross(cur), "2:"+string(g3new)))
+	execute(cur, govern(cur, ibcgov.NewSetSeatsRequest(cross(cur), govRoute, "0:"+string(g0)+",1:"+string(g1))))
+	execute(cur, govern(cur, ibcgov.NewSetSeatsRequest(cross(cur), govRoute, "2:"+string(g2)+",3:"+string(g3))))
+	vacancy := govern(cur, ibcgov.NewSetSeatsRequest(cross(cur), govRoute, "2:"))
+	toB := govern(cur, ibcgov.NewSetSeatsRequest(cross(cur), govRoute, "2:"+string(g3new)))
 	execute(cur, toB)
-	println("seat 2 is B:", ibcgov.Seat(2) == g3new)
-	execute(cur, govern(cur, ibcgov.NewSetSeatsRequest(cross(cur), "2:"+string(g2))))
-	println("seat 2 is A again:", ibcgov.Seat(2) == g2)
+	println("seat 2 is B:", ibcgov.Seat(govRoute, 2) == g3new)
+	execute(cur, govern(cur, ibcgov.NewSetSeatsRequest(cross(cur), govRoute, "2:"+string(g2))))
+	println("seat 2 is A again:", ibcgov.Seat(govRoute, 2) == g2)
 	flagAs(cur, g2, route, ibcgov.FnSends, "")
 	ibcgov.Execute(cross(cur), vacancy)
 	d, _ := ibcgov.Decision(vacancy)
 	println("the stale vacancy:", d.State(), "-", d.Note)
-	println("seat 2 kept by A:", ibcgov.Seat(2) == g2, "| its flag stands:", ibcgov.Flagged(route, ibcgov.FnSends))
+	println("seat 2 kept by A:", ibcgov.Seat(govRoute, 2) == g2, "| its flag stands:", ibcgov.Flagged(route, ibcgov.FnSends))
 }
 
 // Output:

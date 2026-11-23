@@ -18,6 +18,10 @@ import (
 	"gno.land/r/aib/ibc/ibcgov"
 )
 
+// govRoute is the route this test's decisions name (ADR 0007: route-scoped
+// entry points take the route).
+var govRoute string
+
 // bridge is the route's Ethereum router, ICS20 transfer and IBCAdmin: its
 // protected recipients.
 const bridge = "0x1d95d544586eacb63b6154e9e45122b32ded11aa 0x00000000000000000000000000000000000b0002 0x00000000000000000000000000000000000b0003"
@@ -59,6 +63,7 @@ const weth = "0x457df1a9866af7b6a78eeba9291fc3e58b4d864b"
 // refuses.
 func main(cur realm) {
 	client := core.CreateClient(cross(cur), ethtesting.ClientState(), ethtesting.ConsensusState())
+	govRoute = client
 	core.RegisterCounterparty(cross(cur), client, [][]byte{{}}, "gnoland")
 	// The gno client approved to carry the epoch over gnoland.v2.
 	local := core.CreateClient(cross(cur), ethtesting.ClientState(), ethtesting.ConsensusState())
@@ -66,28 +71,28 @@ func main(cur realm) {
 	println("counterparty:", core.CounterpartyClientID(client))
 	// The governance channel rides a route: enroll the client first.
 	execute(cur, govern(cur, ibcgov.NewEnrollRouteRequest(cross(cur), client, string(collector), bridge)))
-	execute(cur, govern(cur, ibcgov.NewBindGovernanceRequest(cross(cur), client)))
+	execute(cur, govern(cur, ibcgov.NewBindGovernanceRequest(cross(cur), govRoute, client)))
 
-	govern(cur, ibcgov.NewEthRouteSettingsRequest(cross(cur), "gnoland", 86400))
-	govern(cur, ibcgov.NewEthClientRequest(cross(cur), 1, "gnoland.v2", local, "6d61696e", "0x1111111111111111111111111111111111111111", "abababababababababababababababababababababababababababababababab"))
-	govern(cur, ibcgov.NewEthRouteReplacementRequest(cross(cur), "gnoland", "gnoland.v2", 1, local))
-	println("dispatched:", ibcgov.LastSeq(1))
+	govern(cur, ibcgov.NewEthRouteSettingsRequest(cross(cur), govRoute, "gnoland", 86400))
+	govern(cur, ibcgov.NewEthClientRequest(cross(cur), govRoute, 1, "gnoland.v2", local, "6d61696e", "0x1111111111111111111111111111111111111111", "abababababababababababababababababababababababababababababababab"))
+	govern(cur, ibcgov.NewEthRouteReplacementRequest(cross(cur), govRoute, "gnoland", "gnoland.v2", 1, local))
+	println("dispatched:", ibcgov.LastSeq(govRoute, 1))
 	for _, id := range []string{"channel-1", "client-7", "abc", "gno/land"} {
 		println("add", id+":", revive(func() {
-			govern(cur, ibcgov.NewEthRouteReplacementRequest(cross(cur), "gnoland", id, 1, local))
+			govern(cur, ibcgov.NewEthRouteReplacementRequest(cross(cur), govRoute, "gnoland", id, 1, local))
 		}))
 	}
-	println("settings client-01:", revive(func() { govern(cur, ibcgov.NewEthRouteSettingsRequest(cross(cur), "client-01", 1)) }))
+	println("settings client-01:", revive(func() { govern(cur, ibcgov.NewEthRouteSettingsRequest(cross(cur), govRoute, "client-01", 1)) }))
 
 	// Valid router ids that Markdown would act on are shown as written on the
 	// governance page (Codex round 8 #6): the custom ids kind 6 adds for the
 	// gno clients paired with them. A kind naming the route takes its router
 	// client only, whatever the grammar admits.
-	println("settings _eth_:", revive(func() { govern(cur, ibcgov.NewEthRouteSettingsRequest(cross(cur), "_eth_", 3600)) }))
+	println("settings _eth_:", revive(func() { govern(cur, ibcgov.NewEthRouteSettingsRequest(cross(cur), govRoute, "_eth_", 3600)) }))
 	for _, id := range []string{"_eth_", "<bridge>"} {
 		c := core.CreateClient(cross(cur), ethtesting.ClientState(), ethtesting.ConsensusState())
 		core.RegisterCounterparty(cross(cur), c, [][]byte{{}}, id)
-		govern(cur, ibcgov.NewEthClientRequest(cross(cur), 1, id, c, "6d61696e", "0x1111111111111111111111111111111111111111", "abababababababababababababababababababababababababababababababab"))
+		govern(cur, ibcgov.NewEthClientRequest(cross(cur), govRoute, 1, id, c, "6d61696e", "0x1111111111111111111111111111111111111111", "abababababababababababababababababababababababababababababababab"))
 	}
 	for _, l := range strings.Split(ibcgov.Render(""), "\n") {
 		if strings.Contains(l, "client op 1") {
@@ -116,7 +121,7 @@ func main(cur realm) {
 // add gno/land: ibcgov: a router client id added by governance is a custom id: 4 to 128 characters of a-z A-Z 0-9 . _ + - # [ ] < >, not starting with client- or channel-: gno/land
 // settings client-01: ibcgov: not an Ethereum router client id: client-01
 // settings _eth_: ibcgov: _eth_ is not the Ethereum router's current client of the route, gnoland
-// - #8 applied: ethereum kind 6 \(client\): client op 1 \<bridge\> counterparty ethereum\-4 prefix \[6d61696e\] light client 0x1111111111111111111111111111111111111111 code hash abababababababababababababababababababababababababababababababab (recorded 1235777492, applied 1235777492) — dispatched as epoch 1 seq 5
-// - #7 applied: ethereum kind 6 \(client\): client op 1 \_eth\_ counterparty ethereum\-3 prefix \[6d61696e\] light client 0x1111111111111111111111111111111111111111 code hash abababababababababababababababababababababababababababababababab (recorded 1235777492, applied 1235777492) — dispatched as epoch 1 seq 4
-// - #4 applied: ethereum kind 6 \(client\): client op 1 gnoland\.v2 counterparty ethereum\-2 prefix \[6d61696e\] light client 0x1111111111111111111111111111111111111111 code hash abababababababababababababababababababababababababababababababab (recorded 1235777492, applied 1235777492) — dispatched as epoch 1 seq 2
+// - #8 applied: route ethereum\-1, ethereum kind 6 \(client\): client op 1 \<bridge\> counterparty ethereum\-4 prefix \[6d61696e\] light client 0x1111111111111111111111111111111111111111 code hash abababababababababababababababababababababababababababababababab (recorded 1235777492, applied 1235777492) — dispatched as epoch 1 seq 5
+// - #7 applied: route ethereum\-1, ethereum kind 6 \(client\): client op 1 \_eth\_ counterparty ethereum\-3 prefix \[6d61696e\] light client 0x1111111111111111111111111111111111111111 code hash abababababababababababababababababababababababababababababababab (recorded 1235777492, applied 1235777492) — dispatched as epoch 1 seq 4
+// - #4 applied: route ethereum\-1, ethereum kind 6 \(client\): client op 1 gnoland\.v2 counterparty ethereum\-2 prefix \[6d61696e\] light client 0x1111111111111111111111111111111111111111 code hash abababababababababababababababababababababababababababababababab (recorded 1235777492, applied 1235777492) — dispatched as epoch 1 seq 2
 // receive from gnoland: true

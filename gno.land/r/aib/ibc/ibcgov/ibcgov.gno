@@ -9,15 +9,17 @@
 //   - the governor: the key that deployed this realm decides through the same
 //     builders, checks and delays (Govern) until it calls Yield once, after
 //     which only GovDAO's proposals decide;
-//   - the guardians on gno.land: six seats (0–3 guardians, 4–5 watch keys)
-//     whose flags pause a route's sends, credits, payouts or refunds at once,
-//     and whose holds (two guardian seats flagging) defer every queued
-//     decision;
+//   - one record per router route (ADR 0007): its guardians, six seats (0–3
+//     guardians, 4–5 watch keys) whose flags pause the route's sends,
+//     credits, payouts or refunds at once and whose hold (two guardian seats
+//     flagging) defers the route's queued decisions, and every global one to
+//     day 21 of the global hold at most; and its governance channel and
+//     expected transitions; one route per counterparty chain;
 //   - the sole holder of the loosening powers over the IBC core and the
 //     transfer app (core.IBCGovPath, transfer.IBCGovPath);
-//   - the sender of governance packets to IBCAdmin on Ethereum: the gov port,
-//     the §5.4 envelope, contiguous per-epoch sequences, one-time dispatch
-//     authorizations and re-dispatch of identical bytes.
+//   - the sender of governance packets to each route's IBCAdmin: the gov
+//     port, the §5.4 envelope, contiguous per-epoch sequences per route,
+//     one-time dispatch authorizations and re-dispatch of identical bytes.
 //
 // Builders are called in a MsgRun: before the yield the governor runs
 //

@@ -22,6 +22,10 @@ import (
 	"gno.land/r/aib/ibc/ibcgov"
 )
 
+// govRoute is the route this test's decisions name (ADR 0007: route-scoped
+// entry points take the route).
+var govRoute string
+
 // bridge is the route's Ethereum router, ICS20 transfer and IBCAdmin: its
 // protected recipients.
 const bridge = "0x1d95d544586eacb63b6154e9e45122b32ded11aa 0x00000000000000000000000000000000000b0002 0x00000000000000000000000000000000000b0003"
@@ -63,12 +67,13 @@ func execute(cur realm, id int64) {
 // enrolls the client as a route, every step a governor decision.
 func setupRoute(cur realm) string {
 	clientID := core.CreateClient(cross(cur), ethtesting.ClientState(), ethtesting.ConsensusState())
+	govRoute = clientID
 	core.RegisterCounterparty(cross(cur), clientID, [][]byte{{}}, "client-0")
 	execute(cur, govern(cur, ibcgov.NewEnrollRouteRequest(cross(cur), clientID, string(collector), bridge)))
 	// The governance channel is bound before any replacement (one is
 	// refused until then), over the route's original client; its 7 days
 	// keep the timeline of the goldens.
-	execute(cur, govern(cur, ibcgov.NewBindGovernanceRequest(cross(cur), clientID)))
+	execute(cur, govern(cur, ibcgov.NewBindGovernanceRequest(cross(cur), govRoute, clientID)))
 	return clientID
 }
 
@@ -174,7 +179,7 @@ func main(cur realm) {
 	execute(cur, govern(cur, ibcgov.NewReplaceRouteRequest(cross(cur), route, b, 1)))
 	for _, items := range []string{"7:1:1000,7:5:2500", "7:1:1000,7:2:0", "7:5:1,7:5:2", "7:4:5,8:5:1,8:3:0"} {
 		gno := revive(func() { ibcgov.NewSettleRequest(cross(cur), route, route, items, "inc-1") })
-		eth := revive(func() { ibcgov.NewEthSettleRequest(cross(cur), "client-0", items) })
+		eth := revive(func() { ibcgov.NewEthSettleRequest(cross(cur), govRoute, "client-0", items) })
 		println(items+":", gno == nil, eth == nil, gno)
 	}
 }

@@ -19,6 +19,10 @@ import (
 	"gno.land/r/aib/ibc/ibcgov"
 )
 
+// govRoute is the route this test's decisions name (ADR 0007: route-scoped
+// entry points take the route).
+var govRoute string
+
 // bridge is the route's Ethereum router, ICS20 transfer and IBCAdmin: its
 // protected recipients.
 const bridge = "0x1d95d544586eacb63b6154e9e45122b32ded11aa 0x00000000000000000000000000000000000b0002 0x00000000000000000000000000000000000b0003"
@@ -62,6 +66,7 @@ func execute(cur realm, id int64) {
 // enrolls the client as a route, every step a governor decision.
 func setupRoute(cur realm) string {
 	clientID := core.CreateClient(cross(cur), ethtesting.ClientState(), ethtesting.ConsensusState())
+	govRoute = clientID
 	core.RegisterCounterparty(cross(cur), clientID, [][]byte{{}}, "client-0")
 	execute(cur, govern(cur, ibcgov.NewEnrollRouteRequest(cross(cur), clientID, string(collector), bridge)))
 	advance(7*24*time.Hour + time.Second) // keeps the timeline of the goldens
@@ -71,13 +76,13 @@ func setupRoute(cur realm) string {
 // flagAs sets a flag as the key of a seat.
 func flagAs(cur realm, who address, route, fn, keys string) {
 	testing.SetRealm(testing.NewUserRealm(who))
-	ibcgov.SetFlag(cross(cur), route, fn, keys)
+	ibcgov.SetFlag(cross(cur), govRoute, route, fn, keys)
 	testing.SetRealm(testing.NewCodeRealm("gno.land/r/aib/main"))
 }
 
 func clearAs(cur realm, who address, route, fn string) {
 	testing.SetRealm(testing.NewUserRealm(who))
-	ibcgov.ClearFlag(cross(cur), route, fn)
+	ibcgov.ClearFlag(cross(cur), govRoute, route, fn)
 	testing.SetRealm(testing.NewCodeRealm("gno.land/r/aib/main"))
 }
 
@@ -132,7 +137,7 @@ const many = 40
 func main(cur realm) {
 	route := setupRoute(cur)
 	execute(cur, govern(cur, ibcgov.NewSetDenomRequest(cross(cur), route, weth, "mint", 4_000, 10_000, 10, 1, 0, 0, 4_000, "", 0)))
-	execute(cur, govern(cur, ibcgov.NewSetSeatsRequest(cross(cur), "0:"+string(g0)+",1:"+string(g1))))
+	execute(cur, govern(cur, ibcgov.NewSetSeatsRequest(cross(cur), govRoute, "0:"+string(g0)+",1:"+string(g1))))
 	voucher := ics20.NewDenom(weth, ics20.NewHop("transfer", route)).IBCDenom()
 	recv(cur, route, 1, weth, bob.String(), 3_000)
 	var clients []string
@@ -144,24 +149,24 @@ func main(cur realm) {
 	flagAs(cur, g0, route, ibcgov.FnPayouts, "")
 	flagAs(cur, g1, route, ibcgov.FnSends, "")
 	epoch, _ := ibcgov.PayoutsEpoch(route)
-	println("hold:", ibcgov.Held(), "| payouts flagged:", ibcgov.Flagged(route, ibcgov.FnPayouts), "| epoch", epoch)
+	println("hold:", ibcgov.Held(govRoute), "| payouts flagged:", ibcgov.Flagged(route, ibcgov.FnPayouts), "| epoch", epoch)
 
 	// Vacating seat 0 waits, through the hold, until day 21 of it.
-	since := ibcgov.HoldSince()
-	vacate := govern(cur, ibcgov.NewSetSeatsRequest(cross(cur), "0:"))
+	since := ibcgov.HoldSince(govRoute)
+	vacate := govern(cur, ibcgov.NewSetSeatsRequest(cross(cur), govRoute, "0:"))
 	advance(time.Duration(since+21*86400-testing.GetContext().Time.Unix()) * time.Second)
 	ibcgov.Execute(cross(cur), vacate)
 	t1 := time.Now().Unix()
 	epoch, _ = ibcgov.PayoutsEpoch(route)
 	println("after the removal: payouts flagged:", ibcgov.Flagged(route, ibcgov.FnPayouts), "| a client flagged:", ibcgov.Flagged(clients[7], ibcgov.FnSends),
-		"| epoch", epoch, "| hold ending:", ibcgov.Held())
+		"| epoch", epoch, "| hold ending:", ibcgov.Held(govRoute))
 	advance(25 * time.Hour)
-	println("a day later, hold:", ibcgov.Held())
+	println("a day later, hold:", ibcgov.Held(govRoute))
 
 	// A new key in seat 0 starts with no flag.
-	execute(cur, govern(cur, ibcgov.NewSetSeatsRequest(cross(cur), "0:"+string(g2))))
+	execute(cur, govern(cur, ibcgov.NewSetSeatsRequest(cross(cur), govRoute, "0:"+string(g2))))
 	t2 := time.Now().Unix()
-	println("seat 0:", ibcgov.Seat(0) == g2, "| a client flagged:", ibcgov.Flagged(clients[3], ibcgov.FnSends))
+	println("seat 0:", ibcgov.Seat(govRoute, 0) == g2, "| a client flagged:", ibcgov.Flagged(clients[3], ibcgov.FnSends))
 
 	// Before pruning: cleared as of T1, a day's refill since, and paid.
 	_, at := ibcgov.PayoutsEpoch(route)
@@ -172,7 +177,7 @@ func main(cur realm) {
 	// The stale entries go in bounded batches; the epoch stays as read.
 	removed, calls := 0, 0
 	for {
-		n := ibcgov.PruneFlags(cross(cur), 16)
+		n := ibcgov.PruneFlags(cross(cur), govRoute, 16)
 		removed += n
 		calls++
 		if n == 0 && calls > 3 {
@@ -180,7 +185,7 @@ func main(cur realm) {
 		}
 	}
 	epoch2, at2 := ibcgov.PayoutsEpoch(route)
-	println("pruned:", removed, "| epoch unchanged:", epoch2 == epoch, "| route flags:", len(ibcgov.Flags(route)))
+	println("pruned:", removed, "| epoch unchanged:", epoch2 == epoch, "| route flags:", len(ibcgov.Flags(govRoute, route)))
 
 	// After pruning: still cleared as of T1; the meters refill on from the
 	// claim, half a day's worth of bob's quarter in 12 hours.

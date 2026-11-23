@@ -21,6 +21,10 @@ import (
 	"gno.land/r/aib/ibc/ibcgov"
 )
 
+// govRoute is the route this test's decisions name (ADR 0007: route-scoped
+// entry points take the route).
+var govRoute string
+
 // bridge is the route's Ethereum router, ICS20 transfer and IBCAdmin: its
 // protected recipients.
 const bridge = "0x1d95d544586eacb63b6154e9e45122b32ded11aa 0x00000000000000000000000000000000000b0002 0x00000000000000000000000000000000000b0003"
@@ -62,6 +66,7 @@ func execute(cur realm, id int64) {
 // enrolls the client as a route, every step a governor decision.
 func setupRoute(cur realm) string {
 	clientID := core.CreateClient(cross(cur), ethtesting.ClientState(), ethtesting.ConsensusState())
+	govRoute = clientID
 	core.RegisterCounterparty(cross(cur), clientID, [][]byte{{}}, "client-0")
 	execute(cur, govern(cur, ibcgov.NewEnrollRouteRequest(cross(cur), clientID, string(collector), bridge)))
 	advance(7*24*time.Hour + time.Second) // keeps the timeline of the goldens
@@ -123,7 +128,7 @@ func recapitalize(cur realm, route string, id int64, amount uint256) {
 
 func clearPayouts(cur realm, route string) {
 	testing.SetRealm(testing.NewUserRealm(guardian))
-	ibcgov.ClearFlag(cross(cur), route, ibcgov.FnPayouts)
+	ibcgov.ClearFlag(cross(cur), govRoute, route, ibcgov.FnPayouts)
 	testing.SetRealm(testing.NewCodeRealm("gno.land/r/aib/main"))
 }
 
@@ -139,7 +144,7 @@ func main(cur realm) {
 	route := setupRoute(cur)
 	execute(cur, govern(cur, ibcgov.NewSetDenomRequest(cross(cur), route, "ugnot", "unescrow", 10_000, 0, 20, 2, 25_000, 40, 10_000, "0x0000000000000000000000000000000000c0ffee", 0)))
 	g1 := testutils.TestAddress("guardian-1")
-	execute(cur, govern(cur, ibcgov.NewSetSeatsRequest(cross(cur), "0:"+string(guardian)+",1:"+string(g1))))
+	execute(cur, govern(cur, ibcgov.NewSetSeatsRequest(cross(cur), govRoute, "0:"+string(guardian)+",1:"+string(g1))))
 	send(cur, route, 20_000, 20_020, ethReceiver)
 	recv(cur, route, 4, "transfer/client-0/ugnot", carol.String(), 4_000)
 	execute(cur, govern(cur, ibcgov.NewVoidRequest(cross(cur), route, controls.PacketKey(route, 4), false, "inc-1")))
@@ -148,14 +153,14 @@ func main(cur realm) {
 	restore := govern(cur, ibcgov.NewRestoreRequest(cross(cur), route, controls.PacketKey(route, 4)))
 	for _, g := range []address{guardian, g1} {
 		testing.SetRealm(testing.NewUserRealm(g))
-		ibcgov.SetFlag(cross(cur), route, ibcgov.FnSends, "")
+		ibcgov.SetFlag(cross(cur), govRoute, route, ibcgov.FnSends, "")
 	}
 	testing.SetRealm(testing.NewCodeRealm("gno.land/r/aib/main"))
 	advance(7*24*time.Hour + time.Second)
 	println("under the hold:", revive(func() { ibcgov.Execute(cross(cur), restore) }), "| carol:", state(route, 4))
 	for _, g := range []address{guardian, g1} {
 		testing.SetRealm(testing.NewUserRealm(g))
-		ibcgov.ClearFlag(cross(cur), route, ibcgov.FnSends)
+		ibcgov.ClearFlag(cross(cur), govRoute, route, ibcgov.FnSends)
 	}
 	testing.SetRealm(testing.NewCodeRealm("gno.land/r/aib/main"))
 	advance(25 * time.Hour)
@@ -165,5 +170,5 @@ func main(cur realm) {
 
 // Output:
 // carol: withheld paid 0 of 4000
-// under the hold: ibcgov: decision 5 is deferred: a guardian hold stands since 1237591895 | carol: withheld paid 0 of 4000
+// under the hold: ibcgov: decision 5 is deferred: route ethereum-1's guardian hold stands since 1237591895 | carol: withheld paid 0 of 4000
 // after it: applied - restore | carol: open paid 0 of 4000

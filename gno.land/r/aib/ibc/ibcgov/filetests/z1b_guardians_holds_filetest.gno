@@ -13,6 +13,10 @@ import (
 	"gno.land/r/aib/ibc/ibcgov"
 )
 
+// govRoute is the route this test's decisions name (ADR 0007: route-scoped
+// entry points take the route).
+var govRoute string
+
 // bridge is the route's Ethereum router, ICS20 transfer and IBCAdmin: its
 // protected recipients.
 const bridge = "0x1d95d544586eacb63b6154e9e45122b32ded11aa 0x00000000000000000000000000000000000b0002 0x00000000000000000000000000000000000b0003"
@@ -53,6 +57,7 @@ func execute(cur realm, id int64) {
 // enrolls the client as a route, every step a governor decision.
 func setupRoute(cur realm) string {
 	clientID := core.CreateClient(cross(cur), ethtesting.ClientState(), ethtesting.ConsensusState())
+	govRoute = clientID
 	core.RegisterCounterparty(cross(cur), clientID, [][]byte{{}}, "client-0")
 	execute(cur, govern(cur, ibcgov.NewEnrollRouteRequest(cross(cur), clientID, string(collector), bridge)))
 	advance(7*24*time.Hour + time.Second) // keeps the timeline of the goldens
@@ -62,13 +67,13 @@ func setupRoute(cur realm) string {
 // flagAs sets a flag as the key of a seat.
 func flagAs(cur realm, who address, route, fn, keys string) {
 	testing.SetRealm(testing.NewUserRealm(who))
-	ibcgov.SetFlag(cross(cur), route, fn, keys)
+	ibcgov.SetFlag(cross(cur), govRoute, route, fn, keys)
 	testing.SetRealm(testing.NewCodeRealm("gno.land/r/aib/main"))
 }
 
 func clearAs(cur realm, who address, route, fn string) {
 	testing.SetRealm(testing.NewUserRealm(who))
-	ibcgov.ClearFlag(cross(cur), route, fn)
+	ibcgov.ClearFlag(cross(cur), govRoute, route, fn)
 	testing.SetRealm(testing.NewCodeRealm("gno.land/r/aib/main"))
 }
 
@@ -78,12 +83,12 @@ func main(cur realm) {
 
 	// Seats: additions wait 7 days; at most two guardian seats a decision.
 	println("three guardians:", revive(func() {
-		govern(cur, ibcgov.NewSetSeatsRequest(cross(cur), "0:"+string(g0)+",1:"+string(g1)+",2:"+string(g2)))
+		govern(cur, ibcgov.NewSetSeatsRequest(cross(cur), govRoute, "0:"+string(g0)+",1:"+string(g1)+",2:"+string(g2)))
 	}))
-	execute(cur, govern(cur, ibcgov.NewSetSeatsRequest(cross(cur), "0:"+string(g0)+",1:"+string(g1))))
-	execute(cur, govern(cur, ibcgov.NewSetSeatsRequest(cross(cur), "2:"+string(g2)+",3:"+string(g3)+",4:"+string(w4)+",5:"+string(w5))))
-	println("seats:", ibcgov.Seat(0) == g0, ibcgov.Seat(3) == g3, ibcgov.Seat(5) == w5, ibcgov.SeatOf(w4))
-	println("same key twice:", revive(func() { govern(cur, ibcgov.NewSetSeatsRequest(cross(cur), "1:"+string(g0))) }))
+	execute(cur, govern(cur, ibcgov.NewSetSeatsRequest(cross(cur), govRoute, "0:"+string(g0)+",1:"+string(g1))))
+	execute(cur, govern(cur, ibcgov.NewSetSeatsRequest(cross(cur), govRoute, "2:"+string(g2)+",3:"+string(g3)+",4:"+string(w4)+",5:"+string(w5))))
+	println("seats:", ibcgov.Seat(govRoute, 0) == g0, ibcgov.Seat(govRoute, 3) == g3, ibcgov.Seat(govRoute, 5) == w5, ibcgov.SeatOf(govRoute, w4))
+	println("same key twice:", revive(func() { govern(cur, ibcgov.NewSetSeatsRequest(cross(cur), govRoute, "1:"+string(g0))) }))
 
 	// Flags: anyone not in a seat is refused; only a guardian's payouts flag
 	// names packets.
@@ -97,28 +102,28 @@ func main(cur realm) {
 	flagAs(cur, g0, route, ibcgov.FnPayouts, route+"/00000000000000000007")
 	flagAs(cur, w4, route, ibcgov.FnCredits, "")
 	println("payouts:", ibcgov.Flagged(route, ibcgov.FnPayouts), "credits:", ibcgov.Flagged(route, ibcgov.FnCredits),
-		"sends:", ibcgov.Flagged(route, ibcgov.FnSends), "held:", ibcgov.Held())
+		"sends:", ibcgov.Flagged(route, ibcgov.FnSends), "held:", ibcgov.Held(govRoute))
 	println("named:", ibcgov.NamedSuspect(route, route+"/00000000000000000007"), ibcgov.NamedSuspect(route, route+"/00000000000000000008"))
 
 	// A second guardian makes a hold: queued decisions are deferred and
 	// unpauses are spent.
 	queued := govern(cur, ibcgov.NewCoreAddRelayerRequest(cross(cur), string(testutils.TestAddress("relayer"))))
 	flagAs(cur, g1, route, ibcgov.FnSends, "")
-	println("held:", ibcgov.Held())
+	println("held:", ibcgov.Held(govRoute))
 	advance(7*24*time.Hour + time.Second)
 	println("execute under a hold:", revive(func() { ibcgov.Execute(cross(cur), queued) }))
-	unpause := govern(cur, ibcgov.NewUnpauseRouteRequest(cross(cur), route, "sends"))
+	unpause := govern(cur, ibcgov.NewUnpauseRouteRequest(cross(cur), govRoute, route, "sends"))
 	d, _ := ibcgov.Decision(unpause)
 	println("unpause under a hold:", d.State(), "-", d.Note, "- sends still flagged:", ibcgov.Flagged(route, ibcgov.FnSends))
 
 	// Below two guardian flags the hold lingers 24 hours, then ends.
 	clearAs(cur, g1, route, ibcgov.FnSends)
-	println("held right after:", ibcgov.Held())
+	println("held right after:", ibcgov.Held(govRoute))
 	advance(23 * time.Hour)
 	println("execute 23h later:", revive(func() { ibcgov.Execute(cross(cur), queued) }))
 	advance(time.Hour)
 	ibcgov.Execute(cross(cur), queued)
-	println("held a day later:", ibcgov.Held(), "relayers:", len(core.Relayers()))
+	println("held a day later:", ibcgov.Held(govRoute), "relayers:", len(core.Relayers()))
 
 	// Clearing a payouts flag starts a new payouts epoch (the meters restart
 	// empty).
@@ -130,7 +135,7 @@ func main(cur realm) {
 
 	// An unpause decision clears every seat's flags of a function at once.
 	flagAs(cur, g2, route, ibcgov.FnRefunds, "")
-	unpause = govern(cur, ibcgov.NewUnpauseRouteRequest(cross(cur), route, "credits,refunds"))
+	unpause = govern(cur, ibcgov.NewUnpauseRouteRequest(cross(cur), govRoute, route, "credits,refunds"))
 	d, _ = ibcgov.Decision(unpause)
 	println("unpause:", d.State(), "-", d.Note, "- credits:", ibcgov.Flagged(route, ibcgov.FnCredits), "refunds:", ibcgov.Flagged(route, ibcgov.FnRefunds))
 
@@ -139,11 +144,11 @@ func main(cur realm) {
 	// governor cannot end a hold by vacating the flagging seats.
 	flagAs(cur, g0, route, ibcgov.FnSends, "")
 	flagAs(cur, g1, route, ibcgov.FnSends, "")
-	since := ibcgov.HoldSince()
-	replace := govern(cur, ibcgov.NewSetSeatsRequest(cross(cur), "3:"+string(g3new)))
-	vacate := govern(cur, ibcgov.NewSetSeatsRequest(cross(cur), "1:"))
+	since := ibcgov.HoldSince(govRoute)
+	replace := govern(cur, ibcgov.NewSetSeatsRequest(cross(cur), govRoute, "3:"+string(g3new)))
+	vacate := govern(cur, ibcgov.NewSetSeatsRequest(cross(cur), govRoute, "1:"))
 	d, _ = ibcgov.Decision(vacate)
-	println("vacancy:", d.State(), "-", d.Note, "- seat 1 kept:", ibcgov.Seat(1) == g1)
+	println("vacancy:", d.State(), "-", d.Note, "- seat 1 kept:", ibcgov.Seat(govRoute, 1) == g1)
 	advance(7*24*time.Hour + time.Second)
 	// The first deferral of each records its anchor (the hold's start) and
 	// returns; a later one before day 21 is refused (z1n).
@@ -153,33 +158,33 @@ func main(cur realm) {
 	println("vacancy a second before day 21:", revive(func() { ibcgov.Execute(cross(cur), vacate) }))
 	advance(time.Second)
 	ibcgov.Execute(cross(cur), replace)
-	println("replacement on day 21:", ibcgov.Seat(3) == g3new, "still held:", ibcgov.Held())
+	println("replacement on day 21:", ibcgov.Seat(govRoute, 3) == g3new, "still held:", ibcgov.Held(govRoute))
 
 	// On day 21 the vacancy lands and clears the seat's flags.
 	ibcgov.Execute(cross(cur), vacate)
-	println("seat 1:", ibcgov.Seat(1), "sends flags:", ibcgov.Flags(route))
+	println("seat 1:", ibcgov.Seat(govRoute, 1), "sends flags:", ibcgov.Flags(govRoute, route))
 	println(ibcgov.Render(""))
 }
 
 // Output:
 // three guardians: ibcgov: a decision changes at most two guardian seats
 // seats: true true true 4
-// same key twice: ibcgov: g1va6kzunyd9skutfsta047h6lta047h6lczd94n would hold seats 0 and 1
-// stranger: ibcgov: not a guardian or a watch key: g1vdhkcmr9vd6x7ujlta047h6lta047h6lsp3m50
+// same key twice: ibcgov: g1va6kzunyd9skutfsta047h6lta047h6lczd94n would hold seats 0 and 1 of route ethereum-1
+// stranger: ibcgov: not a guardian or a watch key of route ethereum-1: g1vdhkcmr9vd6x7ujlta047h6lta047h6lsp3m50
 // watch key naming: ibcgov: only a guardian's payouts flag names packets
 // bad function: ibcgov: the function is sends, credits, payouts or refunds, not everything
-// unknown route: ibcgov: no route or Ethereum client ethereum-9
+// unknown route: ibcgov: no route or router client ethereum-9
 // payouts: true credits: true sends: false held: false
 // named: true false
 // held: true
-// execute under a hold: ibcgov: decision 4 is deferred: a guardian hold stands since 1236987094
-// unpause under a hold: spent - spent: a guardian hold stands, which spends every unpause - sends still flagged: true
+// execute under a hold: undefined
+// unpause under a hold: spent - spent: route ethereum-1's guardian hold stands, which spends its unpauses - sends still flagged: true
 // held right after: true
-// execute 23h later: ibcgov: decision 4 is deferred: a guardian hold stands since 1236987094
+// execute 23h later: ibcgov: decision 4 is deferred: a guardian hold first deferred it on 1236987094, until 1238801494
 // held a day later: false relayers: 1
 // payouts epoch: 0 -> 1
 // clear twice: ibcgov: no such flag of yours
-// unpause: applied - cleared 2 flags - credits: false refunds: false
+// unpause: applied - cleared 2 flags of route ethereum-1 - credits: false refunds: false
 // vacancy: pending - queued 7 days - seat 1 kept: true
 // replacement on day 7 of the hold: undefined
 // vacancy on day 7 of the hold: undefined
@@ -190,22 +195,24 @@ func main(cur realm) {
 //
 // - governor: g1d93xxem0wckkwmmkv4exummjta047h6lhqp9y5 (until the yield) — it alone decides, by Govern from its own key, and gno.land/r/gov/dao's proposals are refused
 // - clock factor 1 (1 on mainnet; a devnet build might be compiled with a larger value): the 7-day delay is 604800 s and the 14-day deadline 1209600 s of block time
-// - governance channel: not bound
-// - **guardian hold** since 1237678295: queued decisions are deferred, unpauses are spent
-//
-// ## Seats
-//
-// - 0 (guardian): g1va6kzunyd9skutfsta047h6lta047h6lczd94n
-// - 1 (guardian): empty
-// - 2 (guardian): g1va6kzunyd9skutfjta047h6lta047h6l2w3lun
-// - 3 (guardian): g1va6kzunyd9skutfn94hx2a6lta047h6l562e9h
-// - 4 (watch key): g1washgcmg95697h6lta047h6lta047h6l726ltc
-// - 5 (watch key): g1washgcmg95647h6lta047h6lta047h6lpq3k32
+// - **global hold** since 1237678295: a route's guardian hold defers every global decision, to day 21 of the global hold at most
 //
 // ## Routes
 //
-// - ethereum\-1 (payouts epoch 1)
-//   - flag: sends seat 0 at 1237678295
+// ### ethereum\-1
+//
+// - enrolled, incarnation 1, payouts epoch 1
+// - identity: chain 3151908, genesis validators root 0xd1ec305b97bf6336571c2348e4a8bf173684b0cdb7e55f7e6554d51f8478b5a3, router 0x1d95d544586eacb63b6154e9e45122b32ded11aa, commitment slot 0x1260944489272988d9df285149b5aa1b0f48f2136d6f416159f840a3e0747600
+// - governance channel: not bound
+// - **guardian hold** since 1237678295: the route's queued decisions are deferred, its unpauses are spent
+// - seat 0 (guardian): g1va6kzunyd9skutfsta047h6lta047h6lczd94n
+// - seat 1 (guardian): empty
+// - seat 2 (guardian): g1va6kzunyd9skutfjta047h6lta047h6l2w3lun
+// - seat 3 (guardian): g1va6kzunyd9skutfn94hx2a6lta047h6l562e9h
+// - seat 4 (watch key): g1washgcmg95697h6lta047h6lta047h6l726ltc
+// - seat 5 (watch key): g1washgcmg95647h6lta047h6lta047h6lpq3k32
+// - flag: sends on ethereum\-1 seat 0 at 1237678295
+//
 //
 // ## Decisions
 //
@@ -214,18 +221,18 @@ func main(cur realm) {
 // pending: none
 //
 // executed:
-// - #8 applied: set seats 1= (recorded 1237678295, applied 1239492695) — seats 1
-// - #7 applied: set seats 3=g1va6kzunyd9skutfn94hx2a6lta047h6l562e9h (recorded 1237678295, applied 1239492695) — seats 3
-// - #3 applied: set seats 2=g1va6kzunyd9skutfjta047h6lta047h6l2w3lun,3=g1va6kzunyd9skutfnta047h6lta047h6lrgljvn,4=g1washgcmg95697h6lta047h6lta047h6l726ltc,5=g1washgcmg95647h6lta047h6lta047h6lpq3k32 (recorded 1236382293, applied 1236987094) — seats 2,3,4,5
-// - #2 applied: set seats 0=g1va6kzunyd9skutfsta047h6lta047h6lczd94n,1=g1va6kzunyd9skutf3ta047h6lta047h6l3yrg9n (recorded 1235777492, applied 1236382293) — seats 0,1
+// - #8 applied: set seats of route ethereum\-1: 1= (recorded 1237678295, applied 1239492695) — seats 1 of route ethereum\-1
+// - #7 applied: set seats of route ethereum\-1: 3=g1va6kzunyd9skutfn94hx2a6lta047h6l562e9h (recorded 1237678295, applied 1239492695) — seats 3 of route ethereum\-1
+// - #3 applied: set seats of route ethereum\-1: 2=g1va6kzunyd9skutfjta047h6lta047h6l2w3lun,3=g1va6kzunyd9skutfnta047h6lta047h6lrgljvn,4=g1washgcmg95697h6lta047h6lta047h6l726ltc,5=g1washgcmg95647h6lta047h6lta047h6lpq3k32 (recorded 1236382293, applied 1236987094) — seats 2,3,4,5 of route ethereum\-1
+// - #2 applied: set seats of route ethereum\-1: 0=g1va6kzunyd9skutfsta047h6lta047h6lczd94n,1=g1va6kzunyd9skutf3ta047h6lta047h6l3yrg9n (recorded 1235777492, applied 1236382293) — seats 0,1 of route ethereum\-1
 //
 // ### unpause route
 //
 // pending: none
 //
 // executed:
-// - #6 applied: unpause credits,refunds on route ethereum\-1 (recorded 1237678295, applied 1237678295) — cleared 2 flags
-// - #5 spent: unpause sends on route ethereum\-1 (recorded 1237591895) — spent: a guardian hold stands, which spends every unpause
+// - #6 applied: unpause credits,refunds of route ethereum\-1 on ethereum\-1 (recorded 1237678295, applied 1237678295) — cleared 2 flags of route ethereum\-1
+// - #5 spent: unpause sends of route ethereum\-1 on ethereum\-1 (recorded 1237591895) — spent: route ethereum\-1's guardian hold stands, which spends its unpauses
 //
 // ### core add relayer
 //

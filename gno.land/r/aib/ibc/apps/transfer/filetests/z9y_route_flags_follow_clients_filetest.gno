@@ -22,6 +22,10 @@ import (
 	"gno.land/r/aib/ibc/ibcgov"
 )
 
+// govRoute is the route this test's decisions name (ADR 0007: route-scoped
+// entry points take the route).
+var govRoute string
+
 // bridge is the route's Ethereum router, ICS20 transfer and IBCAdmin: its
 // protected recipients.
 const bridge = "0x1d95d544586eacb63b6154e9e45122b32ded11aa 0x00000000000000000000000000000000000b0002 0x00000000000000000000000000000000000b0003"
@@ -64,12 +68,13 @@ func execute(cur realm, id int64) {
 // enrolls the client as a route, every step a governor decision.
 func setupRoute(cur realm) string {
 	clientID := core.CreateClient(cross(cur), ethtesting.ClientState(), ethtesting.ConsensusState())
+	govRoute = clientID
 	core.RegisterCounterparty(cross(cur), clientID, [][]byte{{}}, "client-0")
 	execute(cur, govern(cur, ibcgov.NewEnrollRouteRequest(cross(cur), clientID, string(collector), bridge)))
 	// The governance channel is bound before any replacement (one is
 	// refused until then), over the route's original client; its 7 days
 	// keep the timeline of the goldens.
-	execute(cur, govern(cur, ibcgov.NewBindGovernanceRequest(cross(cur), clientID)))
+	execute(cur, govern(cur, ibcgov.NewBindGovernanceRequest(cross(cur), govRoute, clientID)))
 	return clientID
 }
 
@@ -178,13 +183,13 @@ func refundState(route, client string, seq uint64) string {
 func main(cur realm) {
 	route := setupRoute(cur)
 	execute(cur, govern(cur, ibcgov.NewSetDenomRequest(cross(cur), route, "ugnot", "unescrow", 10_000, 0, 20, 2, 25_000, 40, 10_000, "0x0000000000000000000000000000000000c0ffee", 0)))
-	execute(cur, govern(cur, ibcgov.NewSetSeatsRequest(cross(cur), "0:"+string(guardian))))
+	execute(cur, govern(cur, ibcgov.NewSetSeatsRequest(cross(cur), govRoute, "0:"+string(guardian))))
 	b := core.CreateClient(cross(cur), ethtesting.ClientState(), ethtesting.ConsensusState())
 	core.RegisterCounterparty(cross(cur), b, [][]byte{{}}, "client-1")
 
 	// Before the replacement: B is an Ethereum client no route uses.
 	testing.SetRealm(testing.NewUserRealm(guardian))
-	ibcgov.SetFlag(cross(cur), b, ibcgov.FnRefunds, "")
+	ibcgov.SetFlag(cross(cur), govRoute, b, ibcgov.FnRefunds, "")
 	testing.SetRealm(testing.NewCodeRealm("gno.land/r/aib/main"))
 	replace := govern(cur, ibcgov.NewReplaceRouteRequest(cross(cur), route, b, 1))
 	execute(cur, replace)
@@ -193,7 +198,7 @@ func main(cur realm) {
 	execute(cur, reopen)
 	println("reopen:", decided(reopen))
 	println("the route's refunds held:", ibcgov.Flagged(route, ibcgov.FnRefunds), "| through B:", ibcgov.Flagged(b, ibcgov.FnRefunds),
-		"| flags of B:", len(ibcgov.Flags(b)))
+		"| flags of B:", len(ibcgov.Flags(govRoute, b)))
 
 	// A send over B times out: its refund waits, callback and claim alike.
 	seq := send(cur, b, 1_000, 1_020, ethReceiver)
@@ -208,18 +213,18 @@ func main(cur realm) {
 	transfer.ClaimRefunds(cross(cur), b, "ugnot", 20)
 	println("held:", refundState(route, b, seq))
 	testing.SetRealm(testing.NewUserRealm(guardian))
-	ibcgov.ClearFlag(cross(cur), b, ibcgov.FnRefunds)
+	ibcgov.ClearFlag(cross(cur), govRoute, b, ibcgov.FnRefunds)
 	testing.SetRealm(testing.NewCodeRealm("gno.land/r/aib/main"))
 	transfer.ClaimRefunds(cross(cur), b, "ugnot", 20)
 	println("cleared through B:", refundState(route, b, seq))
 
 	// After the replacement: a credits flag through B stops receives on B.
 	testing.SetRealm(testing.NewUserRealm(guardian))
-	ibcgov.SetFlag(cross(cur), b, ibcgov.FnCredits, "")
+	ibcgov.SetFlag(cross(cur), govRoute, b, ibcgov.FnCredits, "")
 	testing.SetRealm(testing.NewCodeRealm("gno.land/r/aib/main"))
 	res := recvOn(cur, "client-1", b, 1, "transfer/client-1/ugnot", bob.String(), 100)
-	println("credit under the flag:", res.Status == types.PacketStatus_Failure, "| flags of the route:", ibcgov.Flags(route)[0][:7])
-	unpause := govern(cur, ibcgov.NewUnpauseRouteRequest(cross(cur), b, "credits"))
+	println("credit under the flag:", res.Status == types.PacketStatus_Failure, "| flags of the route:", ibcgov.Flags(govRoute, route)[0][:7])
+	unpause := govern(cur, ibcgov.NewUnpauseRouteRequest(cross(cur), govRoute, b, "credits"))
 	println("unpause through B:", decided(unpause), "| credits held:", ibcgov.Flagged(route, ibcgov.FnCredits))
 }
 
@@ -230,4 +235,4 @@ func main(cur realm) {
 // held: outcome timeout, payment queued, refunded 0
 // cleared through B: outcome timeout, payment claimed, refunded 1000
 // credit under the flag: true | flags of the route: credits
-// unpause through B: applied - cleared 1 flags | credits held: false
+// unpause through B: applied - cleared 1 flags of route ethereum-1 | credits held: false

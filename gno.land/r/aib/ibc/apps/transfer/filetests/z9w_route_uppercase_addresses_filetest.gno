@@ -23,6 +23,10 @@ import (
 	"gno.land/r/nt/grc20reg/v1"
 )
 
+// govRoute is the route this test's decisions name (ADR 0007: route-scoped
+// entry points take the route).
+var govRoute string
+
 // bridge is the route's Ethereum router, ICS20 transfer and IBCAdmin: its
 // protected recipients.
 const bridge = "0x1d95d544586eacb63b6154e9e45122b32ded11aa 0x00000000000000000000000000000000000b0002 0x00000000000000000000000000000000000b0003"
@@ -64,6 +68,7 @@ func execute(cur realm, id int64) {
 // enrolls the client as a route, every step a governor decision.
 func setupRoute(cur realm) string {
 	clientID := core.CreateClient(cross(cur), ethtesting.ClientState(), ethtesting.ConsensusState())
+	govRoute = clientID
 	core.RegisterCounterparty(cross(cur), clientID, [][]byte{{}}, "client-0")
 	// The bridge contracts and the fee collector spelled in uppercase: the
 	// route stores them in lowercase.
@@ -128,7 +133,7 @@ func recapitalize(cur realm, route string, id int64, amount uint256) {
 
 func clearPayouts(cur realm, route string) {
 	testing.SetRealm(testing.NewUserRealm(guardian))
-	ibcgov.ClearFlag(cross(cur), route, ibcgov.FnPayouts)
+	ibcgov.ClearFlag(cross(cur), govRoute, route, ibcgov.FnPayouts)
 	testing.SetRealm(testing.NewCodeRealm("gno.land/r/aib/main"))
 }
 
@@ -171,14 +176,14 @@ func main(cur realm) {
 	execute(cur, govern(cur, ibcgov.NewSetFeeCollectorRequest(cross(cur), route, strings.ToUpper(string(alice)))))
 	println("fee collector is alice:", strings.Contains(transfer.Render("routes/"+route), `"fee_collector":"`+string(alice)+`"`))
 
-	execute(cur, govern(cur, ibcgov.NewSetSeatsRequest(cross(cur), "0:"+strings.ToUpper(string(guardian)))))
-	println("seat 0:", ibcgov.Seat(0) == guardian)
+	execute(cur, govern(cur, ibcgov.NewSetSeatsRequest(cross(cur), govRoute, "0:"+strings.ToUpper(string(guardian)))))
+	println("seat 0:", ibcgov.Seat(govRoute, 0) == guardian)
 	testing.SetRealm(testing.NewUserRealm(guardian))
-	ibcgov.SetFlag(cross(cur), route, ibcgov.FnRefunds, "")
+	ibcgov.SetFlag(cross(cur), govRoute, route, ibcgov.FnRefunds, "")
 	testing.SetRealm(testing.NewCodeRealm("gno.land/r/aib/main"))
 	println("flagged by its holder:", ibcgov.Flagged(route, ibcgov.FnRefunds))
 	testing.SetRealm(testing.NewUserRealm(guardian))
-	ibcgov.ClearFlag(cross(cur), route, ibcgov.FnRefunds)
+	ibcgov.ClearFlag(cross(cur), govRoute, route, ibcgov.FnRefunds)
 	testing.SetRealm(testing.NewCodeRealm("gno.land/r/aib/main"))
 
 	// The bridge contracts of the enrolment, spelled in uppercase (one

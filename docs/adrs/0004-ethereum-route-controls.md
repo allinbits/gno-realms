@@ -13,7 +13,12 @@
   arithmetic" section below, the minted supply's int64 headroom and the
   parking of minted settlement refunds no longer apply; a denom's
   configuration also names its voucher's decimals, a change of which waits
-  7 days, see ADR 0005 "Voucher decimals").
+  7 days, see ADR 0005 "Voucher decimals"); ADR 0007 (one governance
+  channel per router route, one route per counterparty chain, and seats,
+  flags and holds per route; global decisions deferred by any route's hold
+  to day 21 of the global hold at most; the route-qualified channel,
+  guardian and Ethereum-bound API; foreign vouchers refused; its section 9
+  lists the rules replaced). Everything else below holds per route.
 - Superseded in part by: ADR 0006 (proofs are `[]byte`, so they carry no
   caller code: the rows of the entry-point guard table below about proofs,
   `Ext` and `ics23.CheckProofs` are updated to it).
@@ -46,6 +51,10 @@ registration.
 ## Decision
 
 ### Scope: one governance channel, one Ethereum route
+
+(Superseded by ADR 0007, independent governance per router route: one
+channel per route, one route per counterparty chain, these rules per
+route.)
 
 ibcgov has one governance channel, bound once, and serves one logical
 Ethereum transfer route, ever. IBCAdmin replaces, recovers, settles and
@@ -926,7 +935,7 @@ is installed, so the decision is spent:
 | core/transfer update impl | not registered; the candidate's manifest does not install over the active version (`CheckUpdateImpl`, from the manifest alone); a transfer implementation declaring no route controls once a route has them (the controls are never rolled back) |
 | core add/remove relayer | listed already / not listed |
 | core recover client | unknown, retired, mismatched or wrong-status clients; the light client's own check (`CheckRecoverClient`) |
-| core migrate client | unknown, retired or non-Ethereum client; no migrating implementation; the light client's check (`CheckMigrateClient`); for a verifier replacement, a conversion the active implementation does not declare from the client's verifier version to the target, the client neither Active nor Expired (Frozen) or not Ethereum, a verifier exposing no ethereum/v0 state (`Ethereum() *EthLightClient`, which the conversion reads: z9zs), and, returned by the core, a conversion that panics or a converted verifier of another version, of another status than the live one, at another latest height, or trusting consensus states from another slot |
+| core migrate client | unknown or retired client; no migrating implementation (ADR 0007 §9: any client type, any migration name the active implementation supports); the light client's check (`CheckMigrateClient`); for a verifier replacement, a conversion the active implementation does not declare from the client's verifier version to the target, the client neither Active nor Expired (Frozen) or not Ethereum, a verifier exposing no ethereum/v0 state (`Ethereum() *EthLightClient`, which the conversion reads: z9zs), and, returned by the core, a conversion that panics or a converted verifier of another version, of another status than the live one, at another latest height, or trusting consensus states from another slot |
 | core approve app | no pending registration; port taken |
 | core reject app | no pending registration |
 | core pause / pause app / unpause / unpause app | paused already / no app / not paused |

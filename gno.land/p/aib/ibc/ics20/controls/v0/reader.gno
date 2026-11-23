@@ -37,6 +37,17 @@ func (rd Reader) Routes() []string {
 	return rd.r.Keys()
 }
 
+// HasRoutes reports whether any route is enrolled, in constant work.
+func (rd Reader) HasRoutes() bool { return rd.r != nil && rd.r.HasRoutes() }
+
+// RoutesFrom lists at most n route keys from from on ("" from the first).
+func (rd Reader) RoutesFrom(from string, n int) []string {
+	if rd.r == nil {
+		return nil
+	}
+	return rd.r.KeysFrom(from, n)
+}
+
 // RouteOf is the key of the route whose current client is clientID, or "".
 func (rd Reader) RouteOf(clientID string) string {
 	if rd.r == nil {
@@ -269,13 +280,17 @@ func strList(ss []string) string {
 	return "[" + strings.Join(parts, ",") + "]"
 }
 
-// RoutesJSON is every route's JSON, as an array.
-func (rd Reader) RoutesJSON() string {
-	var parts []string
-	for _, k := range rd.Routes() {
-		parts = append(parts, rd.RouteJSON(k))
+// RoutesPerPage is how many routes the transfer page lists.
+const RoutesPerPage = 20
+
+// RoutesJSON is a page of the routes' JSON, by route key from from on, like
+// the other pages: {"entries":[...],"next":<cursor>} (gno-realms ADR 0007:
+// routes have no fixed number).
+func (rd Reader) RoutesJSON(from string) string {
+	if rd.r == nil {
+		return emptyPage
 	}
-	return "[" + strings.Join(parts, ",") + "]"
+	return page(&rd.r.routes, from, func(v any) string { return rd.RouteJSON(v.(*Route).Key) })
 }
 
 // RouteJSON is a route's state for monitors (ADR pr6375 §7.11): its client,

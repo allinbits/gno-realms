@@ -79,7 +79,18 @@ func (p *routeParams) apply(cur realm, t int64) (string, string) {
 		if identity, refusal = enrolIdentity(p.p.Route, p.p.Keys[0]); refusal != "" {
 			return "", refusal
 		}
-		if refusal = checkOneRoute(); refusal != "" {
+		if refusal = checkEnrol(p.p.Route); refusal != "" {
+			return "", refusal
+		}
+	}
+	var g *routeGov
+	if !p.enroll {
+		if g = enrolledGov(p.p.Route); g == nil {
+			return "", "no route " + p.p.Route
+		}
+	}
+	if p.op == controls.OpDenom {
+		if refusal := checkForeignDenom(p.p.Route, p.p.Denom, p.p.Config.Kind); refusal != "" {
 			return "", refusal
 		}
 	}
@@ -94,7 +105,7 @@ func (p *routeParams) apply(cur realm, t int64) (string, string) {
 		if refusal := checkIdentity(p.p.Route, p.p.Client); refusal != "" {
 			return "", refusal
 		}
-		if refusal := checkBoundForReplace(); refusal != "" {
+		if refusal := checkBoundForReplace(g); refusal != "" {
 			return "", refusal
 		}
 	}
@@ -103,7 +114,16 @@ func (p *routeParams) apply(cur realm, t int64) (string, string) {
 	}
 	note := p.op
 	if p.enroll {
-		routes.Set(p.p.Route, &routeRec{epochAt: t, identity: identity})
+		// The enrolment adopts the route's provisional record, with its
+		// seats, flags and seat generations, or creates the record (ADR 0007
+		// §5).
+		g = govOf(p.p.Route)
+		if g == nil {
+			g = newRecord(p.p.Route, core.ClientChainIdentity(p.p.Route))
+		} else {
+			note += " (adopting its provisional record)"
+		}
+		g.enrolled, g.identity, g.payEpochAt = true, identity, t
 	}
 	if p.replace != "" {
 		// The two-phase epoch switch (ADR pr6375 §7.12): while the
@@ -111,15 +131,15 @@ func (p *routeParams) apply(cur realm, t int64) (string, string) {
 		// transfers only, until IBCAdmin's epoch notice moves the epoch.
 		// Read once: retiring ports and the meters below change neither the
 		// epoch nor the graph.
-		expected := onExpectedPath(p.replace)
+		expected := onExpectedPath(g, p.replace)
 		retired := " retired"
 		switch {
 		case expected:
 			// The epoch runs over it, or may still move through it.
 			core.RetireClientPort(cross(cur), p.replace, transfer.PortID)
-			awaitGov(p.replace)
+			awaitGov(g, p.replace)
 			retired = " retired for transfers"
-		case govRoute(p.p.Route) && !core.IsClientRetiredFor(p.replace, GovPort):
+		case g.epoch != 0 && !core.IsClientRetiredFor(p.replace, GovPort):
 			// A client of the governance channel's route that the graph
 			// does not hold may still be a prefix endpoint of a catch-up
 			// (the graph may have had no room for its transition): it is
@@ -135,15 +155,15 @@ func (p *routeParams) apply(cur realm, t int64) (string, string) {
 		}
 		// After a migration every meter starts empty (ADR pr6375 §7.1): a
 		// new payouts epoch, reset lazily in constant work.
-		bumpPayoutsEpoch(p.p.Route, t)
+		bumpPayoutsEpoch(g, t)
 		note += ": client " + p.replace + retired + ", meters emptied"
 		// The new client is the route's alias from now on: flags standing
 		// under its own id join the route's.
-		if n := foldFlags(p.p.Client, p.p.Route, t); n > 0 {
+		if n := foldFlags(g, p.p.Client, t); n > 0 {
 			note += ", " + strconv.Itoa(n) + " flags of " + p.p.Client + " moved to the route"
 		}
 		if expected {
-			note += "; governance epoch " + strconv.FormatUint(uint64(epoch), 10) + " stays over " + EpochClient() + " until IBCAdmin's epoch notices arrive"
+			note += "; governance epoch " + strconv.FormatUint(uint64(g.epoch), 10) + " stays over " + epochClient(g) + " until IBCAdmin's epoch notices arrive"
 		}
 	}
 	return note, ""
@@ -151,19 +171,16 @@ func (p *routeParams) apply(cur realm, t int64) (string, string) {
 
 func routeRequest(cur realm, op, kind, text string, p controls.Params, queued bool) Request {
 	rp := &routeParams{op: op, p: p}
+	sc := routeScope(p.Route)
 	return propose(cur, kind, text, func(cur realm, made, t int64) {
-		decide(cur, kind, text, rp, made, t, queued)
+		decide(cur, kind, text, rp, made, t, queued, sc)
 	})
 }
 
 // mustRoute is the key of the route route names, a route key or one of its
 // clients, current or retired (routeKeyOf); it panics if there is none.
 func mustRoute(route string) string {
-	key := routeKeyOf(route)
-	if !routes.Has(key) {
-		panic("ibcgov: no route " + route)
-	}
-	return key
+	return mustEnrolledGov(route).key
 }
 
 func mustIncident(s string) {
@@ -212,6 +229,19 @@ func checkRouteClient(client string) string {
 	return ""
 }
 
+// checkEnrol is why client cannot be enrolled as a new route now, or "": no
+// route of that key is enrolled, and its chain is free or reserved by the
+// key's own provisional record (ADR 0007 §4: one route per counterparty
+// chain, however many chains). Checked when an enrolment is requested and
+// again when it executes, so of two requested together for one chain only
+// the first applies.
+func checkEnrol(client string) string {
+	if enrolledGov(client) != nil {
+		return client + " is a route already"
+	}
+	return checkChainFree(client, client)
+}
+
 // enrolIdentity is the identity client gives a new route, or why it cannot
 // (ADR pr6375 §7.12, "Route identity is preserved"): its verifier must name
 // one, and the bridge's router must be the router it reads, so the protected
@@ -236,26 +266,9 @@ func enrolIdentity(client, router string) (string, string) {
 // decision from gno.land). A client that fails before the binding is
 // recovered in place (NewRecoverClientRequest, same id), or the unlaunched
 // deployment is restarted.
-func checkBoundForReplace() string {
-	if epoch == 0 {
+func checkBoundForReplace(g *routeGov) string {
+	if g.epoch == 0 {
 		return "the governance channel is not bound yet: the route's client is replaced only after the binding (before it, recover the client in place, or restart the deployment)"
-	}
-	return ""
-}
-
-// checkOneRoute is why another Ethereum route cannot be enrolled, or "":
-// one governance channel serves one logical Ethereum transfer route, ever.
-// IBCAdmin replaces, recovers, settles and reopens only the route of the
-// client it governs over (its kind 10 and emergency recovery name that
-// client), so a second route would have no Ethereum replacement or
-// recovery path. The first enrolment fixes the route's key and its
-// deployment's identity; replacements keep both. Several routes, or a
-// second deployment, need a further ibcgov and Ethereum-side support,
-// neither shipped. Checked when an enrolment is requested and again when it
-// executes, so of two requested together only the first applies.
-func checkOneRoute() string {
-	if routes.Size() > 0 {
-		return "the governance channel serves one Ethereum route, enrolled already: a second route would have no Ethereum replacement or recovery path"
 	}
 	return ""
 }
@@ -265,11 +278,10 @@ func checkOneRoute() string {
 // Ethereum chain id, genesis validators root, ICS26 router and commitments
 // slot every client of the route authenticates.
 func RouteIdentity(route string) string {
-	v := routes.Get(routeKeyOf(route))
-	if v == nil {
-		return ""
+	if g := enrolledGov(routeKeyOf(route)); g != nil {
+		return g.identity
 	}
-	return v.(*routeRec).identity
+	return ""
 }
 
 // checkIdentity is why client cannot replace route's client, or "": it must
@@ -284,14 +296,6 @@ func checkIdentity(route, client string) string {
 		return client + " authenticates " + quoteIdentity(got) + ", not route " + route + "'s " + quoteIdentity(want)
 	}
 	return ""
-}
-
-// govRoute reports whether route's clients can carry the governance epoch:
-// the channel is bound and the route authenticates its identity (a local
-// client approved for a transition must). Before the binding, no client is
-// needed: epoch 1 opens over the route's client then.
-func govRoute(route string) bool {
-	return epoch != 0 && govIdentity != "" && RouteIdentity(route) == govIdentity
 }
 
 func quoteIdentity(s string) string {
@@ -402,10 +406,10 @@ func NewEnrollRouteRequest(cur realm, clientID, feeCollector, bridge string) Req
 	if refusal := checkRouteClient(clientID); refusal != "" {
 		panic("ibcgov: " + refusal)
 	}
-	if routes.Has(clientID) {
-		panic("ibcgov: " + clientID + " is a route already")
+	if refusal := checkEnrol(clientID); refusal != "" {
+		panic("ibcgov: " + refusal)
 	}
-	if refusal := checkOneRoute(); refusal != "" {
+	if refusal := checkClaim(clientID, clientID); refusal != "" {
 		panic("ibcgov: " + refusal)
 	}
 	fc := mustCollector(feeCollector)
@@ -415,8 +419,9 @@ func NewEnrollRouteRequest(cur realm, clientID, feeCollector, bridge string) Req
 	}
 	text := "enroll route " + clientID + " with fee collector " + string(fc) + " and bridge contracts " + bridgeText(b)
 	rp := &routeParams{op: controls.OpEnroll, p: controls.Params{Route: clientID, To: fc, Keys: b}, enroll: true}
+	sc := routeScope(clientID, clientID)
 	return propose(cur, "enroll route", text, func(cur realm, made, t int64) {
-		decide(cur, "enroll route", text, rp, made, t, true)
+		decide(cur, "enroll route", text, rp, made, t, true, sc)
 	})
 }
 
@@ -447,9 +452,19 @@ func denomConfig(route, denom, kind string, capFloor, supplyCap, fee, feeFloor, 
 			panic("ibcgov: " + err.Error())
 		}
 		denom = ics20.NewDenom(a.Lower(), ics20.NewHop("transfer", route)).IBCDenom()
+	} else if kind == controls.KindMint && strings.HasPrefix(denom, "ibc/") {
+		// A voucher is named by its trace, not its hash (ADR 0007, foreign
+		// vouchers): a raw hash is taken only for a voucher this route
+		// already allocated, whose trace says whose it is.
+		if path, ok := transfer.DenomPath(denom); !ok || !strings.HasPrefix(path, transfer.PortID+"/"+route+"/") {
+			panic("ibcgov: " + denom + " is no voucher allocated to route " + route + ": name a new minted denom by its token's address")
+		}
 	}
 	if (kind == controls.KindMint) != strings.HasPrefix(denom, "ibc/") {
 		panic("ibcgov: a minted denom is a voucher's ibc/ denom (or its token's address), an unescrowed one is not")
+	}
+	if refusal := checkForeignDenom(route, denom, kind); refusal != "" {
+		panic("ibcgov: " + refusal)
 	}
 	remote := ""
 	if remoteToken != "" {
@@ -467,10 +482,32 @@ func denomConfig(route, denom, kind string, capFloor, supplyCap, fee, feeFloor, 
 	return denom, c
 }
 
+// checkForeignDenom is why denom cannot be configured on route as kind, or
+// "" (ADR 0007, "A voucher of one route is never a denom of another"): an
+// unescrowed denom is never in the voucher namespace, allocated or not, so a
+// route cannot take another's vouchers, or a voucher key another route will
+// be allocated, as its own escrowed token; a minted denom already allocated
+// is this route's voucher. Checked when the decision is built, recorded and
+// executed.
+func checkForeignDenom(route, denom, kind string) string {
+	if kind == controls.KindMint {
+		if path, ok := transfer.DenomPath(denom); ok && !strings.HasPrefix(path, transfer.PortID+"/"+route+"/") {
+			return denom + " is a voucher of " + path + ", not of route " + route
+		}
+		return ""
+	}
+	if strings.HasPrefix(denom, "ibc/") || transfer.IsVoucherKey(denom) {
+		return denom + " is in the voucher namespace: a voucher is configured as a minted denom on its own route only"
+	}
+	return ""
+}
+
 // NewSetDenomRequest enables a denom on route or changes its limits (ADR
 // pr6375 §7.1, §7.8, §9): kind "unescrow" (a gno-native token: denom is its
 // escrow denom, "ugnot" or a GRC20 alias) or "mint" (an Ethereum token: denom
-// is its voucher's IBC denom); capFloor the day cap floor (unescrow) or day
+// is its token's Ethereum address, 0x…, or, once the route allocated its
+// voucher on a first receive, that voucher's ibc/ denom; a new token, whose
+// voucher does not exist yet, must be named by its address); capFloor the day cap floor (unescrow) or day
 // cap (mint); supplyCap the voucher supply cap (mint, else 0); fee and its
 // floor; sendMax and sendMin (unescrow, else 0); refundCap the refund meter's
 // day cap; remoteToken (unescrow, else "") the token's GnoVoucher on Ethereum,
@@ -478,9 +515,10 @@ func denomConfig(route, denom, kind string, capFloor, supplyCap, fee, feeFloor, 
 // decimals of the token on Ethereum, 0 to 18, which its voucher is created
 // with on its first receive (ADR 0005, "Voucher decimals": an ICS20 packet
 // carries no token metadata). Amounts are base units of the
-// denom, as uint256 (an 18-decimal token's limits are set in its own units). For a minted denom, denom may be the token's Ethereum address
-// (0x…): the voucher denom is then computed, ibc/<sha256("transfer/<route>/
-// <lower-case address>")>, the denom this chain keys the token's vouchers by.
+// denom, as uint256 (an 18-decimal token's limits are set in its own units).
+// A minted denom named by its address is configured under its computed
+// voucher denom, ibc/<sha256("transfer/<route>/<lower-case address>")>, the
+// denom this chain keys the token's vouchers by.
 // A change that only tightens applies at once; a new denom or any loosening
 // waits 7 days, a change of the decimals too. Once the voucher exists its
 // decimals never change: a configuration naming others is refused here and
@@ -503,8 +541,9 @@ func NewSetDenomRequest(cur realm, route, denom, kind string, capFloor, supplyCa
 	}
 	text := "denom on route " + route + ": " + denomText(denom, c)
 	rp := &routeParams{op: controls.OpDenom, p: controls.Params{Route: route, Denom: denom, Config: c}}
+	sc := routeScope(route)
 	return propose(cur, "set denom", text, func(cur realm, made, t int64) {
-		decide(cur, "set denom", text, rp, made, t, loosens())
+		decide(cur, "set denom", text, rp, made, t, loosens(), sc)
 	})
 }
 
@@ -585,8 +624,9 @@ func NewVoidRequest(cur realm, route, keys string, forged bool, incident string)
 	}
 	text := "void as " + how + " on route " + route + " (incident " + incident + "): " + strings.Join(list, ",")
 	rp := &routeParams{op: controls.OpVoid, p: controls.Params{Route: route, Keys: list, Forged: forged, Incident: incident}}
+	sc := routeScope(route)
 	return propose(cur, "void", text, func(cur realm, made, t int64) {
-		decide(cur, "void", text, rp, made, t, !named())
+		decide(cur, "void", text, rp, made, t, !named(), sc)
 	})
 }
 
@@ -815,14 +855,18 @@ func NewReplaceRouteRequest(cur realm, route, newClientID string, suspectFrom in
 	if refusal := checkIdentity(route, newClientID); refusal != "" {
 		panic("ibcgov: " + refusal)
 	}
-	if refusal := checkBoundForReplace(); refusal != "" {
+	if refusal := checkBoundForReplace(enrolledGov(route)); refusal != "" {
+		panic("ibcgov: " + refusal)
+	}
+	if refusal := checkClaim(newClientID, route); refusal != "" {
 		panic("ibcgov: " + refusal)
 	}
 	old := view().Client(route)
 	text := "replace the client of route " + route + ": " + old + " by " + newClientID + ", suspect from gno.land height " + itoa(suspectFrom)
 	rp := &routeParams{op: controls.OpReplace, p: controls.Params{Route: route, Client: newClientID, Height: suspectFrom}, replace: old}
+	sc := routeScope(route, newClientID)
 	return propose(cur, "replace route", text, func(cur realm, made, t int64) {
-		decide(cur, "replace route", text, rp, made, t, true)
+		decide(cur, "replace route", text, rp, made, t, true, sc)
 	})
 }
 
@@ -840,28 +884,31 @@ func NewReopenRouteRequest(cur realm, route string) Request {
 	return routeRequest(cur, controls.OpReopen, "reopen route", "reopen route "+route, controls.Params{Route: route}, true)
 }
 
-// bindParams opens governance epoch 1 over a client.
-type bindParams struct{ client string }
+// bindParams opens a route's governance epoch 1 over its client.
+type bindParams struct{ route, client string }
 
 func (p *bindParams) apply(cur realm, t int64) (string, string) {
-	if epoch != 0 {
-		return "", "the governance channel is bound already"
+	g := enrolledGov(p.route)
+	if g == nil {
+		return "", "no route " + p.route
 	}
-	if refusal := checkBindClient(p.client); refusal != "" {
+	if g.epoch != 0 {
+		return "", "route " + p.route + "'s governance channel is bound already"
+	}
+	if refusal := checkBindClient(g, p.client); refusal != "" {
 		return "", refusal
 	}
-	bindChannel(p.client)
-	return "governance epoch 1 over " + p.client, ""
+	bindChannel(g, p.client)
+	return "route " + p.route + "'s governance epoch 1 over " + p.client, ""
 }
 
-// checkBindClient is why client cannot carry the governance channel, "" if
-// it can: an Active router client (an Ethereum or Arc client: the channel
-// binds one chain's IBCAdmin, whichever chain the one route goes to) with
-// its counterparty registered, the current client of a route ibcgov
-// enrolled. The channel always rides a
+// checkBindClient is why client cannot carry route g's governance channel,
+// "" if it can: an Active router client (an Ethereum or Arc client) with
+// its counterparty registered, the route's original and current client. The
+// channel always rides its
 // route, so a replacement of the route, the way out of a client that
 // freezes or expires, moves the channel's epoch with it.
-func checkBindClient(client string) string {
+func checkBindClient(g *routeGov, client string) string {
 	switch {
 	case !core.IsRouterClient(client):
 		return client + " is not an Ethereum or Arc client"
@@ -876,30 +923,33 @@ func checkBindClient(client string) string {
 	if !ok {
 		return client + " is no route's client: no transfer controls"
 	}
-	// The one enrolled route's original client (checkOneRoute), the pair
-	// Ethereum's epoch 1 uses: no replacement precedes the binding
-	// (checkBoundForReplace).
-	if k := rd.RouteOf(client); k == "" || !routes.Has(k) || rd.Client(k) != client || k != client {
-		return client + " is not the original client of the enrolled route"
+	// The route's original client, the pair the counterparty's epoch 1
+	// uses: no replacement precedes the binding (checkBoundForReplace).
+	if client != g.key || rd.RouteOf(client) != g.key || rd.Client(g.key) != client {
+		return client + " is not the original client of route " + g.key
 	}
 	return ""
 }
 
-// NewBindGovernanceRequest binds the governance channel to the Ethereum client
-// clientID after 7 days (enrolling a route loosens): it opens epoch 1, whose
-// decisions go to IBCAdmin over clientID. clientID must be the current client
-// of an enrolled route, and Active, when it is made and again when it
-// executes. Once only: later epochs open with a replacement of that route.
-func NewBindGovernanceRequest(cur realm, clientID string) Request {
-	if epoch != 0 {
-		panic("ibcgov: the governance channel is bound already")
+// NewBindGovernanceRequest binds route's governance channel to its
+// router client clientID after 7 days (enrolling a route loosens): it opens
+// the route's epoch 1, whose decisions go to the route's IBCAdmin over
+// clientID. clientID must be the route's original and current client, and
+// Active, when it is made and again when it executes. Once per route: later
+// epochs open with a replacement of that route. Each route binds its own
+// channel, independently of the others (ADR 0007 §4).
+func NewBindGovernanceRequest(cur realm, route, clientID string) Request {
+	g := mustEnrolledGov(route)
+	if g.epoch != 0 {
+		panic("ibcgov: route " + g.key + "'s governance channel is bound already")
 	}
-	if refusal := checkBindClient(clientID); refusal != "" {
+	if refusal := checkBindClient(g, clientID); refusal != "" {
 		panic("ibcgov: " + refusal)
 	}
-	text := "bind the governance channel to " + clientID + " (epoch 1)"
-	p := &bindParams{client: clientID}
+	text := "bind route " + g.key + "'s governance channel to " + clientID + " (epoch 1)"
+	p := &bindParams{route: g.key, client: clientID}
+	sc := routeScope(g.key)
 	return propose(cur, "bind governance", text, func(cur realm, made, t int64) {
-		decide(cur, "bind governance", text, p, made, t, true)
+		decide(cur, "bind governance", text, p, made, t, true, sc)
 	})
 }

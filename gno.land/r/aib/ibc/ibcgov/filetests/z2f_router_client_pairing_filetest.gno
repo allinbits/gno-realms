@@ -14,6 +14,10 @@ import (
 	"gno.land/r/aib/ibc/ibcgov"
 )
 
+// govRoute is the route this test's decisions name (ADR 0007: route-scoped
+// entry points take the route).
+var govRoute string
+
 // bridge is the route's Ethereum router, ICS20 transfer and IBCAdmin: its
 // protected recipients.
 const (
@@ -52,7 +56,7 @@ func try(cur realm, name string, build func() ibcgov.Request) {
 		println(name+":", r)
 		return
 	}
-	println(name+": dispatched as epoch", ibcgov.Epoch(), "seq", ibcgov.LastSeq(ibcgov.Epoch()))
+	println(name+": dispatched as epoch", ibcgov.Epoch(govRoute), "seq", ibcgov.LastSeq(govRoute, ibcgov.Epoch(govRoute)))
 }
 
 func client(cur realm, counterparty string) string {
@@ -87,31 +91,34 @@ func notice(cur realm, e uint32, named, local string) {
 // A client of this chain is refused with the id that was meant, and the
 // check runs again when the decision is recorded.
 func main(cur realm) {
-	route := client(cur, "client-0")  // ethereum-1, the route's client
+	route := client(cur, "client-0") // ethereum-1, the route's client
+	govRoute = route
 	local := client(cur, "gnoland-2") // ethereum-2, paired with the kind 10's new client
 	bare := client(cur, "")           // ethereum-3, no counterparty yet
 	execute(cur, govern(cur, ibcgov.NewEnrollRouteRequest(cross(cur), route, string(collector), bridge)))
-	println("before the binding:", revive(func() { ibcgov.NewEthLimitsRequest(cross(cur), "client-0", a1, 1, 1, 1, 0, 0) }))
-	execute(cur, govern(cur, ibcgov.NewBindGovernanceRequest(cross(cur), route)))
-	println("epoch", ibcgov.Epoch(), "over", ibcgov.EpochClient(), "paired with", core.CounterpartyClientID(ibcgov.EpochClient()))
+	println("before the binding:", revive(func() { ibcgov.NewEthLimitsRequest(cross(cur), govRoute, "client-0", a1, 1, 1, 1, 0, 0) }))
+	execute(cur, govern(cur, ibcgov.NewBindGovernanceRequest(cross(cur), govRoute, route)))
+	println("epoch", ibcgov.Epoch(govRoute), "over", ibcgov.EpochClient(govRoute), "paired with", core.CounterpartyClientID(ibcgov.EpochClient(govRoute)))
 
 	// Every kind naming the route takes its router client only: this
 	// chain's client of it, a paired client that is not the route's, a
 	// client with no counterparty and an unknown id are refused.
 	for _, id := range []string{route, local, bare, "gnoland-9", "client-0"} {
-		try(cur, "unpause "+id, func() ibcgov.Request { return ibcgov.NewEthUnpauseRequest(cross(cur), 1, id) })
-		try(cur, "limits "+id, func() ibcgov.Request { return ibcgov.NewEthLimitsRequest(cross(cur), id, a1, 1, 1, 1, 0, 0) })
-		try(cur, "voucher "+id, func() ibcgov.Request { return ibcgov.NewEthVoucherRequest(cross(cur), id, "ugnot", a1, hash) })
-		try(cur, "settings "+id, func() ibcgov.Request { return ibcgov.NewEthRouteSettingsRequest(cross(cur), id, 3600) })
-		try(cur, "reopen "+id, func() ibcgov.Request { return ibcgov.NewEthReopenRequest(cross(cur), id) })
-		try(cur, "settle "+id, func() ibcgov.Request { return ibcgov.NewEthSettleRequest(cross(cur), id, "1:3:0") })
-		try(cur, "migrate "+id, func() ibcgov.Request { return ibcgov.NewEthClientRequest(cross(cur), 2, id, "", "6d61696e", a1, hash) })
+		try(cur, "unpause "+id, func() ibcgov.Request { return ibcgov.NewEthUnpauseRequest(cross(cur), govRoute, 1, id) })
+		try(cur, "limits "+id, func() ibcgov.Request { return ibcgov.NewEthLimitsRequest(cross(cur), govRoute, id, a1, 1, 1, 1, 0, 0) })
+		try(cur, "voucher "+id, func() ibcgov.Request { return ibcgov.NewEthVoucherRequest(cross(cur), govRoute, id, "ugnot", a1, hash) })
+		try(cur, "settings "+id, func() ibcgov.Request { return ibcgov.NewEthRouteSettingsRequest(cross(cur), govRoute, id, 3600) })
+		try(cur, "reopen "+id, func() ibcgov.Request { return ibcgov.NewEthReopenRequest(cross(cur), govRoute, id) })
+		try(cur, "settle "+id, func() ibcgov.Request { return ibcgov.NewEthSettleRequest(cross(cur), govRoute, id, "1:3:0") })
+		try(cur, "migrate "+id, func() ibcgov.Request {
+			return ibcgov.NewEthClientRequest(cross(cur), govRoute, 2, id, "", "6d61696e", a1, hash)
+		})
 	}
 
 	// Kind 6 op 1 adds the custom id the gno client it tracks is paired with.
 	add := func(id, tracks string) func() ibcgov.Request {
 		return func() ibcgov.Request {
-			return ibcgov.NewEthClientRequest(cross(cur), 1, id, tracks, "6d61696e", a1, hash)
+			return ibcgov.NewEthClientRequest(cross(cur), govRoute, 1, id, tracks, "6d61696e", a1, hash)
 		}
 	}
 	try(cur, "add gnoland-2 tracking "+local, add("gnoland-2", local))
@@ -125,14 +132,16 @@ func main(cur realm) {
 	// router's ids; a verifier migration names a router client governance
 	// named before, the kind 6 op 1 that added gnoland-2 above included.
 	try(cur, "replace "+route, func() ibcgov.Request {
-		return ibcgov.NewEthRouteReplacementRequest(cross(cur), route, "gnoland-2", 1, local)
+		return ibcgov.NewEthRouteReplacementRequest(cross(cur), govRoute, route, "gnoland-2", 1, local)
 	})
-	try(cur, "expect recovery from "+route, func() ibcgov.Request { return ibcgov.NewExpectRecoveryRequest(cross(cur), route, "gnoland-2", local) })
+	try(cur, "expect recovery from "+route, func() ibcgov.Request {
+		return ibcgov.NewExpectRecoveryRequest(cross(cur), govRoute, route, "gnoland-2", local)
+	})
 	try(cur, "migrate gnoland-2 after its kind 6 op 1", func() ibcgov.Request {
-		return ibcgov.NewEthClientRequest(cross(cur), 2, "gnoland-2", "", "6d61696e", a1, hash)
+		return ibcgov.NewEthClientRequest(cross(cur), govRoute, 2, "gnoland-2", "", "6d61696e", a1, hash)
 	})
 	try(cur, "replace client-0", func() ibcgov.Request {
-		return ibcgov.NewEthRouteReplacementRequest(cross(cur), "client-0", "gnoland-2", 1, local)
+		return ibcgov.NewEthRouteReplacementRequest(cross(cur), govRoute, "client-0", "gnoland-2", 1, local)
 	})
 	expect := ibcgov.LastDecision()
 
@@ -140,28 +149,28 @@ func main(cur realm) {
 	// the switch is spent when it is recorded after it, the route's router
 	// client is gnoland-2 from now on, and a settlement names either router
 	// client the epoch ran over (Ethereum alone can tell which it retired).
-	stale := ibcgov.NewEthLimitsRequest(cross(cur), "client-0", a1, 1, 1, 1, 0, 0)
+	stale := ibcgov.NewEthLimitsRequest(cross(cur), govRoute, "client-0", a1, 1, 1, 1, 0, 0)
 	execute(cur, expect)
 	notice(cur, 2, "gnoland-2", local)
-	println("epoch", ibcgov.Epoch(), "over", ibcgov.EpochClient(), "paired with", core.CounterpartyClientID(ibcgov.EpochClient()))
+	println("epoch", ibcgov.Epoch(govRoute), "over", ibcgov.EpochClient(govRoute), "paired with", core.CounterpartyClientID(ibcgov.EpochClient(govRoute)))
 	d, _ := ibcgov.Decision(govern(cur, stale))
 	println("the limits request built before the switch:", d.State(), "-", d.Note)
 	for _, id := range []string{"client-0", "gnoland-2"} {
-		try(cur, "limits "+id, func() ibcgov.Request { return ibcgov.NewEthLimitsRequest(cross(cur), id, a1, 1, 1, 1, 0, 0) })
-		try(cur, "reopen "+id, func() ibcgov.Request { return ibcgov.NewEthReopenRequest(cross(cur), id) })
-		try(cur, "settle "+id, func() ibcgov.Request { return ibcgov.NewEthSettleRequest(cross(cur), id, "1:3:0") })
+		try(cur, "limits "+id, func() ibcgov.Request { return ibcgov.NewEthLimitsRequest(cross(cur), govRoute, id, a1, 1, 1, 1, 0, 0) })
+		try(cur, "reopen "+id, func() ibcgov.Request { return ibcgov.NewEthReopenRequest(cross(cur), govRoute, id) })
+		try(cur, "settle "+id, func() ibcgov.Request { return ibcgov.NewEthSettleRequest(cross(cur), govRoute, id, "1:3:0") })
 	}
 
 	// The route's replacement here moves it onto ethereum-2: both router
 	// clients stay settleable.
 	execute(cur, govern(cur, ibcgov.NewReplaceRouteRequest(cross(cur), route, local, 0)))
 	for _, id := range []string{"client-0", "gnoland-2"} {
-		try(cur, "settle "+id+" after the replacement", func() ibcgov.Request { return ibcgov.NewEthSettleRequest(cross(cur), id, "1:3:0") })
+		try(cur, "settle "+id+" after the replacement", func() ibcgov.Request { return ibcgov.NewEthSettleRequest(cross(cur), govRoute, id, "1:3:0") })
 	}
 }
 
 // Output:
-// before the binding: ibcgov: the governance channel is not bound
+// before the binding: ibcgov: route ethereum-1's governance channel is not bound
 // epoch 1 over ethereum-1 paired with client-0
 // unpause ethereum-1: ibcgov: ethereum-1 is not the Ethereum router's current client of the route, client-0; ethereum-1 is this chain's client, paired with client-0
 // limits ethereum-1: ibcgov: ethereum-1 is not the Ethereum router's current client of the route, client-0; ethereum-1 is this chain's client, paired with client-0

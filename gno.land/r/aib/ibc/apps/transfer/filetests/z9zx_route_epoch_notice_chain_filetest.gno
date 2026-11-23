@@ -18,6 +18,10 @@ import (
 	"gno.land/r/aib/ibc/ibcgov"
 )
 
+// govRoute is the route this test's decisions name (ADR 0007: route-scoped
+// entry points take the route).
+var govRoute string
+
 const bridge = "0x1d95d544586eacb63b6154e9e45122b32ded11aa 0x00000000000000000000000000000000000b0002 0x00000000000000000000000000000000000b0003"
 
 var (
@@ -28,13 +32,13 @@ var (
 
 func flagAs(cur realm, who address, route, fn string) {
 	testing.SetRealm(testing.NewUserRealm(who))
-	ibcgov.SetFlag(cross(cur), route, fn, "")
+	ibcgov.SetFlag(cross(cur), govRoute, route, fn, "")
 	testing.SetRealm(testing.NewCodeRealm("gno.land/r/aib/main"))
 }
 
 func clearAs(cur realm, who address, route, fn string) {
 	testing.SetRealm(testing.NewUserRealm(who))
-	ibcgov.ClearFlag(cross(cur), route, fn)
+	ibcgov.ClearFlag(cross(cur), govRoute, route, fn)
 	testing.SetRealm(testing.NewCodeRealm("gno.land/r/aib/main"))
 }
 
@@ -162,7 +166,7 @@ func proofSlot(s *sent) uint64 {
 }
 
 func epochNow() string {
-	return "epoch " + string(rune('0'+ibcgov.Epoch())) + " over " + ibcgov.EpochClient()
+	return "epoch " + string(rune('0'+ibcgov.Epoch(govRoute))) + " over " + ibcgov.EpochClient(govRoute)
 }
 
 // pendingExpect is the expectation decisions the kind 10s dispatched so far
@@ -170,7 +174,7 @@ func epochNow() string {
 var pendingExpect []int64
 
 func kind10(cur realm, from, to string, suspectFrom uint64, local string) {
-	govern(cur, ibcgov.NewEthRouteReplacementRequest(cross(cur), from, to, suspectFrom, local))
+	govern(cur, ibcgov.NewEthRouteReplacementRequest(cross(cur), govRoute, from, to, suspectFrom, local))
 	pendingExpect = append(pendingExpect, ibcgov.LastDecision())
 }
 
@@ -197,6 +201,7 @@ func expectAll(cur realm) {
 //   - G→H then H→E, H frozen before its notice: E's notice, two steps on,
 //     moves the epoch past H; a notice one step too far is refused.
 func main(cur realm) {
+	govRoute = "ethereum-1"
 	client(cur, "ethereum-1", "client-0")
 	b := client(cur, "ethereum-2", "gnoland-b", noticePacket(1, "gnoland-b", "ethereum-2", 2, "gnoland-b"))
 	c := client(cur, "ethereum-3", "gnoland-c",
@@ -211,8 +216,8 @@ func main(cur realm) {
 		noticePacket(1, "gnoland-e", "ethereum-8", 8, "gnoland-e"), // one step too far
 		noticePacket(2, "gnoland-e", "ethereum-8", 7, "gnoland-e"))
 	execute(cur, govern(cur, ibcgov.NewEnrollRouteRequest(cross(cur), "ethereum-1", string(collector), bridge)))
-	execute(cur, govern(cur, ibcgov.NewBindGovernanceRequest(cross(cur), "ethereum-1")))
-	execute(cur, govern(cur, ibcgov.NewSetSeatsRequest(cross(cur), "0:"+string(g0)+",1:"+string(g1))))
+	execute(cur, govern(cur, ibcgov.NewBindGovernanceRequest(cross(cur), govRoute, "ethereum-1")))
+	execute(cur, govern(cur, ibcgov.NewSetSeatsRequest(cross(cur), govRoute, "0:"+string(g0)+",1:"+string(g1))))
 
 	// A→B and B→C: both kind 10s dispatched, both replacements executed here
 	// before any notice.
@@ -245,7 +250,7 @@ func main(cur realm) {
 	// Ethereum's emergency recovery moves D's route to G: expected by a
 	// decision here, its notice is accepted.
 	// It loosens: it waits 7 days, and a hold defers it.
-	expectG := govern(cur, ibcgov.NewExpectRecoveryRequest(cross(cur), "gnoland-d", "gnoland-g", "ethereum-6"))
+	expectG := govern(cur, ibcgov.NewExpectRecoveryRequest(cross(cur), govRoute, "gnoland-d", "gnoland-g", "ethereum-6"))
 	println("expect the recovery at once:", revive(func() { ibcgov.Execute(cross(cur), expectG) }))
 	println("g's notice before it applies:", deliver(cur, g, 0), "|", epochNow())
 	flagAs(cur, g0, "ethereum-1", ibcgov.FnSends)
@@ -299,7 +304,7 @@ func main(cur realm) {
 // d's notice: acknowledged | epoch 4 over ethereum-4 | c retired for good: true
 // expect the recovery at once: ibcgov: decision 17 is due at 1240011098, not before
 // g's notice before it applies: error acknowledgement | epoch 4 over ethereum-4
-// during a hold: ibcgov: decision 17 is deferred: a guardian hold stands since 1239406298
+// during a hold: ibcgov: decision 17 is deferred: route ethereum-1's guardian hold stands since 1239406298
 // expect the recovery: applied - expect the governance epoch to move from gnoland-d to gnoland-g over ethereum-6
 // g's notice: acknowledged | epoch 5 over ethereum-6
 // h: Frozen | e: Active | epoch 5 over ethereum-6

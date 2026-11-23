@@ -17,6 +17,10 @@ import (
 	"gno.land/r/aib/ibc/ibcgov"
 )
 
+// govRoute is the route this test's decisions name (ADR 0007: route-scoped
+// entry points take the route).
+var govRoute string
+
 const bridge = "0x1d95d544586eacb63b6154e9e45122b32ded11aa 0x00000000000000000000000000000000000b0002 0x00000000000000000000000000000000000b0003"
 
 var (
@@ -27,13 +31,13 @@ var (
 
 func flagAs(cur realm, who address, route, fn string) {
 	testing.SetRealm(testing.NewUserRealm(who))
-	ibcgov.SetFlag(cross(cur), route, fn, "")
+	ibcgov.SetFlag(cross(cur), govRoute, route, fn, "")
 	testing.SetRealm(testing.NewCodeRealm("gno.land/r/aib/main"))
 }
 
 func clearAs(cur realm, who address, route, fn string) {
 	testing.SetRealm(testing.NewUserRealm(who))
-	ibcgov.ClearFlag(cross(cur), route, fn)
+	ibcgov.ClearFlag(cross(cur), govRoute, route, fn)
 	testing.SetRealm(testing.NewCodeRealm("gno.land/r/aib/main"))
 }
 
@@ -161,7 +165,7 @@ func proofSlot(s *sent) uint64 {
 }
 
 func epochNow() string {
-	return "epoch " + string(rune('0'+ibcgov.Epoch())) + " over " + ibcgov.EpochClient()
+	return "epoch " + string(rune('0'+ibcgov.Epoch(govRoute))) + " over " + ibcgov.EpochClient(govRoute)
 }
 
 // plain creates an Ethereum client whose counterparty is the router client
@@ -177,7 +181,7 @@ func plain(cur realm, remote string) string {
 var pendingExpect []int64
 
 func kind10(cur realm, from, to string, suspectFrom uint64, local string) {
-	govern(cur, ibcgov.NewEthRouteReplacementRequest(cross(cur), from, to, suspectFrom, local))
+	govern(cur, ibcgov.NewEthRouteReplacementRequest(cross(cur), govRoute, from, to, suspectFrom, local))
 	pendingExpect = append(pendingExpect, ibcgov.LastDecision())
 }
 
@@ -201,11 +205,12 @@ func expectAll(cur realm) {
 // PruneGovRetirements, in bounded batches that resume where the last
 // stopped (Codex round 37), retires none of them.
 func main(cur realm) {
+	govRoute = "ethereum-1"
 	client(cur, "ethereum-1", "client-0")
 	client(cur, "ethereum-2", "gnoland-b1")
 	b2 := client(cur, "ethereum-3", "gnoland-b2", noticePacket(1, "gnoland-b2", "ethereum-3", 2, "gnoland-b2"))
 	execute(cur, govern(cur, ibcgov.NewEnrollRouteRequest(cross(cur), "ethereum-1", string(collector), bridge)))
-	execute(cur, govern(cur, ibcgov.NewBindGovernanceRequest(cross(cur), "ethereum-1")))
+	execute(cur, govern(cur, ibcgov.NewBindGovernanceRequest(cross(cur), govRoute, "ethereum-1")))
 	// client-0 -> b1..b4 (4) -> c.. (16) -> d.. (44): 64 transitions.
 	var level []string
 	for i := 1; i <= 4; i++ {
@@ -244,20 +249,20 @@ func main(cur realm) {
 	for _, next := range route[1:] {
 		execute(cur, govern(cur, ibcgov.NewReplaceRouteRequest(cross(cur), "ethereum-1", next, 0)))
 	}
-	println("graph at the cap, epoch unchanged: waiting", ibcgov.AwaitingGovRetirement(),
+	println("graph at the cap, epoch unchanged: waiting", ibcgov.AwaitingGovRetirement(govRoute),
 		"| a client on no path retired for governance:", core.IsClientRetiredFor(route[7], ibcgov.GovPort),
 		"| one on a path kept:", core.IsClientRetiredFor(route[6], ibcgov.GovPort))
 
 	// The notice switches the epoch to b2: the transitions it left behind
 	// are dropped, and the capacity is free again.
 	println("b2's notice:", deliver(cur, b2, 0), "|", epochNow())
-	println("old epoch client retired:", core.IsClientRetired("ethereum-1"), "| waiting:", ibcgov.AwaitingGovRetirement())
+	println("old epoch client retired:", core.IsClientRetired("ethereum-1"), "| waiting:", ibcgov.AwaitingGovRetirement(govRoute))
 	kind10(cur, "gnoland-d4x1", "gnoland-new", 1, extra)
 	println("the transition refused before:", decided(ibcgov.LastDecision()-1))
 	// Batches of 2: ethereum-10 to 13 are kept on a path; ethereum-6 and 7,
 	// left behind by the switch, are kept off the graph, not retired.
 	for i := 0; i < 4; i++ {
-		println("pruned:", ibcgov.PruneGovRetirements(cross(cur), 2), "| waiting:", ibcgov.AwaitingGovRetirement())
+		println("pruned:", ibcgov.PruneGovRetirements(cross(cur), govRoute, 2), "| waiting:", ibcgov.AwaitingGovRetirement(govRoute))
 	}
 	println("kept on a path:", core.IsClientRetiredFor("ethereum-10", ibcgov.GovPort), "| retired for good:", core.IsClientRetired("ethereum-6"), core.IsClientRetired("ethereum-7"))
 }

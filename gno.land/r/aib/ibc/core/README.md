@@ -470,7 +470,9 @@ Administration is split by direction (ADR pr6375 R14):
   `AddRelayer`, `RecoverClient`, `UpdateImpl`, `MigrateClient`,
   `AddAuthorityMember`, and `RemoveRelayer` of the last listed relayer (an
   empty whitelist lets anyone relay). The others apply at once: `Unpause` and
-  `UnpauseApp` (spent under a guardian hold), `RemoveAuthorityMember`, and
+  `UnpauseApp` (global decisions: a route's guardian hold defers them, to
+  day 21 of the global hold at most, and never spends them; a route's own
+  unpauses are spent under its hold), `RemoveAuthorityMember`, and
   `RemoveRelayer` while other relayers stay listed (the whitelist is read
   when the decision is recorded). `RetireClient` and `RetireClientPort` are
   not decisions of their own: a route replacement retires the route's old

@@ -21,6 +21,10 @@ import (
 	"gno.land/r/aib/ibc/ibcgov"
 )
 
+// govRoute is the route this test's decisions name (ADR 0007: route-scoped
+// entry points take the route).
+var govRoute string
+
 // bridge is the route's Ethereum router, ICS20 transfer and IBCAdmin: its
 // protected recipients.
 const bridge = "0x1d95d544586eacb63b6154e9e45122b32ded11aa 0x00000000000000000000000000000000000b0002 0x00000000000000000000000000000000000b0003"
@@ -63,6 +67,7 @@ func execute(cur realm, id int64) {
 // enrolls the client as a route, every step a governor decision.
 func setupRoute(cur realm) string {
 	clientID := core.CreateClient(cross(cur), ethtesting.ClientState(), ethtesting.ConsensusState())
+	govRoute = clientID
 	core.RegisterCounterparty(cross(cur), clientID, [][]byte{{}}, "client-0")
 	execute(cur, govern(cur, ibcgov.NewEnrollRouteRequest(cross(cur), clientID, string(collector), bridge)))
 	advance(7*24*time.Hour + time.Second) // keeps the timeline of the goldens
@@ -124,7 +129,7 @@ func recapitalize(cur realm, route string, id int64, amount uint256) {
 
 func clearPayouts(cur realm, route string) {
 	testing.SetRealm(testing.NewUserRealm(guardian))
-	ibcgov.ClearFlag(cross(cur), route, ibcgov.FnPayouts)
+	ibcgov.ClearFlag(cross(cur), govRoute, route, ibcgov.FnPayouts)
 	testing.SetRealm(testing.NewCodeRealm("gno.land/r/aib/main"))
 }
 
@@ -139,20 +144,20 @@ func decided(id int64) string {
 func main(cur realm) {
 	route := setupRoute(cur)
 	execute(cur, govern(cur, ibcgov.NewSetDenomRequest(cross(cur), route, "ugnot", "unescrow", 10_000, 0, 20, 2, 25_000, 40, 10_000, "0x0000000000000000000000000000000000c0ffee", 0)))
-	execute(cur, govern(cur, ibcgov.NewSetSeatsRequest(cross(cur), "4:"+string(watch))))
+	execute(cur, govern(cur, ibcgov.NewSetSeatsRequest(cross(cur), govRoute, "4:"+string(watch))))
 	send(cur, route, 5_000, 5_020, ethReceiver)
 	recv(cur, route, 1, "transfer/client-0/ugnot", "not-a-gno-address", 300) // swept
 	pay := govern(cur, ibcgov.NewSweepRequest(cross(cur), route, controls.PacketKey(route, 1), string(carol)))
 
 	testing.SetRealm(testing.NewUserRealm(watch))
-	ibcgov.SetFlag(cross(cur), route, ibcgov.FnPayouts, "")
+	ibcgov.SetFlag(cross(cur), govRoute, route, ibcgov.FnPayouts, "")
 	testing.SetRealm(testing.NewCodeRealm("gno.land/r/aib/main"))
-	println("held:", ibcgov.Held())
+	println("held:", ibcgov.Held(govRoute))
 	advance(7*24*time.Hour + time.Second)
 	println("matured under the flag:", revive(func() { ibcgov.Execute(cross(cur), pay) }), "|", decided(pay))
 
 	testing.SetRealm(testing.NewUserRealm(watch))
-	ibcgov.ClearFlag(cross(cur), route, ibcgov.FnPayouts)
+	ibcgov.ClearFlag(cross(cur), govRoute, route, ibcgov.FnPayouts)
 	testing.SetRealm(testing.NewCodeRealm("gno.land/r/aib/main"))
 	before := ugnot(carol)
 	ibcgov.Execute(cross(cur), pay)
