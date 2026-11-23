@@ -14,6 +14,10 @@ import (
 	"gno.land/r/aib/ibc/ibcgov"
 )
 
+// govRoute is the route this test's decisions name (ADR 0007: route-scoped
+// entry points take the route).
+var govRoute string
+
 // bridge is the route's Ethereum router, ICS20 transfer and IBCAdmin: its
 // protected recipients.
 const bridge = "0x1d95d544586eacb63b6154e9e45122b32ded11aa 0x00000000000000000000000000000000000b0002 0x00000000000000000000000000000000000b0003"
@@ -60,11 +64,11 @@ func notice(cur realm, e uint32, named, local string) {
 // settle builds a kind 12 for id and prints the refusal, or the epoch and
 // seq it was dispatched as.
 func settle(cur realm, id string) {
-	if r := revive(func() { govern(cur, ibcgov.NewEthSettleRequest(cross(cur), id, "1:3:0")) }); r != nil {
+	if r := revive(func() { govern(cur, ibcgov.NewEthSettleRequest(cross(cur), govRoute, id, "1:3:0")) }); r != nil {
 		println("settle "+id+":", r)
 		return
 	}
-	println("settle "+id+": dispatched as epoch", ibcgov.Epoch(), "seq", ibcgov.LastSeq(ibcgov.Epoch()))
+	println("settle "+id+": dispatched as epoch", ibcgov.Epoch(govRoute), "seq", ibcgov.LastSeq(govRoute, ibcgov.Epoch(govRoute)))
 }
 
 // A router client governance named stays settleable whatever Ethereum's
@@ -80,20 +84,21 @@ func settle(cur realm, id string) {
 // governance never named stays out.
 func main(cur realm) {
 	route := client(cur, "client-0") // ethereum-1
-	lb := client(cur, "gnoland-b")   // ethereum-2
-	lx := client(cur, "gnoland-x")   // ethereum-3
-	lc := client(cur, "gnoland-c")   // ethereum-4
+	govRoute = route
+	lb := client(cur, "gnoland-b") // ethereum-2
+	lx := client(cur, "gnoland-x") // ethereum-3
+	lc := client(cur, "gnoland-c") // ethereum-4
 	execute(cur, govern(cur, ibcgov.NewEnrollRouteRequest(cross(cur), route, string(collector), bridge)))
-	execute(cur, govern(cur, ibcgov.NewBindGovernanceRequest(cross(cur), route)))
+	execute(cur, govern(cur, ibcgov.NewBindGovernanceRequest(cross(cur), govRoute, route)))
 
-	govern(cur, ibcgov.NewEthRouteReplacementRequest(cross(cur), "client-0", "gnoland-b", 1, lb))
+	govern(cur, ibcgov.NewEthRouteReplacementRequest(cross(cur), govRoute, "client-0", "gnoland-b", 1, lb))
 	execute(cur, ibcgov.LastDecision())
-	execute(cur, govern(cur, ibcgov.NewExpectRecoveryRequest(cross(cur), "client-0", "gnoland-x", lx)))
-	execute(cur, govern(cur, ibcgov.NewExpectRecoveryRequest(cross(cur), "gnoland-x", "gnoland-c", lc)))
+	execute(cur, govern(cur, ibcgov.NewExpectRecoveryRequest(cross(cur), govRoute, "client-0", "gnoland-x", lx)))
+	execute(cur, govern(cur, ibcgov.NewExpectRecoveryRequest(cross(cur), govRoute, "gnoland-x", "gnoland-c", lc)))
 	notice(cur, 3, "gnoland-c", lc) // two steps on: recorded as proven
 	ibcgov.ApplyEpochNotice(cross(cur), 3, lc, "gnoland-x/"+lx+",gnoland-c/"+lc)
-	println("epoch", ibcgov.Epoch(), "over", ibcgov.EpochClient())
-	println("expect gnoland-b to gnoland-c now:", revive(func() { ibcgov.NewExpectRecoveryRequest(cross(cur), "gnoland-b", "gnoland-c", lc) }))
+	println("epoch", ibcgov.Epoch(govRoute), "over", ibcgov.EpochClient(govRoute))
+	println("expect gnoland-b to gnoland-c now:", revive(func() { ibcgov.NewExpectRecoveryRequest(cross(cur), govRoute, "gnoland-b", "gnoland-c", lc) }))
 	execute(cur, govern(cur, ibcgov.NewReplaceRouteRequest(cross(cur), route, lc, 0)))
 	println("the route here moved from", route, "to", lc)
 	settle(cur, "gnoland-b")

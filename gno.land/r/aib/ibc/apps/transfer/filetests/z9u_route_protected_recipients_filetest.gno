@@ -21,6 +21,10 @@ import (
 	"gno.land/r/aib/ibc/ibcgov"
 )
 
+// govRoute is the route this test's decisions name (ADR 0007: route-scoped
+// entry points take the route).
+var govRoute string
+
 // bridge is the route's Ethereum router, ICS20 transfer and IBCAdmin: its
 // protected recipients.
 const bridge = "0x1d95d544586eacb63b6154e9e45122b32ded11aa 0x00000000000000000000000000000000000b0002 0x00000000000000000000000000000000000b0003"
@@ -58,12 +62,13 @@ func execute(cur realm, id int64) {
 // enrolls the client as a route, every step a governor decision.
 func setupRoute(cur realm) string {
 	clientID := core.CreateClient(cross(cur), ethtesting.ClientState(), ethtesting.ConsensusState())
+	govRoute = clientID
 	core.RegisterCounterparty(cross(cur), clientID, [][]byte{{}}, "client-0")
 	execute(cur, govern(cur, ibcgov.NewEnrollRouteRequest(cross(cur), clientID, string(collector), bridge)))
 	// The governance channel is bound before any replacement (one is
 	// refused until then), over the route's original client; its 7 days
 	// keep the timeline of the goldens.
-	execute(cur, govern(cur, ibcgov.NewBindGovernanceRequest(cross(cur), clientID)))
+	execute(cur, govern(cur, ibcgov.NewBindGovernanceRequest(cross(cur), govRoute, clientID)))
 	return clientID
 }
 

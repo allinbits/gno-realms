@@ -17,6 +17,10 @@ import (
 	"gno.land/r/aib/ibc/ibcgov"
 )
 
+// govRoute is the route this test's decisions name (ADR 0007: route-scoped
+// entry points take the route).
+var govRoute string
+
 const bridge = "0x1d95d544586eacb63b6154e9e45122b32ded11aa 0x00000000000000000000000000000000000b0002 0x00000000000000000000000000000000000b0003"
 
 var (
@@ -27,13 +31,13 @@ var (
 
 func flagAs(cur realm, who address, route, fn string) {
 	testing.SetRealm(testing.NewUserRealm(who))
-	ibcgov.SetFlag(cross(cur), route, fn, "")
+	ibcgov.SetFlag(cross(cur), govRoute, route, fn, "")
 	testing.SetRealm(testing.NewCodeRealm("gno.land/r/aib/main"))
 }
 
 func clearAs(cur realm, who address, route, fn string) {
 	testing.SetRealm(testing.NewUserRealm(who))
-	ibcgov.ClearFlag(cross(cur), route, fn)
+	ibcgov.ClearFlag(cross(cur), govRoute, route, fn)
 	testing.SetRealm(testing.NewCodeRealm("gno.land/r/aib/main"))
 }
 
@@ -161,7 +165,7 @@ func proofSlot(s *sent) uint64 {
 }
 
 func epochNow() string {
-	return "epoch " + strconv.FormatUint(uint64(ibcgov.Epoch()), 10) + " over " + ibcgov.EpochClient()
+	return "epoch " + strconv.FormatUint(uint64(ibcgov.Epoch(govRoute)), 10) + " over " + ibcgov.EpochClient(govRoute)
 }
 
 // plain creates an Ethereum client whose counterparty is the router client
@@ -177,7 +181,7 @@ func plain(cur realm, remote string) string {
 var pendingExpect []int64
 
 func kind10(cur realm, from, to string, suspectFrom uint64, local string) {
-	govern(cur, ibcgov.NewEthRouteReplacementRequest(cross(cur), from, to, suspectFrom, local))
+	govern(cur, ibcgov.NewEthRouteReplacementRequest(cross(cur), govRoute, from, to, suspectFrom, local))
 	pendingExpect = append(pendingExpect, ibcgov.LastDecision())
 }
 
@@ -191,7 +195,7 @@ func expectAll(cur realm) {
 
 // expectNow records a recovery expectation and returns its decision.
 func expectNow(cur realm, from, to, local string) int64 {
-	return govern(cur, ibcgov.NewExpectRecoveryRequest(cross(cur), from, to, local))
+	return govern(cur, ibcgov.NewExpectRecoveryRequest(cross(cur), govRoute, from, to, local))
 }
 
 // junk records a recovery expectation and cancels it: a tombstone.
@@ -216,25 +220,26 @@ func rl(i int) string { return "ethereum-" + strconv.Itoa(i+1) }
 // (approving it again would let the notice apply), purging an unrelated
 // tombstone is not; B→C approved again, the notice applies.
 func main(cur realm) {
+	govRoute = "ethereum-1"
 	client(cur, "ethereum-1", "client-0")
 	client(cur, "ethereum-2", "gnoland-b")
 	c := client(cur, "ethereum-3", "gnoland-c", noticePacket(1, "gnoland-c", "ethereum-3", 3, "gnoland-c"))
 	client(cur, "ethereum-4", "gnoland-d")
 	execute(cur, govern(cur, ibcgov.NewEnrollRouteRequest(cross(cur), "ethereum-1", string(collector), bridge)))
-	execute(cur, govern(cur, ibcgov.NewBindGovernanceRequest(cross(cur), "ethereum-1")))
+	execute(cur, govern(cur, ibcgov.NewBindGovernanceRequest(cross(cur), govRoute, "ethereum-1")))
 	approveAll(cur, expectNow(cur, "client-0", "gnoland-b", "ethereum-2"), expectNow(cur, "gnoland-b", "gnoland-c", "ethereum-3"))
-	println("remove B→C:", decided(govern(cur, ibcgov.NewRemoveExpectationRequest(cross(cur), "gnoland-b", "gnoland-c", "ethereum-3"))))
+	println("remove B→C:", decided(govern(cur, ibcgov.NewRemoveExpectationRequest(cross(cur), govRoute, "gnoland-b", "gnoland-c", "ethereum-3"))))
 	junk(cur, "client-0", "gnoland-d", "ethereum-4")
 	println("C's notice, 2 steps on:", deliver(cur, c, 0), "|", epochNow())
 	println("purge B→C:", revive(func() {
-		govern(cur, ibcgov.NewPurgeTombstoneRequest(cross(cur), "gnoland-b", "gnoland-c", "ethereum-3"))
+		govern(cur, ibcgov.NewPurgeTombstoneRequest(cross(cur), govRoute, "gnoland-b", "gnoland-c", "ethereum-3"))
 	}))
-	purge := govern(cur, ibcgov.NewPurgeTombstoneRequest(cross(cur), "client-0", "gnoland-d", "ethereum-4"))
+	purge := govern(cur, ibcgov.NewPurgeTombstoneRequest(cross(cur), govRoute, "client-0", "gnoland-d", "ethereum-4"))
 	execute(cur, purge)
-	println("purge A→D:", decided(purge), "| tombstones:", ibcgov.Tombstones())
+	println("purge A→D:", decided(purge), "| tombstones:", ibcgov.Tombstones(govRoute))
 	bc := expectNow(cur, "gnoland-b", "gnoland-c", "ethereum-3")
 	approveAll(cur, bc)
-	println("B→C again:", decided(bc), "| tombstones:", ibcgov.Tombstones())
+	println("B→C again:", decided(bc), "| tombstones:", ibcgov.Tombstones(govRoute))
 	ibcgov.ApplyEpochNotice(cross(cur), 3, "ethereum-3", "gnoland-b/ethereum-2,gnoland-c/ethereum-3")
 	println("applied:", epochNow())
 }

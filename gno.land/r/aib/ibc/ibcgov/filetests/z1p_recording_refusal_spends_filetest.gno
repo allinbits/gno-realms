@@ -16,6 +16,10 @@ import (
 	daoinit "gno.land/r/gov/dao/init/v0"
 )
 
+// govRoute is the route this test's decisions name (ADR 0007: route-scoped
+// entry points take the route).
+var govRoute string
+
 var member address = unsafe.OriginCaller()
 
 // advance moves the block time on by d.
@@ -49,6 +53,7 @@ func main(cur realm) {
 	daoinit.InitWithUsers(cross(cur), member)
 	gov := ibcgov.Governor()
 	route := client(cur, "client-0")
+	govRoute = route
 	b := client(cur, "gnoland-b")
 	var locals []string
 	for i := 1; i <= 4; i++ {
@@ -58,13 +63,13 @@ func main(cur realm) {
 	id := governAs(cur, gov, ibcgov.NewEnrollRouteRequest(cross(cur), route, string(testutils.TestAddress("collector")), bridge))
 	advance(7*24*time.Hour + time.Second)
 	ibcgov.Execute(cross(cur), id)
-	id = governAs(cur, gov, ibcgov.NewBindGovernanceRequest(cross(cur), route))
+	id = governAs(cur, gov, ibcgov.NewBindGovernanceRequest(cross(cur), govRoute, route))
 	advance(7*24*time.Hour + time.Second)
 	ibcgov.Execute(cross(cur), id)
-	reqB := ibcgov.NewExpectRecoveryRequest(cross(cur), "client-0", "gnoland-b", b) // room now
+	reqB := ibcgov.NewExpectRecoveryRequest(cross(cur), govRoute, "client-0", "gnoland-b", b) // room now
 	var fill []int64
 	for i, l := range locals {
-		fill = append(fill, governAs(cur, gov, ibcgov.NewExpectRecoveryRequest(cross(cur), "client-0", "gnoland-r"+itoa(i+1), l)))
+		fill = append(fill, governAs(cur, gov, ibcgov.NewExpectRecoveryRequest(cross(cur), govRoute, "client-0", "gnoland-r"+itoa(i+1), l)))
 	}
 	testing.SetRealm(testing.NewUserRealm(gov))
 	ibcgov.Yield(cross(cur))

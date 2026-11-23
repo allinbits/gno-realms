@@ -22,6 +22,10 @@ import (
 	"gno.land/r/aib/ibc/ibcgov"
 )
 
+// govRoute is the route this test's decisions name (ADR 0007: route-scoped
+// entry points take the route).
+var govRoute string
+
 // bridge is the route's Ethereum router, ICS20 transfer and IBCAdmin: its
 // protected recipients.
 const bridge = "0x1d95d544586eacb63b6154e9e45122b32ded11aa 0x00000000000000000000000000000000000b0002 0x00000000000000000000000000000000000b0003"
@@ -63,6 +67,7 @@ func execute(cur realm, id int64) {
 // enrolls the client as a route, every step a governor decision.
 func setupRoute(cur realm) string {
 	clientID := core.CreateClient(cross(cur), ethtesting.ClientState(), ethtesting.ConsensusState())
+	govRoute = clientID
 	core.RegisterCounterparty(cross(cur), clientID, [][]byte{{}}, "client-0")
 	execute(cur, govern(cur, ibcgov.NewEnrollRouteRequest(cross(cur), clientID, string(collector), bridge)))
 	advance(7*24*time.Hour + time.Second) // keeps the timeline of the goldens
@@ -172,15 +177,16 @@ func setTime(t time.Time) {
 func main(cur realm) {
 	lone := core.CreateClient(cross(cur), ethtesting.ClientState(), ethtesting.ConsensusState())
 	core.RegisterCounterparty(cross(cur), lone, [][]byte{{}}, "client-9")
-	println("bind an unenrolled client:", revive(func() { ibcgov.NewBindGovernanceRequest(cross(cur), lone) }))
+	println("bind an unenrolled client:", revive(func() { ibcgov.NewBindGovernanceRequest(cross(cur), lone, lone) }))
 
 	route := setupRoute(cur)
+	println("bind the route to another client:", revive(func() { ibcgov.NewBindGovernanceRequest(cross(cur), route, lone) }))
 	// The route's client expires during the binding delay: spent.
-	bind := govern(cur, ibcgov.NewBindGovernanceRequest(cross(cur), route))
+	bind := govern(cur, ibcgov.NewBindGovernanceRequest(cross(cur), govRoute, route))
 	setTime(time.Unix(int64(ethtesting.ClientState().GenesisTime)+5000, 0))
 	println("route client:", core.ClientStatus(route))
 	execute(cur, bind)
-	println("bind over an expired client:", decided(bind), "| epoch", ibcgov.Epoch())
+	println("bind over an expired client:", decided(bind), "| epoch", ibcgov.Epoch(govRoute))
 
 	// Before the binding the route's client is never replaced (design
 	// review r23 #1): Ethereum's epoch 1 pairs its router client with this
@@ -204,9 +210,9 @@ func main(cur realm) {
 	sub := healthy(later, "client-0")
 	execute(cur, govern(cur, ibcgov.NewRecoverClientRequest(cross(cur), route, sub)))
 	println("recovered in place:", core.ClientStatus(route))
-	bind = govern(cur, ibcgov.NewBindGovernanceRequest(cross(cur), route))
+	bind = govern(cur, ibcgov.NewBindGovernanceRequest(cross(cur), govRoute, route))
 	execute(cur, bind)
-	println("bind over the route's original client:", decided(bind), "| epoch", ibcgov.Epoch(), "over", ibcgov.EpochClient() == route)
+	println("bind over the route's original client:", decided(bind), "| epoch", ibcgov.Epoch(govRoute), "over", ibcgov.EpochClient(govRoute) == route)
 
 	setTime(time.Unix(int64(ethtesting.ClientState().GenesisTime)+later*2+5000, 0))
 	println("bound client:", core.ClientStatus(route))
@@ -214,16 +220,17 @@ func main(cur realm) {
 	replace := govern(cur, ibcgov.NewReplaceRouteRequest(cross(cur), route, c, 1))
 	execute(cur, replace)
 	println("replace the bound route:", decided(replace))
-	println("route client is c:", controlsView().Client(route) == c, "| epoch", ibcgov.Epoch(), "over c:", ibcgov.EpochClient() == c)
+	println("route client is c:", controlsView().Client(route) == c, "| epoch", ibcgov.Epoch(govRoute), "over c:", ibcgov.EpochClient(govRoute) == c)
 }
 
 // Output:
-// bind an unenrolled client: ibcgov: ethereum-1 is not the original client of the enrolled route
+// bind an unenrolled client: ibcgov: no route ethereum-1
+// bind the route to another client: ibcgov: ethereum-1 is not the original client of route ethereum-2
 // route client: Expired
 // bind over an expired client: spent - spent: ethereum-2 is not Active | epoch 0
 // replace before the binding: ibcgov: the governance channel is not bound yet: the route's client is replaced only after the binding (before it, recover the client in place, or restart the deployment)
 // recovered in place: Active
-// bind over the route's original client: applied - governance epoch 1 over ethereum-2 | epoch 1 over true
+// bind over the route's original client: applied - route ethereum-2's governance epoch 1 over ethereum-2 | epoch 1 over true
 // bound client: Expired
 // replace the bound route: applied - replace: client ethereum-2 retired for transfers, meters emptied; governance epoch 1 stays over ethereum-2 until IBCAdmin's epoch notices arrive
 // route client is c: true | epoch 1 over c: false

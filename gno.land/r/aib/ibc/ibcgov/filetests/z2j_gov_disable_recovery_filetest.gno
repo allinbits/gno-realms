@@ -14,6 +14,10 @@ import (
 	"gno.land/r/aib/ibc/ibcgov"
 )
 
+// govRoute is the route this test's decisions name (ADR 0007: route-scoped
+// entry points take the route).
+var govRoute string
+
 // advance moves the block time on by d.
 func advance(d time.Duration) {
 	ctx := testing.GetContext()
@@ -47,28 +51,29 @@ const vector = "010000000100000000000000120e000000000000000000000000000000000000
 // which an epoch switch moves.
 func main(cur realm) {
 	client := core.CreateClient(cross(cur), ethtesting.ClientState(), ethtesting.ConsensusState())
+	govRoute = client
 	core.RegisterCounterparty(cross(cur), client, [][]byte{{}}, "client-0")
 	local := core.CreateClient(cross(cur), ethtesting.ClientState(), ethtesting.ConsensusState())
 	core.RegisterCounterparty(cross(cur), local, [][]byte{{}}, "gnoland-2")
-	println("before the binding:", revive(func() { govern(cur, ibcgov.NewEthDisableRecoveryRequest(cross(cur), "client-0")) }))
+	println("before the binding:", revive(func() { govern(cur, ibcgov.NewEthDisableRecoveryRequest(cross(cur), govRoute, "client-0")) }))
 	execute(cur, govern(cur, ibcgov.NewEnrollRouteRequest(cross(cur), client, string(ibcgov.Governor()), "0x1d95d544586eacb63b6154e9e45122b32ded11aa 0x00000000000000000000000000000000000b0002 0x00000000000000000000000000000000000b0003")))
-	execute(cur, govern(cur, ibcgov.NewBindGovernanceRequest(cross(cur), client)))
+	execute(cur, govern(cur, ibcgov.NewBindGovernanceRequest(cross(cur), govRoute, client)))
 
-	d, _ := ibcgov.Decision(govern(cur, ibcgov.NewEthDisableRecoveryRequest(cross(cur), "client-0")))
+	d, _ := ibcgov.Decision(govern(cur, ibcgov.NewEthDisableRecoveryRequest(cross(cur), govRoute, "client-0")))
 	println("dispatched:", d.Note)
-	body := hex.EncodeToString(ibcgov.DispatchBody(1, 1))
+	body := hex.EncodeToString(ibcgov.DispatchBody(govRoute, 1, 1))
 	println("header:", body[:28])
 	println("kind and params match:", body[26:] == vector[26:])
-	_, _, kind, _, _ := ibcgov.ParseEnvelope(ibcgov.DispatchBody(1, 1))
+	_, _, kind, _, _ := ibcgov.ParseEnvelope(ibcgov.DispatchBody(govRoute, 1, 1))
 	println("kind", kind)
 
-	println("not a router client id:", revive(func() { govern(cur, ibcgov.NewEthDisableRecoveryRequest(cross(cur), "abc")) }))
-	println("another router client:", revive(func() { govern(cur, ibcgov.NewEthDisableRecoveryRequest(cross(cur), "gnoland-2")) }))
-	println("this chain's client:", revive(func() { govern(cur, ibcgov.NewEthDisableRecoveryRequest(cross(cur), client)) }))
+	println("not a router client id:", revive(func() { govern(cur, ibcgov.NewEthDisableRecoveryRequest(cross(cur), govRoute, "abc")) }))
+	println("another router client:", revive(func() { govern(cur, ibcgov.NewEthDisableRecoveryRequest(cross(cur), govRoute, "gnoland-2")) }))
+	println("this chain's client:", revive(func() { govern(cur, ibcgov.NewEthDisableRecoveryRequest(cross(cur), govRoute, client)) }))
 
 	// An epoch switch moves the router client it names: after IBCAdmin's
 	// notice moves the epoch to gnoland-2, the old client is refused.
-	govern(cur, ibcgov.NewEthRouteReplacementRequest(cross(cur), "client-0", "gnoland-2", 1, local))
+	govern(cur, ibcgov.NewEthRouteReplacementRequest(cross(cur), govRoute, "client-0", "gnoland-2", 1, local))
 	expect := ibcgov.LastDecision()
 	execute(cur, expect)
 	np := types.Payload{SourcePort: ibcgov.GovDestPort, DestinationPort: ibcgov.GovPort, Version: ibcgov.GovVersion, Encoding: ibcgov.GovEncoding, Value: ibcgov.EpochNotice(2, "gnoland-2")}
@@ -76,14 +81,14 @@ func main(cur realm) {
 	var app ibcgov.App
 	app.OnRecvPacket(cross(cur), "gnoland-2", local, 1, np)
 	testing.SetRealm(testing.NewCodeRealm("gno.land/r/aib/main"))
-	println("epoch", ibcgov.Epoch())
-	println("the old client:", revive(func() { govern(cur, ibcgov.NewEthDisableRecoveryRequest(cross(cur), "client-0")) }))
-	d, _ = ibcgov.Decision(govern(cur, ibcgov.NewEthDisableRecoveryRequest(cross(cur), "gnoland-2")))
+	println("epoch", ibcgov.Epoch(govRoute))
+	println("the old client:", revive(func() { govern(cur, ibcgov.NewEthDisableRecoveryRequest(cross(cur), govRoute, "client-0")) }))
+	d, _ = ibcgov.Decision(govern(cur, ibcgov.NewEthDisableRecoveryRequest(cross(cur), govRoute, "gnoland-2")))
 	println("the new client:", d.Note)
 }
 
 // Output:
-// before the binding: ibcgov: the governance channel is not bound
+// before the binding: ibcgov: no route ethereum-1
 // dispatched: dispatched as epoch 1 seq 1
 // header: 010000000100000000000000010e
 // kind and params match: true

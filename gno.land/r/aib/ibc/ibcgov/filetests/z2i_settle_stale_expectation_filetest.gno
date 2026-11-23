@@ -14,6 +14,10 @@ import (
 	"gno.land/r/aib/ibc/ibcgov"
 )
 
+// govRoute is the route this test's decisions name (ADR 0007: route-scoped
+// entry points take the route).
+var govRoute string
+
 // bridge is the route's Ethereum router, ICS20 transfer and IBCAdmin: its
 // protected recipients.
 const bridge = "0x1d95d544586eacb63b6154e9e45122b32ded11aa 0x00000000000000000000000000000000000b0002 0x00000000000000000000000000000000000b0003"
@@ -60,11 +64,11 @@ func notice(cur realm, e uint32, named, local string) {
 // settle builds a kind 12 for id and prints the refusal, or the epoch and
 // seq it was dispatched as.
 func settle(cur realm, id string) {
-	if r := revive(func() { govern(cur, ibcgov.NewEthSettleRequest(cross(cur), id, "1:3:0")) }); r != nil {
+	if r := revive(func() { govern(cur, ibcgov.NewEthSettleRequest(cross(cur), govRoute, id, "1:3:0")) }); r != nil {
 		println("settle "+id+":", r)
 		return
 	}
-	println("settle "+id+": dispatched as epoch", ibcgov.Epoch(), "seq", ibcgov.LastSeq(ibcgov.Epoch()))
+	println("settle "+id+": dispatched as epoch", ibcgov.Epoch(govRoute), "seq", ibcgov.LastSeq(govRoute, ibcgov.Epoch(govRoute)))
 }
 
 // A recovery expectation adds its router clients to the history only once
@@ -74,15 +78,16 @@ func settle(cur realm, id string) {
 // which nothing else named, stays out of what a settlement may name.
 func main(cur realm) {
 	route := client(cur, "client-0") // ethereum-1
-	lb := client(cur, "gnoland-b")   // ethereum-2
-	lc := client(cur, "gnoland-c")   // ethereum-3
+	govRoute = route
+	lb := client(cur, "gnoland-b") // ethereum-2
+	lc := client(cur, "gnoland-c") // ethereum-3
 	execute(cur, govern(cur, ibcgov.NewEnrollRouteRequest(cross(cur), route, string(collector), bridge)))
-	execute(cur, govern(cur, ibcgov.NewBindGovernanceRequest(cross(cur), route)))
+	execute(cur, govern(cur, ibcgov.NewBindGovernanceRequest(cross(cur), govRoute, route)))
 
-	stale := ibcgov.NewExpectRecoveryRequest(cross(cur), "client-0", "gnoland-b", lb)
-	execute(cur, govern(cur, ibcgov.NewExpectRecoveryRequest(cross(cur), "client-0", "gnoland-c", lc)))
+	stale := ibcgov.NewExpectRecoveryRequest(cross(cur), govRoute, "client-0", "gnoland-b", lb)
+	execute(cur, govern(cur, ibcgov.NewExpectRecoveryRequest(cross(cur), govRoute, "client-0", "gnoland-c", lc)))
 	notice(cur, 2, "gnoland-c", lc)
-	println("epoch", ibcgov.Epoch(), "over", ibcgov.EpochClient())
+	println("epoch", ibcgov.Epoch(govRoute), "over", ibcgov.EpochClient(govRoute))
 	id := govern(cur, stale)
 	d, _ := ibcgov.Decision(id)
 	println("stale expectation:", d.State(), d.Note)

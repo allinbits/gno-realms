@@ -263,6 +263,24 @@ func (r *Registry) Keys() []string {
 	return out
 }
 
+// HasRoutes reports whether any route is enrolled, in constant work.
+func (r *Registry) HasRoutes() bool { return r.routes.Size() > 0 }
+
+// KeysFrom lists at most n route keys from from on ("" from the first), in
+// key order: routes have no fixed number (gno-realms ADR 0007), so every walk
+// over them is paged.
+func (r *Registry) KeysFrom(from string, n int) []string {
+	var out []string
+	r.routes.Iterate(from, "", func(k string, _ any) bool {
+		if len(out) == n {
+			return true
+		}
+		out = append(out, k)
+		return false
+	})
+	return out
+}
+
 // ReadOnly is the registry's read-only view (see Reader).
 func (r *Registry) ReadOnly() any { return Reader{r: r} }
 

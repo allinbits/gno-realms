@@ -15,6 +15,10 @@ import (
 	"gno.land/r/aib/ibc/ibcgov"
 )
 
+// govRoute is the route this test's decisions name (ADR 0007: route-scoped
+// entry points take the route).
+var govRoute string
+
 const bridge = "0x1d95d544586eacb63b6154e9e45122b32ded11aa 0x00000000000000000000000000000000000b0002 0x00000000000000000000000000000000000b0003"
 
 var (
@@ -26,9 +30,9 @@ var (
 func flagAs(cur realm, who address, route, fn string, set bool) {
 	testing.SetRealm(testing.NewUserRealm(who))
 	if set {
-		ibcgov.SetFlag(cross(cur), route, fn, "")
+		ibcgov.SetFlag(cross(cur), govRoute, route, fn, "")
 	} else {
-		ibcgov.ClearFlag(cross(cur), route, fn)
+		ibcgov.ClearFlag(cross(cur), govRoute, route, fn)
 	}
 	testing.SetRealm(testing.NewCodeRealm("gno.land/r/aib/main"))
 }
@@ -118,7 +122,7 @@ func deliver(cur realm, s *sent, i int) string {
 }
 
 func epochNow() string {
-	return "epoch " + string(rune('0'+ibcgov.Epoch())) + " over " + ibcgov.EpochClient()
+	return "epoch " + string(rune('0'+ibcgov.Epoch(govRoute))) + " over " + ibcgov.EpochClient(govRoute)
 }
 
 // A notice with no path of the length it needs pins nothing (code review
@@ -129,6 +133,7 @@ func epochNow() string {
 // the two-step branches, so one is removed, A→X is expected again, a
 // transition on the three-step path is then pinned, and the notice applies.
 func main(cur realm) {
+	govRoute = "ethereum-1"
 	client(cur, "ethereum-1", "client-0")
 	client(cur, "ethereum-2", "gnoland-x")
 	client(cur, "ethereum-3", "gnoland-y")
@@ -137,7 +142,7 @@ func main(cur realm) {
 		client(cur, "ethereum-"+strconv.Itoa(i+4), "gnoland-b"+strconv.Itoa(i))
 	}
 	execute(cur, govern(cur, ibcgov.NewEnrollRouteRequest(cross(cur), "ethereum-1", string(collector), bridge)))
-	execute(cur, govern(cur, ibcgov.NewBindGovernanceRequest(cross(cur), "ethereum-1")))
+	execute(cur, govern(cur, ibcgov.NewBindGovernanceRequest(cross(cur), govRoute, "ethereum-1")))
 	expectAll := func(reqs ...func() ibcgov.Request) {
 		var ids []int64
 		for _, r := range reqs {
@@ -149,10 +154,10 @@ func main(cur realm) {
 		}
 	}
 	expect := func(from, to, local string) func() ibcgov.Request {
-		return func() ibcgov.Request { return ibcgov.NewExpectRecoveryRequest(cross(cur), from, to, local) }
+		return func() ibcgov.Request { return ibcgov.NewExpectRecoveryRequest(cross(cur), govRoute, from, to, local) }
 	}
 	expectAll(expect("client-0", "gnoland-x", "ethereum-2"), expect("gnoland-x", "gnoland-y", "ethereum-3"), expect("gnoland-y", "gnoland-c", "ethereum-4"))
-	println("remove A→X:", decided(govern(cur, ibcgov.NewRemoveExpectationRequest(cross(cur), "client-0", "gnoland-x", "ethereum-2"))))
+	println("remove A→X:", decided(govern(cur, ibcgov.NewRemoveExpectationRequest(cross(cur), govRoute, "client-0", "gnoland-x", "ethereum-2"))))
 	var reqs []func() ibcgov.Request
 	for i := 1; i <= 4; i++ {
 		b := "gnoland-b" + strconv.Itoa(i)
@@ -161,14 +166,14 @@ func main(cur realm) {
 	expectAll(reqs...)
 	println("C's notice, 3 steps on:", deliver(cur, c, 0), "|", epochNow())
 	println("A→X again, successors full:", revive(func() {
-		govern(cur, ibcgov.NewExpectRecoveryRequest(cross(cur), "client-0", "gnoland-x", "ethereum-2"))
+		govern(cur, ibcgov.NewExpectRecoveryRequest(cross(cur), govRoute, "client-0", "gnoland-x", "ethereum-2"))
 	}))
-	println("remove A→B1 (on no 3-step path):", decided(govern(cur, ibcgov.NewRemoveExpectationRequest(cross(cur), "client-0", "gnoland-b1", "ethereum-5"))))
+	println("remove A→B1 (on no 3-step path):", decided(govern(cur, ibcgov.NewRemoveExpectationRequest(cross(cur), govRoute, "client-0", "gnoland-b1", "ethereum-5"))))
 	expectAll(expect("client-0", "gnoland-x", "ethereum-2"))
 	println("remove X→Y (on the 3-step path):", revive(func() {
-		govern(cur, ibcgov.NewRemoveExpectationRequest(cross(cur), "gnoland-x", "gnoland-y", "ethereum-3"))
+		govern(cur, ibcgov.NewRemoveExpectationRequest(cross(cur), govRoute, "gnoland-x", "gnoland-y", "ethereum-3"))
 	}))
-	println("remove B2→C (on no 3-step path):", decided(govern(cur, ibcgov.NewRemoveExpectationRequest(cross(cur), "gnoland-b2", "gnoland-c", "ethereum-4"))))
+	println("remove B2→C (on no 3-step path):", decided(govern(cur, ibcgov.NewRemoveExpectationRequest(cross(cur), govRoute, "gnoland-b2", "gnoland-c", "ethereum-4"))))
 	ibcgov.ApplyEpochNotice(cross(cur), 4, "ethereum-4", "gnoland-x/ethereum-2,gnoland-y/ethereum-3,gnoland-c/ethereum-4")
 	println("applied:", epochNow())
 }

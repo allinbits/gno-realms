@@ -14,6 +14,10 @@ import (
 	"gno.land/r/aib/ibc/ibcgov"
 )
 
+// govRoute is the route this test's decisions name (ADR 0007: route-scoped
+// entry points take the route).
+var govRoute string
+
 const bridge = "0x1d95d544586eacb63b6154e9e45122b32ded11aa 0x00000000000000000000000000000000000b0002 0x00000000000000000000000000000000000b0003"
 
 var (
@@ -25,9 +29,9 @@ var (
 func flagAs(cur realm, who address, route, fn string, set bool) {
 	testing.SetRealm(testing.NewUserRealm(who))
 	if set {
-		ibcgov.SetFlag(cross(cur), route, fn, "")
+		ibcgov.SetFlag(cross(cur), govRoute, route, fn, "")
 	} else {
-		ibcgov.ClearFlag(cross(cur), route, fn)
+		ibcgov.ClearFlag(cross(cur), govRoute, route, fn)
 	}
 	testing.SetRealm(testing.NewCodeRealm("gno.land/r/aib/main"))
 }
@@ -117,7 +121,7 @@ func deliver(cur realm, s *sent, i int) string {
 }
 
 func epochNow() string {
-	return "epoch " + string(rune('0'+ibcgov.Epoch())) + " over " + ibcgov.EpochClient()
+	return "epoch " + string(rune('0'+ibcgov.Epoch(govRoute))) + " over " + ibcgov.EpochClient(govRoute)
 }
 
 // A pending transition keeps its clients open for governance (Codex round
@@ -126,14 +130,15 @@ func epochNow() string {
 // pending path, is retired for transfers only, so its expectation, executed
 // last, still applies and its notice moves the epoch.
 func main(cur realm) {
+	govRoute = "ethereum-1"
 	client(cur, "ethereum-1", "client-0")
 	b := client(cur, "ethereum-2", "gnoland-b", noticePacket(1, "gnoland-b", "ethereum-2", 2, "gnoland-b"))
 	client(cur, "ethereum-3", "gnoland-c")
 	execute(cur, govern(cur, ibcgov.NewEnrollRouteRequest(cross(cur), "ethereum-1", string(collector), bridge)))
-	execute(cur, govern(cur, ibcgov.NewBindGovernanceRequest(cross(cur), "ethereum-1")))
-	govern(cur, ibcgov.NewEthRouteReplacementRequest(cross(cur), "client-0", "gnoland-b", 1, "ethereum-2"))
+	execute(cur, govern(cur, ibcgov.NewBindGovernanceRequest(cross(cur), govRoute, "ethereum-1")))
+	govern(cur, ibcgov.NewEthRouteReplacementRequest(cross(cur), govRoute, "client-0", "gnoland-b", 1, "ethereum-2"))
 	expB := ibcgov.LastDecision()
-	govern(cur, ibcgov.NewEthRouteReplacementRequest(cross(cur), "gnoland-b", "gnoland-c", 2, "ethereum-3"))
+	govern(cur, ibcgov.NewEthRouteReplacementRequest(cross(cur), govRoute, "gnoland-b", "gnoland-c", 2, "ethereum-3"))
 	expC := ibcgov.LastDecision()
 	execute(cur, govern(cur, ibcgov.NewReplaceRouteRequest(cross(cur), "ethereum-1", "ethereum-2", 0)))
 	execute(cur, govern(cur, ibcgov.NewReplaceRouteRequest(cross(cur), "ethereum-1", "ethereum-3", 0)))

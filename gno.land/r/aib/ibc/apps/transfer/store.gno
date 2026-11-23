@@ -742,6 +742,28 @@ func VoucherBalanceOf(ibcDenom string, addr address) uint256 {
 	return inst.token.BalanceOf(addr)
 }
 
+// DenomPath is the trace of the IBC denom ibcDenom as this chain keys it
+// ("transfer/<route key>/<base>" for a route's voucher), and whether the
+// denom was allocated (a first receive allocates it). ibcgov reads it to
+// tell whose voucher a denom is (ADR 0007, foreign vouchers).
+func DenomPath(ibcDenom string) (string, bool) {
+	d, ok := getDenom(ibcDenom)
+	if !ok {
+		return "", false
+	}
+	return d.Path(), true
+}
+
+// IsVoucherKey reports whether denom is in the namespace of the vouchers
+// this realm creates, as a grc20reg key or its alias, allocated or not:
+// every voucher is registered under this realm's path.
+func IsVoucherKey(denom string) bool {
+	return strings.HasPrefix(denom, voucherRegPrefix) || strings.HasPrefix(denom, GRC20Alias(voucherRegPrefix))
+}
+
+// voucherRegPrefix opens every grc20reg key of a voucher.
+const voucherRegPrefix = PkgPath + "."
+
 // GRC20Alias returns a slash-free alias for a GRC20 denom (grc20reg key)
 // by replacing "/" with ":". This is safe because grc20reg slugs are
 // alphanumeric (enforced by grc20reg.Register), so colons never appear in
