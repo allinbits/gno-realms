@@ -174,9 +174,7 @@ func (tm *TMLightClient) UpdateState(clientMsg lightclient.ClientMessage) []type
 	// keeps a store at its peak size after a burst of updates; removing more
 	// than the one an update adds shrinks it back to roughly trustingPeriod /
 	// updateInterval entries.
-	now := time.Now()
-	for i := 0; i < prunePerUpdate && tm.pruneOldestConsensusState(now); i++ {
-	}
+	tm.PruneExpiredConsensusStates(time.Now(), prunePerUpdate)
 	// Update latestHeight if required. Whole-slot replace; see
 	// UpdateStateOnMisbehaviour for the v2 borrow-rule rationale.
 	if msgHeight.GT(tm.ClientState.LatestHeight) {
@@ -650,17 +648,18 @@ func (tm *TMLightClient) pruneOldestConsensusState(now time.Time) bool {
 	return true
 }
 
-// PruneExpiredConsensusStates removes every consensus state that has expired
-// at now and returns how many were removed. An expired consensus state can no
-// longer verify headers or packet proofs, so removing it loses nothing.
-// UpdateState prunes up to prunePerUpdate entries; this bulk variant catches
-// up on clients that accumulated history before that, e.g. from an
-// implementation's OnInstall migration. Timestamps increase with height
-// (CheckForMisbehaviour freezes the client otherwise), so stopping at the
-// first unexpired entry finds them all.
-func (tm *TMLightClient) PruneExpiredConsensusStates(now time.Time) int {
+// PruneExpiredConsensusStates removes up to limit of the consensus states
+// that have expired at now, oldest first, and returns how many were removed.
+// An expired consensus state can no longer verify headers or packet proofs,
+// so removing it loses nothing. UpdateState calls it with prunePerUpdate; a
+// larger limit catches up on a client that accumulated history, e.g. from an
+// implementation's OnInstall migration, in batches bounded so that a long
+// history does not exhaust a transaction's gas. Timestamps increase with
+// height (CheckForMisbehaviour freezes the client otherwise), so stopping at
+// the first unexpired entry finds them all.
+func (tm *TMLightClient) PruneExpiredConsensusStates(now time.Time, limit int) int {
 	n := 0
-	for tm.pruneOldestConsensusState(now) {
+	for n < limit && tm.pruneOldestConsensusState(now) {
 		n++
 	}
 	return n
