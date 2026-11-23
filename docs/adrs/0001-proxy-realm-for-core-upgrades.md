@@ -187,14 +187,21 @@ Light-client state is a set of core-owned objects whose methods are bound to
 the `/p/` version that created them. Verification stays in `/p/`, versioned
 (`p/aib/ibc/lightclient/tendermint/v0`, `/v1`, ...). A new implementation that
 needs a new verifier converts each stored client lazily, on its first use,
-or through a governed migration of that one client (`MigrateClient`), never
+or through a governed migration of that one client (`MigrateClient`; ibcgov
+forwards a migration of any name for a client of any type, and the active
+implementation runs it only if it declares it, ADR 0007 §9: `impl/v0`
+declares the Ethereum ones, `ethereum-fork-schedule` and
+`ethereum-verifier`, so a Tendermint client converts lazily until an
+implementation declares a Tendermint migration), never
 all of them in `OnInstall`, whose work stays bounded whatever the number of
 clients (above). It reads the exported fields of the v0 object and stores the result with
 `SetLightClient`, which takes the `/p/` conversion function for the same
 allocation reason as `AddClient` and starts the client's next trust
 generation (a governed migration that substitutes through it starts no
 second one), so a proof made under the old verifier is never settled on; the consensus-state tree can be shared by pointer, so the
-migration is O(1) per client. The store field stays typed
+migration is O(1) per client. The Ethereum verifier replacement instead keeps
+the retired verifiers' stores and indexes them (`ethereum.NewFrom`), so its
+conversion is O(log previous replacements) (ADR 0004, R16). The store field stays typed
 `lightclient.Interface` forever, so a later verifier such as `tendermint/v1`
 must still implement it and the implementation type-asserts for anything newer. `RecoverClient` and a
 new client remain the fallback when the state itself must change shape.

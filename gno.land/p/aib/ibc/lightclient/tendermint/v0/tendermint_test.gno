@@ -211,6 +211,47 @@ func TestRecoverClient(t *testing.T) {
 	})
 }
 
+// laterVerifier stands for a later verifier version wrapping tendermint/v0:
+// a type of another package that is not *TMLightClient but exposes its
+// state through Tendermint.
+type laterVerifier struct{ *tendermint.TMLightClient }
+
+// notTendermint is a verifier that keeps no tendermint/v0 state.
+type notTendermint struct{ lightclient.Interface }
+
+// A recovery's substitute may be a later verifier version wrapping v0: its
+// state is read through Tendermint and checked against v0's rules.
+func TestRecoverFromLaterVersion(t *testing.T) {
+	newClient := func(chain string, h uint64, root string) *tendermint.TMLightClient {
+		tm := tendermint.NewTMLightClient()
+		cs := tendermint.NewClientState(chain, tendermint.DefaultTrustLevel,
+			trustingPeriod, ubdPeriod, maxClockDrift, types.NewHeight(0, h),
+			ics23.GetSDKProofSpecs(), upgradePath)
+		urequire.NoError(t, tm.Initialize(*cs, tendermint.ConsensusState{
+			Timestamp: time.Now().UTC(), Root: tendermint.NewMerkleRoot([]byte(root)), NextValidatorsHash: []byte("nextVals"),
+		}))
+		return tm
+	}
+
+	subject := newClient("subject-chain", 5, "subject-root")
+	urequire.NoError(t, subject.RecoverClient(laterVerifier{newClient("substitute-chain", 10, "substitute-root")}))
+	uassert.Equal(t, "substitute-chain", subject.ClientState.ChainID)
+	cs, found := subject.GetConsensusState(types.NewHeight(0, 10))
+	urequire.True(t, found, "the substitute's latest consensus state was not copied")
+	uassert.Equal(t, "substitute-root", string(cs.Root.Hash))
+
+	// Its state is held to v0's rules, whatever its own version checked.
+	bad := newClient("substitute-chain", 10, "substitute-root")
+	bad.ClientState.ChainID = " "
+	err := newClient("subject-chain", 5, "subject-root").CheckRecovery(laterVerifier{bad})
+	urequire.ErrorContains(t, err, "substitute client state")
+
+	err = newClient("subject-chain", 5, "subject-root").CheckRecovery(laterVerifier{})
+	urequire.ErrorContains(t, err, "keeps no tendermint/v0 state")
+	err = newClient("subject-chain", 5, "subject-root").CheckRecovery(notTendermint{})
+	urequire.ErrorContains(t, err, "expected a tendermint client")
+}
+
 func TestVerifyUpgradeAndUpdateStateFailures(t *testing.T) {
 	currentHeight := types.NewHeight(0, 5)
 	upgradedHeight := types.NewHeight(0, 10)
