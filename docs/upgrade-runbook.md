@@ -451,7 +451,10 @@ from the first block, the governor yields right after the deployment.
    **Recovering from a forged cancel.** A cancel ibcgov never sent (a kind
    1 let through by a compromised Ethereum-side verifier of gno.land)
    cancels at most the 64 numbers past IBCAdmin's head: their decisions are
-   recorded there cancelled. Not all of them say so: a decision recorded
+   recorded there cancelled. (A burned number can also come from an honest
+   cancel: with all 64 tombstone slots of the epoch full, IBCAdmin merges a
+   cancel into its nearest stored range and cancels the gap too. The steps
+   below apply all the same: governance never withdrew those numbers.) Not all of them say so: a decision recorded
    cancelled at its own delivery is acknowledged 6, but a buffered one a
    later delivery or `drain()` records cancelled gets no acknowledgement of
    its own, and a pending one (acknowledged 1) cancelled at execution

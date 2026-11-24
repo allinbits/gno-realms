@@ -775,6 +775,10 @@ numbers past IBCAdmin's head, not the rest of the epoch. IBCAdmin answers
 the recording of a tombstoned decision, and a re-delivery of a decision it
 holds cancelled, with app status 6 (`STATUS_CANCELLED`); the wire is
 unchanged otherwise (`epoch u32 ‖ seq u64 ‖ status u8 ‖ redispatch u8`).
+A burned number does not prove a forgery: with all 64 tombstone slots of an
+epoch full, IBCAdmin merges an honest cancel into its nearest stored range
+and cancels the numbers in the gap too, which ibcgov then sees as burned;
+rebinding those is right, since governance never withdrew them.
 Both sides deploy together: an older ibcgov reads 6 as a malformed
 acknowledgement, an older IBCAdmin never sends it. ibcgov tells the two
 causes apart: every kind 1 it dispatches is indexed when it is bound
