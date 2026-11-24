@@ -747,10 +747,14 @@ its identical bytes whenever none of its packets is in flight, after any
 answer, a success included, since a success acknowledgement can be forged
 by a compromised Ethereum-side verifier while the decision never reached
 IBCAdmin, leaving a gap later seqs wait behind. IBCAdmin deduplicates by
-seq and hash: the same bytes at a seq it holds (recorded, buffered,
-executed or spent) are answered `duplicate` (status 3, `redispatch = 0`)
-and change nothing there, and a duplicate answering a decision already
-acknowledged otherwise leaves its recorded status here as it was. The one
+seq and hash: the same bytes at a seq it holds change nothing there and
+are answered, with `redispatch = 0`, status 3 if the seq is still
+buffered, 7 if it is recorded (pending, executed or spent), 6 if it is
+cancelled. Here a 3 or 7 leaves a dispatch's recorded, spent or conflict
+status as it was; a dispatch still reading buffered, duplicate or
+unanswered reads recorded after a 7 (buffered, then recorded by a drain,
+which acknowledges nothing); a 6 is the status-6 path below; and a 7 moves
+the known head. The one
 exception is a conflict acknowledged without `redispatch = 1`: IBCAdmin
 re-flags itself on every conflict, so a free re-send would let anyone keep
 its 7-day decisions deferred. Since a compromised Ethereum-side verifier

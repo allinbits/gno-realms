@@ -471,18 +471,27 @@ from the first block, the governor yields right after the deployment.
    cancelled at its own delivery is acknowledged 6, but a buffered one a
    later delivery or `drain()` records cancelled gets no acknowledgement of
    its own, and a pending one (acknowledged 1) cancelled at execution
-   neither. So first `ibcgov.Redispatch(R, e, seq)` every number from the
-   head up to 64 past it that shows status 1 or 2 and that no cancel of
-   ibcgov names (or read `IBCAdmin.isTombstoned(e, seq)` and the
-   decision's state there): each re-send is a duplicate, answered 6 for a
-   cancelled one. A number ibcgov cancelled itself needs no re-send if
+   neither. The forged cancel also tombstones decisions recorded and still
+   pending below the head (as any cancel may): those answer 7 to a re-send
+   until something executes them. So first, on Ethereum, list the
+   tombstoned numbers (`IBCAdmin.tombstones(e)`, or
+   `IBCAdmin.isTombstoned(e, seq)`) and call `IBCAdmin.execute(seq)` for
+   each one still pending: a tombstoned pending decision is cancelled at
+   once, before any delay or hold check. Then `ibcgov.Redispatch(R, e,
+   seq)` every tombstoned number, and every number from the head up to 64
+   past it that shows status 1 or 2, that no cancel of ibcgov names: each
+   re-send is a duplicate, answered 6 for a cancelled one. A number ibcgov cancelled itself needs no re-send if
    IBCAdmin holds it, and Redispatch refuses it without an authorization. ibcgov marks each number no cancel of its own names as burned
    (`dispatch/<R>/<e>/<seq>`: `"status":6,"burned":true`;
    `ibcgov.DispatchRebind(R, e, seq)`; a `GovAck` event with status
    `burned`). Anyone then calls `ibcgov.Rebind(R, e, from, to)` (the
-   current epoch, at most 64 numbers a call): every burned dispatch in the
-   range is bound, in order, to the epoch's next numbers with the same
-   kind and params, and sent; the page shows `rebound_to` on the old number
+   current epoch, at most 64 numbers a call): the burned dispatches in the
+   range are bound, in order, to the epoch's next numbers with the same
+   kind and params, and sent, up to the backpressure bound (64 past
+   `KnownHead`): a call that reaches it returns the copies it made and
+   leaves the rest burned, so relay the copies' acknowledgements and call
+   `Rebind` again for the remainder (the returned numbers and
+   `rebound_to` show what is done); the page shows `rebound_to` on the old number
    and `rebound_from` on the copy, and the copies are relayed and
    acknowledged like any dispatch. A kind 10 whose kind 6 (op 1, enrolling
    its new router client) was burned is not rebound: IBCAdmin keeps it
