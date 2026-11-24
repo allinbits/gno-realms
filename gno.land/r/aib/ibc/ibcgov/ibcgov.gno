@@ -19,7 +19,9 @@
 //     transfer app (core.IBCGovPath, transfer.IBCGovPath);
 //   - the sender of governance packets to each route's IBCAdmin: the gov
 //     port, the §5.4 envelope, contiguous per-epoch sequences per route,
-//     one-time dispatch authorizations and re-dispatch of identical bytes.
+//     one-time dispatch authorizations, re-dispatch of identical bytes, and
+//     the rebinding of numbers a cancel this realm never sent burned
+//     (Rebind, rebind.gno).
 //
 // Builders are called in a MsgRun: before the yield the governor runs
 //

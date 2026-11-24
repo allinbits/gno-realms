@@ -420,7 +420,7 @@ from the first block, the governor yields right after the deployment.
    Outbound decisions are re-sent the same way: `ibcgov.Redispatch(R, e, seq)`
    sends a current-epoch decision again, identical bytes in a fresh packet,
    whenever none of its packets is in flight, after any answer but a
-   conflict. Use it when a later seq waits on Ethereum behind one gno shows
+   conflict or a cancellation (status 6). Use it when a later seq waits on Ethereum behind one gno shows
    as acknowledged (a success acknowledgement a compromised Ethereum-side
    verifier forged): IBCAdmin answers a seq it already holds with a
    duplicate, which changes nothing. A decision answered with a conflict
@@ -434,6 +434,98 @@ from the first block, the governor yields right after the deployment.
    `ibcgov.NewRetransmitRequest(R, e, seq)` (applies at once), then anyone
    calls `ibcgov.Redispatch(R, e, seq)` once; a further re-send needs a new
    decision. A real conflict (different bytes stored) is never re-sent.
+
+   A decision one of ibcgov's own cancels (kind 1) names is not re-sent
+   freely either, whatever its answer (a success acknowledgement can be
+   forged). It needs a re-send only if IBCAdmin never held it. IBCAdmin ignores a tombstone more than 64 numbers past
+   its last recorded one, so a first delivery after such a cancel would
+   record and execute it. If a later seq waits behind it, read
+   `IBCAdmin.isTombstoned(e, seq)` (or find the decision held there, as
+   above); if it is tombstoned, decide `ibcgov.NewRetransmitRequest(R, e,
+   seq)` and re-send it once: IBCAdmin records it cancelled (status 6).
+   Decide that authorization after the cancel: a cancel bound after a
+   grant voids it for the numbers it names, and, since overlapping
+   cancelled ranges merge, for the other numbers of the merged range too
+   (cancel 1-10, grant 1, cancel 10-12: the grant on 1 is void); decide
+   the grant again then. If
+   it is not tombstoned, send a fresh cancel of it first (it is within the
+   window now), then authorize the re-send.
+
+   ibcgov binds no Ethereum-bound decision but a cancel more than 64
+   numbers past the highest one IBCAdmin acknowledged recording
+   (`ibcgov.KnownHead(R, e)`): a request past that is refused ("Ethereum
+   has recorded up to N … retry once acknowledgements catch up"), and one
+   recorded past it is spent. Relay the outstanding acknowledgements (and
+   Redispatch what timed out), then decide it again. If every packet was
+   acknowledged and the head still lags (numbers delivered out of order:
+   acknowledged buffered, 2, or duplicate, 3, then recorded by a drain,
+   which acknowledges nothing), anyone `ibcgov.Redispatch(R, e, seq)`es the
+   numbers past `KnownHead`: each is answered 7, a duplicate of a recorded
+   decision, which moves the head. Those re-sends are free for any number
+   no cancel of ibcgov names.
+
+   **Recovering from a forged cancel.** A cancel ibcgov never sent (a kind
+   1 let through by a compromised Ethereum-side verifier of gno.land)
+   cancels at most the 64 numbers past IBCAdmin's head: their decisions are
+   recorded there cancelled. (A burned number can also come from an honest
+   cancel: with all 64 tombstone slots of the epoch full, IBCAdmin merges a
+   cancel into its nearest stored range and cancels the gap too. The steps
+   below apply all the same: governance never withdrew those numbers.) Not all of them say so: a decision recorded
+   cancelled at its own delivery is acknowledged 6, but a buffered one a
+   later delivery or `drain()` records cancelled gets no acknowledgement of
+   its own, and a pending one (acknowledged 1) cancelled at execution
+   neither. The forged cancel also tombstones decisions recorded and still
+   pending below the head (as any cancel may): those answer 7 to a re-send
+   until something executes them. So first, on Ethereum, list the
+   tombstoned numbers (`IBCAdmin.tombstones(e)`, or
+   `IBCAdmin.isTombstoned(e, seq)`) and call `IBCAdmin.execute(seq)` for
+   each one still pending: a tombstoned pending decision is cancelled at
+   once, before any delay or hold check. Then `ibcgov.Redispatch(R, e,
+   seq)` every tombstoned number, and every number from the head up to 64
+   past it that shows status 1 or 2, that no cancel of ibcgov names: each
+   re-send is a duplicate, answered 6 for a cancelled one. A number ibcgov cancelled itself needs no re-send if
+   IBCAdmin holds it, and Redispatch refuses it without an authorization. ibcgov marks each number no cancel of its own names as burned
+   (`dispatch/<R>/<e>/<seq>`: `"status":6,"burned":true`;
+   `ibcgov.DispatchRebind(R, e, seq)`; a `GovAck` event with status
+   `burned`). Anyone then calls `ibcgov.Rebind(R, e, from, to)` (the
+   current epoch, at most 64 numbers a call): the burned dispatches in the
+   range are bound, in order, to the epoch's next numbers with the same
+   kind and params, and sent, up to the backpressure bound (64 past
+   `KnownHead`): a call that reaches it returns the copies it made and
+   leaves the rest burned, so relay the copies' acknowledgements and call
+   `Rebind` again for the remainder (the returned numbers and
+   `rebound_to` show what is done); the page shows `rebound_to` on the old number
+   and `rebound_from` on the copy, and the copies are relayed and
+   acknowledged like any dispatch. A kind 10 whose kind 6 (op 1, enrolling
+   its new router client) was burned is not rebound: IBCAdmin keeps it
+   pending while the client is not enrolled, so rebind the kind 6 only,
+   and execute the original kind 10 there once the kind 6's copy has
+   executed.
+   Before rebinding, look at what
+   the burned decisions would do now: a copy runs after every decision
+   dispatched since, so a decision superseded since would undo its
+   successor: limits (kind 4) or route settings (kind 11), guardian seats
+   (kind 3), a verifier migration (kind 6 op 2), an upgrade or executor
+   hand-over (kinds 7, 9), a role grant (kind 8). To keep a
+   burned number from being revived, cancel it (`NewEthCancelRequest`
+   naming it: harmless on Ethereum, where it is cancelled already, and
+   ibcgov then refuses to rebind it); cancel a copy that should not run by
+   its own number. If the forged cancels keep coming, every copy is burned
+   too: Ethereum's verifier of gno.land is compromised, and the remedy is
+   replacing it (`NewEthClientRequest` op 2, while decisions still get
+   through) or Ethereum's emergency recovery. Burned
+   numbers of a past epoch are not rebound: decide them again in the new
+   epoch.
+
+   A status 6 can be forged too, on a decision that never reached IBCAdmin:
+   its packet timed out, and IBCAdmin waits at that number while ibcgov
+   shows it burned or cancelled. Read `IBCAdmin.decision(e, seq)` (no
+   decision stored) and `lastSeq()`; if the number is the gap, decide
+   `ibcgov.NewRetransmitRequest(R, e, seq)` and call `ibcgov.Redispatch(R,
+   e, seq)` once: the same bytes go out, the 6 is cleared here, and
+   IBCAdmin's answer decides the status. If someone rebound the number
+   already, cancel the copy (`NewEthCancelRequest` naming its seq) unless
+   both should run.
 
    Removing an active expectation (`NewRemoveExpectationRequest`), or
    releasing a pending intent (the cancellation, refusal or spending of its

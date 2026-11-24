@@ -54,6 +54,7 @@ type routeGov struct {
 	epochs      avl.Tree // epochKey -> *epochRec
 	dispatches  avl.Tree // dispatchKey -> *dispatch
 	govIdentity string
+	cancels     avl.Tree // dispatchKey(e, from) -> *span: the numbers this realm's kind 1s cancelled, merged (rebind.gno)
 
 	// The expected-transition graph (ethereum.gno).
 	expected      avl.Tree // old router client id -> []expEdge

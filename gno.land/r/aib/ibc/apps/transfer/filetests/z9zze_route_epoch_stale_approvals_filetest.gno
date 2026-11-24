@@ -2,6 +2,7 @@
 package main
 
 import (
+	"encoding/binary"
 	"strconv"
 	"testing"
 	"time"
@@ -183,6 +184,25 @@ var pendingExpect []int64
 func kind10(cur realm, from, to string, suspectFrom uint64, local string) {
 	govern(cur, ibcgov.NewEthRouteReplacementRequest(cross(cur), govRoute, from, to, suspectFrom, local))
 	pendingExpect = append(pendingExpect, ibcgov.LastDecision())
+	recorded(cur)
+}
+
+// recorded delivers IBCAdmin's "recorded" acknowledgement of the epoch's
+// last dispatch, as the core does: ibcgov binds at most 64 decisions past
+// the highest one Ethereum acknowledged recording.
+func recorded(cur realm) {
+	e := ibcgov.Epoch(govRoute)
+	seq := ibcgov.LastSeq(govRoute, e)
+	ack := binary.BigEndian.AppendUint32(nil, e)
+	ack = binary.BigEndian.AppendUint64(ack, seq)
+	ack = append(ack, ibcgov.StatusRecorded, 0)
+	body := ibcgov.DispatchBody(govRoute, e, seq)
+	testing.SetRealm(testing.NewCodeRealm("gno.land/r/aib/ibc/core"))
+	var app ibcgov.App
+	app.OnAcknowledgementPacket(cross(cur), ibcgov.EpochClient(govRoute), core.CounterpartyClientID(ibcgov.EpochClient(govRoute)),
+		ibcgov.DispatchTransport(govRoute, e, seq), ack,
+		types.Payload{SourcePort: ibcgov.GovPort, DestinationPort: ibcgov.GovDestPort, Version: ibcgov.GovVersion, Encoding: ibcgov.GovEncoding, Value: body})
+	testing.SetRealm(testing.NewCodeRealm("gno.land/r/aib/main"))
 }
 
 func expectAll(cur realm) {
