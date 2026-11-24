@@ -436,8 +436,11 @@ The realm is not deployed, so its exported surface can change.
 first argument after `cur`. A route is never inferred from a router client
 id (section 2). The route arguments added:
 
-- the channel: `Redispatch(route, e, seq)`, `NewRetransmitRequest(route, e,
-  seq)`;
+- the channel: `Redispatch(route, e, seq)`, `Rebind(route, e, from, to)`
+  (ADR 0004, "Burned numbers and Rebind": a route's burned numbers, those
+  acknowledged cancelled, status 6, that no kind 1 of the route's own
+  channel named, are told apart per route and epoch, and rebound to that
+  route's next numbers only), `NewRetransmitRequest(route, e, seq)`;
 - every Ethereum-bound kind: `NewEthCancelRequest`, `NewEthUnpauseRequest`
   (whose object 2 takes no client), `NewEthSeatsRequest`,
   `NewEthLimitsRequest`, `NewEthVoucherRequest`, `NewEthClientRequest`,
@@ -469,10 +472,11 @@ path)` keeps its signature: its `client` is a gno client, resolved through
   and graph. The route list is paged (`?from=` the next route key), like the
   decision ledger.
 - The dispatch page becomes `dispatch/<route>/<e>/<seq>`, since `(e, seq)`
-  repeats across routes.
+  repeats across routes. It adds `burned`, `rebound_to` and `rebound_from`
+  (ADR 0004, "Burned numbers and Rebind") after the existing fields.
 - Every governance event carries a `route` attribute: `GovPacketSent`,
   `GovAck`, `GovTimeout`, `GovNotice`, `GovEpoch`, `GovExpect`, `GovIntent`,
-  `GovUnexpect`, `GovTombstone`, `GovPurge`, `Flag`, `Unflag`, `FlagsMoved`,
+  `GovUnexpect`, `GovTombstone`, `GovPurge`, `GovRebind`, `Flag`, `Unflag`, `FlagsMoved`,
   `Hold`, `HoldEnding`, `SeatSet` and `SeatFlagsEnded`.
 - A route-scoped `Decision` event and the decision's description name the
   route, so monitors and voters can tell the routes apart.
@@ -505,7 +509,9 @@ Unchanged:
   proxy's only change is the constant-work continuity check above.
 - **The core implementation**, apart from the accessor above.
 - **The envelope, the epoch notice, the acknowledgement format and every
-  gno-eth-ibc contract.**
+  gno-eth-ibc contract.** (A later change, independent of multi-route, adds
+  app status 6, cancelled, to the acknowledgement's status byte: ADR 0004,
+  "Burned numbers and Rebind".)
 - **ADR pr6375's rules within a route.** Its "one channel" becomes "one
   channel per route", and the global ADR gains a paragraph saying so.
 

@@ -188,7 +188,7 @@ not enrolled in these controls and are unaffected.
 | `core.Pause`, `PauseApp`, `RejectApp`; `transfer.BlockAddress` | authority members: GovDAO proxy (proposals in the realms) and ibcgov. No deployer. |
 | `core.Unpause`, `UnpauseApp`, `ApproveApp`, `AddRelayer`, `RemoveRelayer`, `RecoverClient`, `UpdateImpl`, `MigrateClient`, `RetireClient`, membership; `transfer.UnblockAddress`, `UpdateImpl`, membership, `GovApply` | ibcgov only (`cur.Previous().PkgPath() == IBCGovPath`) |
 | ibcgov decisions | the governor (`Govern`, MsgRun) until `Yield()`, then GovDAO proposals only (`req.Proposal()`). The governor is the account that deployed ibcgov, recorded by its `init` from `cur.Previous()` (the creator under either chain policy: an inert chain's `EnablePackage` runs `init` with the stamped creator as origin), so no source constant has to be replaced before a deployment (review of #91). The deployer holds no power beyond this seat, which it gives up for good by `Yield`; members read it on ibcgov's page (`Governor()`). Under `gno test`, which initializes imported realms with no caller, the governor is a fixed test address (`harnessGovernor`), unreachable on chain |
-| ibcgov `Execute`, `Redispatch`; transfer `Claim`, `ClaimRefunds`, `ProveOutcome`, `ContinueReopen`, `Recapitalize` | anyone |
+| ibcgov `Execute`, `Redispatch`, `Rebind`; transfer `Claim`, `ClaimRefunds`, `ProveOutcome`, `ContinueReopen`, `Recapitalize` | anyone |
 | ibcgov `SetFlag`, `ClearFlag` | the seat's key, on a route ibcgov enrolled or any router client (one about to become a route's); a client of a route, current or retired, names its route (flags are kept under the route key) |
 | `UpdateClient`, `RecvPacket`, `Acknowledgement`, `Timeout` on a router client (`core.IsRouterClient`: an Ethereum client, or an Arc client, ADR 0008) | anyone (R17); other clients keep the relayer whitelist |
 
@@ -327,7 +327,7 @@ governor cannot end a hold by vacating the flagging seats.
 
 ### Entry points
 
-- **ibcgov**: `Govern`, `Yield`, `Execute`, `Redispatch`, `SetFlag`,
+- **ibcgov**: `Govern`, `Yield`, `Execute`, `Redispatch`, `Rebind`, `SetFlag`,
   `ClearFlag`; builders `NewCancelRequest`, `NewSetSeatsRequest`,
   `NewUnpauseRouteRequest`, `NewCore*`/`NewRecoverClientRequest`/
   `NewMigrateClientRequest`, `NewReplaceVerifierRequest`, `NewTransfer*`, route builders
@@ -345,7 +345,7 @@ governor cannot end a hold by vacating the flagging seats.
   for kinds 1–14 (`NewEthSettleRequest`, `NewEthReopenRequest`,
   `NewEthDisableRecoveryRequest`); reads `Flagged`, `PayoutsEpoch`, `NamedSuspect`, `Held`,
   `HoldSince`, `Seat`, `SeatOf`, `Flags`, `RouteIdentity`, `Epoch`, `EpochClient`, `LastSeq`,
-  `DispatchBody`, `DispatchState`, `DispatchTransport`, `Decision`,
+  `DispatchBody`, `DispatchState`, `DispatchTransport`, `DispatchRebind`, `Decision`,
   `LastDecision`, `Governor`, `Yielded`, `Render` (`""`, `decisions`,
   `dispatch/<e>/<seq>`).
   Guardian bounds: `NewSetSeatsRequest` takes 1 to 6 distinct seat changes
@@ -737,7 +737,8 @@ Each send is authorized once (client, epoch, seq, payload hash), consumed in
 `OnSendPacket`; a direct core send on port `gov` is refused. Acks
 (`ParseAck`): error ack, timeout, malformed ack or `redispatch = 1` whatever
 the status (a cancel beyond IBCAdmin's window is acked buffered with
-`redispatch = 1`) ask for a re-send; statuses 1–5 recorded. Anyone may
+`redispatch = 1`) ask for a re-send; statuses 1–6 recorded (6, cancelled,
+final and never re-sent: below). Anyone may
 re-send any dispatch of the current epoch in a fresh transport packet with
 its identical bytes whenever none of its packets is in flight, after any
 answer, a success included, since a success acknowledgement can be forged
@@ -762,7 +763,74 @@ records a decision never delivered and is answered duplicate otherwise.
 The next `Redispatch` uses the authorization up; another re-send needs
 another decision (z2a: a recorded decision re-sent, its duplicate answer
 leaving it recorded; a conflict not re-sent freely, re-sent once on an
-authorization, then refused again). Router client ids follow eureka's grammar (`client-N`, or a custom
+authorization, then refused again).
+
+**Burned numbers and Rebind (status 6; gnolang/gno#6375 review, "one forged
+governance packet can end governance for the epoch").** IBCAdmin applies a
+kind 1's tombstones when the cancel arrives, each range clamped to its
+horizon then, its last recorded number plus its window (64), a range
+starting beyond it dropped; so a cancel gno.land never sent (let through by
+a compromised Ethereum-side verifier of gno.land) cancels at most 64
+numbers past IBCAdmin's head, not the rest of the epoch. IBCAdmin answers
+the recording of a tombstoned decision, and a re-delivery of a decision it
+holds cancelled, with app status 6 (`STATUS_CANCELLED`); the wire is
+unchanged otherwise (`epoch u32 ‖ seq u64 ‖ status u8 ‖ redispatch u8`).
+Both sides deploy together: an older ibcgov reads 6 as a malformed
+acknowledgement, an older IBCAdmin never sends it. ibcgov tells the two
+causes apart: every kind 1 it dispatches is indexed when it is bound
+(`cancels`, its ranges merged into disjoint ones per epoch, one lookup a
+number), and a number acknowledged 6 that one of them names is
+**cancelled**, final; any other is **burned**. Both are final: no later
+answer changes the status, and `Redispatch` refuses either. Anyone may
+`Rebind(route, e, from, to)`: every burned dispatch of the current epoch
+numbered `from` to `to` (inclusive, at most 64 numbers a call) is bound,
+in its original order, to the epoch's next numbers, with the same kind and
+params in a fresh envelope, through `bind` and `send` like any dispatch (its
+one-time dispatch authorization, every check of a dispatch: a refusal
+reverts the call). The burned number stays burned and points at its copy
+(`rebound_to`), the copy back at it (`rebound_from`). No vote: governance
+approved those decisions, and the copy says nothing the original did not;
+numbers stay contiguous and each is bound to its bytes in the transaction
+that sends it (a Rebind binds numbers outside a recording, the one
+exception). One dependent dispatch is rebindable too: a kind 10 whose new
+router client is enrolled by a kind 6 op 1 is spent by IBCAdmin at
+execution when the kind 6 was burned (the client is unknown there,
+`"client"`), and no acknowledgement reports a spend at execution, so
+gno.land cannot tell it from a kind 10 still pending. The rule: a kind 10
+Ethereum holds (acknowledged 1, 2, 3 or 5), not cancelled by gno.land,
+whose epoch holds a kind 6 op 1 for its new client, numbered before it,
+burned and already rebound past it (`enrolls`, indexed when bound). Its
+copy then follows the kind 6's copy (in one call over both, or a later
+one), so it executes once the client exists; if the original executes
+after all (the kind 6's copy executed first), its epoch switch abandons the
+copy, so at most one runs. Refused: a past epoch (its decisions are decided
+again in the new epoch), an empty range (`from = 0` or `to < from`), more
+than 64 numbers, a range holding nothing rebindable (not burned, cancelled
+by gno.land, rebound already, or a kind 10 failing the rule); dispatches of
+the range that are not rebindable are left as they are.
+
+A decision gno.land cancelled is not re-sent freely either, whatever its
+answer: once its cancel arrived past IBCAdmin's horizon the tombstone was
+dropped, and a first delivery of the decision would record and execute
+it. Yet its number must still be delivered for later ones to record. So
+`Redispatch` of a dispatch a kind 1 of ibcgov names needs one governed
+authorization a re-send (`NewRetransmitRequest`, applied at once), which
+governance decides after reading `IBCAdmin.isTombstoned(e, seq)` (or
+finding the decision held there); the re-send then records it cancelled
+(status 6). An honest cancel of a decision more than 64 numbers past
+IBCAdmin's head therefore no longer pre-empts it on its own: cancel it again
+once it is within the window. To keep a burned decision from being revived
+(a later decision superseded it, or it is no longer wanted), governance
+cancels its number with a kind 1: harmless on Ethereum, where it is
+cancelled already, and it makes the number cancelled here, which Rebind
+refuses. A copy that should not run is cancelled by its own number. z2k:
+an ack 6 burned and one cancelled, both final and refused by `Redispatch`
+and `NewRetransmitRequest`; a cancelled decision never held re-sent only on
+an authorization; Rebind of two burned dispatches in order with their
+kinds and params, every refusal, a burned number cancelled later; the kind
+6 and kind 10 pair rebound, refused before its kind 6's copy and when the
+copy is not held, rebound again when the kind 6's copy is burned too; a
+past epoch's burned number refused after an epoch switch. Router client ids follow eureka's grammar (`client-N`, or a custom
 id of up to 128 characters, also in packets); those governance adds (kind 6
 op 1, kind 10's new client) must be valid custom ids (4 to 128 characters of eureka's alphabet, not starting with
 `client-` or `channel-`). `Redispatch` re-sends identical bytes. Envelopes are
@@ -811,7 +879,7 @@ header's seq differs).
 | R8 reachable `Claim` | `transfer/controls.gno`, `ControlsLogic` |
 | R9, §7.5, §7.7 ledger, delays, deadline, governor, yield | `decisions/v0`, `ibcgov/governor.gno`, `ledger.gno` |
 | R10, §7.4 seats, flags, holds, day 21, naming suspects; a seat's key leaving ends its flags in constant work (seat generations, live flag counts per seat, payouts epochs counting a departed key's payouts flags as cleared then, as of the end of the flag's own seat generation (kept per generation in `genEnds` while entries of that generation remain, so a later key leaving the same seat does not move it, before or after pruning), entries pruned by the permissionless bounded `PruneFlags`; vacating a seat measured at 1,123,231 gas after 5 and after 40 flagged clients); a vacancy is a seat change like any other, 7 days and through a hold no sooner than day 21 (`NewSetSeatsRequest` queues every change; z1b); every Ethereum client flaggable, so a client about to become a route's is held beforehand; every flag operation and check resolves a client to its route's stable key (`routeKeyOf`), and a replacement moves the flags standing under the new client's id to the route (`foldFlags`): a live flag of a seat and function the route has no live flag for moves whole; where the route has one, the two merge into the route's flag, which keeps the earlier time and its own named packet keys first, then takes the new client's keys it lacks only while it holds fewer than 64 (`MaxKeys`), and the new client's flag is removed, so a name beyond the 64 is dropped silently and no longer qualifies a void for immediate execution; guardians check their flags' named keys after a replacement and re-assert any suspect name that was dropped | `ibcgov/guardians.gno` (`flaggable`, `routeKeyOf`, `foldFlags`), `routes.gno` (`mustRoute`) |
-| R11, §5.4 gov sender | `ibcgov/ethereum.gno` |
+| R11, §5.4 gov sender | `ibcgov/ethereum.gno`; status 6, burned numbers and `Rebind` in `ibcgov/rebind.gno` |
 | §6.1–§6.3, §7.1, §7.3 an Ethereum route's packet data | validated by the route's own rules only (`ics20.ValidateBasicEthereum(routerClient)`: amount, sender, base, hops by `ics20.EthereumHop`), never by the SDK's first; a blank or undecodable receiver is an owed sweep entry with a success acknowledgement; a receive that would overflow the route's liabilities is refused by `CheckCredit`, before its acknowledgement, as every other `Credit` check |
 | R12, §7.8 send limits, fee, recipient filters (the token itself, a gno-native denom's Ethereum token included); the router, ICS20 transfer, IBCAdmin and every voucher token protected from the enrolment on, no gno-native send before they are set; every route has its own from its enrolment | `controls.DenomConfig`, `Route.Protect`, `transfer/impl/controls/v0/send.gno` (`checkRecipient`), ibcgov `mustBridge` |
 | cross-chain loss ownership | a loss is a forged payout made on exactly one chain, identified across the two by its packet (the sending chain's client id and sequence) and its token, and that chain's ledger is authoritative for it: it books it with its own operations and carries its remedies. gno.land books what gno.land paid (a void as forged, settlement action 4 or 5), whatever the token's home: a forged mint of an Ethereum-native token's vouchers here is booked and remedied here (reductions, accepted deficits; recapitalization where an escrowed denom has it), `TestForgedVoucherMintBookedHere`; Ethereum books what Ethereum paid (kind 12 action 4 or 5). A record on the other chain of the same packet and token is a mirror: gno.land's `NewRecordLossRequest(..., "ethereum", ...)` can only make one (a collision with an honest gno.land send, or a forged delivery Ethereum paid at a sequence gno.land never sent), kept because it closes this route's new exposure until resolved and shows the shortfall here; its incident is marked a mirror (`IncidentTotals.Mirror`), holds no loss paid here, and refuses reductions (of an open claim, a withheld claim or a sweep entry) and recapitalizations, the refused decision spent: an accepted deficit alone resolves it (`TestMirrorLossAcceptedOnly`, z9d). Monitoring counts each (packet, token) loss once, from the payout chain's open balance; a mirror adds nothing (the runbook's step 10) | controls `RecordLoss`, `checkIncidentKind`, `checkRemedy`; ibcgov `NewRecordLossRequest`, `NewVoidRequest`, `NewSettleRequest`; Ethereum kind 12 |
@@ -1154,6 +1222,13 @@ afterwards by the new executor, through its own decisions.
     epoch switch passes it (the governance retirement rule under "Governance channel" above). This qualifies ADR
     pr6375's final retirement of the replaced client: final for transfers
     at once, for governance only once a switch supersedes it.
+12. **App status 6 and Rebind** (gnolang/gno#6375 review): IBCAdmin clamps
+    a cancel's tombstones to its horizon and acknowledges a cancelled
+    decision with status 6, which ADR pr6375 §5.4 does not have; ibcgov
+    tells a number its own kind 1s cancelled from a burned one, lets anyone
+    `Rebind` burned dispatches of the current epoch to its next numbers,
+    and re-sends a decision it cancelled only on a governed authorization
+    (under "Governance channel" above).
 
 ### Changes affecting every route
 
@@ -1451,6 +1526,21 @@ does not list before it.
     too: a forged switch, or a governance client frozen or expired with no
     repair Ethereum already holds, then loses Ethereum-bound governance
     permanently.
+- **Rebind trusts the cancelled acknowledgement, and reorders.** A burned
+  number is told by an app acknowledgement 6 the core proved through the
+  epoch's client. A compromised Ethereum verifier of gno.land can forge
+  one for a decision Ethereum recorded and will execute, and anyone may
+  then Rebind it: the decision runs twice, the copy later. Most kinds are
+  idempotent there or refused the second time (a send record is settled
+  once, a kind 10's old client is retired, a kind 6 op 1's client exists);
+  kinds 4 and 11 apply only if no later number set their key, so a copy,
+  numbered after a later decision of the same key, overrides it, as an
+  honest burn rebound after a later decision does. Governance that does
+  not want a burned decision revived cancels its number (kind 1, which
+  makes it cancelled here, never rebindable), and cancels a copy that
+  should not run by its own number. An attacker who keeps forging cancels
+  burns each copy too: Rebind repairs, it does not stop the attack, which
+  is the emergency recovery's case (ADR pr6375 §7.12).
 - **Pre-recovery consensus states of a Tendermint client** stay usable, as in
   ibc-go: only the router light clients (Ethereum's, and Arc's, ADR 0008)
   mark them untrusted, and only router clients prove outcomes for

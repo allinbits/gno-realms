@@ -420,7 +420,7 @@ from the first block, the governor yields right after the deployment.
    Outbound decisions are re-sent the same way: `ibcgov.Redispatch(R, e, seq)`
    sends a current-epoch decision again, identical bytes in a fresh packet,
    whenever none of its packets is in flight, after any answer but a
-   conflict. Use it when a later seq waits on Ethereum behind one gno shows
+   conflict or a cancellation (status 6). Use it when a later seq waits on Ethereum behind one gno shows
    as acknowledged (a success acknowledgement a compromised Ethereum-side
    verifier forged): IBCAdmin answers a seq it already holds with a
    duplicate, which changes nothing. A decision answered with a conflict
@@ -434,6 +434,45 @@ from the first block, the governor yields right after the deployment.
    `ibcgov.NewRetransmitRequest(R, e, seq)` (applies at once), then anyone
    calls `ibcgov.Redispatch(R, e, seq)` once; a further re-send needs a new
    decision. A real conflict (different bytes stored) is never re-sent.
+
+   A decision one of ibcgov's own cancels (kind 1) names is not re-sent
+   freely either: IBCAdmin ignores a tombstone more than 64 numbers past
+   its last recorded one, so a first delivery after such a cancel would
+   record and execute it. If a later seq waits behind it, read
+   `IBCAdmin.isTombstoned(e, seq)` (or find the decision held there, as
+   above); if it is tombstoned, decide `ibcgov.NewRetransmitRequest(R, e,
+   seq)` and re-send it once: IBCAdmin records it cancelled (status 6). If
+   it is not tombstoned, send a fresh cancel of it first (it is within the
+   window now), then authorize the re-send.
+
+   **Recovering from a forged cancel.** A cancel ibcgov never sent (a kind
+   1 let through by a compromised Ethereum-side verifier of gno.land)
+   cancels at most the 64 numbers past IBCAdmin's head: their decisions are
+   recorded there cancelled, and their acknowledgements carry status 6.
+   ibcgov marks each number no cancel of its own names as burned
+   (`dispatch/<R>/<e>/<seq>`: `"status":6,"burned":true`;
+   `ibcgov.DispatchRebind(R, e, seq)`; a `GovAck` event with status
+   `burned`). Anyone then calls `ibcgov.Rebind(R, e, from, to)` (the
+   current epoch, at most 64 numbers a call): every burned dispatch in the
+   range is bound, in order, to the epoch's next numbers with the same
+   kind and params, and sent; the page shows `rebound_to` on the old number
+   and `rebound_from` on the copy, and the copies are relayed and
+   acknowledged like any dispatch. A kind 10 whose kind 6 (op 1, enrolling
+   its new router client) was burned is spent at execution on Ethereum
+   though it was acknowledged recorded: rebind the kind 6 first, or both
+   in one range, and the kind 10 follows it. Before rebinding, look at what
+   the burned decisions would do now: a copy runs after every decision
+   dispatched since, so a limits (kind 4) or route settings (kind 11)
+   decision superseded since would override its successor. To keep a
+   burned number from being revived, cancel it (`NewEthCancelRequest`
+   naming it: harmless on Ethereum, where it is cancelled already, and
+   ibcgov then refuses to rebind it); cancel a copy that should not run by
+   its own number. If the forged cancels keep coming, every copy is burned
+   too: Ethereum's verifier of gno.land is compromised, and the remedy is
+   replacing it (`NewEthClientRequest` op 2, while decisions still get
+   through) or Ethereum's emergency recovery. Burned
+   numbers of a past epoch are not rebound: decide them again in the new
+   epoch.
 
    Removing an active expectation (`NewRemoveExpectationRequest`), or
    releasing a pending intent (the cancellation, refusal or spending of its
