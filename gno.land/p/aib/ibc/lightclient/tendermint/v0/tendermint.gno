@@ -179,11 +179,13 @@ func (tm *TMLightClient) UpdateState(clientMsg lightclient.ClientMessage) []type
 		// perform no-op
 		return []types.Height{msgHeight}
 	}
-	// Amortized pruning, as ibc-go does: each update removes at most the
-	// oldest consensus state if it expired, so the set converges to roughly
-	// trustingPeriod / updateInterval entries and the storage deposit of the
-	// removed bytes is refunded to the updater.
-	tm.pruneOldestConsensusState(time.Now())
+	// Amortized pruning: each update removes up to prunePerUpdate of the
+	// oldest expired consensus states and the storage deposit of the removed
+	// bytes is refunded to the updater. ibc-go removes at most one, which
+	// keeps a store at its peak size after a burst of updates; removing more
+	// than the one an update adds shrinks it back to roughly trustingPeriod /
+	// updateInterval entries.
+	tm.PruneExpiredConsensusStates(time.Now(), prunePerUpdate)
 	// Update latestHeight if required. Whole-slot replace; see
 	// UpdateStateOnMisbehaviour for the v2 borrow-rule rationale.
 	if msgHeight.GT(tm.ClientState.LatestHeight) {
@@ -649,6 +651,10 @@ func (tm *TMLightClient) GetPreviousConsensusState(height types.Height) (*Consen
 	return cs, cs != nil
 }
 
+// prunePerUpdate is how many expired consensus states an update may prune:
+// more than the one an update adds, so that the store shrinks after a burst.
+const prunePerUpdate = 2
+
 // pruneOldestConsensusState removes the lowest-height consensus state if it
 // has expired at now, and reports whether it did. Only the oldest entry is
 // examined, so the cost per call is constant.
@@ -664,17 +670,18 @@ func (tm *TMLightClient) pruneOldestConsensusState(now time.Time) bool {
 	return true
 }
 
-// PruneExpiredConsensusStates removes every consensus state that has expired
-// at now and returns how many were removed. An expired consensus state can no
-// longer verify headers or packet proofs, so removing it loses nothing.
-// UpdateState already prunes one entry per update; this bulk variant catches
-// up on clients that accumulated history before that, e.g. from an
-// implementation's OnInstall migration. Timestamps increase with height
-// (CheckForMisbehaviour freezes the client otherwise), so stopping at the
-// first unexpired entry finds them all.
-func (tm *TMLightClient) PruneExpiredConsensusStates(now time.Time) int {
+// PruneExpiredConsensusStates removes up to limit of the consensus states
+// that have expired at now, oldest first, and returns how many were removed.
+// An expired consensus state can no longer verify headers or packet proofs,
+// so removing it loses nothing. UpdateState calls it with prunePerUpdate; a
+// larger limit catches up on a client that accumulated history, e.g. from an
+// implementation's OnInstall migration, in batches bounded so that a long
+// history does not exhaust a transaction's gas. Timestamps increase with
+// height (CheckForMisbehaviour freezes the client otherwise), so stopping at
+// the first unexpired entry finds them all.
+func (tm *TMLightClient) PruneExpiredConsensusStates(now time.Time, limit int) int {
 	n := 0
-	for tm.pruneOldestConsensusState(now) {
+	for n < limit && tm.pruneOldestConsensusState(now) {
 		n++
 	}
 	return n

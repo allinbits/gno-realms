@@ -386,8 +386,11 @@ func TestPruneExpiredConsensusStates(t *testing.T) {
 		return tm
 	}
 
-	t.Run("UpdateState prunes only the oldest expired consensus state", func(t *testing.T) {
+	t.Run("UpdateState prunes up to two expired consensus states", func(t *testing.T) {
 		tm := setup()
+		// A third expired state, at height 0: an update past a burst
+		// removes two, more than the one it adds, and leaves the third.
+		tm.SetConsensusState(types.NewHeight(0, 0), newConsState(expired.Add(-time.Minute)))
 		header := &tendermint.MsgHeader{Header: &tendermint.Header{
 			ChainID: chainID,
 			Height:  10,
@@ -396,6 +399,7 @@ func TestPruneExpiredConsensusStates(t *testing.T) {
 		}}
 		tm.UpdateState(header)
 
+		uassert.False(t, tm.HasConsensusState(types.NewHeight(0, 0)))
 		uassert.False(t, tm.HasConsensusState(types.NewHeight(0, 1)))
 		uassert.True(t, tm.HasConsensusState(types.NewHeight(0, 2)))
 		uassert.True(t, tm.HasConsensusState(types.NewHeight(0, 3)))
@@ -409,7 +413,7 @@ func TestPruneExpiredConsensusStates(t *testing.T) {
 
 	t.Run("UpdateState prunes nothing when the oldest has not expired", func(t *testing.T) {
 		tm := setup()
-		tm.PruneExpiredConsensusStates(now)
+		tm.PruneExpiredConsensusStates(now, 100)
 		tm.UpdateState(&tendermint.MsgHeader{Header: &tendermint.Header{
 			ChainID: chainID,
 			Height:  10,
@@ -421,14 +425,17 @@ func TestPruneExpiredConsensusStates(t *testing.T) {
 
 	t.Run("bulk prune removes every expired consensus state", func(t *testing.T) {
 		tm := setup()
-		uassert.Equal(t, 2, tm.PruneExpiredConsensusStates(now))
+		uassert.Equal(t, 1, tm.PruneExpiredConsensusStates(now, 1), "the limit bounds a batch")
+		uassert.False(t, tm.HasConsensusState(types.NewHeight(0, 1)))
+		uassert.True(t, tm.HasConsensusState(types.NewHeight(0, 2)))
+		uassert.Equal(t, 1, tm.PruneExpiredConsensusStates(now, 100))
 		uassert.Equal(t, 1, tm.ConsensusStateByHeight.Size())
 		uassert.True(t, tm.HasConsensusState(types.NewHeight(0, 3)))
-		uassert.Equal(t, 0, tm.PruneExpiredConsensusStates(now))
+		uassert.Equal(t, 0, tm.PruneExpiredConsensusStates(now, 100))
 	})
 
 	t.Run("bulk prune on an empty client", func(t *testing.T) {
-		uassert.Equal(t, 0, tendermint.NewTMLightClient().PruneExpiredConsensusStates(now))
+		uassert.Equal(t, 0, tendermint.NewTMLightClient().PruneExpiredConsensusStates(now, 100))
 	})
 }
 

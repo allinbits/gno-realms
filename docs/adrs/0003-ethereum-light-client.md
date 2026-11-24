@@ -260,11 +260,14 @@ unchanged.
 ## Consequences
 
 - Each advancing update stores a consensus state, and pruning is amortized:
-  `UpdateState` first removes the client's own oldest state if nothing reads
-  it any more (it is past the trust window, or below `TrustedFromSlot`, from
-  before a recovery), at most one per update, so the store converges to
-  about one trust window of states and the storage deposit of the removed
-  bytes is refunded to the updater. The latest state is always kept, expired
+  `UpdateState` first removes the client's own oldest states that nothing
+  reads any more (past the trust window, or below `TrustedFromSlot`, from
+  before a recovery), up to two per update, and the storage deposit of the
+  removed bytes is refunded to the updater. Two, not one: an update adds a
+  state, so removing one at most would keep the store at its peak size for
+  good after a burst of updates; removing up to two shrinks it by one per
+  update until it holds about one trust window of states
+  (`TestUpdateStateShrinksBacklog`). The latest state is always kept, expired
   or not (`Status`, recoveries and renders read it). The stores of retired
   verifiers (`NewFrom`'s history and overrides) are read only and never
   pruned. `PruneExpiredConsensusStates(limit)` removes up to `limit` such

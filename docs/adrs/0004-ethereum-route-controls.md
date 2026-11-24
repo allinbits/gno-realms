@@ -1219,9 +1219,10 @@ does not list before it.
 - Gas and storage grow per transfer (records, claims). Records are never
   pruned (a pruning policy is an open question of ADR pr6375). A router
   client's consensus states are pruned (ADR 0003 for Ethereum, ADR 0008 for
-  Arc): each update removes the oldest one past the trust window or below a
-  recovery's cut-off, never the latest, refunding its deposit to the
-  updater, and `PruneExpiredConsensusStates` removes them in batches; a
+  Arc): each update removes up to two of the oldest past the trust window
+  or below a recovery's cut-off, more than the one it adds so that the store
+  shrinks back after a burst, never the latest, refunding their deposit to
+  the updater, and `PruneExpiredConsensusStates` removes them in batches; a
   retired Ethereum verifier's store is read-only and never pruned.
 - Relayers must call `Claim` and `ClaimRefunds`, relay governance packets and
   call `Redispatch`. Receipt values changed from `0x02` to a hash.
