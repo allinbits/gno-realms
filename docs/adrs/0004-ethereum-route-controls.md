@@ -1610,7 +1610,12 @@ does not list before it.
   once, a kind 10's old client is retired, a kind 6 op 1's client exists);
   kinds 4 and 11 apply only if no later number set their key, so a copy,
   numbered after a later decision of the same key, overrides it, as an
-  honest burn rebound after a later decision does. Governance that does
+  honest burn rebound after a later decision does. The same holds for
+  every kind that replaces state: a copy of a guardian seat change (kind
+  3), a verifier migration (kind 6 op 2), an upgrade or executor hand-over
+  (kinds 7, 9) or a role grant (kind 8) superseded since restores what its
+  successor replaced (a revoked role granted again, an old executor or
+  implementation, old seats). Governance that does
   not want a burned decision revived cancels its number (kind 1, which
   makes it cancelled here, never rebindable), and cancels a copy that
   should not run by its own number. An attacker who keeps forging cancels

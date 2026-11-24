@@ -503,8 +503,10 @@ from the first block, the governor yields right after the deployment.
    executed.
    Before rebinding, look at what
    the burned decisions would do now: a copy runs after every decision
-   dispatched since, so a limits (kind 4) or route settings (kind 11)
-   decision superseded since would override its successor. To keep a
+   dispatched since, so a decision superseded since would undo its
+   successor: limits (kind 4) or route settings (kind 11), guardian seats
+   (kind 3), a verifier migration (kind 6 op 2), an upgrade or executor
+   hand-over (kinds 7, 9), a role grant (kind 8). To keep a
    burned number from being revived, cancel it (`NewEthCancelRequest`
    naming it: harmless on Ethereum, where it is cancelled already, and
    ibcgov then refuses to rebind it); cancel a copy that should not run by
