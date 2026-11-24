@@ -28,18 +28,10 @@ import (
 // nothing the original did not. The burned number stays burned and points
 // at its copy (reboundTo), the copy back at it (reboundFrom).
 //
-// One more dispatch depends on a burned one: a kind 10 whose new router
-// client a kind 6 op 1 enrols. IBCAdmin spends that kind 10 at execution
-// when the client is unknown there, which no acknowledgement reports (the
-// kind 10 was acknowledged when it was recorded). So a kind 10 Ethereum
-// holds (acknowledged recorded, buffered, duplicate or spent) is rebindable
-// too when a kind 6 op 1 of its epoch, dispatched before it and enrolling
-// its new client, was burned and already rebound past it: the copy then
-// follows the kind 6's copy, so it executes after the client exists. If the
-// original kind 10 executes all the same (its kind 6's copy executed first),
-// the epoch switch abandons the copy; if not, the copy is the one to run.
-// gno.land cannot tell that spend from a kind 10 still pending there, and
-// does not need to: either way at most one of the two executes.
+// A kind 10 whose new router client a burned kind 6 op 1 enrols is not
+// rebound: IBCAdmin keeps such a kind 10 pending (its execution reverts
+// while the client is not enrolled), so rebinding the kind 6 is enough, and
+// the original kind 10 executes once the kind 6's copy has.
 //
 // A burned dispatch of a past epoch is not rebindable: the new epoch's
 // governance decides it again. An attacker who keeps forging cancels burns
@@ -93,31 +85,19 @@ func addCancelled(g *routeGov, e uint32, from, to uint64) {
 	g.cancels.Set(dispatchKey(e, from), to)
 }
 
-func enrollKey(e uint32, client string, seq uint64) string {
-	s := u64s(seq)
-	return epochKey(e) + "|" + client + "|" + strings.Repeat("0", 20-len(s)) + s
-}
-
-// indexDispatch records what a newly bound dispatch tells later answers: a
-// kind 1's ranges (cancelledHere), a kind 6 op 1's router client (the kind
-// 10 rule). The params are this realm's own encoding.
+// indexDispatch records a newly bound kind 1's ranges (cancelledHere). The
+// params are this realm's own encoding.
 func indexDispatch(g *routeGov, d *dispatch) {
 	params := d.body[envelopeHeader:]
-	switch d.kind {
-	case KindCancel:
-		n, ok := abiWord(params, 1)
-		for i := uint64(0); ok && i < n && i < maxCancelRanges; i++ {
-			from, ok1 := abiWord(params, int(2+2*i))
-			to, ok2 := abiWord(params, int(3+2*i))
-			if ok1 && ok2 && from <= to {
-				addCancelled(g, d.epoch, from, to)
-			}
-		}
-	case KindClient:
-		if op, ok := abiWord(params, 0); ok && op == 1 {
-			if id, ok := abiStringAt(params, 1); ok {
-				g.enrolls.Set(enrollKey(d.epoch, id, d.seq), true)
-			}
+	if d.kind != KindCancel {
+		return
+	}
+	n, ok := abiWord(params, 1)
+	for i := uint64(0); ok && i < n && i < maxCancelRanges; i++ {
+		from, ok1 := abiWord(params, int(2+2*i))
+		to, ok2 := abiWord(params, int(3+2*i))
+		if ok1 && ok2 && from <= to {
+			addCancelled(g, d.epoch, from, to)
 		}
 	}
 }
@@ -130,19 +110,6 @@ func abiWord(p []byte, i int) (uint64, bool) {
 	return binary.BigEndian.Uint64(p[32*i+24 : 32*i+32]), true
 }
 
-// abiStringAt is the string whose offset is params' i-th head word.
-func abiStringAt(p []byte, i int) (string, bool) {
-	off, ok := abiWord(p, i)
-	if !ok || off > uint64(len(p)) || off%32 != 0 {
-		return "", false
-	}
-	n, ok := abiWord(p, int(off/32))
-	if !ok || n > uint64(len(p))-off-32 {
-		return "", false
-	}
-	return string(p[off+32 : off+32+n]), true
-}
-
 // rebindable is why d cannot be rebound now, or "".
 func rebindable(g *routeGov, d *dispatch) string {
 	what := "decision " + u64s(d.seq)
@@ -153,46 +120,15 @@ func rebindable(g *routeGov, d *dispatch) string {
 		return what + " is cancelled by a cancel of this realm"
 	case d.burned:
 		return ""
-	case d.kind == KindRouteReplace:
-		return spentRouteReplacement(g, d)
-	case d.status == StatusCancelled:
-		return what + " is cancelled by a cancel of this realm"
 	}
 	return what + " is not burned (" + d.event + ")"
-}
-
-// spentRouteReplacement is why the kind 10 d is not one IBCAdmin spends for
-// its unknown new client (see above), or "".
-func spentRouteReplacement(g *routeGov, d *dispatch) string {
-	what := "kind 10 " + u64s(d.seq)
-	switch d.status {
-	case StatusRecorded, StatusBuffered, StatusDuplicate, StatusSpent:
-	default:
-		return what + " is not burned, and Ethereum does not hold it (" + d.event + ")"
-	}
-	target, ok := abiStringAt(d.body[envelopeHeader:], 1)
-	if !ok {
-		return what + " names no new client"
-	}
-	found := false
-	g.enrolls.Iterate(enrollKey(d.epoch, target, 0), enrollKey(d.epoch, target, d.seq), func(k string, _ any) bool {
-		seq, _ := strconv.ParseUint(k[strings.LastIndex(k, "|")+1:], 10, 64)
-		k6 := dispatchOf(g, d.epoch, seq)
-		found = k6 != nil && k6.burned && k6.reboundTo > d.seq
-		return found
-	})
-	if !found {
-		return what + " is not burned, and no kind 6 enrolling " + target + " before it was burned and rebound past it"
-	}
-	return ""
 }
 
 // Rebind binds every burned dispatch of route's current epoch e numbered
 // from to to (inclusive, at most 64 numbers) to the epoch's next numbers, in
 // their original order, with the same kind and params in fresh envelopes,
 // and sends them (see above). Anyone may call it; it returns the numbers it
-// bound. A kind 10 waiting on a kind 6 in the same range follows the kind
-// 6's copy. Refused for a past epoch, an empty or oversized range, and a
+// bound. Refused for a past epoch, an empty or oversized range, and a
 // range holding no rebindable dispatch; dispatches in the range that are not
 // rebindable (not burned, cancelled by this realm, rebound already) are
 // left as they are. Every check of a dispatch applies (bind): a paused core
@@ -216,8 +152,6 @@ func Rebind(cur realm, route string, e uint32, from, to uint64) []uint64 {
 	var out []uint64
 	refusal := "no dispatched decision in " + u64s(from) + "-" + u64s(to)
 	for _, d := range olds {
-		// Checked as the loop goes: a kind 10 follows a kind 6 rebound
-		// earlier in this call.
 		if why := rebindable(g, d); why != "" {
 			if len(out) == 0 {
 				refusal = why

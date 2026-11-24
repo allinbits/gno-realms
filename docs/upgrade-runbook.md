@@ -435,10 +435,9 @@ from the first block, the governor yields right after the deployment.
    calls `ibcgov.Redispatch(R, e, seq)` once; a further re-send needs a new
    decision. A real conflict (different bytes stored) is never re-sent.
 
-   A decision one of ibcgov's own cancels (kind 1) names, and that IBCAdmin
-   never acknowledged holding (no app acknowledgement: status 0 on its
-   page), is not re-sent freely either; one acknowledged recorded, buffered,
-   duplicate or spent is (a duplicate there). IBCAdmin ignores a tombstone more than 64 numbers past
+   A decision one of ibcgov's own cancels (kind 1) names is not re-sent
+   freely either, whatever its answer (a success acknowledgement can be
+   forged). It needs a re-send only if IBCAdmin never held it. IBCAdmin ignores a tombstone more than 64 numbers past
    its last recorded one, so a first delivery after such a cancel would
    record and execute it. If a later seq waits behind it, read
    `IBCAdmin.isTombstoned(e, seq)` (or find the decision held there, as
@@ -455,10 +454,11 @@ from the first block, the governor yields right after the deployment.
    later delivery or `drain()` records cancelled gets no acknowledgement of
    its own, and a pending one (acknowledged 1) cancelled at execution
    neither. So first `ibcgov.Redispatch(R, e, seq)` every number from the
-   head up to 64 past it that shows status 1 or 2 (or read
-   `IBCAdmin.isTombstoned(e, seq)` and the decision's state there, and
-   re-send those cancelled): each re-send is a duplicate, answered 6 for a
-   cancelled one. ibcgov marks each number no cancel of its own names as burned
+   head up to 64 past it that shows status 1 or 2 and that no cancel of
+   ibcgov names (or read `IBCAdmin.isTombstoned(e, seq)` and the
+   decision's state there): each re-send is a duplicate, answered 6 for a
+   cancelled one. A number ibcgov cancelled itself needs no re-send if
+   IBCAdmin holds it, and Redispatch refuses it without an authorization. ibcgov marks each number no cancel of its own names as burned
    (`dispatch/<R>/<e>/<seq>`: `"status":6,"burned":true`;
    `ibcgov.DispatchRebind(R, e, seq)`; a `GovAck` event with status
    `burned`). Anyone then calls `ibcgov.Rebind(R, e, from, to)` (the
@@ -467,13 +467,10 @@ from the first block, the governor yields right after the deployment.
    kind and params, and sent; the page shows `rebound_to` on the old number
    and `rebound_from` on the copy, and the copies are relayed and
    acknowledged like any dispatch. A kind 10 whose kind 6 (op 1, enrolling
-   its new router client) was burned is spent at execution on Ethereum
-   though it was acknowledged recorded: rebind the kind 6 first, or both
-   in one range, and the kind 10 follows it. The original kind 10 may
-   still be pending there: if the kind 6's copy executes first, the
-   original can be executed after all and switches the epoch; the copy is
-   then abandoned with the old epoch, and the notice is accepted as for
-   the original (its expectation is the transition's, not the seq's).
+   its new router client) was burned is not rebound: IBCAdmin keeps it
+   pending while the client is not enrolled, so rebind the kind 6 only,
+   and execute the original kind 10 there once the kind 6's copy has
+   executed.
    Before rebinding, look at what
    the burned decisions would do now: a copy runs after every decision
    dispatched since, so a limits (kind 4) or route settings (kind 11)
@@ -487,6 +484,16 @@ from the first block, the governor yields right after the deployment.
    through) or Ethereum's emergency recovery. Burned
    numbers of a past epoch are not rebound: decide them again in the new
    epoch.
+
+   A status 6 can be forged too, on a decision that never reached IBCAdmin:
+   its packet timed out, and IBCAdmin waits at that number while ibcgov
+   shows it burned or cancelled. Read `IBCAdmin.decision(e, seq)` (no
+   decision stored) and `lastSeq()`; if the number is the gap, decide
+   `ibcgov.NewRetransmitRequest(R, e, seq)` and call `ibcgov.Redispatch(R,
+   e, seq)` once: the same bytes go out, the 6 is cleared here, and
+   IBCAdmin's answer decides the status. If someone rebound the number
+   already, cancel the copy (`NewEthCancelRequest` naming its seq) unless
+   both should run.
 
    Removing an active expectation (`NewRemoveExpectationRequest`), or
    releasing a pending intent (the cancellation, refusal or spending of its

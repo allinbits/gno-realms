@@ -313,7 +313,7 @@ func main(cur realm) {
 // cancelled-at-recording : seq 20 status 6 redispatch false - acknowledged: cancelled by a cancel of this realm
 // duplicate-of-cancelled : seq 20 status 6 redispatch false - acknowledged: cancelled after the cancellation, which stands
 // seq 20: burned false rebound to 0
-// redispatch 20: ibcgov: decision 20 is cancelled on Ethereum, never sent again (acknowledged: cancelled after the cancellation, which stands)
+// redispatch 20: ibcgov: decision 20 is cancelled on Ethereum, not sent again without a governed authorization (acknowledged: cancelled after the cancellation, which stands)
 // rebind 20: ibcgov: nothing to rebind: decision 20 is cancelled by a cancel of this realm
 // notice built equal: true
 // notice parsed: true 2 gnoland-2

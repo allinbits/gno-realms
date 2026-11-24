@@ -781,7 +781,8 @@ causes apart: every kind 1 it dispatches is indexed when it is bound
 (`cancels`, its ranges merged into disjoint ones per epoch, one lookup a
 number), and a number acknowledged 6 that one of them names is
 **cancelled**, final; any other is **burned**. Both are final: no later
-answer changes the status, and `Redispatch` refuses either. Anyone may
+answer changes the status, and `Redispatch` refuses either, short of one
+governed re-send (below). Anyone may
 `Rebind(route, e, from, to)`: every burned dispatch of the current epoch
 numbered `from` to `to` (inclusive, at most 64 numbers a call) is bound,
 in its original order, to the epoch's next numbers, with the same kind and
@@ -792,24 +793,16 @@ reverts the call). The burned number stays burned and points at its copy
 approved those decisions, and the copy says nothing the original did not;
 numbers stay contiguous and each is bound to its bytes in the transaction
 that sends it (a Rebind binds numbers outside a recording, the one
-exception). One dependent dispatch is rebindable too: a kind 10 whose new
-router client is enrolled by a kind 6 op 1 is spent by IBCAdmin at
-execution when the kind 6 was burned (the client is unknown there,
-`"client"`), and no acknowledgement reports a spend at execution, so
-gno.land cannot tell it from a kind 10 still pending. The rule: a kind 10
-Ethereum holds (acknowledged 1, 2, 3 or 5), not cancelled by gno.land,
-whose epoch holds a kind 6 op 1 for its new client, numbered before it,
-burned and already rebound past it (`enrolls`, indexed when bound). Its
-copy then follows the kind 6's copy (in one call over both, or a later
-one), so it executes once the client exists; if the original executes
-after all (the kind 6's copy executed first), its epoch switch abandons the
-copy, so at most one runs (the expectation and its notice are the
-original's, keyed by the transition, not the seq, so the switch is accepted
-the same either way). Refused: a past epoch (its decisions are decided
-again in the new epoch), an empty range (`from = 0` or `to < from`), more
-than 64 numbers, a range holding nothing rebindable (not burned, cancelled
-by gno.land, rebound already, or a kind 10 failing the rule); dispatches of
-the range that are not rebindable are left as they are.
+exception). Only burned dispatches are rebindable. A kind 10 whose new
+router client a burned kind 6 op 1 enrols is not: IBCAdmin keeps such a
+kind 10 pending, its execution reverting while the client is not enrolled,
+so rebinding the kind 6 is enough and the original kind 10 executes after
+the kind 6's copy (an order Ethereum would not enforce between two copies,
+since anyone executes a mature decision). Refused: a past epoch (its
+decisions are decided again in the new epoch), an empty range (`from = 0`
+or `to < from`), more than 64 numbers, a range holding nothing rebindable
+(not burned, cancelled by gno.land, rebound already); dispatches of the
+range that are not rebindable are left as they are.
 
 Not every cancellation is acknowledged when it happens: a buffered decision
 that a later delivery or a drain records cancelled gets no acknowledgement
@@ -817,34 +810,41 @@ of its own, and a pending one (acknowledged 1) that a tombstone cancels at
 execution none either. gno.land learns of either only from a re-send,
 answered 6 as a duplicate of a cancelled decision; so an ack 6 may follow an
 ack 1 or 2 (it replaces it; only a 6 is final), and a decision IBCAdmin
-acknowledged holding (1, 2, 3 or 5) is re-sent freely, cancelled here or
-not, since the re-send is a duplicate there. A decision gno.land cancelled
-that IBCAdmin never acknowledged holding (no app acknowledgement: unanswered,
-timed out, an error or malformed one) is not: once its cancel arrived past
-IBCAdmin's horizon the tombstone was dropped, and a first delivery of the
-decision would record and execute it. Yet its number must still be
-delivered for later ones to record. So `Redispatch` of such a dispatch
-needs one governed authorization a re-send (`NewRetransmitRequest`, applied at once), which
-governance decides after reading `IBCAdmin.isTombstoned(e, seq)` (or
-finding the decision held there); the re-send then records it cancelled
-(status 6). An honest cancel of a decision more than 64 numbers past
-IBCAdmin's head therefore no longer pre-empts it on its own: cancel it again
-once it is within the window. To keep a burned decision from being revived
+acknowledged holding (1, 2, 3 or 5) that no kind 1 of gno.land names is
+re-sent freely, a duplicate there, to learn whether it was burned. A
+decision a kind 1 of gno.land names is never re-sent freely, whatever its
+answer: if IBCAdmin never held it when the cancel arrived past its horizon
+(a success acknowledgement can be forged), the tombstone was dropped, and a
+delivery would record and execute a withdrawn decision. A cancelled
+decision Ethereum holds never needs a re-send; one it does not hold needs
+one to fill its number, so `Redispatch` of it needs one governed
+authorization a re-send (`NewRetransmitRequest`, applied at once), which
+governance decides after reading `IBCAdmin.isTombstoned(e, seq)` (or finding
+these bytes held there); the re-send then records it cancelled (status 6).
+The same authorization covers a status 6: a forged 6 (a compromised
+Ethereum verifier of gno.land) on a decision that never reached IBCAdmin,
+its packet timed out, would leave its number unfillable, since Rebind
+takes another and IBCAdmin waits for this one; governance reads IBCAdmin's
+state for the number and authorizes one re-send of its bytes, which clears
+the status here, and the answer to it decides afresh. If Rebind copied it
+already, the copy runs too unless governance cancels it. An honest cancel of
+a decision more than 64 numbers past IBCAdmin's head therefore no longer
+pre-empts it on its own: cancel it again once it is within the window. To keep a burned decision from being revived
 (a later decision superseded it, or it is no longer wanted), governance
 cancels its number with a kind 1: harmless on Ethereum, where it is
 cancelled already, and it makes the number cancelled here, which Rebind
 refuses. A copy that should not run is cancelled by its own number. z2c checks
 IBCAdmin's status-6 vectors (a cancelled decision at its recording and its
 re-delivery) on a number this realm cancelled. z2k:
-an ack 6 burned and one cancelled, both final and refused by `Redispatch`
-and `NewRetransmitRequest`; a cancelled decision never held re-sent only on
-an authorization; Rebind of two burned dispatches in order with their
-kinds and params, every refusal, a burned number cancelled later; the kind
-6 and kind 10 pair rebound, refused before its kind 6's copy and when the
-copy is not held, rebound again when the kind 6's copy is burned too; a
-past epoch's burned number refused after an epoch switch; a 1 -> 6
-transition burned, and a buffered decision this realm cancelled re-sent
-freely and found cancelled. Router client ids follow eureka's grammar (`client-N`, or a custom
+an ack 6 burned and one cancelled, both final and refused by `Redispatch`;
+a cancelled decision never held re-sent only on an authorization; Rebind
+of two burned dispatches in order with their kinds and params, every
+refusal, a burned number cancelled later; a burned kind 6 rebound (twice,
+its copy burned too) while its kind 10 is not rebindable; a past epoch's
+burned number refused after an epoch switch; a 1 -> 6 transition burned;
+a decision acknowledged buffered then cancelled by gno.land refused a free
+re-send; a forged 6 on an undelivered head re-sent once on a governed
+authorization, its bytes unchanged, its recording replacing the 6. Router client ids follow eureka's grammar (`client-N`, or a custom
 id of up to 128 characters, also in packets); those governance adds (kind 6
 op 1, kind 10's new client) must be valid custom ids (4 to 128 characters of eureka's alphabet, not starting with
 `client-` or `channel-`). `Redispatch` re-sends identical bytes. Envelopes are

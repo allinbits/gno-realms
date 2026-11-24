@@ -60,7 +60,7 @@ func TestCancelledRanges(t *testing.T) {
 	}
 }
 
-// indexDispatch reads this realm's own kind 1, 6 and 10 encodings.
+// indexDispatch reads this realm's own kind 1 encoding, and only it.
 func TestIndexDispatch(t *testing.T) {
 	g := &routeGov{}
 	cancel := abi.Encode(abi.Array(abi.Tuple(abi.Uint64(2), abi.Uint64(3)), abi.Tuple(abi.Uint64(7), abi.Uint64(7))))
@@ -70,23 +70,9 @@ func TestIndexDispatch(t *testing.T) {
 			t.Errorf("seq %d", s)
 		}
 	}
-	var lc [20]byte
-	var h [32]byte
-	enrol := func(op uint64) []byte {
-		return abi.Encode(abi.Uint64(op), abi.String("gnoland-2"), abi.String("ethereum-2"), abi.Array(abi.Bytes([]byte("main"))), abi.Address(lc), abi.Bytes32(h))
-	}
-	indexDispatch(g, &dispatch{epoch: 1, seq: 9, kind: KindClient, body: Envelope(1, 9, KindClient, enrol(1))})
-	indexDispatch(g, &dispatch{epoch: 1, seq: 10, kind: KindClient, body: Envelope(1, 10, KindClient, enrol(2))})
-	if !g.enrolls.Has(enrollKey(1, "gnoland-2", 9)) || g.enrolls.Size() != 1 {
-		t.Errorf("kind 6 op 1 not indexed alone: %d", g.enrolls.Size())
-	}
-	route := abi.Encode(abi.String("client-0"), abi.String("gnoland-2"), abi.Uint64(21000000))
-	if id, ok := abiStringAt(route, 1); !ok || id != "gnoland-2" {
-		t.Errorf("kind 10's new client: %q %v", id, ok)
-	}
-	for _, bad := range [][]byte{nil, route[:40], route[:100]} {
-		if _, ok := abiStringAt(bad, 1); ok {
-			t.Errorf("read a string from %d bytes", len(bad))
-		}
+	enrol := abi.Encode(abi.Uint64(1), abi.String("gnoland-2"))
+	indexDispatch(g, &dispatch{epoch: 1, seq: 9, kind: KindClient, body: Envelope(1, 9, KindClient, enrol)})
+	if g.cancels.Size() != 2 {
+		t.Errorf("%d ranges: a kind 6 was indexed", g.cancels.Size())
 	}
 }
