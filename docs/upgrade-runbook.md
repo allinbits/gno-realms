@@ -442,7 +442,9 @@ from the first block, the governor yields right after the deployment.
    record and execute it. If a later seq waits behind it, read
    `IBCAdmin.isTombstoned(e, seq)` (or find the decision held there, as
    above); if it is tombstoned, decide `ibcgov.NewRetransmitRequest(R, e,
-   seq)` and re-send it once: IBCAdmin records it cancelled (status 6). If
+   seq)` and re-send it once: IBCAdmin records it cancelled (status 6).
+   Decide that authorization after the cancel: binding a cancel voids any
+   unused authorization of the numbers it names. If
    it is not tombstoned, send a fresh cancel of it first (it is within the
    window now), then authorize the re-send.
 

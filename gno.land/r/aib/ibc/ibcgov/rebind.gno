@@ -85,8 +85,12 @@ func addCancelled(g *routeGov, e uint32, from, to uint64) {
 	g.cancels.Set(dispatchKey(e, from), to)
 }
 
-// indexDispatch records a newly bound kind 1's ranges (cancelledHere). The
-// params are this realm's own encoding.
+// indexDispatch records a newly bound kind 1's ranges (cancelledHere), and
+// voids every unused retransmit authorization of a number they name: one
+// granted before the cancel was decided without checking it (IBCAdmin may
+// have dropped the tombstone past its horizon), so only an authorization
+// decided after the cancel lets that number be re-sent. The params are this
+// realm's own encoding.
 func indexDispatch(g *routeGov, d *dispatch) {
 	params := d.body[envelopeHeader:]
 	if d.kind != KindCancel {
@@ -98,6 +102,26 @@ func indexDispatch(g *routeGov, d *dispatch) {
 		to, ok2 := abiWord(params, int(3+2*i))
 		if ok1 && ok2 && from <= to {
 			addCancelled(g, d.epoch, from, to)
+			voidGrants(g, d.epoch, from, to)
+		}
+	}
+}
+
+// voidGrants withdraws the unused retransmit authorizations of epoch e's
+// numbers from to to: a walk of the grants alone, at most one per
+// retransmit decision still unused.
+func voidGrants(g *routeGov, e uint32, from, to uint64) {
+	var keys []string
+	g.grants.Iterate(dispatchKey(e, from), dispatchKey(e, to)+"\x00", func(k string, _ any) bool {
+		keys = append(keys, k)
+		return false
+	})
+	for _, k := range keys {
+		g.grants.Remove(k)
+		if v := g.dispatches.Get(k); v != nil {
+			d := v.(*dispatch)
+			d.retransmit = false
+			d.event += "; its re-send authorization voided by a cancel"
 		}
 	}
 }

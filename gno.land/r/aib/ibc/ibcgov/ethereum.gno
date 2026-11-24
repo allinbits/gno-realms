@@ -865,6 +865,7 @@ func Redispatch(cur realm, route string, e uint32, seq uint64) {
 	}
 	if gated {
 		d.retransmit = false // used once: another re-send needs another decision
+		g.grants.Remove(dispatchKey(d.epoch, d.seq))
 	}
 	if d.status == StatusCancelled {
 		// Governance found the 6 untrue, or wants the number filled: the
@@ -2085,6 +2086,7 @@ func (p *retransmitParams) apply(cur realm, t int64) (string, string) {
 	}
 	d := dispatchOf(g, p.e, p.seq)
 	d.retransmit = true
+	g.grants.Set(dispatchKey(p.e, p.seq), true)
 	d.event += "; one re-send authorized"
 	return "authorize one re-send of epoch " + strconv.FormatUint(uint64(p.e), 10) + " seq " + u64s(p.seq) + ": anyone calls Redispatch", ""
 }

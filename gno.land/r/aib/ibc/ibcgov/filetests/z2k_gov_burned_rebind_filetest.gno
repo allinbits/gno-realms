@@ -229,6 +229,23 @@ func main(cur realm) {
 	println("rebind 21, recorded:", rebind(cur, 21, 21))
 	println("re-sent freely once recorded:", revive(func() { ibcgov.Redispatch(cross(cur), govRoute, 1, 21) }) == nil)
 
+	// A grant decided before a cancel is void: seq 22, answered with a
+	// (forged) conflict, gets a re-send authorized; our seq 23 then cancels
+	// it, and the old grant no longer lets it out (IBCAdmin may have dropped
+	// the tombstone past its horizon). A grant decided after the cancel does.
+	govern(cur, ibcgov.NewEthRouteSettingsRequest(cross(cur), govRoute, "client-0", 28800))
+	ack(cur, 22, appAck(22, ibcgov.StatusConflict))
+	govern(cur, ibcgov.NewRetransmitRequest(cross(cur), govRoute, 1, 22))
+	govern(cur, ibcgov.NewEthCancelRequest(cross(cur), govRoute, "22"))
+	println("redispatch 22, granted before its cancel:", revive(func() { ibcgov.Redispatch(cross(cur), govRoute, 1, 22) }))
+	auth = govern(cur, ibcgov.NewRetransmitRequest(cross(cur), govRoute, 1, 22))
+	d, _ = ibcgov.Decision(auth)
+	println("retransmit 22 after the cancel:", d.State())
+	ibcgov.Redispatch(cross(cur), govRoute, 1, 22)
+	show(22)
+	ack(cur, 22, appAck(22, ibcgov.StatusConflict))
+	println("a second re-send:", revive(func() { ibcgov.Redispatch(cross(cur), govRoute, 1, 22) }))
+
 	// The epoch moves on: seq 1, still burned, is epoch 1's, decided again
 	// in epoch 2.
 	execute(cur, expect)
@@ -291,5 +308,9 @@ func main(cur realm) {
 //   seq 21 status 1 burned false rebound to 0 from 0 redispatch false in flight false sends 2 - acknowledged: recorded
 // rebind 21, recorded: ibcgov: nothing to rebind: decision 21 is not burned (acknowledged: recorded)
 // re-sent freely once recorded: true
+// redispatch 22, granted before its cancel: ibcgov: decision 22 is not re-dispatchable without a governed authorization (acknowledged: conflict; one re-send authorized; its re-send authorization voided by a cancel)
+// retransmit 22 after the cancel: applied
+//   seq 22 status 4 burned false rebound to 0 from 0 redispatch false in flight true sends 2 - sent as packet 28
+// a second re-send: ibcgov: decision 22 is not re-dispatchable without a governed authorization (acknowledged: conflict)
 // epoch 2
 // rebind 1 of epoch 1: ibcgov: epoch 1 is not the current one: a past epoch's decisions are decided again

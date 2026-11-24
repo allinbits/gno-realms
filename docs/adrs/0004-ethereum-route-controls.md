@@ -821,6 +821,11 @@ one to fill its number, so `Redispatch` of it needs one governed
 authorization a re-send (`NewRetransmitRequest`, applied at once), which
 governance decides after reading `IBCAdmin.isTombstoned(e, seq)` (or finding
 these bytes held there); the re-send then records it cancelled (status 6).
+An authorization must postdate the cancel: binding a kind 1 voids every
+unused authorization of a number it names (`grants`, the dispatches holding
+one, walked over the cancel's ranges), since a grant decided earlier, after
+a conflict or a 6, never checked the tombstone; a grant decided after the
+cancel is that check.
 The same authorization covers a status 6: a forged 6 (a compromised
 Ethereum verifier of gno.land) on a decision that never reached IBCAdmin,
 its packet timed out, would leave its number unfillable, since Rebind
@@ -844,7 +849,8 @@ its copy burned too) while its kind 10 is not rebindable; a past epoch's
 burned number refused after an epoch switch; a 1 -> 6 transition burned;
 a decision acknowledged buffered then cancelled by gno.land refused a free
 re-send; a forged 6 on an undelivered head re-sent once on a governed
-authorization, its bytes unchanged, its recording replacing the 6. Router client ids follow eureka's grammar (`client-N`, or a custom
+authorization, its bytes unchanged, its recording replacing the 6; a grant
+decided before a covering cancel void, one decided after it used once. Router client ids follow eureka's grammar (`client-N`, or a custom
 id of up to 128 characters, also in packets); those governance adds (kind 6
 op 1, kind 10's new client) must be valid custom ids (4 to 128 characters of eureka's alphabet, not starting with
 `client-` or `channel-`). `Redispatch` re-sends identical bytes. Envelopes are
