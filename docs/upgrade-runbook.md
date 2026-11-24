@@ -453,7 +453,13 @@ from the first block, the governor yields right after the deployment.
    (`ibcgov.KnownHead(R, e)`): a request past that is refused ("Ethereum
    has recorded up to N … retry once acknowledgements catch up"), and one
    recorded past it is spent. Relay the outstanding acknowledgements (and
-   Redispatch what timed out), then decide it again.
+   Redispatch what timed out), then decide it again. If every packet was
+   acknowledged and the head still lags (numbers delivered out of order:
+   acknowledged buffered, 2, or duplicate, 3, then recorded by a drain,
+   which acknowledges nothing), anyone `ibcgov.Redispatch(R, e, seq)`es the
+   numbers past `KnownHead`: each is answered 7, a duplicate of a recorded
+   decision, which moves the head. Those re-sends are free for any number
+   no cancel of ibcgov names.
 
    **Recovering from a forged cancel.** A cancel ibcgov never sent (a kind
    1 let through by a compromised Ethereum-side verifier of gno.land)

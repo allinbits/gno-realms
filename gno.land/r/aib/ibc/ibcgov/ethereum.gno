@@ -43,7 +43,8 @@ import (
 //
 // IBCAdmin answers with an app acknowledgement
 // epoch u32 ‖ seq u64 ‖ status u8 ‖ redispatch u8 (status 1 recorded,
-// 2 buffered, 3 duplicate, 4 conflict, 5 spent, 6 cancelled), or an error
+// 2 buffered, 3 duplicate, 4 conflict, 5 spent, 6 cancelled, 7 duplicate
+// of a recorded decision), or an error
 // acknowledgement (out of its window, a stale epoch, a forgery). A timeout,
 // an error acknowledgement of the current epoch, a malformed acknowledgement
 // or redispatch = 1 ask for the decision to be sent again; anyone may call
@@ -128,6 +129,12 @@ const (
 	// there again. A number no kind 1 of this realm cancelled was burned by
 	// a cancel this realm never sent (Rebind).
 	StatusCancelled = uint8(6)
+	// StatusDuplicateRecorded is a duplicate of a decision IBCAdmin has
+	// recorded (its number at or below its last recorded one, not
+	// cancelled): like 3, it changes nothing there, but it tells that
+	// IBCAdmin's head reached the number, which a duplicate of a buffered
+	// one (3) does not.
+	StatusDuplicateRecorded = uint8(7)
 )
 
 // The Ethereum-bound decision kinds (ADR pr6375 §5.4).
@@ -180,8 +187,10 @@ func ParseEpochNotice(b []byte) (e uint32, newClient string, ok bool) {
 
 // epochRec is a governance epoch: the gno client its packets go over, the
 // last seq bound in it, and its known head: the highest seq IBCAdmin
-// acknowledged recording (status 1, 5 or 6: it records in order, so its
-// last recorded number reached it).
+// acknowledged recording (status 1, 5, 6 or 7: it records in order, so its
+// last recorded number reached it). A head left behind by out-of-order
+// delivery (numbers buffered, then recorded by a drain, which acknowledges
+// nothing) is moved on by re-sending them: each is answered 7.
 type epochRec struct {
 	client string
 	last   uint64
@@ -1390,9 +1399,10 @@ func (a *App) OnAcknowledgementPacket(cur realm, sourceClient, destinationClient
 		chain.Emit("GovAck", "route", g.key, "epoch", strconv.FormatUint(uint64(d.epoch), 10), "seq", u64s(d.seq), "status", "malformed")
 		return nil
 	}
-	// Recorded, spent or cancelled: IBCAdmin's last recorded number reached
-	// seq (buffered and duplicate say nothing of it).
-	if status == StatusRecorded || status == StatusSpent || status == StatusCancelled {
+	// Recorded, spent, cancelled or a duplicate of a recorded decision:
+	// IBCAdmin's last recorded number reached seq (buffered and a duplicate
+	// of a buffered one say nothing of it).
+	if status == StatusRecorded || status == StatusSpent || status == StatusCancelled || status == StatusDuplicateRecorded {
 		if rec := epochRecOf(g, d.epoch); rec != nil && seq > rec.head {
 			rec.head = seq
 		}
@@ -1424,6 +1434,21 @@ func (a *App) OnAcknowledgementPacket(cur realm, sourceClient, destinationClient
 	}
 	// A duplicate answering a re-send of a decision already acknowledged
 	// otherwise changes nothing: the earlier status stands.
+	// A duplicate of a recorded decision: one acknowledged recorded, spent
+	// or in conflict keeps that status, as for 3; one only buffered,
+	// duplicate or unanswered so far now reads recorded.
+	if status == StatusDuplicateRecorded {
+		d.redispatch = current && redispatch
+		switch d.status {
+		case StatusRecorded, StatusSpent, StatusConflict:
+			d.event = "acknowledged: duplicate of a decision " + statusWord(d.status) + ", recorded there"
+		default:
+			d.status = StatusRecorded
+			d.event = "acknowledged: recorded (a duplicate of a recorded decision)"
+		}
+		chain.Emit("GovAck", "route", g.key, "epoch", strconv.FormatUint(uint64(d.epoch), 10), "seq", u64s(d.seq), "status", statusWord(status))
+		return nil
+	}
 	if status == StatusDuplicate && d.status != 0 && d.status != StatusDuplicate {
 		d.redispatch = current && redispatch
 		d.event = "acknowledged: duplicate of a decision " + statusWord(d.status)
@@ -1464,10 +1489,10 @@ func (a *App) OnTimeoutPacket(cur realm, sourceClient, destinationClient string,
 
 // ParseAck reads IBCAdmin's app acknowledgement
 // epoch u32 ‖ seq u64 ‖ status u8 ‖ redispatch u8 (big-endian, 14 bytes);
-// ok is false for any other length, a status outside 1–6 or a redispatch byte
+// ok is false for any other length, a status outside 1–7 or a redispatch byte
 // other than 0 or 1.
 func ParseAck(b []byte) (e uint32, seq uint64, status uint8, redispatch bool, ok bool) {
-	if len(b) != ackLen || b[12] < StatusRecorded || b[12] > StatusCancelled || b[13] > 1 {
+	if len(b) != ackLen || b[12] < StatusRecorded || b[12] > StatusDuplicateRecorded || b[13] > 1 {
 		return 0, 0, 0, false, false
 	}
 	return binary.BigEndian.Uint32(b[0:4]), binary.BigEndian.Uint64(b[4:12]), b[12], b[13] == 1, true
@@ -1487,6 +1512,8 @@ func statusWord(s uint8) string {
 		return "spent"
 	case StatusCancelled:
 		return "cancelled"
+	case StatusDuplicateRecorded:
+		return "duplicate of a recorded decision"
 	}
 	return "none"
 }

@@ -13,13 +13,17 @@ func ackBytes(status, redispatch byte) []byte {
 	return append(b, status, redispatch)
 }
 
-// Status 6, cancelled, is an acknowledgement status; 7 is not.
+// Statuses 6, cancelled, and 7, a duplicate of a recorded decision, are
+// acknowledgement statuses; 8 is not.
 func TestParseAckCancelled(t *testing.T) {
 	e, seq, status, redispatch, ok := ParseAck(ackBytes(6, 0))
 	if !ok || e != 3 || seq != 9 || status != StatusCancelled || redispatch {
 		t.Fatalf("status 6: %v %d %d %d %v", ok, e, seq, status, redispatch)
 	}
-	for _, s := range []byte{0, 7, 255} {
+	if _, _, status, _, ok := ParseAck(ackBytes(7, 0)); !ok || status != StatusDuplicateRecorded {
+		t.Errorf("status 7: %v %d", ok, status)
+	}
+	for _, s := range []byte{0, 8, 255} {
 		if _, _, _, _, ok := ParseAck(ackBytes(s, 0)); ok {
 			t.Errorf("status %d parsed", s)
 		}

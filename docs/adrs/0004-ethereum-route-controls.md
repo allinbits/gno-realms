@@ -737,8 +737,11 @@ Each send is authorized once (client, epoch, seq, payload hash), consumed in
 `OnSendPacket`; a direct core send on port `gov` is refused. Acks
 (`ParseAck`): error ack, timeout, malformed ack or `redispatch = 1` whatever
 the status (a cancel beyond IBCAdmin's window is acked buffered with
-`redispatch = 1`) ask for a re-send; statuses 1–6 recorded (6, cancelled,
-final and never re-sent: below). Anyone may
+`redispatch = 1`) ask for a re-send; statuses 1–7 recorded (6, cancelled,
+final and never re-sent; 7, a duplicate of a decision IBCAdmin has
+recorded, handled as a duplicate except that it moves the known head and
+turns a dispatch read buffered, duplicate or unanswered into recorded:
+below). Anyone may
 re-send any dispatch of the current epoch in a fresh transport packet with
 its identical bytes whenever none of its packets is in flight, after any
 answer, a success included, since a success acknowledgement can be forged
@@ -846,9 +849,16 @@ dropped, and a relayer that holds the packet delivers it once the head
 catches up, to be recorded and executed. So ibcgov never binds an
 Ethereum-bound decision other than a cancel more than `GovWindow` (64)
 numbers past its route's **known head** in the epoch, the highest seq
-IBCAdmin acknowledged recording (status 1, 5 or 6: IBCAdmin records in
-order, so its last recorded number reached it; a buffered or duplicate
-answer says nothing of it; `KnownHead(route, e)`). The builder refuses such
+IBCAdmin acknowledged recording (status 1, 5, 6 or 7: IBCAdmin records in
+order, so its last recorded number reached it; a buffered answer, or 3, a
+duplicate of a buffered number, says nothing of it; `KnownHead(route,
+e)`). Out-of-order delivery can leave it behind: numbers acknowledged
+buffered and then recorded by a drain get no acknowledgement of their own,
+so without status 7 every later answer would be a 3 and the head would
+never move. IBCAdmin answers a duplicate of a recorded decision (at or
+below its last recorded number, not cancelled) with 7, so anyone unsticks
+the head by re-sending the numbers past it, free for a held number no
+cancel of gno.land names. The builder refuses such
 a request ("Ethereum has recorded up to N…; retry once acknowledgements
 catch up"), and `bind` checks again when it is recorded, which spends it
 then (as any dispatch failure does: nothing is bound, the ledger records
@@ -863,7 +873,10 @@ relayers. z2l: 64 outstanding at head 0, the 65th refused when built and
 spent when recorded, a cancel bound beyond them, buffered and duplicate
 answers leaving the head, recorded ones advancing it, the next decision
 bound and its cancel inside the horizon, a Rebind copy refused at the bound
-and bound once the head advances.
+and bound once the head advances. z2m: 2 to 64 buffered, 1 recorded, 65
+buffered, the 66th refused at head 1; re-sending 2 to 65, each answered 7,
+moves the head to 65 and the 66th binds; a 7 leaves a recorded or
+conflicting status as it was and a 6 final.
 The same authorization covers a status 6: a forged 6 (a compromised
 Ethereum verifier of gno.land) on a decision that never reached IBCAdmin,
 its packet timed out, would leave its number unfillable, since Rebind
@@ -1599,7 +1612,7 @@ does not list before it.
   should not run by its own number. An attacker who keeps forging cancels
   burns each copy too: Rebind repairs, it does not stop the attack, which
   is the emergency recovery's case (ADR pr6375 §7.12). The same verifier
-  can forge a recording acknowledgement (1, 5 or 6) of a number IBCAdmin
+  can forge a recording acknowledgement (1, 5, 6 or 7) of a number IBCAdmin
   has not reached, inflating the known head: ibcgov then binds decisions
   further than 64 past IBCAdmin's real head, and a cancel of one of them
   can again fall beyond the horizon, its decision executing if a relayer
