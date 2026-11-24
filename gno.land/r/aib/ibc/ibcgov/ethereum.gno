@@ -43,13 +43,16 @@ import (
 //
 // IBCAdmin answers with an app acknowledgement
 // epoch u32 ‖ seq u64 ‖ status u8 ‖ redispatch u8 (status 1 recorded,
-// 2 buffered, 3 duplicate, 4 conflict, 5 spent), or an error acknowledgement
-// (out of its window, a stale epoch, a forgery). A timeout, an error
-// acknowledgement of the current epoch, a malformed acknowledgement or
-// redispatch = 1 ask for the decision to be sent again; anyone may call
+// 2 buffered, 3 duplicate, 4 conflict, 5 spent, 6 cancelled), or an error
+// acknowledgement (out of its window, a stale epoch, a forgery). A timeout,
+// an error acknowledgement of the current epoch, a malformed acknowledgement
+// or redispatch = 1 ask for the decision to be sent again; anyone may call
 // Redispatch, which sends the same seq with identical bytes in a fresh
-// packet, after any answer but a conflict (see Redispatch), a success
-// included. A packet of a past epoch is never sent again.
+// packet, after any answer but a conflict or a cancellation (see
+// Redispatch), a success included. A packet of a past epoch is never sent
+// again. Status 6 is final: a number one of this realm's kind 1s cancelled
+// stays cancelled, and one no kind 1 of this realm named is burned (a forged
+// cancel), which anyone may Rebind to the epoch's next numbers.
 //
 // The epoch moves in two phases (ADR pr6375 §7.12, "Governance epoch switch,
 // two-phase and authenticated"). A route replacement here retires the old
@@ -119,6 +122,12 @@ const (
 	StatusDuplicate = uint8(3)
 	StatusConflict  = uint8(4)
 	StatusSpent     = uint8(5)
+	// StatusCancelled is a decision IBCAdmin recorded as cancelled, at its
+	// recording or answering a re-delivery of it: a tombstone named its
+	// number. Final: nothing is executed at that number, and nothing is sent
+	// there again. A number no kind 1 of this realm cancelled was burned by
+	// a cancel this realm never sent (Rebind).
+	StatusCancelled = uint8(6)
 )
 
 // The Ethereum-bound decision kinds (ADR pr6375 §5.4).
@@ -185,12 +194,19 @@ type dispatch struct {
 	body       []byte
 	decision   int64
 	status     uint8  // the last app acknowledgement's status, 0 before any
-	redispatch bool   // the channel asked for it to be sent again (Redispatch takes it after any answer but a conflict)
+	redispatch bool   // the channel asked for it to be sent again (Redispatch takes it after any answer but a conflict or a cancellation)
 	inFlight   bool   // a packet is out and not yet acknowledged or timed out
 	transport  uint64 // the core sequence of the last packet sent
-	retransmit bool   // a governed, single-use authorization to re-send it after a conflict (NewRetransmitRequest)
+	retransmit bool   // a governed, single-use authorization to re-send it after a conflict, or once it is cancelled here (NewRetransmitRequest)
 	sends      int
 	event      string // the last thing that happened, in words
+	// burned: acknowledged cancelled (status 6) while no kind 1 this realm
+	// dispatched in its epoch named it, so a cancel this realm never sent
+	// did. Rebind gives it the epoch's next number (reboundTo), and the
+	// copy records where it came from (reboundFrom). See rebind.gno.
+	burned      bool
+	reboundTo   uint64
+	reboundFrom uint64
 }
 
 type authorization struct {
@@ -756,6 +772,7 @@ func bind(cur realm, g *routeGov, decision int64, kind uint8, params []byte) (ui
 	rec.last = seq
 	d := &dispatch{epoch: g.epoch, seq: seq, kind: kind, body: body, decision: decision}
 	g.dispatches.Set(dispatchKey(g.epoch, seq), d)
+	indexDispatch(g, d)
 	send(cur, g, d)
 	return seq, ""
 }
@@ -794,11 +811,19 @@ func send(cur realm, g *routeGov, d *dispatch) {
 // been forged by a compromised Ethereum-side verifier while the decision
 // never reached IBCAdmin. IBCAdmin deduplicates by seq and hash: the same
 // bytes at a seq it holds are a duplicate (status 3, redispatch 0), a no-op.
-// The one exception is a conflict acknowledged without redispatch = 1:
-// IBCAdmin re-flags itself on every conflict, so a free re-send would let
-// anyone keep it deferred; it is re-sent once per governed authorization
-// (NewRetransmitRequest), which this call uses up. Anyone may call it. A past epoch's decisions are
-// never sent again.
+// Anyone may call it. A past epoch's decisions are never sent again, nor is
+// a decision IBCAdmin acknowledged cancelled (status 6): it is recorded there
+// as cancelled, and a burned one is Rebind's to give a new number.
+//
+// Two answers need a governed authorization for each re-send
+// (NewRetransmitRequest), which this call uses up. A conflict acknowledged
+// without redispatch = 1: IBCAdmin re-flags itself on every conflict, so a
+// free re-send would let anyone keep it deferred. And a decision a kind 1 of
+// this realm cancelled: IBCAdmin ignores a tombstone more than its window
+// (64) past its last recorded number, so a decision it never held when the
+// cancel arrived could be recorded and executed by a re-send; governance
+// authorizes one after checking IBCAdmin.isTombstoned(e, seq) on Ethereum
+// (the re-send then fills the number, recorded cancelled, status 6).
 func Redispatch(cur realm, route string, e uint32, seq uint64) {
 	g := mustEnrolledGov(route)
 	d := dispatchOf(g, e, seq)
@@ -808,13 +833,28 @@ func Redispatch(cur realm, route string, e uint32, seq uint64) {
 	if e != g.epoch {
 		panic("ibcgov: epoch " + strconv.FormatUint(uint64(e), 10) + " is past: its decisions are never sent again")
 	}
-	if d.inFlight || (d.status == StatusConflict && !d.redispatch && !d.retransmit) {
+	if d.status == StatusCancelled {
+		what := "cancelled on Ethereum"
+		if d.burned {
+			what = "burned: Rebind gives it a new number"
+		}
+		panic("ibcgov: decision " + u64s(seq) + " is " + what + ", never sent again (" + d.event + ")")
+	}
+	gated := needsRetransmit(g, d)
+	if d.inFlight || (gated && !d.retransmit) {
 		panic("ibcgov: decision " + u64s(seq) + " is not re-dispatchable (" + d.event + ")")
 	}
-	if d.status == StatusConflict && !d.redispatch {
+	if gated {
 		d.retransmit = false // used once: another re-send needs another decision
 	}
 	send(cur, g, d)
+}
+
+// needsRetransmit reports whether a re-send of d needs a governed
+// authorization (see Redispatch): a conflict without redispatch = 1, or a
+// number one of this realm's kind 1s cancelled.
+func needsRetransmit(g *routeGov, d *dispatch) bool {
+	return (d.status == StatusConflict && !d.redispatch) || cancelledHere(g, d.epoch, d.seq)
 }
 
 // ---------------------------------------------------------------- the app
@@ -1285,6 +1325,28 @@ func (a *App) OnAcknowledgementPacket(cur realm, sourceClient, destinationClient
 		chain.Emit("GovAck", "route", g.key, "epoch", strconv.FormatUint(uint64(d.epoch), 10), "seq", u64s(d.seq), "status", "malformed")
 		return nil
 	}
+	// A cancellation is final: no later answer changes it (nothing is sent
+	// again, Redispatch refuses it; a stray answer only notes itself).
+	if d.status == StatusCancelled {
+		d.redispatch = false
+		d.event = "acknowledged: " + statusWord(status) + " after the cancellation, which stands"
+		chain.Emit("GovAck", "route", g.key, "epoch", strconv.FormatUint(uint64(d.epoch), 10), "seq", u64s(d.seq), "status", statusWord(status))
+		return nil
+	}
+	// Cancelled on Ethereum: by a kind 1 of this realm, or burned, by one
+	// this realm never sent (a forged packet), for Rebind.
+	if status == StatusCancelled {
+		d.status, d.redispatch = status, false
+		d.burned = !cancelledHere(g, d.epoch, d.seq)
+		word := "cancelled"
+		d.event = "acknowledged: cancelled by a cancel of this realm"
+		if d.burned {
+			word = "burned"
+			d.event = "acknowledged: cancelled, burned (no cancel of this realm names it): Rebind"
+		}
+		chain.Emit("GovAck", "route", g.key, "epoch", strconv.FormatUint(uint64(d.epoch), 10), "seq", u64s(d.seq), "status", word)
+		return nil
+	}
 	// A duplicate answering a re-send of a decision already acknowledged
 	// otherwise changes nothing: the earlier status stands.
 	if status == StatusDuplicate && d.status != 0 && d.status != StatusDuplicate {
@@ -1319,7 +1381,7 @@ func (a *App) OnTimeoutPacket(cur realm, sourceClient, destinationClient string,
 	if d.transport == sequence {
 		d.inFlight = false
 	}
-	d.redispatch = d.epoch == g.epoch
+	d.redispatch = d.epoch == g.epoch && d.status != StatusCancelled
 	d.event = "timed out"
 	chain.Emit("GovTimeout", "route", g.key, "epoch", strconv.FormatUint(uint64(d.epoch), 10), "seq", u64s(d.seq))
 	return nil
@@ -1327,10 +1389,10 @@ func (a *App) OnTimeoutPacket(cur realm, sourceClient, destinationClient string,
 
 // ParseAck reads IBCAdmin's app acknowledgement
 // epoch u32 ‖ seq u64 ‖ status u8 ‖ redispatch u8 (big-endian, 14 bytes);
-// ok is false for any other length, a status outside 1–5 or a redispatch byte
+// ok is false for any other length, a status outside 1–6 or a redispatch byte
 // other than 0 or 1.
 func ParseAck(b []byte) (e uint32, seq uint64, status uint8, redispatch bool, ok bool) {
-	if len(b) != ackLen || b[12] < StatusRecorded || b[12] > StatusSpent || b[13] > 1 {
+	if len(b) != ackLen || b[12] < StatusRecorded || b[12] > StatusCancelled || b[13] > 1 {
 		return 0, 0, 0, false, false
 	}
 	return binary.BigEndian.Uint32(b[0:4]), binary.BigEndian.Uint64(b[4:12]), b[12], b[13] == 1, true
@@ -1348,6 +1410,8 @@ func statusWord(s uint8) string {
 		return "conflict"
 	case StatusSpent:
 		return "spent"
+	case StatusCancelled:
+		return "cancelled"
 	}
 	return "none"
 }
@@ -1966,7 +2030,8 @@ type retransmitParams struct {
 }
 
 // checkRetransmit is why dispatch (e, seq) cannot be authorized for a
-// re-send after a conflict, or "".
+// re-send after a conflict, or once a kind 1 of this realm cancelled it, or
+// "".
 func checkRetransmit(g *routeGov, e uint32, seq uint64) string {
 	d := dispatchOf(g, e, seq)
 	switch {
@@ -1974,8 +2039,10 @@ func checkRetransmit(g *routeGov, e uint32, seq uint64) string {
 		return "no dispatched decision " + strconv.FormatUint(uint64(e), 10) + "/" + u64s(seq)
 	case e != g.epoch:
 		return "epoch " + strconv.FormatUint(uint64(e), 10) + " is past: its decisions are never sent again"
-	case d.status != StatusConflict || d.redispatch:
-		return "decision " + u64s(seq) + " was not answered with a conflict that bars a re-send (" + d.event + ")"
+	case d.status == StatusCancelled:
+		return "decision " + u64s(seq) + " is cancelled on Ethereum: never sent again (" + d.event + ")"
+	case !needsRetransmit(g, d):
+		return "decision " + u64s(seq) + " was not answered with a conflict that bars a re-send, nor cancelled here (" + d.event + ")"
 	case d.retransmit:
 		return "decision " + u64s(seq) + " is authorized for a re-send already"
 	}
@@ -1997,15 +2064,24 @@ func (p *retransmitParams) apply(cur realm, t int64) (string, string) {
 }
 
 // NewRetransmitRequest authorizes, at once, one re-send of dispatch (e,
-// seq) of the current epoch that IBCAdmin answered with a conflict and no
-// redispatch, whose re-send Redispatch otherwise refuses (ADR 0004: a
-// deliberate addition to ADR pr6375 §5.4). Governance decides it after
-// checking on Ethereum that the conflict was fabricated: IBCAdmin holds no
-// decision at that seq, or holds these very bytes, and emitted no Conflict
-// for it. It is no loosening: the bytes are immutable and IBCAdmin
-// deduplicates them, so the re-send records the decision if it was never
-// delivered and is answered duplicate if it was. It is used up by one
-// Redispatch; another needs another decision.
+// seq) of the current epoch whose re-send Redispatch otherwise refuses (ADR
+// 0004: a deliberate addition to ADR pr6375 §5.4):
+//
+//   - one IBCAdmin answered with a conflict and no redispatch. Governance
+//     decides it after checking on Ethereum that the conflict was
+//     fabricated: IBCAdmin holds no decision at that seq, or holds these
+//     very bytes, and emitted no Conflict for it;
+//   - one a kind 1 of this realm cancelled, not yet acknowledged cancelled
+//     (status 6). Governance decides it after checking on Ethereum that the
+//     number is tombstoned (IBCAdmin.isTombstoned(e, seq)) or held there: a
+//     tombstone past IBCAdmin's horizon was ignored, and a first delivery
+//     would then record and execute the decision. The re-send fills the
+//     number, recorded cancelled.
+//
+// It is no loosening: the bytes are immutable and IBCAdmin deduplicates
+// them, so the re-send records the decision if it was never delivered and
+// is answered duplicate if it was. It is used up by one Redispatch; another
+// needs another decision.
 func NewRetransmitRequest(cur realm, route string, e uint32, seq uint64) Request {
 	g := mustEnrolledGov(route)
 	if refusal := checkRetransmit(g, e, seq); refusal != "" {

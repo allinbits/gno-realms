@@ -21,7 +21,11 @@ import (
 //	                      decision <id> (the first without from); the page's
 //	                      "next" is the from of the following one (0 at the end)
 //	"dispatch/<route>/<e>/<seq>" a route's Ethereum-bound decision's packet
-//	                      state, as JSON
+//	                      state, as JSON: burned (acknowledged cancelled
+//	                      by a cancel this realm never sent), rebound_to
+//	                      (the number Rebind gave it, 0 if none) and
+//	                      rebound_from (the number it is a copy of, 0 if
+//	                      none) included
 //
 // The page's text comes from the builders, which take no free text: client
 // ids, denoms and incidents pass character checks, addresses and keys are
@@ -203,5 +207,6 @@ func dispatchJSON(route string, e uint32, seq uint64) string {
 		",\"kind\":" + strconv.Itoa(int(d.kind)) + ",\"decision\":" + itoa(d.decision) +
 		",\"body\":" + strconv.Quote(hex.EncodeToString(d.body)) + ",\"status\":" + strconv.Itoa(int(d.status)) +
 		",\"redispatch\":" + strconv.FormatBool(d.redispatch) + ",\"in_flight\":" + strconv.FormatBool(d.inFlight) +
-		",\"transport\":" + u64s(d.transport) + ",\"sends\":" + strconv.Itoa(d.sends) + ",\"event\":" + strconv.Quote(d.event) + "}"
+		",\"transport\":" + u64s(d.transport) + ",\"sends\":" + strconv.Itoa(d.sends) + ",\"event\":" + strconv.Quote(d.event) +
+		",\"burned\":" + strconv.FormatBool(d.burned) + ",\"rebound_to\":" + u64s(d.reboundTo) + ",\"rebound_from\":" + u64s(d.reboundFrom) + "}"
 }

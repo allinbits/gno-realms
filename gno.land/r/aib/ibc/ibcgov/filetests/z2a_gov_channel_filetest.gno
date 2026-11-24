@@ -203,7 +203,7 @@ func main(cur realm) {
 // before the channel is bound: ibcgov: no route ethereum-1
 // epoch 1 over ethereum-1
 // dispatched seq 1: 110 bytes; core commitment: true
-// {"epoch":1,"seq":1,"kind":2,"decision":3,"body":"0100000001000000000000000102000000000000000000000000000000000000000000000000000000000000000200000000000000000000000000000000000000000000000000000000000000400000000000000000000000000000000000000000000000000000000000000000","status":0,"redispatch":false,"in_flight":true,"transport":1,"sends":1,"event":"sent as packet 1"}
+// {"epoch":1,"seq":1,"kind":2,"decision":3,"body":"0100000001000000000000000102000000000000000000000000000000000000000000000000000000000000000200000000000000000000000000000000000000000000000000000000000000400000000000000000000000000000000000000000000000000000000000000000","status":0,"redispatch":false,"in_flight":true,"transport":1,"sends":1,"event":"sent as packet 1","burned":false,"rebound_to":0,"rebound_from":0}
 // direct send: send packet failed for payload #0 app "gov": ibcgov: governance packets are sent by ibcgov's decisions only
 // foreign ack: ibcgov: the gov callbacks are the IBC core's, not gno.land/r/aib/main
 // a governance packet received here: true
@@ -220,7 +220,7 @@ func main(cur realm) {
 //   seq 5 status 0 redispatch true in flight false sends 1 - malformed acknowledgement
 //   seq 5 status 4 redispatch false in flight false sends 2 - acknowledged: conflict
 // redispatch after a conflict: ibcgov: decision 5 is not re-dispatchable (acknowledged: conflict)
-// authorize a re-send of seq 4: ibcgov: decision 4 was not answered with a conflict that bars a re-send (acknowledged: recorded, redispatch)
+// authorize a re-send of seq 4: ibcgov: decision 4 was not answered with a conflict that bars a re-send, nor cancelled here (acknowledged: recorded, redispatch)
 // authorize a re-send of seq 5: applied - authorize one re-send of epoch 1 seq 5: anyone calls Redispatch
 // authorize it twice: ibcgov: decision 5 is authorized for a re-send already
 //   seq 5 status 4 redispatch false in flight true sends 3 - sent as packet 10
