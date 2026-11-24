@@ -435,8 +435,10 @@ from the first block, the governor yields right after the deployment.
    calls `ibcgov.Redispatch(R, e, seq)` once; a further re-send needs a new
    decision. A real conflict (different bytes stored) is never re-sent.
 
-   A decision one of ibcgov's own cancels (kind 1) names is not re-sent
-   freely either: IBCAdmin ignores a tombstone more than 64 numbers past
+   A decision one of ibcgov's own cancels (kind 1) names, and that IBCAdmin
+   never acknowledged holding (no app acknowledgement: status 0 on its
+   page), is not re-sent freely either; one acknowledged recorded, buffered,
+   duplicate or spent is (a duplicate there). IBCAdmin ignores a tombstone more than 64 numbers past
    its last recorded one, so a first delivery after such a cancel would
    record and execute it. If a later seq waits behind it, read
    `IBCAdmin.isTombstoned(e, seq)` (or find the decision held there, as
@@ -448,8 +450,15 @@ from the first block, the governor yields right after the deployment.
    **Recovering from a forged cancel.** A cancel ibcgov never sent (a kind
    1 let through by a compromised Ethereum-side verifier of gno.land)
    cancels at most the 64 numbers past IBCAdmin's head: their decisions are
-   recorded there cancelled, and their acknowledgements carry status 6.
-   ibcgov marks each number no cancel of its own names as burned
+   recorded there cancelled. Not all of them say so: a decision recorded
+   cancelled at its own delivery is acknowledged 6, but a buffered one a
+   later delivery or `drain()` records cancelled gets no acknowledgement of
+   its own, and a pending one (acknowledged 1) cancelled at execution
+   neither. So first `ibcgov.Redispatch(R, e, seq)` every number from the
+   head up to 64 past it that shows status 1 or 2 (or read
+   `IBCAdmin.isTombstoned(e, seq)` and the decision's state there, and
+   re-send those cancelled): each re-send is a duplicate, answered 6 for a
+   cancelled one. ibcgov marks each number no cancel of its own names as burned
    (`dispatch/<R>/<e>/<seq>`: `"status":6,"burned":true`;
    `ibcgov.DispatchRebind(R, e, seq)`; a `GovAck` event with status
    `burned`). Anyone then calls `ibcgov.Rebind(R, e, from, to)` (the
@@ -460,7 +469,12 @@ from the first block, the governor yields right after the deployment.
    acknowledged like any dispatch. A kind 10 whose kind 6 (op 1, enrolling
    its new router client) was burned is spent at execution on Ethereum
    though it was acknowledged recorded: rebind the kind 6 first, or both
-   in one range, and the kind 10 follows it. Before rebinding, look at what
+   in one range, and the kind 10 follows it. The original kind 10 may
+   still be pending there: if the kind 6's copy executes first, the
+   original can be executed after all and switches the epoch; the copy is
+   then abandoned with the old epoch, and the notice is accepted as for
+   the original (its expectation is the transition's, not the seq's).
+   Before rebinding, look at what
    the burned decisions would do now: a copy runs after every decision
    dispatched since, so a limits (kind 4) or route settings (kind 11)
    decision superseded since would override its successor. To keep a

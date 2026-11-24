@@ -803,18 +803,28 @@ burned and already rebound past it (`enrolls`, indexed when bound). Its
 copy then follows the kind 6's copy (in one call over both, or a later
 one), so it executes once the client exists; if the original executes
 after all (the kind 6's copy executed first), its epoch switch abandons the
-copy, so at most one runs. Refused: a past epoch (its decisions are decided
+copy, so at most one runs (the expectation and its notice are the
+original's, keyed by the transition, not the seq, so the switch is accepted
+the same either way). Refused: a past epoch (its decisions are decided
 again in the new epoch), an empty range (`from = 0` or `to < from`), more
 than 64 numbers, a range holding nothing rebindable (not burned, cancelled
 by gno.land, rebound already, or a kind 10 failing the rule); dispatches of
 the range that are not rebindable are left as they are.
 
-A decision gno.land cancelled is not re-sent freely either, whatever its
-answer: once its cancel arrived past IBCAdmin's horizon the tombstone was
-dropped, and a first delivery of the decision would record and execute
-it. Yet its number must still be delivered for later ones to record. So
-`Redispatch` of a dispatch a kind 1 of ibcgov names needs one governed
-authorization a re-send (`NewRetransmitRequest`, applied at once), which
+Not every cancellation is acknowledged when it happens: a buffered decision
+that a later delivery or a drain records cancelled gets no acknowledgement
+of its own, and a pending one (acknowledged 1) that a tombstone cancels at
+execution none either. gno.land learns of either only from a re-send,
+answered 6 as a duplicate of a cancelled decision; so an ack 6 may follow an
+ack 1 or 2 (it replaces it; only a 6 is final), and a decision IBCAdmin
+acknowledged holding (1, 2, 3 or 5) is re-sent freely, cancelled here or
+not, since the re-send is a duplicate there. A decision gno.land cancelled
+that IBCAdmin never acknowledged holding (no app acknowledgement: unanswered,
+timed out, an error or malformed one) is not: once its cancel arrived past
+IBCAdmin's horizon the tombstone was dropped, and a first delivery of the
+decision would record and execute it. Yet its number must still be
+delivered for later ones to record. So `Redispatch` of such a dispatch
+needs one governed authorization a re-send (`NewRetransmitRequest`, applied at once), which
 governance decides after reading `IBCAdmin.isTombstoned(e, seq)` (or
 finding the decision held there); the re-send then records it cancelled
 (status 6). An honest cancel of a decision more than 64 numbers past
@@ -823,14 +833,18 @@ once it is within the window. To keep a burned decision from being revived
 (a later decision superseded it, or it is no longer wanted), governance
 cancels its number with a kind 1: harmless on Ethereum, where it is
 cancelled already, and it makes the number cancelled here, which Rebind
-refuses. A copy that should not run is cancelled by its own number. z2k:
+refuses. A copy that should not run is cancelled by its own number. z2c checks
+IBCAdmin's status-6 vectors (a cancelled decision at its recording and its
+re-delivery) on a number this realm cancelled. z2k:
 an ack 6 burned and one cancelled, both final and refused by `Redispatch`
 and `NewRetransmitRequest`; a cancelled decision never held re-sent only on
 an authorization; Rebind of two burned dispatches in order with their
 kinds and params, every refusal, a burned number cancelled later; the kind
 6 and kind 10 pair rebound, refused before its kind 6's copy and when the
 copy is not held, rebound again when the kind 6's copy is burned too; a
-past epoch's burned number refused after an epoch switch. Router client ids follow eureka's grammar (`client-N`, or a custom
+past epoch's burned number refused after an epoch switch; a 1 -> 6
+transition burned, and a buffered decision this realm cancelled re-sent
+freely and found cancelled. Router client ids follow eureka's grammar (`client-N`, or a custom
 id of up to 128 characters, also in packets); those governance adds (kind 6
 op 1, kind 10's new client) must be valid custom ids (4 to 128 characters of eureka's alphabet, not starting with
 `client-` or `channel-`). `Redispatch` re-sends identical bytes. Envelopes are

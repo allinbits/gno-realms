@@ -220,7 +220,7 @@ func main(cur realm) {
 //   seq 5 status 0 redispatch true in flight false sends 1 - malformed acknowledgement
 //   seq 5 status 4 redispatch false in flight false sends 2 - acknowledged: conflict
 // redispatch after a conflict: ibcgov: decision 5 is not re-dispatchable (acknowledged: conflict)
-// authorize a re-send of seq 4: ibcgov: decision 4 was not answered with a conflict that bars a re-send, nor cancelled here (acknowledged: recorded, redispatch)
+// authorize a re-send of seq 4: ibcgov: decision 4 was not answered with a conflict that bars a re-send, nor cancelled here before Ethereum held it (acknowledged: recorded, redispatch)
 // authorize a re-send of seq 5: applied - authorize one re-send of epoch 1 seq 5: anyone calls Redispatch
 // authorize it twice: ibcgov: decision 5 is authorized for a re-send already
 //   seq 5 status 4 redispatch false in flight true sends 3 - sent as packet 10

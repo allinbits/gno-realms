@@ -197,7 +197,7 @@ type dispatch struct {
 	redispatch bool   // the channel asked for it to be sent again (Redispatch takes it after any answer but a conflict or a cancellation)
 	inFlight   bool   // a packet is out and not yet acknowledged or timed out
 	transport  uint64 // the core sequence of the last packet sent
-	retransmit bool   // a governed, single-use authorization to re-send it after a conflict, or once it is cancelled here (NewRetransmitRequest)
+	retransmit bool   // a governed, single-use authorization to re-send it after a conflict, or once it is cancelled here before Ethereum held it (NewRetransmitRequest)
 	sends      int
 	event      string // the last thing that happened, in words
 	// burned: acknowledged cancelled (status 6) while no kind 1 this realm
@@ -819,11 +819,18 @@ func send(cur realm, g *routeGov, d *dispatch) {
 // (NewRetransmitRequest), which this call uses up. A conflict acknowledged
 // without redispatch = 1: IBCAdmin re-flags itself on every conflict, so a
 // free re-send would let anyone keep it deferred. And a decision a kind 1 of
-// this realm cancelled: IBCAdmin ignores a tombstone more than its window
-// (64) past its last recorded number, so a decision it never held when the
-// cancel arrived could be recorded and executed by a re-send; governance
-// authorizes one after checking IBCAdmin.isTombstoned(e, seq) on Ethereum
-// (the re-send then fills the number, recorded cancelled, status 6).
+// this realm cancelled that IBCAdmin never acknowledged holding (no app
+// acknowledgement yet: unanswered, timed out, an error or malformed one):
+// IBCAdmin ignores a tombstone more than its window (64) past its last
+// recorded number, so a first delivery after the cancel could record and
+// execute it; governance authorizes one after checking
+// IBCAdmin.isTombstoned(e, seq) on Ethereum (the re-send then fills the
+// number, recorded cancelled, status 6). A decision IBCAdmin acknowledged
+// holding (recorded, buffered, duplicate, spent) is re-sent freely, cancelled
+// or not: the re-send is a duplicate there, answered 6 if it was cancelled
+// since. That is how gno.land learns of a cancellation no acknowledgement
+// reported: a buffered decision a later delivery or a drain recorded
+// cancelled, or a pending one a tombstone cancelled at execution.
 func Redispatch(cur realm, route string, e uint32, seq uint64) {
 	g := mustEnrolledGov(route)
 	d := dispatchOf(g, e, seq)
@@ -852,9 +859,10 @@ func Redispatch(cur realm, route string, e uint32, seq uint64) {
 
 // needsRetransmit reports whether a re-send of d needs a governed
 // authorization (see Redispatch): a conflict without redispatch = 1, or a
-// number one of this realm's kind 1s cancelled.
+// number one of this realm's kind 1s cancelled that IBCAdmin never
+// acknowledged holding.
 func needsRetransmit(g *routeGov, d *dispatch) bool {
-	return (d.status == StatusConflict && !d.redispatch) || cancelledHere(g, d.epoch, d.seq)
+	return (d.status == StatusConflict && !d.redispatch) || (d.status == 0 && cancelledHere(g, d.epoch, d.seq))
 }
 
 // ---------------------------------------------------------------- the app
@@ -1334,7 +1342,10 @@ func (a *App) OnAcknowledgementPacket(cur realm, sourceClient, destinationClient
 		return nil
 	}
 	// Cancelled on Ethereum: by a kind 1 of this realm, or burned, by one
-	// this realm never sent (a forged packet), for Rebind.
+	// this realm never sent (a forged packet), for Rebind. It may follow
+	// any earlier answer: a decision acknowledged recorded or buffered is
+	// cancelled later (at execution, or when a drain records it), which
+	// only a re-send reports.
 	if status == StatusCancelled {
 		d.status, d.redispatch = status, false
 		d.burned = !cancelledHere(g, d.epoch, d.seq)
@@ -2030,8 +2041,8 @@ type retransmitParams struct {
 }
 
 // checkRetransmit is why dispatch (e, seq) cannot be authorized for a
-// re-send after a conflict, or once a kind 1 of this realm cancelled it, or
-// "".
+// re-send after a conflict, or once a kind 1 of this realm cancelled it
+// before IBCAdmin acknowledged holding it, or "".
 func checkRetransmit(g *routeGov, e uint32, seq uint64) string {
 	d := dispatchOf(g, e, seq)
 	switch {
@@ -2042,7 +2053,7 @@ func checkRetransmit(g *routeGov, e uint32, seq uint64) string {
 	case d.status == StatusCancelled:
 		return "decision " + u64s(seq) + " is cancelled on Ethereum: never sent again (" + d.event + ")"
 	case !needsRetransmit(g, d):
-		return "decision " + u64s(seq) + " was not answered with a conflict that bars a re-send, nor cancelled here (" + d.event + ")"
+		return "decision " + u64s(seq) + " was not answered with a conflict that bars a re-send, nor cancelled here before Ethereum held it (" + d.event + ")"
 	case d.retransmit:
 		return "decision " + u64s(seq) + " is authorized for a re-send already"
 	}
@@ -2071,8 +2082,8 @@ func (p *retransmitParams) apply(cur realm, t int64) (string, string) {
 //     decides it after checking on Ethereum that the conflict was
 //     fabricated: IBCAdmin holds no decision at that seq, or holds these
 //     very bytes, and emitted no Conflict for it;
-//   - one a kind 1 of this realm cancelled, not yet acknowledged cancelled
-//     (status 6). Governance decides it after checking on Ethereum that the
+//   - one a kind 1 of this realm cancelled that IBCAdmin never acknowledged
+//     holding (no app acknowledgement yet). Governance decides it after checking on Ethereum that the
 //     number is tombstoned (IBCAdmin.isTombstoned(e, seq)) or held there: a
 //     tombstone past IBCAdmin's horizon was ignored, and a first delivery
 //     would then record and execute the decision. The re-send fills the

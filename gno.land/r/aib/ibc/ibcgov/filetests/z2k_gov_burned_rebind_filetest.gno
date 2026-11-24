@@ -192,6 +192,25 @@ func main(cur realm) {
 	show(17)
 	show(18)
 
+	// Seq 19, acknowledged recorded, is cancelled later on Ethereum (a
+	// forged tombstone checked at execution): no acknowledgement reports it,
+	// so it is re-sent freely, answered 6, and burned (1 -> 6).
+	govern(cur, ibcgov.NewEthRouteSettingsRequest(cross(cur), govRoute, "client-0", 18000))
+	ack(cur, 19, appAck(19, ibcgov.StatusRecorded))
+	ibcgov.Redispatch(cross(cur), govRoute, 1, 19)
+	ack(cur, 19, appAck(19, ibcgov.StatusCancelled))
+	show(19)
+	println("rebind 19:", rebind(cur, 19, 19))
+	// Seq 21, buffered there, then cancelled by our seq 22: IBCAdmin holds
+	// it, so it is re-sent freely to learn it was recorded cancelled.
+	govern(cur, ibcgov.NewEthRouteSettingsRequest(cross(cur), govRoute, "client-0", 21600))
+	ack(cur, 21, appAck(21, ibcgov.StatusBuffered))
+	govern(cur, ibcgov.NewEthCancelRequest(cross(cur), govRoute, "21"))
+	ibcgov.Redispatch(cross(cur), govRoute, 1, 21)
+	ack(cur, 21, appAck(21, ibcgov.StatusCancelled))
+	show(21)
+	println("rebind 21:", rebind(cur, 21, 21))
+
 	// The epoch moves on: seq 1, still burned, is epoch 1's, decided again
 	// in epoch 2.
 	execute(cur, expect)
@@ -246,5 +265,9 @@ func main(cur realm) {
 //   seq 14 status 1 burned false rebound to 16 from 0 redispatch false in flight false sends 1 - acknowledged: recorded; rebound as seq 16
 //   seq 17 status 0 burned false rebound to 0 from 15 redispatch false in flight true sends 1 - sent as packet 18
 //   seq 18 status 0 burned false rebound to 0 from 16 redispatch false in flight true sends 1 - sent as packet 19
+//   seq 19 status 6 burned true rebound to 0 from 0 redispatch false in flight false sends 2 - acknowledged: cancelled, burned (no cancel of this realm names it): Rebind
+// rebind 19: bound 20
+//   seq 21 status 6 burned false rebound to 0 from 0 redispatch false in flight false sends 2 - acknowledged: cancelled by a cancel of this realm
+// rebind 21: ibcgov: nothing to rebind: decision 21 is cancelled by a cancel of this realm
 // epoch 2
 // rebind 1 of epoch 1: ibcgov: epoch 1 is not the current one: a past epoch's decisions are decided again
