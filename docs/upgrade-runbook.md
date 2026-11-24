@@ -444,7 +444,10 @@ from the first block, the governor yields right after the deployment.
    above); if it is tombstoned, decide `ibcgov.NewRetransmitRequest(R, e,
    seq)` and re-send it once: IBCAdmin records it cancelled (status 6).
    Decide that authorization after the cancel: a cancel bound after a
-   grant voids it for the numbers it names. If
+   grant voids it for the numbers it names, and, since overlapping
+   cancelled ranges merge, for the other numbers of the merged range too
+   (cancel 1-10, grant 1, cancel 10-12: the grant on 1 is void); decide
+   the grant again then. If
    it is not tombstoned, send a fresh cancel of it first (it is within the
    window now), then authorize the re-send.
 
