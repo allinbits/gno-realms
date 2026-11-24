@@ -29,34 +29,72 @@ func TestParseAckCancelled(t *testing.T) {
 	}
 }
 
-// The cancelled ranges merge into disjoint ones, per epoch, and one lookup
-// tells whether a number is covered.
+// The cancelled ranges merge where they overlap into disjoint ones, per
+// epoch, keeping the highest kind 1 that named any of them, and one lookup
+// tells whether a number is covered, and by.
 func TestCancelledRanges(t *testing.T) {
 	g := &routeGov{}
-	addCancelled(g, 1, 5, 7)
-	addCancelled(g, 1, 10, 12)
-	addCancelled(g, 1, 20, 20)
-	addCancelled(g, 2, 1, 100)
+	addCancelled(g, 1, 5, 7, 10)
+	addCancelled(g, 1, 10, 12, 11)
+	addCancelled(g, 1, 20, 20, 12)
+	addCancelled(g, 2, 1, 100, 101)
 	if g.cancels.Size() != 4 {
 		t.Fatalf("%d ranges", g.cancels.Size())
 	}
-	addCancelled(g, 1, 8, 9) // touches both neighbours: 5-12
-	addCancelled(g, 1, 6, 6) // inside
-	addCancelled(g, 1, 19, 25)
+	addCancelled(g, 1, 8, 9, 13) // touches both neighbours, overlaps neither
+	if g.cancels.Size() != 5 {
+		t.Fatalf("%d ranges after a touching insert", g.cancels.Size())
+	}
+	addCancelled(g, 1, 6, 11, 14) // overlaps 5-7, 8-9 and 10-12: 5-12 by 14
+	addCancelled(g, 1, 6, 6, 3)   // inside, an older kind 1: by stays 14
+	addCancelled(g, 1, 19, 25, 15)
 	if g.cancels.Size() != 3 {
 		t.Fatalf("%d ranges after the merges", g.cancels.Size())
 	}
 	for s := uint64(1); s <= 30; s++ {
-		if want := s >= 5 && s <= 12 || s >= 19 && s <= 25; cancelledHere(g, 1, s) != want {
-			t.Errorf("epoch 1 seq %d: want %v", s, want)
+		covered, by := cancelledBy(g, 1, s)
+		want, wantBy := false, uint64(0)
+		switch {
+		case s >= 5 && s <= 12:
+			want, wantBy = true, 14
+		case s >= 19 && s <= 25:
+			want, wantBy = true, 15
+		}
+		if covered != want || by != wantBy {
+			t.Errorf("epoch 1 seq %d: %v by %d, want %v by %d", s, covered, by, want, wantBy)
 		}
 	}
 	if !cancelledHere(g, 2, 100) || cancelledHere(g, 2, 101) || cancelledHere(g, 3, 1) {
 		t.Errorf("epoch 2 or 3 misread")
 	}
-	addCancelled(g, 1, 1, ^uint64(0))
+	addCancelled(g, 1, 1, ^uint64(0), 16)
 	if !cancelledHere(g, 1, ^uint64(0)) || g.cancels.Size() != 2 {
 		t.Errorf("the whole epoch: %d ranges", g.cancels.Size())
+	}
+}
+
+// A grant stands until a kind 1 bound after it names its number.
+func TestGrantStands(t *testing.T) {
+	g := &routeGov{}
+	d := &dispatch{epoch: 1, seq: 7, retransmit: true, grantAt: 20}
+	if !grantStands(g, d) {
+		t.Fatal("no cancel: the grant stands")
+	}
+	addCancelled(g, 1, 7, 7, 15) // a cancel bound before the grant
+	if !grantStands(g, d) {
+		t.Fatal("a cancel before the grant voids it")
+	}
+	addCancelled(g, 1, 3, 9, 21) // bound after
+	if grantStands(g, d) {
+		t.Fatal("a cancel after the grant leaves it standing")
+	}
+	d.grantAt = 21
+	if !grantStands(g, d) {
+		t.Fatal("a grant decided after the cancel is void")
+	}
+	d.retransmit = false
+	if grantStands(g, d) {
+		t.Fatal("no grant stands")
 	}
 }
 

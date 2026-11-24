@@ -308,7 +308,7 @@ func main(cur realm) {
 //   seq 21 status 1 burned false rebound to 0 from 0 redispatch false in flight false sends 2 - acknowledged: recorded
 // rebind 21, recorded: ibcgov: nothing to rebind: decision 21 is not burned (acknowledged: recorded)
 // re-sent freely once recorded: true
-// redispatch 22, granted before its cancel: ibcgov: decision 22 is not re-dispatchable without a governed authorization (acknowledged: conflict; one re-send authorized; its re-send authorization voided by a cancel)
+// redispatch 22, granted before its cancel: ibcgov: decision 22 is not re-dispatchable without a governed authorization (acknowledged: conflict; one re-send authorized)
 // retransmit 22 after the cancel: applied
 //   seq 22 status 4 burned false rebound to 0 from 0 redispatch false in flight true sends 2 - sent as packet 28
 // a second re-send: ibcgov: decision 22 is not re-dispatchable without a governed authorization (acknowledged: conflict)

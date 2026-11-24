@@ -443,10 +443,17 @@ from the first block, the governor yields right after the deployment.
    `IBCAdmin.isTombstoned(e, seq)` (or find the decision held there, as
    above); if it is tombstoned, decide `ibcgov.NewRetransmitRequest(R, e,
    seq)` and re-send it once: IBCAdmin records it cancelled (status 6).
-   Decide that authorization after the cancel: binding a cancel voids any
-   unused authorization of the numbers it names. If
+   Decide that authorization after the cancel: a cancel bound after a
+   grant voids it for the numbers it names. If
    it is not tombstoned, send a fresh cancel of it first (it is within the
    window now), then authorize the re-send.
+
+   ibcgov binds no Ethereum-bound decision but a cancel more than 64
+   numbers past the highest one IBCAdmin acknowledged recording
+   (`ibcgov.KnownHead(R, e)`): a request past that is refused ("Ethereum
+   has recorded up to N … retry once acknowledgements catch up"), and one
+   recorded past it is spent. Relay the outstanding acknowledgements (and
+   Redispatch what timed out), then decide it again.
 
    **Recovering from a forged cancel.** A cancel ibcgov never sent (a kind
    1 let through by a compromised Ethereum-side verifier of gno.land)

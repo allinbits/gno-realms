@@ -178,11 +178,46 @@ func ParseEpochNotice(b []byte) (e uint32, newClient string, ok bool) {
 	return binary.BigEndian.Uint32(b[1:5]), string(b[noticeHeader:]), true
 }
 
-// epochRec is a governance epoch: the gno client its packets go over and the
-// last seq bound in it.
+// epochRec is a governance epoch: the gno client its packets go over, the
+// last seq bound in it, and its known head: the highest seq IBCAdmin
+// acknowledged recording (status 1, 5 or 6: it records in order, so its
+// last recorded number reached it).
 type epochRec struct {
 	client string
 	last   uint64
+	head   uint64
+}
+
+// GovWindow is IBCAdmin's window (its WINDOW): it buffers a decision at most
+// that far past its last recorded number, and tombstones a cancel's targets
+// only up to that horizon. This realm binds no Ethereum-bound decision but a
+// cancel more than GovWindow past the known head (checkAhead), so every
+// number a cancel names lies within IBCAdmin's horizon when the cancel
+// arrives, whenever that is.
+const GovWindow = 64
+
+// checkAhead is why the next number of g's epoch cannot be bound to a kind
+// other than a cancel, or "": it would lie more than GovWindow past the
+// known head. A cancel is exempt: IBCAdmin binds a cancel beyond its window
+// to its hash, and tombstones only up to its horizon anyway.
+func checkAhead(g *routeGov, kind uint8) string {
+	rec := epochRecOf(g, g.epoch)
+	if rec == nil || kind == KindCancel || rec.last < rec.head+GovWindow {
+		return ""
+	}
+	return "Ethereum has recorded up to " + u64s(rec.head) + " in epoch " + strconv.FormatUint(uint64(g.epoch), 10) +
+		"; at most " + strconv.Itoa(GovWindow) + " decisions ahead of it: retry once acknowledgements catch up"
+}
+
+// KnownHead is the highest seq of route's epoch e IBCAdmin acknowledged
+// recording.
+func KnownHead(route string, e uint32) uint64 {
+	if g := chanOf(route); g != nil {
+		if r := epochRecOf(g, e); r != nil {
+			return r.head
+		}
+	}
+	return 0
 }
 
 // dispatch is one Ethereum-bound decision's packet: its bytes, immutable once
@@ -207,6 +242,7 @@ type dispatch struct {
 	burned      bool
 	reboundTo   uint64
 	reboundFrom uint64
+	grantAt     uint64 // the epoch's last seq when retransmit was granted: a kind 1 bound after it voids the grant
 }
 
 type authorization struct {
@@ -764,6 +800,9 @@ func bind(cur realm, g *routeGov, decision int64, kind uint8, params []byte) (ui
 	if latest, ok := core.ClientLatestTimestamp(rec.client); !ok || latest >= uint64(now()+GovPacketTimeout) {
 		return 0, "the epoch's client " + rec.client + " is ahead of the packet's timeout"
 	}
+	if refusal := checkAhead(g, kind); refusal != "" {
+		return 0, refusal
+	}
 	seq := rec.last + 1
 	body := Envelope(g.epoch, seq, kind, params)
 	if len(body) > MaxEnvelope {
@@ -849,7 +888,8 @@ func Redispatch(cur realm, route string, e uint32, seq uint64) {
 	if e != g.epoch {
 		panic("ibcgov: epoch " + strconv.FormatUint(uint64(e), 10) + " is past: its decisions are never sent again")
 	}
-	if d.status == StatusCancelled && !d.retransmit {
+	granted := grantStands(g, d)
+	if d.status == StatusCancelled && !granted {
 		what := "cancelled on Ethereum"
 		if d.burned {
 			what = "burned: Rebind gives it a new number"
@@ -860,12 +900,11 @@ func Redispatch(cur realm, route string, e uint32, seq uint64) {
 	if d.inFlight {
 		panic("ibcgov: decision " + u64s(seq) + " is not re-dispatchable (" + d.event + ")")
 	}
-	if gated && !d.retransmit {
+	if gated && !granted {
 		panic("ibcgov: decision " + u64s(seq) + " is not re-dispatchable without a governed authorization (" + d.event + ")")
 	}
 	if gated {
 		d.retransmit = false // used once: another re-send needs another decision
-		g.grants.Remove(dispatchKey(d.epoch, d.seq))
 	}
 	if d.status == StatusCancelled {
 		// Governance found the 6 untrue, or wants the number filled: the
@@ -1351,6 +1390,13 @@ func (a *App) OnAcknowledgementPacket(cur realm, sourceClient, destinationClient
 		chain.Emit("GovAck", "route", g.key, "epoch", strconv.FormatUint(uint64(d.epoch), 10), "seq", u64s(d.seq), "status", "malformed")
 		return nil
 	}
+	// Recorded, spent or cancelled: IBCAdmin's last recorded number reached
+	// seq (buffered and duplicate say nothing of it).
+	if status == StatusRecorded || status == StatusSpent || status == StatusCancelled {
+		if rec := epochRecOf(g, d.epoch); rec != nil && seq > rec.head {
+			rec.head = seq
+		}
+	}
 	// A cancellation is final: no later answer changes it (nothing is sent
 	// again, Redispatch refuses it; a stray answer only notes itself).
 	if d.status == StatusCancelled {
@@ -1550,6 +1596,10 @@ func ethRequestP(cur realm, g *routeGov, name, text string, p *ethParams, claims
 	}
 	if envelopeHeader+len(params) > MaxEnvelope {
 		panic("ibcgov: the envelope would be " + strconv.Itoa(envelopeHeader+len(params)) + " bytes, above " + strconv.Itoa(MaxEnvelope))
+	}
+	// Checked again when it is recorded (bind), which spends it then.
+	if refusal := checkAhead(g, kind); refusal != "" {
+		panic("ibcgov: " + refusal)
 	}
 	text = "route " + g.key + ", ethereum kind " + strconv.Itoa(int(kind)) + " (" + name + "): " + text
 	sc := routeScope(g.key, claims...)
@@ -2070,7 +2120,7 @@ func checkRetransmit(g *routeGov, e uint32, seq uint64) string {
 		return "epoch " + strconv.FormatUint(uint64(e), 10) + " is past: its decisions are never sent again"
 	case !needsRetransmit(g, d):
 		return "decision " + u64s(seq) + " was not answered with a conflict that bars a re-send, nor cancelled, here or on Ethereum (" + d.event + ")"
-	case d.retransmit:
+	case grantStands(g, d):
 		return "decision " + u64s(seq) + " is authorized for a re-send already"
 	}
 	return ""
@@ -2085,8 +2135,7 @@ func (p *retransmitParams) apply(cur realm, t int64) (string, string) {
 		return "", refusal
 	}
 	d := dispatchOf(g, p.e, p.seq)
-	d.retransmit = true
-	g.grants.Set(dispatchKey(p.e, p.seq), true)
+	d.retransmit, d.grantAt = true, lastSeq(g, p.e)
 	d.event += "; one re-send authorized"
 	return "authorize one re-send of epoch " + strconv.FormatUint(uint64(p.e), 10) + " seq " + u64s(p.seq) + ": anyone calls Redispatch", ""
 }

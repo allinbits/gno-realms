@@ -41,28 +41,71 @@ import (
 // binds.
 const maxRebind = 64
 
-// cancelledHere reports whether a kind 1 this realm dispatched in epoch e
-// names seq. cancels holds every such range, merged into disjoint ones, so
-// one lookup answers: the last range starting at or before seq.
-func cancelledHere(g *routeGov, e uint32, seq uint64) bool {
-	covered := false
+// span is a range of cancelled numbers, to its last, and by, the highest
+// seq of the kind 1s that named any of it.
+type span struct{ to, by uint64 }
+
+// cancelledBy reports whether a kind 1 this realm dispatched in epoch e
+// names seq, and the highest seq of the kind 1s whose ranges were merged
+// into the one that covers it (an upper bound on the last one naming seq:
+// see grantStands). cancels holds every such range, merged where they
+// overlap into disjoint ones, so one lookup answers: the last range starting
+// at or before seq.
+func cancelledBy(g *routeGov, e uint32, seq uint64) (bool, uint64) {
+	var sp *span
 	g.cancels.ReverseIterate(epochKey(e)+"/", dispatchKey(e, seq)+"\x00", func(_ string, v any) bool {
-		covered = v.(uint64) >= seq
+		sp = v.(*span)
 		return true
 	})
+	if sp == nil || sp.to < seq {
+		return false, 0
+	}
+	return true, sp.by
+}
+
+// cancelledHere reports whether a kind 1 this realm dispatched in epoch e
+// names seq.
+func cancelledHere(g *routeGov, e uint32, seq uint64) bool {
+	covered, _ := cancelledBy(g, e, seq)
 	return covered
 }
 
-// addCancelled records the range [from, to] of epoch e as cancelled here,
-// merging it with the ranges it touches. Each range is merged into another
-// once, so the merges are paid for by the inserts that made them.
-func addCancelled(g *routeGov, e uint32, from, to uint64) {
+// grantStands reports whether d holds a retransmit authorization no kind 1
+// bound since voids: one granted before a cancel of its number never checked
+// the tombstone (IBCAdmin drops one past its horizon), so only one decided
+// after the cancel lets that number be re-sent. Lazy, one lookup: a kind 1
+// bound after the grant has a seq above the epoch's last seq then
+// (grantAt). The merged range's by may come from another kind 1 than the
+// one naming d (ranges merge where they overlap), so a grant can be voided
+// by a later cancel of a neighbouring number: it fails closed, and
+// governance decides the grant again.
+func grantStands(g *routeGov, d *dispatch) bool {
+	if !d.retransmit {
+		return false
+	}
+	covered, by := cancelledBy(g, d.epoch, d.seq)
+	return !covered || by <= d.grantAt
+}
+
+// addCancelled records the range [from, to] of epoch e as cancelled by the
+// kind 1 at seq by, merging it with the ranges it overlaps. A call removes
+// every range it absorbs, which can be many, but each stored range is
+// inserted by one range of a kind 1 (at most 14 a cancel, every one a
+// governed decision, or Rebind's copy of one, whose ranges overlap what its
+// original stored) and removed at most once: the merges are paid for by the
+// inserts that made the ranges, and their number is bounded by the cancels
+// governance decided in the epoch. Ranges merge only where they overlap,
+// not where they touch, so by stays close to the cancels naming a number.
+func addCancelled(g *routeGov, e uint32, from, to, by uint64) {
 	g.cancels.ReverseIterate(epochKey(e)+"/", dispatchKey(e, from)+"\x00", func(k string, v any) bool {
-		if hi := v.(uint64); hi+1 >= from {
+		if sp := v.(*span); sp.to >= from {
 			_, s, _ := strings.Cut(k, "/")
 			from, _ = strconv.ParseUint(s, 10, 64)
-			if hi > to {
-				to = hi
+			if sp.to > to {
+				to = sp.to
+			}
+			if sp.by > by {
+				by = sp.by
 			}
 		}
 		return true
@@ -70,27 +113,27 @@ func addCancelled(g *routeGov, e uint32, from, to uint64) {
 	var absorbed []string
 	g.cancels.Iterate(dispatchKey(e, from), epochKey(e)+"0", func(k string, v any) bool { // '0' follows '/'
 		_, s, _ := strings.Cut(k, "/")
-		if start, _ := strconv.ParseUint(s, 10, 64); to != ^uint64(0) && start > to+1 {
+		if start, _ := strconv.ParseUint(s, 10, 64); start > to {
 			return true
 		}
 		absorbed = append(absorbed, k)
-		if hi := v.(uint64); hi > to {
-			to = hi
+		sp := v.(*span)
+		if sp.to > to {
+			to = sp.to
+		}
+		if sp.by > by {
+			by = sp.by
 		}
 		return false
 	})
 	for _, k := range absorbed {
 		g.cancels.Remove(k)
 	}
-	g.cancels.Set(dispatchKey(e, from), to)
+	g.cancels.Set(dispatchKey(e, from), &span{to: to, by: by})
 }
 
-// indexDispatch records a newly bound kind 1's ranges (cancelledHere), and
-// voids every unused retransmit authorization of a number they name: one
-// granted before the cancel was decided without checking it (IBCAdmin may
-// have dropped the tombstone past its horizon), so only an authorization
-// decided after the cancel lets that number be re-sent. The params are this
-// realm's own encoding.
+// indexDispatch records a newly bound kind 1's ranges (cancelledHere,
+// grantStands). The params are this realm's own encoding.
 func indexDispatch(g *routeGov, d *dispatch) {
 	params := d.body[envelopeHeader:]
 	if d.kind != KindCancel {
@@ -101,27 +144,7 @@ func indexDispatch(g *routeGov, d *dispatch) {
 		from, ok1 := abiWord(params, int(2+2*i))
 		to, ok2 := abiWord(params, int(3+2*i))
 		if ok1 && ok2 && from <= to {
-			addCancelled(g, d.epoch, from, to)
-			voidGrants(g, d.epoch, from, to)
-		}
-	}
-}
-
-// voidGrants withdraws the unused retransmit authorizations of epoch e's
-// numbers from to to: a walk of the grants alone, at most one per
-// retransmit decision still unused.
-func voidGrants(g *routeGov, e uint32, from, to uint64) {
-	var keys []string
-	g.grants.Iterate(dispatchKey(e, from), dispatchKey(e, to)+"\x00", func(k string, _ any) bool {
-		keys = append(keys, k)
-		return false
-	})
-	for _, k := range keys {
-		g.grants.Remove(k)
-		if v := g.dispatches.Get(k); v != nil {
-			d := v.(*dispatch)
-			d.retransmit = false
-			d.event += "; its re-send authorization voided by a cancel"
+			addCancelled(g, d.epoch, from, to, d.seq)
 		}
 	}
 }
@@ -156,7 +179,9 @@ func rebindable(g *routeGov, d *dispatch) string {
 // range holding no rebindable dispatch; dispatches in the range that are not
 // rebindable (not burned, cancelled by this realm, rebound already) are
 // left as they are. Every check of a dispatch applies (bind): a paused core
-// or an unusable epoch client refuses the whole call.
+// or an unusable epoch client refuses the whole call, and a copy that would
+// lie more than GovWindow past the known head stops it there (checkAhead),
+// keeping what it bound, or refuses it if it bound nothing.
 func Rebind(cur realm, route string, e uint32, from, to uint64) []uint64 {
 	g := mustEnrolledGov(route)
 	if e != g.epoch {
@@ -181,6 +206,14 @@ func Rebind(cur realm, route string, e uint32, from, to uint64) []uint64 {
 				refusal = why
 			}
 			continue
+		}
+		// The copies obey the same bound as any dispatch: past it, the call
+		// stops, and the rest wait for a later one.
+		if ahead := checkAhead(g, d.kind); ahead != "" {
+			if len(out) == 0 {
+				panic("ibcgov: " + ahead)
+			}
+			break
 		}
 		seq, why := bind(cur, g, d.decision, d.kind, d.body[envelopeHeader:])
 		if why != "" {
